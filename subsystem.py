@@ -3,6 +3,7 @@ import tkinter as tk
 import serial
 import threading
 import random
+from utils import ApexMassFlowController
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -14,7 +15,6 @@ class VTRXSubsystem:
         self.baud_rate = baud_rate
         self.x_data = []
         self.y_data = []
-        self.labels = []
 
         self.setup_serial()
         self.setup_gui()
@@ -32,19 +32,28 @@ class VTRXSubsystem:
         while True:
             data = self.ser.readline().decode('utf-8').strip()
             if data:
-                data_parts = data.split(';')
-                if len(data_parts) == 9:
-                    try:
-                        pressure = float(data_parts[0])
-                        self.x_data.append(self.x_data[-1] + 1 if self.x_data else 0)
-                        self.y_data.append(pressure)
-                        self.update_plot()
-                    except ValueError:
-                        continue
+                self.handle_serial_data(data)
 
-                    self.label_pressure.config(text=f"Pressure: {pressure} mbar")
-                    for i, val in enumerate(data_parts[1:], start=1):
-                        self.labels[i].config(text=f"{'ON' if val == '1' else 'OFF'}")
+    def handle_serial_data(self, data):
+        data_parts = data.split(';')
+        if len(data_parts) == 9:
+            try:
+                pressure = float(data_parts[0])
+                switch_states = list(map(int, data_parts[1:]))
+                self.parent.after(0, lambda: self.update_gui(pressure, switch_states))
+            except ValueError:
+                pass  # Skip update if conversion fails
+
+    def update_gui(self, pressure, switch_states):
+        self.label_pressure.config(text=f"Pressure: {pressure} mbar")
+        for idx, state in enumerate(switch_states):
+            label = self.labels[idx]
+            label.config(image=self.indicators[state])
+
+        # Update plot
+        self.x_data.append(self.x_data[-1] + 1 if self.x_data else 0)  # Increment x value
+        self.y_data.append(pressure)  # Append new pressure value
+        self.update_plot()
 
     def update_plot(self):
         self.line.set_data(self.x_data, self.y_data)
@@ -58,34 +67,47 @@ class VTRXSubsystem:
         thread.start()
 
     def setup_gui(self):
-        # Set up matplotlib figure and axes
+        layout_frame = tk.Frame(self.parent)
+        layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Switches frame for status indicators
+        switches_frame = tk.Frame(layout_frame, width=200)
+        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10)  # Add padx to create space between this frame and the plot
+
+        self.indicators = [tk.PhotoImage(file="media/off.png"), tk.PhotoImage(file="media/on.png")]
+
+        # Setup labels for each switch
+        switch_labels = [
+            "Pumps Power On", "Turbo Rotor ON", "Turbo Vent Open",
+            "Pressure Gauge Power On", "Turbo Gate Valve Open",
+            "Turbo Gate Valve Closed", "Argon Gate Valve Closed", "Argon Gate Valve Open"
+        ]
+        self.labels = []
+        label_width = 25
+        for switch in switch_labels:
+            label = tk.Label(switches_frame, text=switch, image=self.indicators[0], compound='right', anchor='e', width=label_width)
+            label.pack(anchor="e", pady=2, fill='x')
+            self.labels.append(label)
+
+        # Pressure label setup
+        # Increase font size and make it bold
+        self.label_pressure = tk.Label(switches_frame, text="Waiting for pressure data...", anchor='e', width=label_width,
+                                    font=('Helvetica', 14, 'bold'))
+        self.label_pressure.pack(anchor="e", pady=10, fill='x')
+
+        # Plot frame
+        plot_frame = tk.Frame(layout_frame)
+        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=15)  # Increased padding to ensure space between elements
+
         self.fig, self.ax = plt.subplots()
         self.line, = self.ax.plot(self.x_data, self.y_data, 'r-')
         self.ax.set_xlabel('Time')
         self.ax.set_ylabel('Pressure [mbar]')
         self.ax.set_title('Live Pressure Data')
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.parent)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        # Set up pressure label
-        self.label_pressure = tk.Label(self.parent, text="Waiting for pressure data...")
-        self.label_pressure.pack(pady=20)
-
-        # Set up labels for each switch
-        switch_labels = [
-            "Pumps Power On", "Turbo Rotor On", "Turbo Vent Open",
-            "Pressure Gauge Power On", "Turbo Gate Valve Open",
-            "Argon Gate Valve Closed", "Argon Gate Valve Closed",
-            "Argon Gate Valve Open"
-        ]
-
-        self.labels = [self.label_pressure]
-        for switch in switch_labels:
-            label = tk.Label(self.parent, text=f"{switch}: Waiting for data...")
-            label.pack()
-            self.labels.append(label)
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
 
 class EnvironmentalSubsystem:
     def __init__(self, parent):
@@ -124,8 +146,8 @@ class EnvironmentalSubsystem:
 
     def update_temperatures(self):
         for i, name in enumerate(self.thermometers):
-            offset = 15 if 'Solenoid' in name else 0
-            new_temp = random.uniform(60 + offset, 70 + offset)
+            offset = 30 if 'Solenoid' in name else 0
+            new_temp = random.uniform(30 + offset, 33 + offset)
             self.temperatures[name] = new_temp
             self.bars[i][0].set_height(new_temp)
 
@@ -134,3 +156,59 @@ class EnvironmentalSubsystem:
 
         self.canvas.draw()
         self.parent.after(1000, self.update_temperatures)
+
+
+class ArgonBleedControlSubsystem:
+    def __init__(self, parent):
+        self.parent = parent
+        self.controller = ApexMassFlowController()
+        self.setup_gui()
+
+    def configure_controller(self):
+        # Open serial connection
+        self.controller.open_serial_connection()
+        
+        # Configure unit ID
+        self.controller.configure_unit_id('A', 'B')
+
+        # Close serial connection when done
+        self.controller.close_serial_connection()
+        
+    def setup_gui(self):
+        #self.label = tk.Label(self.parent, text="Apex Mass Flow Controller", font=("Helvetica", 12, "bold"))
+        #self.label.pack(pady=10)
+
+        # Add "Tare Flow" button
+        self.tare_flow_button = tk.Button(self.parent, text="Tare Flow", command=self.tare_flow)
+        self.tare_flow_button.pack()
+
+        # Add "Tare Absolute Pressure" button
+        self.tare_pressure_button = tk.Button(self.parent, text="Tare Absolute Pressure", command=self.tare_absolute_pressure)
+        self.tare_pressure_button.pack()
+
+    def tare_flow(self):
+        # Perform taring flow action when "Tare Flow" button is pressed
+        self.controller.tare_flow()
+        print("Taring flow performed successfully.")
+
+        # Update GUI or perform any other necessary actions
+
+    def tare_absolute_pressure(self):
+        # Perform taring absolute pressure action when "Tare Absolute Pressure" button is pressed
+        self.controller.tare_absolute_pressure()
+        print("Taring absolute pressure performed successfully.")
+
+        # Update GUI or perform any other necessary actions
+
+    def start_simulation(self):
+        # Start a simulation to update the GUI periodically
+        self.update_gui()
+
+    def update_gui(self):
+        # Update GUI elements with simulated data
+        # Replace this with actual functionality
+        # For example, updating labels, graphs, etc.
+        print("Updating GUI...")
+
+        # Schedule the next update after a delay (in milliseconds)
+        self.parent.after(1000, self.update_gui)
