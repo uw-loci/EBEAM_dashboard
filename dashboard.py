@@ -1,6 +1,6 @@
 # dashboard.py
 import tkinter as tk
-from subsystem import Subsystem
+from subsystem import VTRXSubsystem, EnvironmentalSubsystem
 
 class EBEAMSystemDashboard:
     def __init__(self, root):
@@ -12,26 +12,41 @@ class EBEAMSystemDashboard:
         self.create_subsystems()
 
     def create_frames(self):
-        self.frames = {
-            'Oil System': tk.Frame(self.root, borderwidth=2, relief="solid"),
-            'System Checks': tk.Frame(self.root, borderwidth=2, relief="solid"),
-            'Beam Extraction': tk.Frame(self.root, borderwidth=2, relief="solid"),
-            'Vacuum System': tk.Frame(self.root, borderwidth=2, relief="solid"),
-            'Cathode Heating': tk.Frame(self.root, borderwidth=2, relief="solid"),
-            'Main Control': tk.Frame(self.root, borderwidth=2, relief="solid"),
-            'Messages & Errors': tk.Frame(self.root, borderwidth=2, relief="solid")
-        }
+        # Define frame titles and their positions in the grid
+        frames_config = [
+            ("Oil System", 0, 0),
+            ("Solenoid 1 Temp", 0, 1),
+            ("Solenoid 2 Temp", 0, 2),
+            ("System Checks", 0, 3),
+            ("Beam Extraction", 0, 4),
+            ("Vacuum System", 1, 0),
+            ("Approve High Voltage & Radiation Operation", 1, 1, 1, 3),  # Span 3 columns
+            ("Main Control", 1, 4),
+            ("Interlocks", 2, 0),
+            ("Solenoid deflection", 2, 1),
+            ("Setup Script", 3, 0),
+            ("Beam Pulse", 3, 1),
+            ("Environmental", 4, 0),
+            ("Cathode Temp", 4, 1),
+            ("Messages & Errors", 4, 4)
+        ]
 
-        for i, (title, frame) in enumerate(self.frames.items()):
-            frame.grid(row=i//3, column=i%3, sticky="nsew")
+        self.frames = {}
+
+        for frame_config in frames_config:
+            title, row, col = frame_config[:3]
+            rowspan = frame_config[3] if len(frame_config) > 3 else 1
+            colspan = frame_config[4] if len(frame_config) > 4 else 1
+
+            frame = tk.Frame(self.root, borderwidth=2, relief="solid")
+            frame.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, sticky="nsew")
             self.add_title(frame, title)
+            self.frames[title] = frame
 
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_columnconfigure(1, weight=1)
-        self.root.grid_columnconfigure(2, weight=1)
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_rowconfigure(1, weight=1)
-        self.root.grid_rowconfigure(2, weight=1)
+        # Configure grid to be resizable
+        for i in range(5):
+            self.root.grid_columnconfigure(i, weight=1)
+            self.root.grid_rowconfigure(i, weight=1)
 
     def add_title(self, frame, title):
         label = tk.Label(frame, text=title, font=("Helvetica", 16, "bold"))
@@ -39,6 +54,7 @@ class EBEAMSystemDashboard:
 
     def create_subsystems(self):
         self.subsystems = {
-            'Vacuum System': Subsystem(self.frames['Vacuum System']),
+            'Vacuum System': VTRXSubsystem(self.frames['Vacuum System']),
+            'Environmental': EnvironmentalSubsystem(self.frames['Environmental'])
             # Add other subsystems when implemented
         }
