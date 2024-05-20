@@ -1,16 +1,41 @@
-# main.py
 import tkinter as tk
+from tkinter import ttk
+import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
-import subprocess
-import os
 
-def start_main_app():
+def start_main_app(com_ports):
     root = tk.Tk()
-    app = EBEAMSystemDashboard(root)
+    app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
-if __name__ == "__main__":
-    #splash = os.path.join(os.path.dirname(__file__), 'splash_screen.py')
-    #subprocess.Popen(['python', splash])
+def config_com_ports():
+    config_root = tk.Tk()
+    config_root.title("Configure COM Ports")
+    config_root.geometry('600x400')
+    
+    com_ports = serial.tools.list_ports.comports()
+    available_ports = [port.device for port in com_ports]
+    
+    # Store port selections
+    selections = {}
 
-    start_main_app()
+    # Create a dropdown for each subsystem
+    subsystems = ['VTRXSubsystem', 'ApexMassFlowController']
+    for subsystem in subsystems:
+        tk.Label(config_root, text=f"{subsystem} COM Port:").pack()
+        selected_port = tk.StringVar()
+        ttk.Combobox(config_root, values=available_ports, textvariable=selected_port).pack()
+        selections[subsystem] = selected_port
+
+    def on_submit():
+        selected_ports = {key: value.get() for key, value in selections.items()}
+        config_root.destroy()
+        start_main_app(selected_ports)
+
+    submit_button = tk.Button(config_root, text="Submit", command=on_submit)
+    submit_button.pack()
+    
+    config_root.mainloop()
+
+if __name__ == "__main__":
+    config_com_ports()

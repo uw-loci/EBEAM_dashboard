@@ -8,7 +8,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
-class VTRXSubsystem:
+class VTRXSubsystem: # TODO: handling lack of pressure response -- reset live plot
     def __init__(self, parent, serial_port='COM7', baud_rate=9600):
         self.parent = parent
         self.serial_port = serial_port
@@ -45,7 +45,7 @@ class VTRXSubsystem:
                 pass  # Skip update if conversion fails
 
     def update_gui(self, pressure, switch_states):
-        self.label_pressure.config(text=f"Pressure: {pressure} mbar")
+        self.label_pressure.config(text=f"Press: {pressure} mbar")
         for idx, state in enumerate(switch_states):
             label = self.labels[idx]
             label.config(image=self.indicators[state])
@@ -70,20 +70,20 @@ class VTRXSubsystem:
         layout_frame = tk.Frame(self.parent)
         layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Switches frame for status indicators
-        switches_frame = tk.Frame(layout_frame, width=200)
-        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10)  # Add padx to create space between this frame and the plot
+        # Formatting status indicators
+        switches_frame = tk.Frame(layout_frame, width=150)
+        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10) 
 
         self.indicators = [tk.PhotoImage(file="media/off.png"), tk.PhotoImage(file="media/on.png")]
 
         # Setup labels for each switch
         switch_labels = [
-            "Pumps Power On", "Turbo Rotor ON", "Turbo Vent Open",
-            "Pressure Gauge Power On", "Turbo Gate Valve Open",
-            "Turbo Gate Valve Closed", "Argon Gate Valve Closed", "Argon Gate Valve Open"
+            "Pumps Power On ", "Turbo Rotor ON ", "Turbo Vent Open ",
+            "Pressure Gauge Power On ", "Turbo Gate Valve Open ",
+            "Turbo Gate Valve Closed ", "Argon Gate Valve Closed ", "Argon Gate Valve Open "
         ]
         self.labels = []
-        label_width = 25
+        label_width = 15
         for switch in switch_labels:
             label = tk.Label(switches_frame, text=switch, image=self.indicators[0], compound='right', anchor='e', width=label_width)
             label.pack(anchor="e", pady=2, fill='x')
@@ -97,13 +97,13 @@ class VTRXSubsystem:
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=15)  # Increased padding to ensure space between elements
+        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=15) 
 
         self.fig, self.ax = plt.subplots()
-        self.line, = self.ax.plot(self.x_data, self.y_data, 'r-')
+        self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.set_xlabel('Time')
         self.ax.set_ylabel('Pressure [mbar]')
-        self.ax.set_title('Live Pressure Data')
+        self.ax.set_title('Live Pressure Readout')
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -159,9 +159,9 @@ class EnvironmentalSubsystem:
 
 
 class ArgonBleedControlSubsystem:
-    def __init__(self, parent):
+    def __init__(self, parent, serial_port='COM8', baud_rate=19200):
         self.parent = parent
-        self.controller = ApexMassFlowController()
+        self.controller = ApexMassFlowController(serial_port, baud_rate)
         self.setup_gui()
 
     def configure_controller(self):
@@ -189,14 +189,14 @@ class ArgonBleedControlSubsystem:
     def tare_flow(self):
         # Perform taring flow action when "Tare Flow" button is pressed
         self.controller.tare_flow()
-        print("Taring flow performed successfully.")
+        print("Apex MF Ctrl:Taring flow performed successfully.")
 
         # Update GUI or perform any other necessary actions
 
     def tare_absolute_pressure(self):
         # Perform taring absolute pressure action when "Tare Absolute Pressure" button is pressed
         self.controller.tare_absolute_pressure()
-        print("Taring absolute pressure performed successfully.")
+        print("Apex MF Ctrl:Taring absolute pressure performed successfully.")
 
         # Update GUI or perform any other necessary actions
 
