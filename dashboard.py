@@ -1,7 +1,7 @@
 import tkinter as tk
-from subsystem import VTRXSubsystem, EnvironmentalSubsystem, ArgonBleedControlSubsystem
+from subsystem import VTRXSubsystem, EnvironmentalSubsystem, ArgonBleedControlSubsystem, InterlocksSubsystem
 from utils import MessagesFrame, SetupScripts
-from usr.panel_config import save_pane_state, load_pane_state
+from usr.panel_config import save_pane_states, load_pane_states
 
 class EBEAMSystemDashboard:
     def __init__(self, root, com_ports):
@@ -25,7 +25,7 @@ class EBEAMSystemDashboard:
         self.create_messages_frame()
 
         # Load the saved state of the GUI pane layout if available
-        self.load_saved_pane_state()
+        # self.load_saved_pane_state()
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows."""
@@ -66,27 +66,28 @@ class EBEAMSystemDashboard:
                 SetupScripts(frame)
             if title == "Main Control":
                 save_layout_button = tk.Button(frame, text="Save Layout", command=self.save_current_pane_state)
-                save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=5)
+                save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=1, pady=1)
 
     def add_title(self, frame, title):
         """Add a title label to a frame."""
-        label = tk.Label(frame, text=title, font=("Helvetica", 12, "bold"))
-        label.pack(pady=1, fill=tk.X)
+        label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
+        label.pack(pady=0, fill=tk.X)
 
     def save_current_pane_state(self):
         num_sashes = len(self.rows) - 1  # Assuming each row might have one sash
-        save_pane_state(self.main_pane, num_sashes)
+        save_pane_states(self.main_pane, num_sashes)
 
     def load_saved_pane_state(self):
         num_sashes = len(self.rows) - 1
-        load_pane_state(self.main_pane, num_sashes)
+        load_pane_states(self.main_pane, num_sashes)
 
     def create_subsystems(self):
         """Initialize subsystems in their designated frames using component settings."""
         self.subsystems = {
             'Vacuum System': VTRXSubsystem(self.frames['Vacuum System'], serial_port=self.com_ports['VTRXSubsystem']),
             'Environmental': EnvironmentalSubsystem(self.frames['Environmental']),
-            'Argon Bleed Control': ArgonBleedControlSubsystem(self.frames['Argon Bleed Control'], serial_port=self.com_ports['ApexMassFlowController'])
+            'Argon Bleed Control': ArgonBleedControlSubsystem(self.frames['Argon Bleed Control'], serial_port=self.com_ports['ApexMassFlowController']),
+            'Interlocks': InterlocksSubsystem(self.frames['Interlocks'])
         }
 
     def create_messages_frame(self):

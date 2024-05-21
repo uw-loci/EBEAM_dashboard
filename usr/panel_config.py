@@ -1,42 +1,32 @@
 # usr/panel_config.py
 import json
 
-def save_pane_state(main_pane, num_sashes, filepath='usr/pane_state.json'):
-    sash_positions = [main_pane.sash_coord(i) for i in range(num_sashes)]
-    window_size = (main_pane.winfo_width(), main_pane.winfo_height())
+# Assuming you have a list of all PanedWindows you want to manage
+def save_pane_states(paned_windows, filepath='usr/pane_state.json'):
+    data = {}
+    for index, pw in enumerate(paned_windows):
+        num_sashes = len(pw.panes()) - 1
+        sash_positions = [pw.sash_coord(i) for i in range(num_sashes)]
+        data[f'paned_window_{index}'] = sash_positions
     with open(filepath, 'w') as file:
-        json.dump({'sash_positions': sash_positions, 'window_size': window_size}, file)
+        json.dump(data, file)
 
-def load_pane_state(main_pane, num_sashes, filepath='usr/pane_state.json'):
+def load_pane_states(paned_windows, filepath='usr/pane_state.json'):
     try:
         with open(filepath, 'r') as file:
-            data = json.load(file)
-        print("Loaded data:", data)  # Confirm the structure of loaded data
-
-        # Explicit check for expected keys
-        if 'sash_positions' in data:
-            sash_positions = data['sash_positions']
-            print("Sash positions:", sash_positions)
-        else:
-            print("Error: 'sash_positions' key not found in the loaded data")
-
-        if 'window_size' in data:
-            window_size = data['window_size']
-            print("Window size:", window_size)
-        else:
-            print("Error: 'window_size' key not found in the loaded data")
-
-        main_pane.after(500, lambda: restore_sashes(main_pane, sash_positions))
-
+            all_sash_positions = json.load(file)
+        # Delay the restoration to ensure the GUI is fully up and running
+        paned_windows[0].after(500, lambda: apply_sash_positions(paned_windows, all_sash_positions))
     except FileNotFoundError:
         print("No previous pane state saved.")
     except Exception as e:
-        print(f"Failed to load pane state: {e}")
+        print(f"Failed to load pane states: {e}")
 
-def restore_sashes(main_pane, sash_positions):
-    for i, pos in enumerate(sash_positions):
-        print(f"Attempting to restore sash {i} with position {pos}")  # Detailed debug statement
-        try:
-            main_pane.sash_place(i, *pos)
-        except Exception as e:
-            print(f"Failed to place sash {i}: {e}")
+def apply_sash_positions(paned_windows, all_sash_positions):
+    for index, pw in enumerate(paned_windows):
+        sash_positions = all_sash_positions.get(f'paned_window_{index}', [])
+        for i, (x, y) in enumerate(sash_positions):
+            try:
+                pw.sash_place(i, x, y)
+            except Exception as e:
+                print(f"Error placing sash {i} at {x}, {y}: {e}")
