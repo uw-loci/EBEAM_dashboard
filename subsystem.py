@@ -125,9 +125,11 @@ class EnvironmentalSubsystem:
         bar_width = 0.5  # Make the bars skinnier
 
         for ax, name in zip(self.axs, self.thermometers):
-            ax.set_title(name)
+            ax.set_title(name, fontsize=6)
             ax.set_ylim(0, 100)
             bar = ax.bar(name, self.temperatures[name], width=bar_width)
+            ax.set_xticks([])
+            ax.set_xticklabels([])
             self.bars.append(bar)
 
             # Set the x-axis limits to make sure bars are centered and skinny
