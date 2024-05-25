@@ -3,7 +3,7 @@ import sys
 import subprocess
 import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 class ApexMassFlowController:
     def __init__(self, serial_port='COM8', baud_rate=19200): 
@@ -43,26 +43,52 @@ class ApexMassFlowController:
         pass  # TODO: Add code to command new setpoint here
 
 class MessagesFrame:
+    MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
+
     def __init__(self, parent):
         self.frame = tk.Frame(parent, borderwidth=2, relief="solid")
         self.frame.pack(fill=tk.BOTH, expand=True)  # Make sure it expands and fills space
-        
+
         # Add a title to the Messages & Errors frame
         label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 16, "bold"))
-        label.pack(pady=10, fill=tk.X)
-        
+        label.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+
+        # Configure the grid layout to allow the text widget to expand
+        self.frame.columnconfigure(0, weight=1)
+        self.frame.rowconfigure(1, weight=1)
+
+        # Create a Text widget for logs
         self.text_widget = tk.Text(self.frame, wrap=tk.WORD)
-        self.text_widget.pack(fill=tk.BOTH, expand=True)  # Fill the frame entirely
+        self.text_widget.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
+
+        # Create a button to clear the text widget
+        self.clear_button = tk.Button(self.frame, text="Clear Messages", command=self.confirm_clear)
+        self.clear_button.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
 
         # Redirect stdout to the text widget
-        self.stdout = sys.stdout
         sys.stdout = TextRedirector(self.text_widget, "stdout")
 
     def write(self, msg):
+        """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
+        self.trim_text()
 
     def flush(self):
-        pass  # Needed for compatibility
+        """ Flush method needed for stdout redirection compatibility. """
+        pass
+
+    def trim_text(self):
+        ''' Remove the oldest lines to maintain a maximum number of lines in the text widget. '''
+        line_count = int(self.text_widget.index('end-1c').split('.')[0])
+        if line_count > self.MAX_LINES:
+            line_diff = line_count - self.MAX_LINES
+            self.text_widget.delete('1.0', f'{line_diff}.0')
+
+    def confirm_clear(self):
+        ''' Show a confirmation dialog before clearing the text widget '''
+        if messagebox.askokcancel("Clear Messages", "Do you really want to clear all messages?"):
+            self.text_widget.delete('1.0', tk.END)
+
 
 class TextRedirector:
     def __init__(self, widget, tag="stdout"):

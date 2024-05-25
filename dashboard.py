@@ -1,5 +1,6 @@
+import subsystem
 import tkinter as tk
-from subsystem import VTRXSubsystem, EnvironmentalSubsystem, ArgonBleedControlSubsystem, InterlocksSubsystem
+from tkdial import Meter
 from utils import MessagesFrame, SetupScripts
 from usr.panel_config import save_pane_states, load_pane_states
 
@@ -84,10 +85,11 @@ class EBEAMSystemDashboard:
     def create_subsystems(self):
         """Initialize subsystems in their designated frames using component settings."""
         self.subsystems = {
-            'Vacuum System': VTRXSubsystem(self.frames['Vacuum System'], serial_port=self.com_ports['VTRXSubsystem']),
-            'Environmental': EnvironmentalSubsystem(self.frames['Environmental']),
-            'Argon Bleed Control': ArgonBleedControlSubsystem(self.frames['Argon Bleed Control'], serial_port=self.com_ports['ApexMassFlowController']),
-            'Interlocks': InterlocksSubsystem(self.frames['Interlocks'])
+            'Vacuum System': subsystem.VTRXSubsystem(self.frames['Vacuum System'], serial_port=self.com_ports['VTRXSubsystem']),
+            'Environmental': subsystem.EnvironmentalSubsystem(self.frames['Environmental']),
+            'Argon Bleed Control': subsystem.ArgonBleedControlSubsystem(self.frames['Argon Bleed Control'], serial_port=self.com_ports['ApexMassFlowController']),
+            'Interlocks': subsystem.InterlocksSubsystem(self.frames['Interlocks']),
+            'Oil System': subsystem.OilSystem(self.frames['Oil System'])
         }
 
     def create_messages_frame(self):
