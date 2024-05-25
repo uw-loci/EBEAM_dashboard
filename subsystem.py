@@ -1,5 +1,6 @@
 # subsystem.py
 import tkinter as tk
+from tkinter import font as tkFont
 from tkdial import Meter
 import time
 import serial
@@ -41,12 +42,11 @@ class VTRXSubsystem:
         self.y_data = []
         self.indicators = {0: tk.PhotoImage(file="media/off.png"),
                            1: tk.PhotoImage(file="media/on.png")}
+        self.error_state = False
         self.setup_serial()
         self.setup_gui()
 
-        self.time_window = 300 # Time window in seconds (5 minutes)
-        self.data_refresh_rate = 1
-
+        self.time_window = 300 # Time window in seconds
         self.init_time = time.time()
         self.x_data = [self.init_time + i for i in range(self.time_window)]
         self.y_data = [0] * self.time_window
@@ -76,9 +76,11 @@ class VTRXSubsystem:
                 self.report_error_to_messages(f"Unicode decode error: {e}")
 
     def handle_serial_data(self, data):
+        self.error_state = False
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.report_error_to_messages("Incomplete data received.")
+            self.error_state = True
             return
         
         try:
@@ -94,11 +96,18 @@ class VTRXSubsystem:
                         error_code, error_message = error.split(":")[1:]
                         error_description = self.ERROR_CODES.get(error_code, "Unknown Error")
                         self.report_error_to_messages(f"Error {error_code}: Actual:{error_message}")
-                    
-            self.parent.after(0, lambda: self.update_gui(pressure_value, pressure_raw, switch_states))
+                        self.error_state = True
+
+            self.parent.after(0, lambda: self.update_gui(
+                pressure_value, 
+                pressure_raw, 
+                switch_states, 
+                self.error_state)
+            )
         
         except ValueError as e:    
             self.report_error_to_messages(f"Error processing incoming data: {e}")
+            self.error_state = True
 
     def report_error_to_messages(self, message):
         if hasattr(self, 'messages_frame'):
@@ -106,9 +115,9 @@ class VTRXSubsystem:
         else:
             print(message) # Fallback to console if messages_frame is unavailable
 
-    def update_gui(self, pressure_value, pressure_raw, switch_states):
+    def update_gui(self, pressure_value, pressure_raw, switch_states, error_state):
         current_time = time.time()
-        self.label_pressure.config(text=f"Press: {pressure_raw} mbar")
+        self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="red" if self.error_state else "black")
 
         # Update each switch indicator
         for idx, state in enumerate(switch_states):
@@ -118,7 +127,6 @@ class VTRXSubsystem:
         # Calculate elapsed time from the initial time
         elapsed_time = current_time - self.init_time
 
-        # Ensure the plot updates within the defined time window
         if elapsed_time > self.time_window:
             # Shift the data window: remove the oldest data point and add the new one
             self.x_data.pop(0)
@@ -138,6 +146,14 @@ class VTRXSubsystem:
     def update_plot(self):
         self.line.set_data(self.x_data, self.y_data)
         self.ax.set_xlim(self.x_data[0], self.x_data[-1])
+        
+        if self.error_state:
+            self.line.set_color('red')  # Set the line color to red if there is an error
+            self.ax.set_title('Live Pressure Readout (Error)', fontsize=10, color='red')
+        else:
+            self.line.set_color('green')  # Set the line color to green if there is no error
+            self.ax.set_title('Live Pressure Readout', fontsize=10, color='black')
+
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw()
@@ -177,14 +193,14 @@ class VTRXSubsystem:
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
-
         self.fig, self.ax = plt.subplots()
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.set_xlabel('Time')
         self.ax.set_ylabel('Pressure [mbar]')
+        title_color = "red" if self.error_state else "green"
         self.ax.set_title('Live Pressure Readout', fontsize=10)
         self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-6, 1013.0)
+        self.ax.set_ylim(1e-6, 1200.0)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -345,21 +361,31 @@ class OilSystem:
         self.parent = parent
         self.setup_gui()
 
-    
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)
         self.frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Create and configure the dial meter
+        # Create and configure the dial
         self.oil_dial = Meter(
             self.frame, 
-            start=0,
-            end=10,
-            width=100, 
-            height=100, 
-            bg='white'
+            start=0,             # Start value of the meter
+            end=10,              # End value of the meter
+            radius=150,          # Radius of the dial
+            width=300,           # Width of the widget
+            height=200,          # Height of the widget
+            start_angle=180,     # Start angle for the half-circle
+            end_angle=-180,      # End angle for the half-circle (full sweep of 180 degrees)
+            text=" Oil Press", # Text displayed on the dial
+            text_color="black",  # Color of the text
+            major_divisions=10,  # Major divisions in the dial
+            minor_divisions=1,   # Minor divisions between major divisions
+            scale_color="black", # Color of the scale markings
+            needle_color="red",  # Color of the needle
+            bg='white',          # Background color
+            fg='light grey',      # Foreground color of the dial face
+            text_font=tkFont.Font(family="Helvetica", size=8, weight="bold")
         )
-        self.oil_dial.pack(pady=1)
+        self.oil_dial.pack(padx=1, pady=1)
 
 
     def update_oil_pressure(self, new_pressure):
@@ -368,3 +394,11 @@ class OilSystem:
             self.oil_dial.set(new_pressure)
         else:
             print("Received out-of-range oil pressure value:", new_pressure)
+
+    def read_sensor_data(self):
+        """Simulate reading from a sensor."""
+        # TODO: Implement this
+        import random
+        new_pressure = random.randint(0, 100)  # Random pressure value for demonstration
+        self.update_oil_pressure(new_pressure)
+        self.parent.after(1000, self.update_oil_pressure, new_pressure)  # Schedule the update
