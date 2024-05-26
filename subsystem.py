@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import font as tkFont
 from tkdial import Meter
 import time
+import datetime
 import serial
 import threading
 import random
@@ -10,6 +11,7 @@ from utils import ApexMassFlowController
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
+import matplotlib.dates as mdates
 
 # TODO: handling lack of pressure response -- reset live plot
 class VTRXSubsystem: 
@@ -47,8 +49,8 @@ class VTRXSubsystem:
         self.setup_gui()
 
         self.time_window = 300 # Time window in seconds
-        self.init_time = time.time()
-        self.x_data = [self.init_time + i for i in range(self.time_window)]
+        self.init_time = datetime.datetime.now()
+        self.x_data = [self.init_time + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * self.time_window
 
         if self.ser is not None:
@@ -116,7 +118,7 @@ class VTRXSubsystem:
             print(message) # Fallback to console if messages_frame is unavailable
 
     def update_gui(self, pressure_value, pressure_raw, switch_states, error_state):
-        current_time = time.time()
+        current_time = datetime.datetime.now()
         self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="red" if self.error_state else "black")
 
         # Update each switch indicator
@@ -125,7 +127,7 @@ class VTRXSubsystem:
             label.config(image=self.indicators[state])
 
         # Calculate elapsed time from the initial time
-        elapsed_time = current_time - self.init_time
+        elapsed_time = (current_time - self.init_time).total_seconds()
 
         if elapsed_time > self.time_window:
             # Shift the data window: remove the oldest data point and add the new one
@@ -144,32 +146,72 @@ class VTRXSubsystem:
         self.update_plot()
 
     def update_plot(self):
-        self.line.set_data(self.x_data, self.y_data)
-        self.ax.set_xlim(self.x_data[0], self.x_data[-1])
+        if not self.x_data:
+            # Reinitialize plot if cleared and no data has been added yet
+            self.ax.cla()
+            self.ax.set_xlabel('Time', fontsize=8)
+            self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
+            self.ax.set_yscale('log')
+            self.ax.set_ylim(1e-6, 1200.0)
+            self.ax.set_xlim(datetime.datetime.now(), datetime.datetime.now() + datetime.timedelta(seconds=10))
+            self.line, = self.ax.plot([], [], 'g-')
+            title = 'Pressure Readout (Error)' if self.error_state else 'Live Pressure Readout'
+            self.ax.set_title(title, fontsize=10, color='red' if self.error_state else 'black')
+            self.canvas.draw()
+            return
         
-        if self.error_state:
-            self.line.set_color('red')  # Set the line color to red if there is an error
-            self.ax.set_title('Live Pressure Readout (Error)', fontsize=10, color='red')
-        else:
-            self.line.set_color('green')  # Set the line color to green if there is no error
-            self.ax.set_title('Live Pressure Readout', fontsize=10, color='black')
-
+        # Update line data
+        date_nums = [mdates.date2num(x) for x in self.x_data]  # Convert datetime to float
+        self.line.set_data(date_nums, self.y_data)  # Set data as float numbers
+        self.ax.set_xlim(min(date_nums), max(date_nums))
+        title = 'Pressure Readout (Error)' if self.error_state else 'Live Pressure Readout'
+        self.ax.set_title(title, fontsize=10, color='red' if self.error_state else 'black')
         self.ax.relim()
-        self.ax.autoscale_view()
+        self.ax.autoscale_view(True, True, True)
         self.canvas.draw()
 
     def start_serial_thread(self):
         thread = threading.Thread(target=self.read_serial)
         thread.daemon = True
         thread.start()
+    
+    def confirm_clear(self):
+        if tk.messagebox.askyesno("Confirm Clear", "Do you really want to clear the graph?"):
+            self.clear_graph()
+
+    def clear_graph(self):
+        # Clear the data lists
+        self.x_data.clear()
+        self.y_data.clear()
+        
+        # Reset the line data to an empty state
+        self.line.set_data([], [])
+        
+        # Reset the axes to prepare for new data
+        self.ax.cla()  # Clear the axis to remove old lines and texts
+        self.ax.set_xlabel('Time', fontsize=8)
+        self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
+        self.ax.set_yscale('log')
+        self.ax.set_ylim(1e-6, 1200.0)
+        now = datetime.datetime.now()
+        self.ax.set_xlim(mdates.date2num(now), mdates.date2num(now + datetime.timedelta(seconds=self.time_window)))
+        self.ax.set_title('Live Pressure Readout', fontsize=10, color='black' if not self.error_state else 'red')
+        self.line, = self.ax.plot([], [], 'g-')
+
+        # Redraw the canvas to reflect the cleared state
+        self.canvas.draw()
+        self.init_time = now
+        # Since the data lists are empty now, reinitialize them when new data is added or received
+        self.x_data = [now + datetime.timedelta(seconds=i) for i in range(self.time_window)]
+        self.y_data = [0] * len(self.x_data)
 
     def setup_gui(self):
         layout_frame = tk.Frame(self.parent)
         layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Formatting status indicators
-        switches_frame = tk.Frame(layout_frame, width=155)
-        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=15) 
+        switches_frame = tk.Frame(layout_frame, width=135)
+        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
 
         # Setup labels for each switch
         switch_labels = [
@@ -178,7 +220,7 @@ class VTRXSubsystem:
             "Turbo Gate Valve Closed ", "Argon Gate Valve Closed ", "Argon Gate Valve Open "
         ]
         self.labels = []
-        label_width = 15
+        label_width = 17
         for switch in switch_labels:
             label = tk.Label(switches_frame, text=switch, image=self.indicators[0], compound='right', anchor='e', width=label_width)
             label.pack(anchor="e", pady=2, fill='x')
@@ -187,16 +229,20 @@ class VTRXSubsystem:
         # Pressure label setup
         # Increase font size and make it bold
         self.label_pressure = tk.Label(switches_frame, text="Waiting for pressure data...", anchor='e', width=label_width,
-                                    font=('Helvetica', 12, 'bold'))
+                                    font=('Helvetica', 11, 'bold'))
         self.label_pressure.pack(anchor="e", pady=10, fill='x')
+
+        # Add button to clear display output
+        self.btn_clear_graph = tk.Button(switches_frame, text="Clear Plot", command=self.confirm_clear)
+        self.btn_clear_graph.pack(pady=10)
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
         self.fig, self.ax = plt.subplots()
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
-        self.ax.set_xlabel('Time')
-        self.ax.set_ylabel('Pressure [mbar]')
+        self.ax.set_xlabel('Time', fontsize=8)
+        self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         title_color = "red" if self.error_state else "green"
         self.ax.set_title('Live Pressure Readout', fontsize=10)
         self.ax.set_yscale('log')
@@ -365,6 +411,35 @@ class OilSystem:
         self.frame = tk.Frame(self.parent)
         self.frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        # Frame for the temperature gauge
+        temp_frame = tk.Frame(self.frame, width=90)
+        temp_frame.pack(side=tk.LEFT, fill=tk.Y, expand=False)
+
+        # Create a vertical temperature gauge
+        self.fig, self.ax = plt.subplots(figsize=(0.8, 6))  # Adjust size for vertical layout
+        self.temperature = 50  # Initial temperature
+        self.bar = plt.bar(1, self.temperature, width=0.4)
+        self.ax.set_ylim(0, 100)
+        self.ax.set_xlim(0.5, 1.5)
+        self.ax.set_xticks([])
+        self.ax.set_yticks(range(0, 101, 20))
+        self.ax.set_ylabel('', fontsize=10)
+        self.ax.set_title("Oil Temp [C]", fontsize=8)
+        self.fig.subplots_adjust(left=0.45, right=0.65, top=0.9, bottom=0.1)
+
+        # Color mapping for temperature ranges
+        norm = Normalize(vmin=20, vmax=100)
+        cmap = plt.get_cmap('coolwarm')
+        self.bar[0].set_color(cmap(norm(self.temperature)))
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=temp_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(side=tk.TOP, padx=15, fill=tk.BOTH, expand=True)
+
+        # Frame for the oil pressure dial
+        dial_frame = tk.Frame(self.frame)
+        dial_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         # Create and configure the dial
         self.oil_dial = Meter(
             self.frame, 
@@ -385,8 +460,7 @@ class OilSystem:
             fg='light grey',      # Foreground color of the dial face
             text_font=tkFont.Font(family="Helvetica", size=8, weight="bold")
         )
-        self.oil_dial.pack(padx=1, pady=1)
-
+        self.oil_dial.pack(padx=1, pady=5)
 
     def update_oil_pressure(self, new_pressure):
         """Update the dial to reflect new oil pressure readings."""
@@ -395,10 +469,21 @@ class OilSystem:
         else:
             print("Received out-of-range oil pressure value:", new_pressure)
 
+    def update_oil_temperature(self, new_temperature):
+        """Update the temperature gauge to reflect new oil temperature readings."""
+        self.temperature_bar[0].set_width(new_temperature)
+        self.bar[0].set_height(self.temperature)
+        norm = Normalize(vmin=20, vmax=100)
+        cmap = plt.get_cmap('afmhot')
+        self.bar[0].set_color(cmap(norm(self.temperature)))
+        self.canvas.draw()
+
     def read_sensor_data(self):
         """Simulate reading from a sensor."""
         # TODO: Implement this
         import random
-        new_pressure = random.randint(0, 100)  # Random pressure value for demonstration
+        new_pressure = random.randint(0, 10)  # Random pressure value for demonstration
+        new_temperature = random.randint(50, 90)
+        self.update_oil_temperature(new_temperature)
         self.update_oil_pressure(new_pressure)
-        self.parent.after(1000, self.update_oil_pressure, new_pressure)  # Schedule the update
+        self.parent.after(1000, self.read_sensor_data)  # Schedule the update
