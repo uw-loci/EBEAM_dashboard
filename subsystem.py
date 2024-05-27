@@ -1,12 +1,13 @@
 # subsystem.py
 import tkinter as tk
+from tkinter import ttk
 from tkinter import font as tkFont
 from tkdial import Meter
 import datetime
 import serial
 import threading
 import random
-from utils import ApexMassFlowController
+from instrumentctl import ApexMassFlowController
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -312,14 +313,37 @@ class ArgonBleedControlSubsystem:
         self.controller.close_serial_connection()
         
     def setup_gui(self):
+        self.notebook = ttk.Notebook(self.parent)
+        self.notebook.pack(fill='both', expand=True)
 
-        # Add "Tare Flow" button
-        self.tare_flow_button = tk.Button(self.parent, text="Tare Flow", command=self.tare_flow)
-        self.tare_flow_button.pack()
+        # Setup Tab
+        self.setup_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.setup_tab, text='Setup')
+        self.setup_setup_tab()
 
-        # Add "Tare Absolute Pressure" button
-        self.tare_pressure_button = tk.Button(self.parent, text="Tare Absolute Pressure", command=self.tare_absolute_pressure)
-        self.tare_pressure_button.pack()
+        # Tare Tab
+        self.tare_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.tare_tab, text='Tare')
+        self.setup_tare_tab()
+
+        # Control Tab
+        self.control_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.control_tab, text='Control')
+        self.setup_control_tab()
+
+        # COMPOSER Tab
+        self.composer_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.composer_tab, text='COMPOSER')
+        self.setup_composer_tab()
+
+        # Misc Tab
+        self.misc_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.misc_tab, text='Misc')
+        self.setup_misc_tab()
+    
+    def update_gui(self):
+            # Schedule the next update after a delay (in milliseconds)
+            self.parent.after(500, self.update_gui)
 
     def tare_flow(self):
         # Perform taring flow action when "Tare Flow" button is pressed
@@ -333,16 +357,26 @@ class ArgonBleedControlSubsystem:
         self.controller.tare_absolute_pressure()
         self.messages_frame.log_message("Apex MassFlow:Tar abs pressure success.")
 
-        # Update GUI or perform any other necessary actions
+    def setup_setup_tab(self):
+        ttk.Label(self.setup_tab, text="Setup configurations go here").pack(padx=10, pady=10)
 
-    def update_gui(self):
-        # Update GUI elements with simulated data
-        # Replace this with actual functionality
-        # For example, updating labels, graphs, etc.
-        print("Updating GUI...")
+    def setup_tare_tab(self):
+        self.tare_flow_button = tk.Button(self.tare_tab, text="Tare Flow", command=self.tare_flow)
+        self.tare_flow_button.pack(padx=10, pady=10)
+        
+        self.tare_pressure_button = tk.Button(self.tare_tab, text="Tare Absolute Pressure", command=self.tare_absolute_pressure)
+        self.tare_pressure_button.pack(padx=10, pady=10)
 
-        # Schedule the next update after a delay (in milliseconds)
-        self.parent.after(500, self.update_gui)
+    def setup_control_tab(self):
+        ttk.Label(self.control_tab, text="Control configurations go here").pack(padx=10, pady=10)
+
+    def setup_composer_tab(self):
+        ttk.Label(self.composer_tab, text="COMPOSER configurations go here").pack(padx=10, pady=10)
+
+    def setup_misc_tab(self):
+        ttk.Label(self.misc_tab, text="Miscellaneous configurations go here").pack(padx=10, pady=10)
+
+    
 
 class InterlocksSubsystem:
     def __init__(self, parent, messages_frame=None):
