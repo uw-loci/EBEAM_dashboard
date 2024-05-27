@@ -1,6 +1,6 @@
 # EBEAM System Dashboard Software
 
-## Detailed Design Document
+## Design Summary
 
 ### 1. Architecture
 
