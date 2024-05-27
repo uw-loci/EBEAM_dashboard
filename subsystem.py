@@ -103,8 +103,7 @@ class VTRXSubsystem:
             self.parent.after(0, lambda: self.update_gui(
                 pressure_value, 
                 pressure_raw, 
-                switch_states, 
-                self.error_state)
+                switch_states)
             )
         
         except ValueError as e:    
@@ -116,8 +115,55 @@ class VTRXSubsystem:
             self.messages_frame.write(message + "\n")
         else:
             print(message) # Fallback to console if messages_frame is unavailable
+    
+    def setup_gui(self):
+            layout_frame = tk.Frame(self.parent)
+            layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-    def update_gui(self, pressure_value, pressure_raw, switch_states, error_state):
+            # Formatting status indicators
+            switches_frame = tk.Frame(layout_frame, width=135)
+            switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
+
+            # Setup labels for each switch
+            switch_labels = [
+                "Pumps Power On ", "Turbo Rotor ON ", "Turbo Vent Open ",
+                "972b Power On ", "Turbo Gate Valve Open ",
+                "Turbo Gate Valve Closed ", "Argon Gate Valve Closed ", "Argon Gate Valve Open "
+            ]
+            self.labels = []
+            label_width = 17
+            for switch in switch_labels:
+                label = tk.Label(switches_frame, text=switch, image=self.indicators[0], compound='right', anchor='e', width=label_width)
+                label.pack(anchor="e", pady=2, fill='x')
+                self.labels.append(label)
+
+            # Pressure label setup
+            # Increase font size and make it bold
+            self.label_pressure = tk.Label(switches_frame, text="Waiting for pressure data...", anchor='e', width=label_width,
+                                        font=('Helvetica', 11, 'bold'))
+            self.label_pressure.pack(anchor="e", pady=10, fill='x')
+
+            # Add button to clear display output
+            #self.btn_clear_graph = tk.Button(switches_frame, text="Clear Plot", command=self.confirm_clear)
+            #self.btn_clear_graph.pack(pady=10)
+
+            # Plot frame
+            plot_frame = tk.Frame(layout_frame)
+            plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+            self.fig, self.ax = plt.subplots()
+            self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
+            self.ax.set_xlabel('Time', fontsize=8)
+            self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
+            title_color = "red" if self.error_state else "green"
+            self.ax.set_title('Live Pressure Readout', fontsize=10)
+            self.ax.set_yscale('log')
+            self.ax.set_ylim(1e-6, 1200.0)
+            self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+            self.canvas.draw()
+            self.canvas_widget = self.canvas.get_tk_widget()
+            self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+    
+    def update_gui(self, pressure_value, pressure_raw, switch_states):
         current_time = datetime.datetime.now()
         self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="red" if self.error_state else "black")
 
@@ -146,28 +192,18 @@ class VTRXSubsystem:
         self.update_plot()
 
     def update_plot(self):
-        if not self.x_data:
-            # Reinitialize plot if cleared and no data has been added yet
-            self.ax.cla()
-            self.ax.set_xlabel('Time', fontsize=8)
-            self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-            self.ax.set_yscale('log')
-            self.ax.set_ylim(1e-6, 1200.0)
-            self.ax.set_xlim(datetime.datetime.now(), datetime.datetime.now() + datetime.timedelta(seconds=10))
-            self.line, = self.ax.plot([], [], 'g-')
-            title = 'Pressure Readout (Error)' if self.error_state else 'Live Pressure Readout'
-            self.ax.set_title(title, fontsize=10, color='red' if self.error_state else 'black')
-            self.canvas.draw()
-            return
+        self.line.set_data(self.x_data, self.y_data)
+        self.ax.set_xlim(self.x_data[0], self.x_data[-1])
         
-        # Update line data
-        date_nums = [mdates.date2num(x) for x in self.x_data]  # Convert datetime to float
-        self.line.set_data(date_nums, self.y_data)  # Set data as float numbers
-        self.ax.set_xlim(min(date_nums), max(date_nums))
-        title = 'Pressure Readout (Error)' if self.error_state else 'Live Pressure Readout'
-        self.ax.set_title(title, fontsize=10, color='red' if self.error_state else 'black')
+        if self.error_state:
+            self.line.set_color('red')  # Set the line color to red if there is an error
+            self.ax.set_title('Live Pressure Readout (Error)', fontsize=10, color='red')
+        else:
+            self.line.set_color('green')  # Set the line color to green if there is no error
+            self.ax.set_title('Live Pressure Readout', fontsize=10, color='black')
+
         self.ax.relim()
-        self.ax.autoscale_view(True, True, True)
+        self.ax.autoscale_view()
         self.canvas.draw()
 
     def start_serial_thread(self):
@@ -205,52 +241,7 @@ class VTRXSubsystem:
         self.x_data = [now + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * len(self.x_data)
 
-    def setup_gui(self):
-        layout_frame = tk.Frame(self.parent)
-        layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Formatting status indicators
-        switches_frame = tk.Frame(layout_frame, width=135)
-        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
-
-        # Setup labels for each switch
-        switch_labels = [
-            "Pumps Power On ", "Turbo Rotor ON ", "Turbo Vent Open ",
-            "972b Power On ", "Turbo Gate Valve Open ",
-            "Turbo Gate Valve Closed ", "Argon Gate Valve Closed ", "Argon Gate Valve Open "
-        ]
-        self.labels = []
-        label_width = 17
-        for switch in switch_labels:
-            label = tk.Label(switches_frame, text=switch, image=self.indicators[0], compound='right', anchor='e', width=label_width)
-            label.pack(anchor="e", pady=2, fill='x')
-            self.labels.append(label)
-
-        # Pressure label setup
-        # Increase font size and make it bold
-        self.label_pressure = tk.Label(switches_frame, text="Waiting for pressure data...", anchor='e', width=label_width,
-                                    font=('Helvetica', 11, 'bold'))
-        self.label_pressure.pack(anchor="e", pady=10, fill='x')
-
-        # Add button to clear display output
-        self.btn_clear_graph = tk.Button(switches_frame, text="Clear Plot", command=self.confirm_clear)
-        self.btn_clear_graph.pack(pady=10)
-
-        # Plot frame
-        plot_frame = tk.Frame(layout_frame)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
-        self.fig, self.ax = plt.subplots()
-        self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
-        self.ax.set_xlabel('Time', fontsize=8)
-        self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-        title_color = "red" if self.error_state else "green"
-        self.ax.set_title('Live Pressure Readout', fontsize=10)
-        self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-6, 1200.0)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.draw()
-        self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+    
 
 class EnvironmentalSubsystem:
     def __init__(self, parent):
@@ -300,7 +291,7 @@ class EnvironmentalSubsystem:
             self.bars[i][0].set_color(self.get_color(new_temp))
 
         self.canvas.draw()
-        self.parent.after(1000, self.update_temperatures)
+        self.parent.after(500, self.update_temperatures)
 
 
 class ArgonBleedControlSubsystem:
@@ -343,10 +334,6 @@ class ArgonBleedControlSubsystem:
 
         # Update GUI or perform any other necessary actions
 
-    def start_simulation(self):
-        # Start a simulation to update the GUI periodically
-        self.update_gui()
-
     def update_gui(self):
         # Update GUI elements with simulated data
         # Replace this with actual functionality
@@ -354,7 +341,7 @@ class ArgonBleedControlSubsystem:
         print("Updating GUI...")
 
         # Schedule the next update after a delay (in milliseconds)
-        self.parent.after(1000, self.update_gui)
+        self.parent.after(500, self.update_gui)
 
 class InterlocksSubsystem:
     def __init__(self, parent):
@@ -486,4 +473,4 @@ class OilSystem:
         new_temperature = random.randint(50, 90)
         self.update_oil_temperature(new_temperature)
         self.update_oil_pressure(new_pressure)
-        self.parent.after(1000, self.read_sensor_data)  # Schedule the update
+        self.parent.after(500, self.read_sensor_data)  # Schedule the update
