@@ -4,6 +4,7 @@ import subprocess
 import os
 import tkinter as tk
 from tkinter import messagebox, ttk
+import datetime
 
 class ApexMassFlowController:
     def __init__(self, serial_port='COM8', baud_rate=19200): 
@@ -72,6 +73,13 @@ class MessagesFrame:
         """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
         self.trim_text()
+
+    def log_message(self, msg):
+        """ Log a message with a timestamp to the text widget """
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] - {msg}\n"
+        self.text_widget.insert(tk.END, formatted_message)
+        self.text_widget.see(tk.END)
 
     def flush(self):
         """ Flush method needed for stdout redirection compatibility. """

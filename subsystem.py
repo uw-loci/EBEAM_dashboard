@@ -2,7 +2,6 @@
 import tkinter as tk
 from tkinter import font as tkFont
 from tkdial import Meter
-import time
 import datetime
 import serial
 import threading
@@ -13,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import matplotlib.dates as mdates
 
-# TODO: handling lack of pressure response -- reset live plot
+
 class VTRXSubsystem: 
     MAX_POINTS = 20 # Maximum number of points to display on the plot
     ERROR_CODES = {
@@ -36,10 +35,11 @@ class VTRXSubsystem:
         16: "UNSAFE FOR HV WARNING"
     }
 
-    def __init__(self, parent, serial_port='COM7', baud_rate=9600):
+    def __init__(self, parent, serial_port='COM7', baud_rate=9600, messages_frame=None):
         self.parent = parent
         self.serial_port = serial_port
         self.baud_rate = baud_rate
+        self.messages_frame = messages_frame
         self.x_data = []
         self.y_data = []
         self.indicators = {0: tk.PhotoImage(file="media/off.png"),
@@ -60,7 +60,7 @@ class VTRXSubsystem:
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate)
         except serial.SerialException as e:
-            print(f"Error opening serial port {self.serial_port}: {e}")
+            self.log_message(f"Error opening serial port {self.serial_port}: {e}")
             self.ser = None
 
     def read_serial(self):
@@ -73,15 +73,15 @@ class VTRXSubsystem:
                 if data:
                     self.handle_serial_data(data)
             except serial.SerialException as e:
-                self.report_error_to_messages(f"Serial read error: {e}")
+                self.log_message(f"Serial read error: {e}")
             except UnicodeDecodeError as e:
-                self.report_error_to_messages(f"Unicode decode error: {e}")
+                self.log_message(f"Unicode decode error: {e}")
 
     def handle_serial_data(self, data):
         self.error_state = False
         data_parts = data.split(';')
         if len(data_parts) < 3:
-            self.report_error_to_messages("Incomplete data received.")
+            self.log_message("Incomplete data received.")
             self.error_state = True
             return
         
@@ -96,8 +96,7 @@ class VTRXSubsystem:
                 for error in errors:
                     if error.startswith("972b ERR:"):
                         error_code, error_message = error.split(":")[1:]
-                        error_description = self.ERROR_CODES.get(error_code, "Unknown Error")
-                        self.report_error_to_messages(f"Error {error_code}: Actual:{error_message}")
+                        self.log_message(f"VTRX Err {error_code}: Actual:{error_message}")
                         self.error_state = True
 
             self.parent.after(0, lambda: self.update_gui(
@@ -107,15 +106,15 @@ class VTRXSubsystem:
             )
         
         except ValueError as e:    
-            self.report_error_to_messages(f"Error processing incoming data: {e}")
+            self.log_message(f"Error processing incoming data: {e}")
             self.error_state = True
 
-    def report_error_to_messages(self, message):
-        if hasattr(self, 'messages_frame'):
-            self.messages_frame.write(message + "\n")
+    def log_message(self, message):
+        if self.messages_frame:
+            self.messages_frame.log_message(message)
         else:
-            print(message) # Fallback to console if messages_frame is unavailable
-    
+            print(message)
+
     def setup_gui(self):
             layout_frame = tk.Frame(self.parent)
             layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -244,8 +243,9 @@ class VTRXSubsystem:
     
 
 class EnvironmentalSubsystem:
-    def __init__(self, parent):
+    def __init__(self, parent, messages_frame=None):
         self.parent = parent
+        self.messages_frame = messages_frame
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chmbr Bot', 'Chmbr Top', 'Air temp']
         self.temperatures = {name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) for name in self.thermometers}
 
@@ -295,9 +295,10 @@ class EnvironmentalSubsystem:
 
 
 class ArgonBleedControlSubsystem:
-    def __init__(self, parent, serial_port='COM8', baud_rate=19200):
+    def __init__(self, parent, serial_port='COM8', baud_rate=19200, messages_frame=None):
         self.parent = parent
         self.controller = ApexMassFlowController(serial_port, baud_rate)
+        self.messages_frame = messages_frame
         self.setup_gui()
 
     def configure_controller(self):
@@ -323,14 +324,14 @@ class ArgonBleedControlSubsystem:
     def tare_flow(self):
         # Perform taring flow action when "Tare Flow" button is pressed
         self.controller.tare_flow()
-        print("Apex MF Ctrl:Taring flow performed successfully.")
+        self.messages_frame.log_message("Apex MassFlow:Tare flow success.")
 
         # Update GUI or perform any other necessary actions
 
     def tare_absolute_pressure(self):
         # Perform taring absolute pressure action when "Tare Absolute Pressure" button is pressed
         self.controller.tare_absolute_pressure()
-        print("Apex MF Ctrl:Taring absolute pressure performed successfully.")
+        self.messages_frame.log_message("Apex MassFlow:Tar abs pressure success.")
 
         # Update GUI or perform any other necessary actions
 
@@ -344,8 +345,9 @@ class ArgonBleedControlSubsystem:
         self.parent.after(500, self.update_gui)
 
 class InterlocksSubsystem:
-    def __init__(self, parent):
+    def __init__(self, parent, messages_frame=None):
         self.parent = parent
+        self.messages_frame = messages_frame
         self.interlock_status = {
             "Vacuum": True, "Water": False, "Door": False, "Timer": True,
             "Oil High": False, "Oil Low": False, "E-stop Ext": True,
@@ -390,8 +392,9 @@ class InterlocksSubsystem:
         self.update_interlock("Vacuum", pressure >= 2)
 
 class OilSystem:
-    def __init__(self, parent):
+    def __init__(self, parent, messages_frame=None):
         self.parent = parent
+        self.messages_frame = messages_frame
         self.setup_gui()
 
     def setup_gui(self):

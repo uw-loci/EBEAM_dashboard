@@ -1,6 +1,5 @@
 import subsystem
 import tkinter as tk
-from tkdial import Meter
 from utils import MessagesFrame, SetupScripts
 from usr.panel_config import save_pane_states, load_pane_states
 
@@ -19,11 +18,11 @@ class EBEAMSystemDashboard:
         # Initialize all the frames within the main pane
         self.create_frames()
 
-        # Set up different subsystems within their respective frames
-        self.create_subsystems()
-
         # Set up a frame for displaying messages and errors
         self.create_messages_frame()
+
+        # Set up different subsystems within their respective frames
+        self.create_subsystems()
 
         # Load the saved state of the GUI pane layout if available
         # self.load_saved_pane_state()
@@ -85,11 +84,28 @@ class EBEAMSystemDashboard:
     def create_subsystems(self):
         """Initialize subsystems in their designated frames using component settings."""
         self.subsystems = {
-            'Vacuum System': subsystem.VTRXSubsystem(self.frames['Vacuum System'], serial_port=self.com_ports['VTRXSubsystem']),
-            'Environmental': subsystem.EnvironmentalSubsystem(self.frames['Environmental']),
-            'Argon Bleed Control': subsystem.ArgonBleedControlSubsystem(self.frames['Argon Bleed Control'], serial_port=self.com_ports['ApexMassFlowController']),
-            'Interlocks': subsystem.InterlocksSubsystem(self.frames['Interlocks']),
-            'Oil System': subsystem.OilSystem(self.frames['Oil System'])
+            'Vacuum System': subsystem.VTRXSubsystem(
+                self.frames['Vacuum System'],
+                serial_port=self.com_ports['VTRXSubsystem'], 
+                messages_frame = self.messages_frame
+            ),
+            'Environmental': subsystem.EnvironmentalSubsystem(
+                self.frames['Environmental'], 
+                messages_frame = self.messages_frame
+            ),
+            'Argon Bleed Control': subsystem.ArgonBleedControlSubsystem(
+                self.frames['Argon Bleed Control'], 
+                serial_port=self.com_ports['ApexMassFlowController'],
+                messages_frame = self.messages_frame
+            ),
+            'Interlocks': subsystem.InterlocksSubsystem(
+                self.frames['Interlocks'], 
+                messages_frame = self.messages_frame
+            ),
+            'Oil System': subsystem.OilSystem(
+                self.frames['Oil System'], 
+                messages_frame = self.messages_frame
+            )
         }
 
     def create_messages_frame(self):
