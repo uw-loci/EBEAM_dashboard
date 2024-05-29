@@ -10,7 +10,7 @@
   - **dashboard.py**: Handles the main user interface and dashboard setup.
   - **subsystem.py**: Contains classes and methods to manage individual subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
   - **instrumentctl.py**: Instrument specific command libraries.
-  - **utils.py**: Utility functions and classes that support the main application (Logging, data parsing, etc.).
+  - **utils.py**: Utility functions and classes that support the main application (Logging, setup scripts, etc.).
 
 ### 2. Components
 
@@ -20,11 +20,12 @@
 
 - **Instrument Control (instrumentctl.py)**:
   - **Equipment specific driver libraries**:
-    - Agilent 33120A
-    - Quantum 9530
-    - G9SP serial option (status door, e-stops, vac, levels, timer)
+    - Apex Mass Flow Controller [(datasheet)]()
+    - TODO: Agilent 33120A [(datasheet)]()
+    - TODO: Quantum 9530
+    - TODO: G9SP serial option (status door, e-stops, vac, levels, timer)
     - VTRX system
-    - Temp monitor
+    - TODO: Temp monitor
     - A655sc
     - BOP-100-2ML
 
@@ -47,7 +48,7 @@
   - Monitors and displays temperature data from various thermometers.
   - Uses Matplotlib to create bar charts for temperature visualization.
 
-- **ArgonBleedControlSubsystem Class**:
+- **VisualizationGasControlSubsystem Class**:
   - Controls the Argon bleed system via serial communication.
   - Provides GUI buttons for taring flow and absolute pressure.
 
@@ -60,10 +61,6 @@
   - Uses a vertical temperature gauge and a dial meter for pressure visualization.
 
 ### 5. Utilities (utils.py)
-
-- **ApexMassFlowController Class**:
-  - Manages the serial communication with the Apex Mass Flow Controller.
-  - Provides methods for configuring unit ID, taring flow, and taring absolute pressure.
 
 - **MessagesFrame Class**:
   - A custom Tkinter frame for displaying messages and errors.
