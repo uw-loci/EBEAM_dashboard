@@ -43,7 +43,7 @@ class EBEAMSystemDashboard:
         """Create frames for different systems and controls within the dashboard."""
         frames_config = [
             ("Oil System", 0),
-            ("Argon Bleed Control", 0),
+            ("Visualization Gas Control", 0),
             ("System Checks", 0),
             ("Beam Extraction", 0),
             ("Vacuum System", 1),
@@ -93,8 +93,8 @@ class EBEAMSystemDashboard:
                 self.frames['Environmental'], 
                 messages_frame = self.messages_frame
             ),
-            'Argon Bleed Control': subsystem.ArgonBleedControlSubsystem(
-                self.frames['Argon Bleed Control'], 
+            'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
+                self.frames['Visualization Gas Control'], 
                 serial_port=self.com_ports['ApexMassFlowController'],
                 messages_frame = self.messages_frame
             ),
