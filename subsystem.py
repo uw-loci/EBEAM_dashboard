@@ -601,11 +601,31 @@ class CathodeHeatingSubsystem:
         self.main_frame = ttk.Frame(self.parent)
         self.main_frame.pack(fill='both', expand=True)
 
+        # Create a canvas and scrollbar for scrolling
+        self.canvas = tk.Canvas(self.main_frame)
+        self.scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        # Pack the canvas and scrollbar
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+        # Create a frame inside the canvas
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         for i in range(3):
-            frame = ttk.LabelFrame(self.main_frame, text=f'Cathode {i + 1}', padding=(10, 5))
+            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {i + 1}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=5, sticky='n')
             self.cathode_frames.append(frame)
 
@@ -643,7 +663,7 @@ class CathodeHeatingSubsystem:
             ttk.Label(frame, textvariable=self.temperature_vars[i]).grid(row=8, column=1, sticky='e')
 
         # Add collapsible tab for temperature plots
-        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook = ttk.Notebook(self.scrollable_frame)
         self.notebook.grid(row=1, column=0, columnspan=3, sticky='nsew')
 
         self.plot_frames = []
