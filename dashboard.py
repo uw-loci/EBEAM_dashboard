@@ -107,7 +107,8 @@ class EBEAMSystemDashboard:
                 messages_frame = self.messages_frame
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
-                self.frames['Cathode Heating']
+                self.frames['Cathode Heating'],
+                messages_frame = self.messages_frame
             )
         }
 

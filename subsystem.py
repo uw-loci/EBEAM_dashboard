@@ -572,7 +572,7 @@ class OilSystem:
 class CathodeHeatingSubsystem:
     MAX_POINTS = 20  # Maximum number of points to display on the plot
 
-    def __init__(self, parent):
+    def __init__(self, parent, messages_frame=None):
         self.parent = parent
         self.voltage_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -582,10 +582,12 @@ class CathodeHeatingSubsystem:
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.toggle_states = [False for _ in range(3)]
+        self.toggle_buttons = []
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
+        self.messages_frame = messages_frame
         self.setup_gui()
-        self.update_data()  # Start updating data
+        self.update_data()
 
     def setup_gui(self):
         style = ttk.Style()
@@ -601,6 +603,7 @@ class CathodeHeatingSubsystem:
 
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
+        heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         for i in range(3):
             frame = ttk.LabelFrame(self.main_frame, text=f'Cathode {i + 1}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=5, sticky='n')
@@ -614,13 +617,18 @@ class CathodeHeatingSubsystem:
 
             # Create entries and display labels
             ttk.Label(frame, textvariable=self.voltage_vars[i]).grid(row=0, column=1, sticky='e')
-            ttk.Entry(frame, width=7).grid(row=1, column=1, sticky='e')
+            entry_field = ttk.Entry(frame, width=7)
+            entry_field.grid(row=1, column=1, sticky='e')
+            set_button = ttk.Button(frame, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_voltage(i, entry_field))
+            set_button.grid(row=1, column=2, sticky='w')
             ttk.Label(frame, textvariable=self.current_vars[i]).grid(row=2, column=1, sticky='e')
             ttk.Label(frame, textvariable=self.power_vars[i]).grid(row=3, column=1, sticky='e')
+            ttk.Label(frame, text=heater_labels[i]).grid(row=4, column=0, sticky='w')
 
             # Create toggle switch
             toggle_button = ttk.Button(frame, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=4, column=0, columnspan=2)
+            toggle_button.grid(row=4, column=1, columnspan=1)
+            self.toggle_buttons.append(toggle_button)
 
             # Create calculated values labels
             ttk.Label(frame, text='E-beam Current (mA):').grid(row=5, column=0, sticky='w')
@@ -644,12 +652,11 @@ class CathodeHeatingSubsystem:
             self.notebook.add(plot_frame, text=f'Cathode {i + 1} Temp Plot')
             self.plot_frames.append(plot_frame)
 
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=(5, 2))
             line, = ax.plot([], [])
             self.temperature_data[i].append(line)
-            ax.set_title(f'Cathode {i + 1} Temperature Over Time')
-            ax.set_xlabel('Time')
-            ax.set_ylabel('Temperature (°C)')
+            ax.set_xlabel('Time', fontsize=8)
+            ax.set_ylabel('Temp (°C)', fontsize=8)
             ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
 
             canvas = FigureCanvasTkAgg(fig, master=plot_frame)
@@ -660,11 +667,11 @@ class CathodeHeatingSubsystem:
 
     def read_current_voltage(self):
         # Placeholder method to read current and voltage from power supplies
-        return random.uniform(0, 10), random.uniform(0, 100)
+        return random.uniform(2, 4), random.uniform(0.5, 0.9)
     
     def read_temperature(self):
         # Placeholder method to read temperature from cathodes
-        return float(random.uniform(20, 100))  # Ensure this returns a float
+        return float(random.uniform(25, 30))  # Ensure this returns a float
 
     def update_data(self):
         current_time = datetime.datetime.now()
@@ -709,7 +716,18 @@ class CathodeHeatingSubsystem:
         ax.figure.canvas.draw()
 
     def toggle_output(self, index):
-        current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
-        self.cathode_frames[index].children['!button'].config(image=current_image)
         self.toggle_states[index] = not self.toggle_states[index]
+        current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
+        self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
+        self.log_message(f"Heater {index + 1} output {'ON' if self.toggle_states[index] else 'OFF'}")
+    
+    def set_voltage(self, index, entry_field):
+        value = entry_field.get()
+        self.log_message(f'Setting voltage for Cathode {index + 1} to {value}V')
+        # TODO: write actual logic to set voltage
 
+    def log_message(self, message):
+        if hasattr(self, 'messages_frame') and self.messages_frame:
+            self.messages_frame.log_message(message)
+        else:
+            print(message)
