@@ -12,6 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import matplotlib.dates as mdates
+from matplotlib.dates import DateFormatter
 
 
 class VTRXSubsystem: 
@@ -373,7 +374,7 @@ class VisualizationGasControlSubsystem:
         self.unit_id_button = ttk.Button(button_frame, text="Change Unit ID", command=self.set_unit_id)
         self.unit_id_button.pack(padx=5, pady=5, anchor='w')
 
-        self.poll_data_button = ttk.Button(button_frame, text="Poll Live Data", command=self.poll_live_data)
+        self.poll_data_button = ttk.Button(button_frame, text="Poll Live Data Frame", command=self.poll_live_data)
         self.poll_data_button.pack(padx=5, pady=5, anchor='w')
 
         # Add dropdown and live data text to the input frame
@@ -563,4 +564,152 @@ class OilSystem:
         new_temperature = random.randint(50, 90)
         self.update_oil_temperature(new_temperature)
         self.update_oil_pressure(new_pressure)
+
+        #self.canvas.draw()
         self.parent.after(500, self.read_sensor_data)  # Schedule the update
+
+
+class CathodeHeatingSubsystem:
+    MAX_POINTS = 20  # Maximum number of points to display on the plot
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.voltage_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.power_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.e_beam_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.toggle_states = [False for _ in range(3)]
+        self.time_data = [[] for _ in range(3)]
+        self.temperature_data = [[] for _ in range(3)]
+        self.setup_gui()
+        self.update_data()  # Start updating data
+
+    def setup_gui(self):
+        style = ttk.Style()
+        style.configure('Flat.TButton', padding=(0, 0, 0, 0), relief='flat', borderwidth=0)
+
+        # Load toggle images
+        self.toggle_on_image = tk.PhotoImage(file="media/toggle_on.png")
+        self.toggle_off_image = tk.PhotoImage(file="media/toggle_off.png")
+
+        # Create main frame
+        self.main_frame = ttk.Frame(self.parent)
+        self.main_frame.pack(fill='both', expand=True)
+
+        # Create frames for each cathode/power supply pair
+        self.cathode_frames = []
+        for i in range(3):
+            frame = ttk.LabelFrame(self.main_frame, text=f'Cathode {i + 1}', padding=(10, 5))
+            frame.grid(row=0, column=i, padx=5, pady=5, sticky='n')
+            self.cathode_frames.append(frame)
+
+            # Create voltage, current, and power labels
+            ttk.Label(frame, text='Actual Voltage (V):').grid(row=0, column=0, sticky='w')
+            ttk.Label(frame, text='Set Voltage:').grid(row=1, column=0, sticky='w')
+            ttk.Label(frame, text='Current Output (A):').grid(row=2, column=0, sticky='w')
+            ttk.Label(frame, text='Power Output (W):').grid(row=3, column=0, sticky='w')
+
+            # Create entries and display labels
+            ttk.Label(frame, textvariable=self.voltage_vars[i]).grid(row=0, column=1, sticky='e')
+            ttk.Entry(frame, width=7).grid(row=1, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.current_vars[i]).grid(row=2, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.power_vars[i]).grid(row=3, column=1, sticky='e')
+
+            # Create toggle switch
+            toggle_button = ttk.Button(frame, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_output(i))
+            toggle_button.grid(row=4, column=0, columnspan=2)
+
+            # Create calculated values labels
+            ttk.Label(frame, text='E-beam Current (mA):').grid(row=5, column=0, sticky='w')
+            ttk.Label(frame, text='Target Current (mA):').grid(row=6, column=0, sticky='w')
+            ttk.Label(frame, text='Grid Current (mA):').grid(row=7, column=0, sticky='w')
+            ttk.Label(frame, text='Temperature (°C):').grid(row=8, column=0, sticky='w')
+
+            # Create entries and display labels for calculated values
+            ttk.Label(frame, textvariable=self.e_beam_current_vars[i]).grid(row=5, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.target_current_vars[i]).grid(row=6, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.grid_current_vars[i]).grid(row=7, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.temperature_vars[i]).grid(row=8, column=1, sticky='e')
+
+        # Add collapsible tab for temperature plots
+        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook.grid(row=1, column=0, columnspan=3, sticky='nsew')
+
+        self.plot_frames = []
+        for i in range(3):
+            plot_frame = ttk.Frame(self.notebook)
+            self.notebook.add(plot_frame, text=f'Cathode {i + 1} Temp Plot')
+            self.plot_frames.append(plot_frame)
+
+            fig, ax = plt.subplots()
+            line, = ax.plot([], [])
+            self.temperature_data[i].append(line)
+            ax.set_title(f'Cathode {i + 1} Temperature Over Time')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Temperature (°C)')
+            ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
+
+            canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        self.init_time = datetime.datetime.now()
+
+    def read_current_voltage(self):
+        # Placeholder method to read current and voltage from power supplies
+        return random.uniform(0, 10), random.uniform(0, 100)
+    
+    def read_temperature(self):
+        # Placeholder method to read temperature from cathodes
+        return float(random.uniform(20, 100))  # Ensure this returns a float
+
+    def update_data(self):
+        current_time = datetime.datetime.now()
+        for i in range(3):
+            voltage, current = self.read_current_voltage()
+            temperature = self.read_temperature()  # Ensure this returns a float or numeric type
+            self.voltage_vars[i].set(f'{voltage:.2f}')
+            self.current_vars[i].set(f'{current:.2f}')
+            self.temperature_vars[i].set(f'{temperature:.2f}')  # Ensure temperature is numeric and correctly formatted
+            power_output = voltage * current
+            self.power_vars[i].set(f'{power_output:.2f}')
+            e_beam_current = current
+            target_current = 0.72 * e_beam_current
+            grid_current = 0.28 * e_beam_current
+            self.e_beam_current_vars[i].set(f'{e_beam_current:.2f}')
+            self.target_current_vars[i].set(f'{target_current:.2f}')
+            self.grid_current_vars[i].set(f'{grid_current:.2f}')
+
+            # Update temperature data for plot
+            self.time_data[i].append(current_time)
+            temperature_data = list(self.temperature_data[i][0].get_data()[1])
+            temperature_data.append(temperature)
+            if len(self.time_data[i]) > self.MAX_POINTS:
+                self.time_data[i].pop(0)
+                temperature_data.pop(0)
+
+            self.temperature_data[i][0].set_data(self.time_data[i], temperature_data)  # Ensure data is set correctly
+            
+            self.update_plot(i)
+
+        # Schedule next update
+        self.parent.after(1000, self.update_data)
+
+    def update_plot(self, index):
+        time_data = self.time_data[index]
+        temperature_data = self.temperature_data[index][0].get_data()[1]
+        self.temperature_data[index][0].set_data(time_data, temperature_data)
+
+        ax = self.temperature_data[index][0].axes
+        ax.relim()
+        ax.autoscale_view()
+        ax.figure.canvas.draw()
+
+    def toggle_output(self, index):
+        current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
+        self.cathode_frames[index].children['!button'].config(image=current_image)
+        self.toggle_states[index] = not self.toggle_states[index]
+

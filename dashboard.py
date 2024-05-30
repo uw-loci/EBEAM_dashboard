@@ -54,7 +54,7 @@ class EBEAMSystemDashboard:
             ("Setup Script", 3),
             ("Beam Pulse", 3),
             ("Environmental", 4),
-            ("Cathode Temp", 4),
+            ("Cathode Heating", 4),
         ]
 
         for title, row in frames_config:
@@ -105,6 +105,9 @@ class EBEAMSystemDashboard:
             'Oil System': subsystem.OilSystem(
                 self.frames['Oil System'], 
                 messages_frame = self.messages_frame
+            ), 
+            'Cathode Heating': subsystem.CathodeHeatingSubsystem(
+                self.frames['Cathode Heating']
             )
         }
 
