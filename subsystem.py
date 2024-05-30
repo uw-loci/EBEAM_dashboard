@@ -590,6 +590,7 @@ class CathodeHeatingSubsystem:
         self.update_data()
 
     def setup_gui(self):
+        cathode_labels = ['A', 'B', 'C']
         style = ttk.Style()
         style.configure('Flat.TButton', padding=(0, 0, 0, 0), relief='flat', borderwidth=0)
         style.configure('Bold.TLabel', font=('Helvetica', 10, 'bold'))
@@ -626,7 +627,7 @@ class CathodeHeatingSubsystem:
         self.cathode_frames = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         for i in range(3):
-            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {i + 1}', padding=(10, 5))
+            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='n')
             self.cathode_frames.append(frame)
 
@@ -652,10 +653,10 @@ class CathodeHeatingSubsystem:
             self.toggle_buttons.append(toggle_button)
 
             # Create calculated values labels
-            ttk.Label(frame, text='E-beam Current (mA):').grid(row=5, column=0, sticky='w')
-            ttk.Label(frame, text='Target Current (mA):').grid(row=6, column=0, sticky='w')
-            ttk.Label(frame, text='Grid Current (mA):').grid(row=7, column=0, sticky='w')
-            ttk.Label(frame, text='Temperature (°C):').grid(row=8, column=0, sticky='w')
+            ttk.Label(frame, text='E-beam Current Prediction (mA):').grid(row=5, column=0, sticky='w')
+            ttk.Label(frame, text='Target Current Prediction (mA):').grid(row=6, column=0, sticky='w')
+            ttk.Label(frame, text='Grid Current Prediction (mA):').grid(row=7, column=0, sticky='w')
+            ttk.Label(frame, text='Temperature Prediction (°C):').grid(row=8, column=0, sticky='w')
 
             # Create entries and display labels for calculated values
             ttk.Label(frame, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='e')
@@ -734,11 +735,12 @@ class CathodeHeatingSubsystem:
         self.toggle_states[index] = not self.toggle_states[index]
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
-        self.log_message(f"Heater {index + 1} output {'ON' if self.toggle_states[index] else 'OFF'}")
-    
+        self.log_message(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
+
     def set_voltage(self, index, entry_field):
         value = entry_field.get()
-        self.log_message(f'Setting voltage for Cathode {index + 1} to {value}V')
+        cathode_labels = ['A', 'B', 'C']
+        self.log_message(f'Setting voltage for Cathode {cathode_labels[index]} to {value}V')
         # TODO: write actual logic to set voltage
 
     def log_message(self, message):
