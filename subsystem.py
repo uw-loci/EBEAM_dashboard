@@ -592,6 +592,7 @@ class CathodeHeatingSubsystem:
     def setup_gui(self):
         style = ttk.Style()
         style.configure('Flat.TButton', padding=(0, 0, 0, 0), relief='flat', borderwidth=0)
+        style.configure('Bold.TLabel', font=('Helvetica', 10, 'bold'))
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file="media/toggle_on.png")
@@ -626,7 +627,7 @@ class CathodeHeatingSubsystem:
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {i + 1}', padding=(10, 5))
-            frame.grid(row=0, column=i, padx=5, pady=5, sticky='n')
+            frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='n')
             self.cathode_frames.append(frame)
 
             # Create voltage, current, and power labels
@@ -636,14 +637,14 @@ class CathodeHeatingSubsystem:
             ttk.Label(frame, text='Power Output (W):').grid(row=3, column=0, sticky='w')
 
             # Create entries and display labels
-            ttk.Label(frame, textvariable=self.voltage_vars[i]).grid(row=0, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.voltage_vars[i], style='Bold.TLabel').grid(row=0, column=1, sticky='e')
             entry_field = ttk.Entry(frame, width=7)
             entry_field.grid(row=1, column=1, sticky='e')
             set_button = ttk.Button(frame, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_voltage(i, entry_field))
             set_button.grid(row=1, column=2, sticky='w')
-            ttk.Label(frame, textvariable=self.current_vars[i]).grid(row=2, column=1, sticky='e')
-            ttk.Label(frame, textvariable=self.power_vars[i]).grid(row=3, column=1, sticky='e')
-            ttk.Label(frame, text=heater_labels[i]).grid(row=4, column=0, sticky='w')
+            ttk.Label(frame, textvariable=self.current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.power_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='e')
+            ttk.Label(frame, text=heater_labels[i], style='Bold.TLabel').grid(row=4, column=0, sticky='w')
 
             # Create toggle switch
             toggle_button = ttk.Button(frame, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_output(i))
@@ -657,31 +658,25 @@ class CathodeHeatingSubsystem:
             ttk.Label(frame, text='Temperature (°C):').grid(row=8, column=0, sticky='w')
 
             # Create entries and display labels for calculated values
-            ttk.Label(frame, textvariable=self.e_beam_current_vars[i]).grid(row=5, column=1, sticky='e')
-            ttk.Label(frame, textvariable=self.target_current_vars[i]).grid(row=6, column=1, sticky='e')
-            ttk.Label(frame, textvariable=self.grid_current_vars[i]).grid(row=7, column=1, sticky='e')
-            ttk.Label(frame, textvariable=self.temperature_vars[i]).grid(row=8, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.temperature_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='e')
 
-        # Add collapsible tab for temperature plots
-        self.notebook = ttk.Notebook(self.scrollable_frame)
-        self.notebook.grid(row=1, column=0, columnspan=3, sticky='nsew')
-
-        self.plot_frames = []
-        for i in range(3):
-            plot_frame = ttk.Frame(self.notebook)
-            self.notebook.add(plot_frame, text=f'Cathode {i + 1} Temp Plot')
-            self.plot_frames.append(plot_frame)
-
-            fig, ax = plt.subplots(figsize=(5, 2))
+            # Create plot for each cathode
+            fig, ax = plt.subplots(figsize=(2.8, 1.3))
             line, = ax.plot([], [])
             self.temperature_data[i].append(line)
             ax.set_xlabel('Time', fontsize=8)
             ax.set_ylabel('Temp (°C)', fontsize=8)
             ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-
-            canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+            ax.tick_params(axis='x', labelsize=6)
+            ax.tick_params(axis='y', labelsize=6)
+            fig.tight_layout(pad=0.01)
+            fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
+            canvas = FigureCanvasTkAgg(fig, master=frame)
             canvas.draw()
-            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            canvas.get_tk_widget().grid(row=9, column=0, columnspan=3, pady=0.1)
 
         self.init_time = datetime.datetime.now()
 
