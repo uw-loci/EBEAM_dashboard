@@ -571,7 +571,8 @@ class OilSystem:
 
 class CathodeHeatingSubsystem:
     MAX_POINTS = 20  # Maximum number of points to display on the plot
-
+    OVERTEMP_THRESHOLD = 29.0 # Overtemperature threshold in °C
+    
     def __init__(self, parent, messages_frame=None):
         self.parent = parent
         self.voltage_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -581,6 +582,7 @@ class CathodeHeatingSubsystem:
         self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
         self.time_data = [[] for _ in range(3)]
@@ -657,12 +659,14 @@ class CathodeHeatingSubsystem:
             ttk.Label(frame, text='Target Current Prediction (mA):').grid(row=6, column=0, sticky='w')
             ttk.Label(frame, text='Grid Current Prediction (mA):').grid(row=7, column=0, sticky='w')
             ttk.Label(frame, text='Temperature Prediction (°C):').grid(row=8, column=0, sticky='w')
+            ttk.Label(frame, text='Overtemp Status:').grid(row=9, column=0, sticky='w')
 
             # Create entries and display labels for calculated values
             ttk.Label(frame, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='e')
             ttk.Label(frame, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='e')
             ttk.Label(frame, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='e')
             ttk.Label(frame, textvariable=self.temperature_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='e')
+            ttk.Label(frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='e')
 
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
@@ -717,6 +721,13 @@ class CathodeHeatingSubsystem:
             self.temperature_data[i][0].set_data(self.time_data[i], temperature_data)  # Ensure data is set correctly
             
             self.update_plot(i)
+
+            # Check for overtemperature
+            if temperature > self.OVERTEMP_THRESHOLD:
+                self.overtemp_status_vars[i].set("OVERTEMP!")
+                self.log_message(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!")
+            else:
+                self.overtemp_status_vars[i].set('OK')
 
         # Schedule next update
         self.parent.after(1000, self.update_data)
