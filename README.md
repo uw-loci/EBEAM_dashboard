@@ -92,4 +92,5 @@ EBEAM_DASHBOARD/
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
+### 5. Flowchart
 ![Application architecture](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/CCS_GUI_flowchart.png)
