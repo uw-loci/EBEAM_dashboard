@@ -1,16 +1,34 @@
 # EBEAM System Dashboard Software
 
-## Design Summary
-
 ### 1. Architecture
 
-- **Language & Libraries**: Python, using Tkinter for the GUI, Matplotlib for plotting, and PySerial for serial communication.
+- **Language & Libraries**: Python, using `Tkinter` for the GUI, `Matplotlib` for plotting, and `PySerial` for serial communication.
 - **High-level Design**: The application is divided into several modules:
   - **main.py**: Manages the main application startup and configuration.
   - **dashboard.py**: Handles the main user interface and dashboard setup.
-  - **subsystem.py**: Contains classes and methods to manage individual subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
-  - **instrumentctl.py**: Instrument specific command libraries.
+  - **subsystem/**: Contains classes and methods to manage individual subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
+  - **instrumentctl/**: Instrument specific command libraries.
   - **utils.py**: Utility functions and classes that support the main application (Logging, setup scripts, etc.).
+
+```
+EBEAM_DASHBOARD/
+├── __init__.py 
+├── dashboard.py
+├── instrumentctl/
+│   ├── __init__.py
+│   ├── apex_mass_flow_controller.py
+│   └── power_supply_9014.py
+├── main.py
+├── subsystem/
+│   ├── __init__.py
+│   ├── cathode_heating.py
+│   ├── environmental.py
+│   ├── interlocks.py
+│   ├── oil_system.py
+│   ├── visualization_gas_control.py
+│   └── vtrx.py
+└── utils.py
+```
 
 ### 2. Components
 
@@ -37,30 +55,30 @@
   - **create_messages_frame**: Creates a frame for displaying messages and errors.
   - **create_subsystems**: Initializes subsystems in their designated frames using component settings.
 
-### 4. Subsystems (subsystem.py)
+### 4. Subsystems
 
-- **VTRXSubsystem Class**:
+- **`vtrx.py`**:
   - Manages the VTRX system, including serial communication and GUI updates.
   - Handles pressure data and switch states, updating the GUI in real-time.
   - Logs messages and errors to the messages frame.
 
-- **EnvironmentalSubsystem Class**:
+- **`environmental.py`**:
   - Monitors and displays temperature data from various thermometers.
   - Uses Matplotlib to create bar charts for temperature visualization.
 
-- **VisualizationGasControlSubsystem Class**:
+- **`visualization_gas_control.py`**:
   - Controls the Argon bleed system via serial communication.
   - Provides GUI buttons for taring flow and absolute pressure.
 
-- **InterlocksSubsystem Class**:
+- **`interlocks.py`**:
   - Manages the status of various interlocks (e.g., Vacuum, Water, Door).
   - Updates GUI indicators based on interlock status.
 
-- **OilSystem Class**:
+- **`oil_system.py`**:
   - Monitors and displays oil temperature and pressure.
   - Uses a vertical temperature gauge and a dial meter for pressure visualization.
 
-### 5. Utilities (utils.py)
+### 5. Utilities (`utils.py`)
 
 - **MessagesFrame Class**:
   - A custom Tkinter frame for displaying messages and errors.
@@ -74,4 +92,4 @@
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
-![Application architecture](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/Topology.png)
+![Application architecture](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/CCS_GUI_flowchart.png)
