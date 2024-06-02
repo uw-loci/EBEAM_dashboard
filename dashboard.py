@@ -102,7 +102,7 @@ class EBEAMSystemDashboard:
                 self.frames['Interlocks'], 
                 messages_frame = self.messages_frame
             ),
-            'Oil System': subsystem.OilSystem(
+            'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'], 
                 messages_frame = self.messages_frame
             ), 
