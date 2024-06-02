@@ -2,12 +2,12 @@
 
 ### 1. Architecture
 
-- **Language & Libraries**: Python, using `Tkinter` for the GUI, `Matplotlib` for plotting, and `PySerial` for serial communication.
+- **Language & Libraries**: Python, using the [Tkinter](https://docs.python.org/3/library/tkinter.html) interface for the GUI, [matplotlib](https://matplotlib.org/) for plotting, and [Pyserial](https://pythonhosted.org/pyserial/) for communication with external systems through virtual COM ports.
 - **High-level Design**: The application is divided into several modules:
   - **main.py**: Manages the main application startup and configuration.
   - **dashboard.py**: Handles the main user interface and dashboard setup.
-  - **subsystem/**: Contains classes and methods to manage individual subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
   - **instrumentctl/**: Instrument specific command libraries.
+  - **subsystem/**: Contains classes and methods to manage individual subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
   - **utils.py**: Utility functions and classes that support the main application (Logging, setup scripts, etc.).
   - Core Structure:
 ```
@@ -38,22 +38,23 @@ EBEAM_DASHBOARD/
 
 - **Instrument Control (instrumentctl.py)**:
   - **Equipment specific driver libraries**:
-    - Apex Mass Flow Controller [(datasheet)]()
+    - PowerSupply9014 [(datasheet)](https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9103_9104_programming_manual.pdf) IN PROGRESS
+    - Apex Mass Flow Controller [(datasheet)]() IN PROGRESS
     - TODO: Agilent 33120A [(datasheet)]()
     - TODO: Quantum 9530
     - TODO: G9SP serial option (status door, e-stops, vac, levels, timer)
     - VTRX system
     - TODO: Temp monitor
-    - A655sc
-    - BOP-100-2ML
+    - TODO: A655sc
+    - TODO: BOP-100-2ML
 
 ### 3. Dashboard (dashboard.py)
 
 - **EBEAMSystemDashboard Class**: The main class that sets up the dashboard interface.
-  - **setup_main_pane**: Initializes the main layout pane and its rows.
-  - **create_frames**: Creates frames for different systems and controls within the dashboard.
-  - **create_messages_frame**: Creates a frame for displaying messages and errors.
-  - **create_subsystems**: Initializes subsystems in their designated frames using component settings.
+  - **`setup_main_pane`**: Initializes the main layout pane and its rows.
+  - **`create_frames`**: Creates frames for different systems and controls within the dashboard.
+  - **`create_messages_frame`**: Creates a frame for displaying messages and errors.
+  - **`create_subsystems`**: Initializes subsystems in their designated frames using component settings.
 
 ### 4. Subsystems
 
@@ -92,5 +93,5 @@ EBEAM_DASHBOARD/
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
-### 5. Flowchart
+### 6. Flowchart
 ![Application architecture](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/CCS_GUI_flowchart.png)
