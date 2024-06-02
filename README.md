@@ -9,7 +9,7 @@
   - **subsystem/**: Contains classes and methods to manage individual subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
   - **instrumentctl/**: Instrument specific command libraries.
   - **utils.py**: Utility functions and classes that support the main application (Logging, setup scripts, etc.).
-
+  - Core Structure:
 ```
 EBEAM_DASHBOARD/
 ├── __init__.py 
