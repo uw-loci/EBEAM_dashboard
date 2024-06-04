@@ -89,7 +89,7 @@ class EBEAMSystemDashboard:
                 serial_port=self.com_ports['VTRXSubsystem'], 
                 messages_frame = self.messages_frame
             ),
-            'Environmental': subsystem.EnvironmentalSubsystem(
+            'Environmental [°C]': subsystem.EnvironmentalSubsystem(
                 self.frames['Environmental'], 
                 messages_frame = self.messages_frame
             ),
