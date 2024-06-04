@@ -6,6 +6,7 @@ import threading
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import time
 
 
 class VTRXSubsystem: 
@@ -43,7 +44,8 @@ class VTRXSubsystem:
         self.setup_serial()
         self.setup_gui()
 
-        self.time_window = 300 # Time window in seconds
+        self.time_window = 100 # Time window in seconds
+        self.data_timeout = 1.5 # Seconds timeout for receiving data
         self.init_time = datetime.datetime.now()
         self.x_data = [self.init_time + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * self.time_window
@@ -63,14 +65,26 @@ class VTRXSubsystem:
             try:
                 # Read a line from the serial port
                 data_bytes = self.ser.readline()
+                self.last_data_received_time = time.time()  # Update last received time
                 # Try to decode the bytes. Ignore or replace erroneous bytes to prevent crashes.
                 data = data_bytes.decode('utf-8', errors='replace').strip()  # 'replace' will insert a � for bad bytes
                 if data:
                     self.handle_serial_data(data)
             except serial.SerialException as e:
                 self.log_message(f"Serial read error: {e}")
+                self.error_state = True
             except UnicodeDecodeError as e:
                 self.log_message(f"Unicode decode error: {e}")
+                self.error_state = True
+            except Exception as e:
+                self.log_message(f"Unexpected error: {e}")
+                self.error_state = True
+
+            # Check for timeout
+            if time.time() - self.last_data_received_time > self.data_timeout:
+                self.error_state = True
+                self.log_message("Error: No data received within the timeout period.")
+                self.update_gui_with_error_state()
 
     def handle_serial_data(self, data):
         self.error_state = False
@@ -145,14 +159,16 @@ class VTRXSubsystem:
             plot_frame = tk.Frame(layout_frame)
             plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
             self.fig, self.ax = plt.subplots()
+            self.fig.subplots_adjust(left=0.15, right=0.95, top=0.88, bottom=0.14) 
             self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
             self.ax.set_xlabel('Time', fontsize=8)
             self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-            title_color = "red" if self.error_state else "green"
             self.ax.set_title('Live Pressure Readout', fontsize=10)
             self.ax.set_yscale('log')
             self.ax.set_ylim(1e-6, 1200.0)
             self.ax.tick_params(axis='x', labelsize=6)
+            self.ax.grid(True)
+
             self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
             self.canvas.draw()
             self.canvas_widget = self.canvas.get_tk_widget()

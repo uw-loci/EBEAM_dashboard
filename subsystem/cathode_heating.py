@@ -10,7 +10,7 @@ import instrumentctl
 
 class CathodeHeatingSubsystem:
     MAX_POINTS = 20  # Maximum number of points to display on the plot
-    OVERTEMP_THRESHOLD = 29.0 # Overtemperature threshold in °C
+    OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in °C
     
     def __init__(self, parent, messages_frame=None):
         self.parent = parent
@@ -130,7 +130,7 @@ class CathodeHeatingSubsystem:
     
     def read_temperature(self):
         # Placeholder method to read temperature from cathodes
-        return float(random.uniform(25, 30))  # Ensure this returns a float
+        return float(random.uniform(20, 22))  # Ensure this returns a float
 
     def update_data(self):
         current_time = datetime.datetime.now()
