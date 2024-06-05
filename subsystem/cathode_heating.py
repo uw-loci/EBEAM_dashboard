@@ -169,7 +169,7 @@ class CathodeHeatingSubsystem:
                 self.overtemp_status_vars[i].set('OK')
 
         # Schedule next update
-        self.parent.after(1000, self.update_data)
+        self.parent.after(500, self.update_data)
 
     def update_plot(self, index):
         time_data = self.time_data[index]
