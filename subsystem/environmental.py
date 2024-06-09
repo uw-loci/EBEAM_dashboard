@@ -30,12 +30,14 @@ class EnvironmentalSubsystem:
             bar = ax.bar(name, self.temperatures[name], width=bar_width)
             ax.set_xticks([])
             ax.set_xticklabels([])
+            ax.tick_params(axis='y', labelsize=6)
             self.bars.append(bar)
 
             # Set the x-axis limits to make sure bars are centered and skinny
             ax.set_xlim(-1, 1)
 
-        self.fig.subplots_adjust(left=0.10, right=0.90, top=0.90, bottom=0.10, wspace=1.0)  # Add padding around the figure
+        #self.fig.subplots_adjust(left=0.10, right=0.90, top=0.90, bottom=0.10, wspace=1.0)  # Add padding around the figure
+        self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.parent)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()

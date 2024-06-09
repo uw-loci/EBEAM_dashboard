@@ -113,3 +113,34 @@ class SetupScripts:
                 print(f"Script {script_name} executed successfully.")
             except subprocess.CalledProcessError as e:
                 print(f"An error occurred while executing {script_name}: {e}")
+
+class ToolTip(object):
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+        self.tip_window = None
+
+    def enter(self, event=None):
+        self.show_tip()
+
+    def leave(self, event=None):
+        self.hide_tip()
+
+    def show_tip(self):
+        x, y, _cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, justify='left',
+                         background="#ffffe0", relief='solid', borderwidth=1,
+                         font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hide_tip(self):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
