@@ -123,7 +123,9 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
 
             ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
+            voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
+            voltage_label.grid(row=3, column=1, sticky='w')
+            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
 
             # Create entries and display labels
             ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel').grid(row=4, column=0, sticky='w')

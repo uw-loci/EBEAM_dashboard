@@ -5,6 +5,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
@@ -117,9 +119,12 @@ class SetupScripts:
                 print(f"An error occurred while executing {script_name}: {e}")
 
 class ToolTip(object):
-    def __init__(self, widget, text):
+    def __init__(self, widget, text=None, plot_data=None, voltage_var=None, current_var=None):
         self.widget = widget
         self.text = text
+        self.plot_data = plot_data
+        self.voltage_var = voltage_var
+        self.current_var = current_var
         self.widget.bind("<Enter>", self.enter)
         self.widget.bind("<Leave>", self.leave)
         self.tip_window = None
@@ -137,10 +142,32 @@ class ToolTip(object):
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=self.text, justify='left',
-                         background="#ffffe0", relief='solid', borderwidth=1,
-                         font=("tahoma", "8", "normal"))
-        label.pack(ipadx=1)
+        
+        if self.plot_data:
+            fig, ax = plt.subplots(figsize=(2, 1.25))
+            fig.patch.set_facecolor('#ffffe0')
+            x_data, y_data = zip(*self.plot_data)
+            ax.plot(x_data, y_data)
+            ax.set_facecolor('#ffffe0')
+            ax.set_xlabel('Heater Current (A)', fontsize=8)
+            ax.set_ylabel('Heater Voltage (V)', fontsize=8)
+            ax.tick_params(axis='both', which='major', labelsize=6)
+            fig.tight_layout(pad=0.1)
+            canvas = FigureCanvasTkAgg(fig, master=tw)
+            canvas.draw()
+            canvas.get_tk_widget().pack()
+
+            # Add vertical and horizontal lines if values are provided
+            if self.voltage_var.get() and self.current_var.get():
+                voltage = float(self.voltage_var.get())
+                current = float(self.current_var.get())
+                ax.axvline(voltage, color='red', linestyle='--')
+                ax.axhline(current, color='red', linestyle='--')
+        else:
+            label = tk.Label(tw, text=self.text, justify='left',
+                             background="#ffffe0", relief='solid', borderwidth=1,
+                             font=("tahoma", "8", "normal"))
+            label.pack(ipadx=1)
 
     def hide_tip(self):
         if self.tip_window:
