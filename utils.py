@@ -22,7 +22,7 @@ class MessagesFrame:
         self.frame.rowconfigure(1, weight=1)
 
         # Create a Text widget for logs
-        self.text_widget = tk.Text(self.frame, wrap=tk.WORD)
+        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 8))
         self.text_widget.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
 
         # Create a button to clear the text widget
@@ -96,12 +96,14 @@ class SetupScripts:
         self.execute_button.pack(side=tk.RIGHT, padx=5)
 
     def populate_dropdown(self):
-        script_dir = 'scripts/'
-        # List all .py files in the 'scripts/' directory
-        scripts = [file for file in os.listdir(script_dir) if file.endswith('.py')]
-        self.dropdown['values'] = scripts
-        if scripts:
-            self.script_var.set(scripts[0])  # Set default selection
+        script_dir = os.path.join(os.path.dirname(sys.executable), 'scripts')
+        if os.path.exists(script_dir):
+            script_dir = 'scripts/'
+            # List all .py files in the 'scripts/' directory
+            scripts = [file for file in os.listdir(script_dir) if file.endswith('.py')]
+            self.dropdown['values'] = scripts
+            if scripts:
+                self.script_var.set(scripts[0])  # Set default selection
 
     def execute_script(self):
         script_name = self.script_var.get()

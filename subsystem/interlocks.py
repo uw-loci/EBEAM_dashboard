@@ -1,5 +1,16 @@
 # interlocks.py
 import tkinter as tk
+import os, sys
+
+def resource_path(relative_path):
+    """ Get the absolute path to a resource, works for development and when running as bundled executable"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 class InterlocksSubsystem:
     def __init__(self, parent, messages_frame=None):
@@ -21,8 +32,8 @@ class InterlocksSubsystem:
             "Oil Low", "E-stop Ext", "E-stop Int", "G9SP Active"
         ]
         self.indicators = {
-            'active': tk.PhotoImage(file="media/off_orange.png"),
-            'inactive': tk.PhotoImage(file="media/on.png")
+            'active': tk.PhotoImage(file=resource_path("media/off_orange.png")),
+            'inactive': tk.PhotoImage(file=resource_path("media/on.png"))
         }
 
         for label in interlock_labels:

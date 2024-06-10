@@ -7,7 +7,18 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import time
+import os
+import sys
 
+def resource_path(relative_path):
+    """ Get the absolute path to a resource, works for development and when running as bundled executable"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 class VTRXSubsystem: 
     MAX_POINTS = 20 # Maximum number of points to display on the plot
@@ -38,8 +49,10 @@ class VTRXSubsystem:
         self.messages_frame = messages_frame
         self.x_data = []
         self.y_data = []
-        self.indicators = {0: tk.PhotoImage(file="media/off.png"),
-                           1: tk.PhotoImage(file="media/on.png")}
+        self.indicators = {
+            0: tk.PhotoImage(file=resource_path("media/off.png")),
+            1: tk.PhotoImage(file=resource_path("media/on.png"))
+        }
         self.error_state = False
         self.setup_serial()
         self.setup_gui()
