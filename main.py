@@ -20,7 +20,7 @@ def config_com_ports():
     selections = {}
 
     # Create a dropdown for each subsystem
-    subsystems = ['VTRXSubsystem', 'ApexMassFlowController']
+    subsystems = ['VTRXSubsystem', 'ApexMassFlowController', 'CathodeA', 'CathodeB', 'CathodeC']
     for subsystem in subsystems:
         tk.Label(config_root, text=f"{subsystem} COM Port:").pack()
         selected_port = tk.StringVar()

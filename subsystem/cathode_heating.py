@@ -7,11 +7,12 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 from instrumentctl.ES440_cathode import ES440_cathode
+from instrumentctl.power_supply_9014 import PowerSupply9014
 from utils import ToolTip
 import os, sys
 
 def resource_path(relative_path):
-    """ Get the absolute path to a resource, works for development and when running as bundled executable"""
+    """ Magic needed for paths to work for development and when running as bundled executable"""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
@@ -24,8 +25,10 @@ class CathodeHeatingSubsystem:
     MAX_POINTS = 20  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in °C
     
-    def __init__(self, parent, messages_frame=None):
+    def __init__(self, parent, com_ports, messages_frame=None):
         self.parent = parent
+        self.com_ports = com_ports
+        self.power_supplies_initialized = False
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.predicted_heater_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -40,14 +43,28 @@ class CathodeHeatingSubsystem:
         self.overcurrent_limit_vars = [tk.DoubleVar(value=10.0) for _ in range(3)]
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
+
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.messages_frame = messages_frame
         self.init_cathode_model()
+        self.initialize_power_supplies()
         self.setup_gui()
         self.update_data()
+
+    def initialize_power_supplies(self):
+        try:
+            self.power_supplies = [
+                PowerSupply9014(port=self.com_ports['CathodeA'], messages_frame=self.messages_frame),
+                PowerSupply9014(port=self.canvascom_ports['CathodeB'], messages_frame=self.messages_frame),
+                PowerSupply9014(port=self.com_ports['CathodeC'], messages_frame=self.messages_frame)
+            ]
+            self.power_supplies_initialized = True
+        except Exception as e:
+            print(f"Failed to initialize power supplies: {str(e)}")
+            self.power_supplies_initialized = False
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -190,11 +207,20 @@ class CathodeHeatingSubsystem:
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            output_status_button = ttk.Button(config_tab, text="Output Status:", width=18, command=lambda i=i: self.get_output_status(i))
+            output_status_button = ttk.Button(config_tab, text="Output Status:", width=18, command=lambda x=i: self.show_output_status(x))
             output_status_button.grid(row=3, column=0, sticky='w')
             ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
+            output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
 
         self.init_time = datetime.datetime.now()
+
+    def show_output_status(self, index):
+        if not self.power_supplies_initialized:
+            self.log_message("Power supplies not initialized.")
+            return
+        
+        status = self.power_supplies[index].get_output_status()
+        self.log_message(f"Heater {['A', 'B', 'C'][index]} output status: {status}")
 
     def init_cathode_model(self):
         try:
@@ -250,7 +276,7 @@ class CathodeHeatingSubsystem:
                 self.overtemp_status_vars[i].set("OVERTEMP!")
                 self.log_message(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!")
             else:
-                self.overtemp_status_vars[i].set('OK')
+                self.overtemp_status_vars[i].set('OFF')
 
         # Schedule next update
         self.parent.after(500, self.update_data)
@@ -274,30 +300,37 @@ class CathodeHeatingSubsystem:
     def set_target_current(self, index, entry_field):
         try:
             target_current_mA = float(entry_field.get())
-            ideal_emission_current = target_current_mA / 0.72
+            ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
             self.log_message(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.2f}mA")
 
             # Ensure current is within the data range
             if ideal_emission_current < min(self.emission_current_model.y_data) * 1000:
                 self.log_message("Desired emission current is below the minimum range of the model.")
-                ideal_emission_current = min(self.emission_current_model.y_data) * 1000
+                self.predicted_grid_current_vars[index].set('0.00')
+                self.predicted_heater_current_vars[index].set('0.00')
+                self.heater_voltage_vars[index].set('0.00')
+                
             elif ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
                 self.log_message("Desired emission current is above the maximum range of the model.")
-                ideal_emission_current = max(self.emission_current_model.y_data) * 1000
+                self.log_message("Desired emission current is below the minimum range of the model.")
+                self.predicted_grid_current_vars[index].set('0.00')
+                self.predicted_heater_current_vars[index].set('0.00')
+                self.heater_voltage_vars[index].set('0.00')
+            else:
+                # Calculate heater current from the ES440 model
+                heater_current = self.emission_current_model.interpolate(ideal_emission_current / 1000, inverse=True)
+                self.log_message(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A")
 
-            heater_current = self.emission_current_model.interpolate(ideal_emission_current / 1000, inverse=True)
-            self.log_message(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A")
+                heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+                self.log_message(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.2f}V")
 
-            heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-            self.log_message(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.2f}V")
+                predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
+                self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
+                self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
+                self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
 
-            predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
-            self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
-            self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
-
-            self.log_message(f"Set ideal cathode emission current for Cathode {['A', 'B', 'C'][index]} to {ideal_emission_current:.2f}mA")
-            self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
+                self.log_message(f"Set ideal cathode emission current for Cathode {['A', 'B', 'C'][index]} to {ideal_emission_current:.2f}mA")
+                self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
 
         except ValueError:
             self.log_message("Invalid input for target current")
@@ -309,7 +342,6 @@ class CathodeHeatingSubsystem:
             self.log_message(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}°C")
         except:
             self.log_message("Invalid input for overtemperature limit")
-    
 
     def log_message(self, message):
         if hasattr(self, 'messages_frame') and self.messages_frame:

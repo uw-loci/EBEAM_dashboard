@@ -1,8 +1,9 @@
 import serial
 
 class PowerSupply9014:
-    def __init__(self, port, baudrate=9600, timeout=1):
+    def __init__(self, port, baudrate=9600, timeout=1, messages_frame=None):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
+        self.messages_frame = messages_frame
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
@@ -22,6 +23,7 @@ class PowerSupply9014:
     def get_output_status(self):
         """Get the output status."""
         command = "GOUT"
+        
         return self.send_command(command)
 
     def set_voltage(self, preset, voltage):
@@ -132,3 +134,9 @@ class PowerSupply9014:
     def close(self):
         """Close the serial connection."""
         self.ser.close()
+
+    def log_message(self, message):
+        if hasattr(self, 'messages_frame') and self.messages_frame:
+            self.messages_frame.log_message(message)
+        else:
+            print(message)

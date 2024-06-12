@@ -12,7 +12,7 @@ class EBEAMSystemDashboard:
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
         
-        # Set up the main pane using PanedWindow for a flexible layout
+        # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
         # Initialize all the frames within the main pane
@@ -108,6 +108,7 @@ class EBEAMSystemDashboard:
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
+                com_ports=self.com_ports,
                 messages_frame = self.messages_frame
             )
         }
