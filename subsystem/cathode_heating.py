@@ -60,7 +60,7 @@ class CathodeHeatingSubsystem:
         try:
             self.power_supplies = [
                 PowerSupply9014(port=self.com_ports['CathodeA'], messages_frame=self.messages_frame),
-                PowerSupply9014(port=self.canvascom_ports['CathodeB'], messages_frame=self.messages_frame),
+                PowerSupply9014(port=self.com_ports['CathodeB'], messages_frame=self.messages_frame),
                 PowerSupply9014(port=self.com_ports['CathodeC'], messages_frame=self.messages_frame)
             ]
             self.power_supplies_initialized = True
