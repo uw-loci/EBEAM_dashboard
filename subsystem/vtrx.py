@@ -1,5 +1,6 @@
 # vtrx.py
 import tkinter as tk
+from tkinter import messagebox
 import datetime
 import serial
 import threading
@@ -160,9 +161,14 @@ class VTRXSubsystem:
 
             # Pressure label setup
             # Increase font size and make it bold
-            self.label_pressure = tk.Label(switches_frame, text="Waiting for pressure data...", anchor='e', width=label_width,
+            self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='e', width=label_width,
                                         font=('Helvetica', 11, 'bold'))
-            self.label_pressure.pack(anchor="e", pady=10, fill='x')
+            self.label_pressure.pack(anchor="e", pady=1, fill='x')
+
+            self.reset_button = tk.Button(switches_frame, text="Reset VTRX", command=self.confirm_reset)
+            self.reset_button.pack(side=tk.LEFT, padx=5, pady=1)
+            self.clear_button = tk.Button(switches_frame, text="Clear Plot", command=self.clear_graph)
+            self.clear_button.pack(side=tk.LEFT, padx=5, pady=1)
 
             # Add button to clear display output
             #self.btn_clear_graph = tk.Button(switches_frame, text="Clear Plot", command=self.confirm_clear)
@@ -234,33 +240,26 @@ class VTRXSubsystem:
         thread = threading.Thread(target=self.read_serial)
         thread.daemon = True
         thread.start()
-    
-    def confirm_clear(self):
-        if tk.messagebox.askyesno("Confirm Clear", "Do you really want to clear the graph?"):
-            self.clear_graph()
+
+    def confirm_reset(self):
+        if messagebox.askyesno("Confirm Reset", "Do you really want to reset the VTRX System?"):
+            self.send_reset_command()
+
+    def send_reset_command(self):
+        try:
+            self.ser.write("RESET\n".encode('utf-8')) # Send RESET command to Arduino
+            self.log_message("Sent RESET command to VTRX.")
+        except serial.SerialException as e:
+            messagebox.showerror("Error", f"Failed to send reset command: {str(e)}")
+            print(f"Serial execution {str(e)}")
 
     def clear_graph(self):
-        # Clear the data lists
-        self.x_data.clear()
-        self.y_data.clear()
-        
-        # Reset the line data to an empty state
+        # Clear the plot as defined in the original setup...
         self.line.set_data([], [])
-        
-        # Reset the axes to prepare for new data
-        self.ax.cla()  # Clear the axis to remove old lines and texts
-        self.ax.set_xlabel('Time', fontsize=8)
-        self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-        self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-6, 1200.0)
-        now = datetime.datetime.now()
-        self.ax.set_xlim(mdates.date2num(now), mdates.date2num(now + datetime.timedelta(seconds=self.time_window)))
-        self.ax.set_title('Live Pressure Readout', fontsize=10, color='black' if not self.error_state else 'red')
-        self.line, = self.ax.plot([], [], 'g-')
-
-        # Redraw the canvas to reflect the cleared state
+        self.ax.relim()
+        self.ax.autoscale_view()
         self.canvas.draw()
-        self.init_time = now
-        # Since the data lists are empty now, reinitialize them when new data is added or received
-        self.x_data = [now + datetime.timedelta(seconds=i) for i in range(self.time_window)]
+        self.x_data = [datetime.datetime.now() + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * len(self.x_data)
+        self.init_time = self.x_data[0]
+
