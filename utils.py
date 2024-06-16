@@ -157,6 +157,9 @@ class ToolTip(object):
             canvas.draw()
             canvas.get_tk_widget().pack()
 
+            # Close the figure when tooltip is closed to manage memory
+            self.tip_window.bind("<Destroy>", lambda e, fig=fig: plt.close(fig))
+
             # Add vertical and horizontal lines if values are provided
             if self.voltage_var.get() and self.current_var.get():
                 voltage = float(self.voltage_var.get())
