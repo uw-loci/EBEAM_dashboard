@@ -61,6 +61,7 @@ class VTRXSubsystem:
         self.time_window = 100 # Time window in seconds
         self.data_timeout = 1.5 # Seconds timeout for receiving data
         self.init_time = datetime.datetime.now()
+        self.last_gui_update_time = time.time()
         self.x_data = [self.init_time + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * self.time_window
 
@@ -77,35 +78,37 @@ class VTRXSubsystem:
     def read_serial(self):
         while True:
             try:
-                # Read a line from the serial port
                 data_bytes = self.ser.readline()
-                self.last_data_received_time = time.time()  # Update last received time
-                # Try to decode the bytes. Ignore or replace erroneous bytes to prevent crashes.
-                data = data_bytes.decode('utf-8', errors='replace').strip()  # 'replace' will insert a � for bad bytes
-                if data:
-                    self.handle_serial_data(data)
-            except serial.SerialException as e:
-                self.log_message(f"Serial read error: {e}")
+                if data_bytes:
+                    self.last_data_received_time = time.time()  # Update last received time
+                    data = data_bytes.decode('utf-8', errors='replace').strip()
+                    if data:
+                        self.handle_serial_data(data)
+                    else:
+                        raise ValueError("Empty data received.")
+                else:
+                    raise serial.SerialException("No data bytes read from serial.")
+            except (serial.SerialException, UnicodeDecodeError, ValueError, Exception) as e:
                 self.error_state = True
-            except UnicodeDecodeError as e:
-                self.log_message(f"Unicode decode error: {e}")
-                self.error_state = True
-            except Exception as e:
-                self.log_message(f"Unexpected error: {e}")
-                self.error_state = True
+                self.log_message(f"Communication error: {e}")
+                self.parent.after(0, self.update_gui_with_error_state)
+                time.sleep(1)
 
-            # Check for timeout
-            if time.time() - self.last_data_received_time > self.data_timeout:
-                self.error_state = True
-                self.log_message("Error: No data received within the timeout period.")
-                self.update_gui_with_error_state()
+    def update_gui_with_error_state(self):
+        self.label_pressure.config(text="No data...", fg="red")
+        self.line.set_color('red')
+        self.ax.set_title('Live Pressure Readout (Error)', fontsize=10, color='red')
+        for label in self.labels:
+            label.config(image=self.indicators[0])
+        
+        self.canvas.draw_idle()
 
     def handle_serial_data(self, data):
-        self.error_state = False
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.log_message("Incomplete data received.")
             self.error_state = True
+            self.update_gui_with_error_state()
             return
         
         try:
@@ -114,6 +117,7 @@ class VTRXSubsystem:
             switch_states_binary = data_parts[2]    # binary state switches
             switch_states = [int(bit) for bit in f"{int(switch_states_binary, 2):08b}"] # Ensures it's 8 bits long
 
+            self.error_state = False # Assume no error unless found
             if len(data_parts) > 3: # Handle errors
                 errors = data_parts[3:] # All subsequent parts are errors
                 for error in errors:
@@ -121,13 +125,16 @@ class VTRXSubsystem:
                         error_code, error_message = error.split(":")[1:]
                         self.log_message(f"VTRX Err {error_code}: Actual:{error_message}")
                         self.error_state = True
+            
+            if not self.error_state:    
+                self.parent.after(0, lambda: self.update_gui(
+                    pressure_value, 
+                    pressure_raw, 
+                    switch_states)
+                )
+            else:
+                self.update_gui_with_error_state()
 
-            self.parent.after(0, lambda: self.update_gui(
-                pressure_value, 
-                pressure_raw, 
-                switch_states)
-            )
-        
         except ValueError as e:    
             self.log_message(f"Error processing incoming data: {e}")
             self.error_state = True
@@ -194,47 +201,42 @@ class VTRXSubsystem:
             self.canvas_widget.pack(fill=tk.BOTH, expand=True)
     
     def update_gui(self, pressure_value, pressure_raw, switch_states):
+        if self.error_state:
+            return
+        
         current_time = datetime.datetime.now()
-        self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="red" if self.error_state else "black")
-
-        # Update each switch indicator
-        for idx, state in enumerate(switch_states):
-            label = self.labels[idx]
-            label.config(image=self.indicators[state])
-
-        # Calculate elapsed time from the initial time
         elapsed_time = (current_time - self.init_time).total_seconds()
 
         if elapsed_time > self.time_window:
-            # Shift the data window: remove the oldest data point and add the new one
             self.x_data.pop(0)
             self.y_data.pop(0)
-            self.x_data.append(current_time)
-            self.y_data.append(pressure_value)
-            # Update the initial time to the start of the current window
-            self.init_time = self.x_data[0]
-        else:
-            # If still within the initial window, just append the new data
-            self.x_data.append(current_time)
-            self.y_data.append(pressure_value)
 
-        # Update the plot to reflect the new data
-        self.update_plot()
+        self.x_data.append(current_time)
+        self.y_data.append(pressure_value)
+
+        if time.time() - self.last_gui_update_time > 0.5:
+            self.last_gui_update_time = time.time()
+            self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="black" if not self.error_state else "red")
+            self.line.set_color('green' if not self.error_state else 'red')
+            self.ax.set_title('Live Pressure Readout', fontsize=10, color='black' if not self.error_state else 'red')
+            self.update_plot()
+
+            for idx, state in enumerate(switch_states):
+                self.labels[idx].config(image=self.indicators[state])
 
     def update_plot(self):
+        # Update the data for the line, rather than recreating it
         self.line.set_data(self.x_data, self.y_data)
-        self.ax.set_xlim(self.x_data[0], self.x_data[-1])
-        
-        if self.error_state:
-            self.line.set_color('red')  # Set the line color to red if there is an error
-            self.ax.set_title('Live Pressure Readout (Error)', fontsize=10, color='red')
-        else:
-            self.line.set_color('green')  # Set the line color to green if there is no error
-            self.ax.set_title('Live Pressure Readout', fontsize=10, color='black')
+        self.ax.relim()  # Recalculate limits based on the new data
+        self.ax.autoscale_view(True, True, True)
 
-        self.ax.relim()
-        self.ax.autoscale_view()
-        self.canvas.draw()
+        # Efficiently update the canvas without redrawing everything
+        self.canvas.draw_idle()  # Use draw_idle instead of draw
+
+        # Adjust the x-axis to show the latest data
+        self.ax.set_xlim(left=max(self.x_data[0], self.x_data[-1] - datetime.timedelta(seconds=self.time_window)), right=self.x_data[-1])
+
+        self.canvas.flush_events()
 
     def start_serial_thread(self):
         thread = threading.Thread(target=self.read_serial)
