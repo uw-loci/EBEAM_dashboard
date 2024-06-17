@@ -41,6 +41,7 @@ class CathodeHeatingSubsystem:
         self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.previous_temperature = 20 # PLACEHOLDER TODO: REMOVE THIS
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overvoltage_limit_vars= [tk.DoubleVar(value=50.0) for _ in range(3)]  
@@ -173,7 +174,7 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.temperature_data[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
 
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
@@ -254,28 +255,34 @@ class CathodeHeatingSubsystem:
     
     def read_temperature(self):
         # Placeholder method to read temperature from cathodes
-        return float(random.uniform(20, 22))  # Ensure this returns a float
+        # Change temperature by a small random step
+        step = random.uniform(-0.05, 0.05)
+        new_temperature = self.previous_temperature + step
+        new_temperature = max(20, min(new_temperature, 22))
+        self.previous_temperature = new_temperature
+        return new_temperature
 
     def update_data(self):
         current_time = datetime.datetime.now()
         for i in range(3):
             voltage, current = self.read_current_voltage()
-            temperature = self.read_temperature()  # Ensure this returns a float or numeric type
-            self.predicted_temperature_vars[i].set('0.0')  # Ensure temperature is numeric and correctly formatted
-            self.time_data[i].append(current_time)
+            temperature = self.read_temperature()
 
-            temperature_data = list(self.temperature_data[i][0].get_data()[1])
-            temperature_data.append(temperature)
-            
+            # Append new data efficiently with NumPy
+            self.time_data[i] = np.append(self.time_data[i], current_time)
+            temperature_data = np.append(self.temperature_data[i][0].get_data()[1], temperature)
+
+            # Trim data to maintain a maximum of MAX_POINTS
             if len(self.time_data[i]) > self.MAX_POINTS:
-                self.time_data[i].pop(0)
-                temperature_data.pop(0)
+                self.time_data[i] = self.time_data[i][-self.MAX_POINTS:]
+                temperature_data = temperature_data[-self.MAX_POINTS:]
 
-            self.temperature_data[i][0].set_data(self.time_data[i], temperature_data)  # Ensure data is set correctly
+            # Update the plot data
+            self.temperature_data[i][0].set_data(self.time_data[i], temperature_data)
             self.clamp_temperature_vars[i].set(f"{temperature:.2f}")
             self.update_plot(i)
-
-            # Check for overtemperature
+            
+            # Overtemperature check
             if temperature > self.overtemp_limit_vars[i].get():
                 self.overtemp_status_vars[i].set("OVERTEMP!")
                 self.log_message(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!")
