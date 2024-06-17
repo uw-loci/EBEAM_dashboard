@@ -1,6 +1,7 @@
 # subsystem.py
 import tkinter as tk
 from tkinter import ttk
+import tkinter.messagebox as msgbox
 import datetime
 import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -304,6 +305,11 @@ class CathodeHeatingSubsystem:
         self.log_message(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
 
     def set_target_current(self, index, entry_field):
+        if self.toggle_states[index]:
+            # if the output toggle is enabled, show a warning message
+            msgbox.showwarning("Warning", "Disable the output before setting a new target current.")
+            return
+
         try:
             target_current_mA = float(entry_field.get())
             ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
