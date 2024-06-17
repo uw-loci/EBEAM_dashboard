@@ -21,18 +21,25 @@ class MessagesFrame:
 
         # Configure the grid layout to allow the text widget to expand
         self.frame.columnconfigure(0, weight=1)
+        self.frame.columnconfigure(1, weight=1)
         self.frame.rowconfigure(1, weight=1)
 
         # Create a Text widget for logs
         self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 8))
-        self.text_widget.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
+        self.text_widget.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=10, pady=0)
 
         # Create a button to clear the text widget
         self.clear_button = tk.Button(self.frame, text="Clear Messages", command=self.confirm_clear)
         self.clear_button.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
 
+        self.save_button = tk.Button(self.frame, text="Save Log", command=self.save_log)
+        self.save_button.grid(row=2, column=1, sticky="ew", padx=10, pady=10)
+
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
+
+        # Ensure that the log directory exists
+        self.ensure_log_directory()
 
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
@@ -56,6 +63,24 @@ class MessagesFrame:
         if line_count > self.MAX_LINES:
             line_diff = line_count - self.MAX_LINES
             self.text_widget.delete('1.0', f'{line_diff}.0')
+
+    def ensure_log_directory(self):
+        ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
+        try:
+            base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+            self.log_dir = os.path.join(base_path, "logs")
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+        except Exception as e:
+            print(f"Failed to create log directory: {str(e)}")
+
+    def save_log(self):
+        """ Save the current contents of the text widget to a timestamped log file in 'logs/' directory. """
+        filename = datetime.datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt")
+        full_path = os.path.join(self.log_dir, filename)
+        with open(full_path, 'w') as file:
+            file.write(self.text_widget.get("1.0", tk.END))
+        messagebox.showinfo("Save Successful", f"Log saved as {filename}")
 
     def confirm_clear(self):
         ''' Show a confirmation dialog before clearing the text widget '''
