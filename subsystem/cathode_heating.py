@@ -35,17 +35,17 @@ class CathodeHeatingSubsystem:
         self.predicted_emission_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.predicted_heater_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.predicted_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.heater_voltage_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.e_beam_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overvoltage_limit_vars= [tk.DoubleVar(value=50.0) for _ in range(3)]  
         self.overcurrent_limit_vars = [tk.DoubleVar(value=10.0) for _ in range(3)]
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
-        
 
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
@@ -123,6 +123,8 @@ class CathodeHeatingSubsystem:
             config_tab = ttk.Frame(notebook)
             notebook.add(config_tab, text='Config')
 
+            config_tab.columnconfigure(1, minsize=90)
+
             # Create voltage and current labels
             set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
             
@@ -170,8 +172,8 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.temperature_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.temperature_data[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
 
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
@@ -188,12 +190,15 @@ class CathodeHeatingSubsystem:
             canvas.draw()
             canvas.get_tk_widget().grid(row=11, column=0, columnspan=3, pady=0.1)
 
-            # Config tab widgets
+            # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (°C):', style='RightAlign.TLabel')
             overtemp_label.grid(row=0, column=0, sticky='e')
-            overtemp_entry = ttk.Entry(config_tab, textvariable=self.overtemp_limit_vars[i], width=7)
+
+            temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
+            overtemp_entry = ttk.Entry(config_tab, textvariable=temp_overtemp_var, width=7)
             overtemp_entry.grid(row=0, column=1, sticky='w')
-            set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overtemp_limit(i))
+            
+            set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
             set_overtemp_button.grid(row=0, column=2, sticky='e')
 
             # Overvoltage limit entry
@@ -256,26 +261,18 @@ class CathodeHeatingSubsystem:
         for i in range(3):
             voltage, current = self.read_current_voltage()
             temperature = self.read_temperature()  # Ensure this returns a float or numeric type
-            self.temperature_vars[i].set(f'{temperature:.2f}')  # Ensure temperature is numeric and correctly formatted
-            
-            # use the set cathode emission currnet if available
-            e_beam_current = self.ideal_cathode_emission_currents[i]
-            target_current = 0.72 * e_beam_current if e_beam_current > 0 else 0
-            grid_current = 0.28 * e_beam_current if e_beam_current > 0 else 0
-            self.e_beam_current_vars[i].set(f'{e_beam_current:.2f}')
-            self.target_current_vars[i].set(f'{target_current:.2f}')
-            self.grid_current_vars[i].set(f'{grid_current:.2f}')
-
-            # Update temperature data for plot
+            self.predicted_temperature_vars[i].set('0.0')  # Ensure temperature is numeric and correctly formatted
             self.time_data[i].append(current_time)
+
             temperature_data = list(self.temperature_data[i][0].get_data()[1])
             temperature_data.append(temperature)
+            
             if len(self.time_data[i]) > self.MAX_POINTS:
                 self.time_data[i].pop(0)
                 temperature_data.pop(0)
 
             self.temperature_data[i][0].set_data(self.time_data[i], temperature_data)  # Ensure data is set correctly
-            
+            self.clamp_temperature_vars[i].set(f"{temperature:.2f}")
             self.update_plot(i)
 
             # Check for overtemperature
@@ -292,8 +289,23 @@ class CathodeHeatingSubsystem:
         time_data = self.time_data[index]
         temperature_data = self.temperature_data[index][0].get_data()[1]
         self.temperature_data[index][0].set_data(time_data, temperature_data)
-
         ax = self.temperature_data[index][0].axes
+
+        if self.overtemp_status_vars[index].get() == "OVERTEMP!":
+            for spine in ax.spines.values():
+                spine.set_color('red')
+            ax.xaxis.label.set_color('red')
+            ax.yaxis.label.set_color('red')
+            ax.tick_params(axis='both', colors='red')
+            self.temperature_data[index][0].set_color('red')
+        else:
+            for spine in ax.spines.values():
+                spine.set_color('black')
+            ax.xaxis.label.set_color('black')
+            ax.yaxis.label.set_color('black')
+            ax.tick_params(axis='both', colors='black')
+            self.temperature_data[index][0].set_color('blue')  # Default plot color
+
         ax.relim()
         ax.autoscale_view()
         ax.figure.canvas.draw()
@@ -357,14 +369,14 @@ class CathodeHeatingSubsystem:
         except ValueError:
             self.log_message("Invalid input for target current")
         
-    def set_overtemp_limit(self, index):
+    def set_overtemp_limit(self, index, temp_var):
         try:
-            new_limit = self.overtemp_limit_vars[index].get()
-            self.OVERTEMP_THRESHOLD = new_limit
+            new_limit = float(temp_var.get())
+            self.overtemp_limit_vars[index].set(new_limit)
             self.log_message(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}°C")
-        except:
+        except ValueError:
             self.log_message("Invalid input for overtemperature limit")
-
+        
     def log_message(self, message):
         if hasattr(self, 'messages_frame') and self.messages_frame:
             self.messages_frame.log_message(message)
