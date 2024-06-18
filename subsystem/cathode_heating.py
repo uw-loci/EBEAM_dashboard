@@ -41,6 +41,7 @@ class CathodeHeatingSubsystem:
         self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.clamp_temp_labels = []
         self.previous_temperature = 20 # PLACEHOLDER
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
@@ -76,6 +77,8 @@ class CathodeHeatingSubsystem:
         style.configure('Flat.TButton', padding=(0, 0, 0, 0), relief='flat', borderwidth=0)
         style.configure('Bold.TLabel', font=('Helvetica', 10, 'bold'))
         style.configure('RightAlign.TLabel', font=('Helvetica', 9), anchor='e')
+        style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
+
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -174,7 +177,9 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
+            clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
+            clamp_temp_label.grid(row=10, column=1, sticky='w')
+            self.clamp_temp_labels.append(clamp_temp_label)
 
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
@@ -288,12 +293,15 @@ class CathodeHeatingSubsystem:
             self.clamp_temperature_vars[i].set(f"{temperature:.2f}")
             self.update_plot(i)
             
-            # Overtemperature check
+            # Overtemperature check and update label style
+            clamp_temp_label = f"clampTempLabel_{i}"
             if temperature > self.overtemp_limit_vars[i].get():
                 self.overtemp_status_vars[i].set("OVERTEMP!")
                 self.log_message(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!")
+                self.clamp_temp_labels[i].config(style='OverTemp.TLabel') # Change to red style
             else:
                 self.overtemp_status_vars[i].set('OFF')
+                self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Change back to normal style
 
         # Schedule next update
         self.parent.after(500, self.update_data)
