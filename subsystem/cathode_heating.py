@@ -41,7 +41,7 @@ class CathodeHeatingSubsystem:
         self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.previous_temperature = 20 # PLACEHOLDER TODO: REMOVE THIS
+        self.previous_temperature = 20 # PLACEHOLDER
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overvoltage_limit_vars= [tk.DoubleVar(value=50.0) for _ in range(3)]  
@@ -131,49 +131,49 @@ class CathodeHeatingSubsystem:
             
             set_target_label.grid(row=0, column=0, sticky='e')
             ToolTip(set_target_label, "Target current is predicted to be 72% of cathode emission current")
-
             entry_field = ttk.Entry(main_tab, width=7)
             entry_field.grid(row=0, column=1, sticky='w')
             set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_target_current(i, entry_field))
             set_button.grid(row=0, column=1, sticky='e')
 
-            pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
-            pred_emission_label.grid(row=1, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w')
-
-            set_grid_label = ttk.Label(main_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
-            set_grid_label.grid(row=2, column=0, sticky='e')
-            ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
-            ttk.Label(main_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
-            
-            ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
-
-            ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
             voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
-            voltage_label.grid(row=4, column=1, sticky='w')
+            voltage_label.grid(row=1, column=1, sticky='w')
             ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
 
+            pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
+            pred_emission_label.grid(row=2, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
+
+            set_grid_label = ttk.Label(main_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
+            set_grid_label.grid(row=3, column=0, sticky='e')
+            ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
+            ttk.Label(main_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
+            
+            ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
+
+            ttk.Label(main_tab, text='Pred CathTemp (°C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
+
             # Create entries and display labels
-            ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel').grid(row=5, column=0, sticky='w')
+            ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel').grid(row=6, column=0, sticky='w')
 
             # Create toggle switch
             toggle_button = ttk.Button(main_tab, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=5, column=1, columnspan=1)
+            toggle_button.grid(row=6, column=1, columnspan=1)
             self.toggle_buttons.append(toggle_button)
 
-            # Create calculated values labels
-            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=6, column=0, sticky='e')
-            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
-            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
-            ttk.Label(main_tab, text='CathTemp Pred (°C):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            # Create measured values labels
+            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
             ttk.Label(main_tab, text='Act ClampTemp (°C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
 
             # Create entries and display labels for calculated values
-            ttk.Label(main_tab, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
 
             # Create plot for each cathode
@@ -237,15 +237,21 @@ class CathodeHeatingSubsystem:
 
     def init_cathode_model(self):
         try:
+            # initialize heater voltage model
             heater_current = [data[0] for data in ES440_cathode.heater_voltage_current_data]
             heater_voltage = [data[1] for data in ES440_cathode.heater_voltage_current_data]
-
             self.heater_voltage_model = ES440_cathode(heater_current, heater_voltage, log_transform=False)
 
+            # initialize emission current model
             heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
             emission_current = [data[1] for data in ES440_cathode.heater_current_emission_current_data]
-
             self.emission_current_model = ES440_cathode(heater_current_emission, emission_current, log_transform=True)
+        
+            # Initialize true temperature model
+            heater_current_temp = [data[0] for data in ES440_cathode.heater_current_true_temperature_data]
+            true_temperature = [data[1] for data in ES440_cathode.heater_current_true_temperature_data]
+            self.true_temperature_model = ES440_cathode(heater_current_temp, true_temperature, log_transform=False)
+
         except Exception as e:
             self.log_message(f"Failed to initialize cathode models: {str(e)}")
 
@@ -333,7 +339,7 @@ class CathodeHeatingSubsystem:
             target_current_mA = float(entry_field.get())
             ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
             log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            self.log_message(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.2f}mA")
+            self.log_message(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA")
             
             if ideal_emission_current == 0:
                 # Set all related variables to zero
@@ -364,10 +370,14 @@ class CathodeHeatingSubsystem:
                 heater_voltage = self.heater_voltage_model.interpolate(heater_current)
                 self.log_message(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.2f}V")
 
+                predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
+                predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
+
                 predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
                 self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
                 self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
                 self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
+                self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
                 self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
 
                 self.log_message(f"Set ideal cathode emission current for Cathode {['A', 'B', 'C'][index]} to {ideal_emission_current:.2f}mA")
@@ -383,7 +393,7 @@ class CathodeHeatingSubsystem:
             self.log_message(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}°C")
         except ValueError:
             self.log_message("Invalid input for overtemperature limit")
-        
+
     def log_message(self, message):
         if hasattr(self, 'messages_frame') and self.messages_frame:
             self.messages_frame.log_message(message)
