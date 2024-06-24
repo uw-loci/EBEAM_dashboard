@@ -67,7 +67,15 @@ class MessagesFrame:
     def ensure_log_directory(self):
         ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
         try:
-            base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+            # For PyInstaller, _MEIPASS is the path to the temporary folder where the app is unpacked.
+            # os.path.abspath(".") gives the path to the current directory when running the script normally.
+            if hasattr(sys, '_MEIPASS'):
+                # If running as a bundled executable
+                base_path = sys._MEIPASS
+            else:
+                # If running as a script (e.g., python main.py)
+                base_path = os.path.abspath(".")
+
             self.log_dir = os.path.join(base_path, "logs")
             if not os.path.exists(self.log_dir):
                 os.makedirs(self.log_dir)
@@ -76,11 +84,14 @@ class MessagesFrame:
 
     def save_log(self):
         """ Save the current contents of the text widget to a timestamped log file in 'logs/' directory. """
-        filename = datetime.datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt")
-        full_path = os.path.join(self.log_dir, filename)
-        with open(full_path, 'w') as file:
-            file.write(self.text_widget.get("1.0", tk.END))
-        messagebox.showinfo("Save Successful", f"Log saved as {filename}")
+        try:
+            filename = datetime.datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt")
+            full_path = os.path.join(self.log_dir, filename)
+            with open(full_path, 'w') as file:
+                file.write(self.text_widget.get("1.0", tk.END))
+            messagebox.showinfo("Save Successful", f"Log saved as {filename}")
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save log: {str(e)}")
 
     def confirm_clear(self):
         ''' Show a confirmation dialog before clearing the text widget '''
