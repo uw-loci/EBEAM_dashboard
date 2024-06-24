@@ -42,19 +42,19 @@ class EBEAMSystemDashboard:
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
         frames_config = [
-            ("Oil System", 0, 250, 150),
-            ("Visualization Gas Control", 0, 250, 150),
+            ("Oil System", 0, 50, 150),
+            ("Visualization Gas Control", 0, 50, 150),
             ("System Checks", 0, None, None),
             ("Beam Extraction", 0, None, None),
             ("Vacuum System", 1, 150, 300),
             ("Deflection Monitor", 1, None, None),
-            ("Main Control", 1, None, None),
-            ("Interlocks", 2, None, None),
-            ("High Voltage Warning", 2, None, None),
-            ("Setup Script", 3, None, None),
-            ("Beam Pulse", 3, None, None),
-            ("Environmental", 4, 150, 450),
-            ("Cathode Heating", 4, 960, 450),
+            ("Beam Pulse", 1, None, None),
+            ("Main Control", 1, 50, 300),
+            ("Setup Script", 2, None, 25),
+            ("Interlocks", 2, None, 25),
+            ("High Voltage Warning", 2, None, 25),
+            ("Environmental", 3, 150, 450),
+            ("Cathode Heating", 3, 960, 450),
         ]
 
         for title, row, width, height in frames_config:
@@ -120,5 +120,5 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a frame for displaying messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[4])
-        self.rows[4].add(self.messages_frame.frame, stretch='always')
+        self.messages_frame = MessagesFrame(self.rows[3])
+        self.rows[3].add(self.messages_frame.frame, stretch='always')
