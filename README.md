@@ -1,6 +1,18 @@
 # EBEAM System Dashboard Software
 
-### 1. Architecture
+### 1. Build Instructions
+```
+git clone https://github.com/mslaffin/EBEAM_dashboard.git
+```
+```
+cd EBEAM_dashboard
+```
+```
+python -m PyInstaller EBEAM_DASHBOARD.spec
+```
+
+
+### 2. Architecture
 
 - **Language & Libraries**: Python, using the [Tkinter](https://docs.python.org/3/library/tkinter.html) interface for the GUI, [matplotlib](https://matplotlib.org/) for plotting, and [Pyserial](https://pythonhosted.org/pyserial/) for communication with external systems through virtual COM ports.
 - **High-level Design**: The application is divided into several modules:
@@ -30,7 +42,7 @@ EBEAM_DASHBOARD/
 └── utils.py
 ```
 
-### 2. Components
+### 3. Components
 
 - **Main Application (main.py)**:
   - **Configuration Loader**: Responsible for initial configurations, setting up COM ports, and starting the main dashboard.
@@ -48,7 +60,7 @@ EBEAM_DASHBOARD/
     - TODO: A655sc
     - TODO: BOP-100-2ML
 
-### 3. Dashboard (dashboard.py)
+### 4. Dashboard (dashboard.py)
 
 - **EBEAMSystemDashboard Class**: The main class that sets up the dashboard interface.
   - **`setup_main_pane`**: Initializes the main layout pane and its rows.
@@ -56,7 +68,7 @@ EBEAM_DASHBOARD/
   - **`create_messages_frame`**: Creates a frame for displaying messages and errors.
   - **`create_subsystems`**: Initializes subsystems in their designated frames using component settings.
 
-### 4. Subsystems
+### 5. Subsystems
 
 - **`vtrx.py`**:
   - Manages the VTRX system, including serial communication and GUI updates.
@@ -79,7 +91,7 @@ EBEAM_DASHBOARD/
   - Monitors and displays oil temperature and pressure.
   - Uses a vertical temperature gauge and a dial meter for pressure visualization.
 
-### 5. Utilities (`utils.py`)
+### 6. Utilities (`utils.py`)
 
 - **MessagesFrame Class**:
   - A custom Tkinter frame for displaying messages and errors.
@@ -93,5 +105,5 @@ EBEAM_DASHBOARD/
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
-### 6. Flowchart
+### 7. Flowchart
 ![Application architecture](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/CCS_GUI_flowchart.png)
