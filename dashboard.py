@@ -42,23 +42,28 @@ class EBEAMSystemDashboard:
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
         frames_config = [
-            ("Oil System", 0),
-            ("Visualization Gas Control", 0),
-            ("System Checks", 0),
-            ("Beam Extraction", 0),
-            ("Vacuum System", 1),
-            ("Deflection Monitor", 1),
-            ("Main Control", 1),
-            ("Interlocks", 2),
-            ("High Voltage Warning", 2),
-            ("Setup Script", 3),
-            ("Beam Pulse", 3),
-            ("Environmental", 4),
-            ("Cathode Heating", 4),
+            ("Oil System", 0, 250, 150),
+            ("Visualization Gas Control", 0, 250, 150),
+            ("System Checks", 0, None, None),
+            ("Beam Extraction", 0, None, None),
+            ("Vacuum System", 1, 150, 300),
+            ("Deflection Monitor", 1, None, None),
+            ("Main Control", 1, None, None),
+            ("Interlocks", 2, None, None),
+            ("High Voltage Warning", 2, None, None),
+            ("Setup Script", 3, None, None),
+            ("Beam Pulse", 3, None, None),
+            ("Environmental", 4, 150, 450),
+            ("Cathode Heating", 4, 960, 450),
         ]
 
-        for title, row in frames_config:
-            frame = tk.Frame(borderwidth=2, relief="solid")
+        for title, row, width, height in frames_config:
+            if width and height:
+                frame = tk.Frame(borderwidth=1, relief="solid", width=width, height=height)
+                frame.pack_propagate(False)
+            else:
+                frame = tk.Frame(borderwidth=1, relief="solid")
+
             self.rows[row].add(frame, stretch='always')
             self.add_title(frame, title)
             self.frames[title] = frame
