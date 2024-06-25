@@ -15,12 +15,10 @@ class ES440_cathode:
         if inverse:
             x_index, y_index = (self.y_data, self.x_data) if self.log_transform else (self.x_data, self.y_data)
             if x < min(x_index) or x > max(x_index):
-                print(f"Warning: Input {x} is out of the interpolation range.")
                 x = max(min(x_index), min(max(x_index), x))
             return np.interp(x, x_index, y_index)
         else:
             if x < min(self.x_data) or x > max(self.x_data):
-                print(f"Warning: Input {x} is out of the interpolation range.")
                 x = max(min(self.x_data), min(max(self.x_data), x))
             return np.exp10(np.interp(x, self.x_data, self.y_data)) if self.log_transform else np.interp(x, self.x_data, self.y_data)
     
