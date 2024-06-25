@@ -52,6 +52,7 @@ class CathodeHeatingSubsystem:
 
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
+        self.entry_fields = []
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.messages_frame = messages_frame
@@ -137,6 +138,7 @@ class CathodeHeatingSubsystem:
             ToolTip(set_target_label, "Target current is predicted to be 72% of cathode emission current")
             entry_field = ttk.Entry(main_tab, width=7)
             entry_field.grid(row=0, column=1, sticky='w')
+            self.entry_fields.append(entry_field)
             set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_target_current(i, entry_field))
             set_button.grid(row=0, column=1, sticky='e')
 
@@ -357,7 +359,7 @@ class CathodeHeatingSubsystem:
                 self.predicted_grid_current_vars[index].set('0.00')
                 self.predicted_heater_current_vars[index].set('0.00')
                 self.heater_voltage_vars[index].set('0.00')
-
+                self.predicted_temperature_vars[index].set('0.00')
                 return
 
             # Ensure current is within the data range
@@ -405,6 +407,7 @@ class CathodeHeatingSubsystem:
         new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
         if new_voltage is not None:
             self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+            self.entry_fields[index].delete(0, tk.END)
             self.update_predictions_from_voltage(index, new_voltage)
 
     def update_predictions_from_voltage(self, index, voltage):
