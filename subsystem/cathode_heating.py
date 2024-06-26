@@ -7,6 +7,7 @@ import datetime
 import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from matplotlib.dates import DateFormatter
 from instrumentctl.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9014 import PowerSupply9014
@@ -80,7 +81,6 @@ class CathodeHeatingSubsystem:
         style.configure('Bold.TLabel', font=('Helvetica', 10, 'bold'))
         style.configure('RightAlign.TLabel', font=('Helvetica', 9), anchor='e')
         style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
-
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -190,8 +190,9 @@ class CathodeHeatingSubsystem:
             line, = ax.plot([], [])
             self.temperature_data[i].append(line)
             ax.set_xlabel('Time', fontsize=8)
-            ax.set_ylabel('Temp (°C)', fontsize=8)
+            # ax.set_ylabel('Temp (°C)', fontsize=8)
             ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
+            ax.xaxis.set_major_locator(MaxNLocator(4))
             ax.tick_params(axis='x', labelsize=6)
             ax.tick_params(axis='y', labelsize=6)
             fig.tight_layout(pad=0.01)
