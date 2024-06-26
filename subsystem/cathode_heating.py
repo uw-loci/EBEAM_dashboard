@@ -54,6 +54,7 @@ class CathodeHeatingSubsystem:
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
         self.entry_fields = []
+        self.power_supplies = []
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.messages_frame = messages_frame
@@ -63,16 +64,20 @@ class CathodeHeatingSubsystem:
         self.update_data()
 
     def initialize_power_supplies(self):
-        try:
-            self.power_supplies = [
-                PowerSupply9014(port=self.com_ports['CathodeA'], messages_frame=self.messages_frame),
-                PowerSupply9014(port=self.com_ports['CathodeB'], messages_frame=self.messages_frame),
-                PowerSupply9014(port=self.com_ports['CathodeC'], messages_frame=self.messages_frame)
-            ]
+        self.power_supplies = []
+        for port_label, port in self.com_ports.items():
+            try:
+                ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
+                self.power_supplies.append(ps)
+                self.log_message(f"Initialized power supply on port {port}")
+            except Exception as e:
+                self.log_message(f"Failed to initialize power supply on port {port}: {str(e)}")
+
+        if self.power_supplies:
             self.power_supplies_initialized = True
-        except Exception as e:
-            print(f"Failed to initialize power supplies: {str(e)}")
+        else:
             self.power_supplies_initialized = False
+        self.log_message("No power supplies were initialized.")
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -337,11 +342,22 @@ class CathodeHeatingSubsystem:
         ax.figure.canvas.draw()
 
     def toggle_output(self, index):
+        if not self.power_supplies_initialized or not self.power_supplies:
+            self.log_message("Power supplies not properly initialized or list is empty.")
+            return
+        
         self.toggle_states[index] = not self.toggle_states[index]
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
-        self.log_message(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
-
+        if self.toggle_states[index]:
+            response = self.power_supplies[index].set_output("1") # ON
+        else:
+            response = self.power_supplies[index].set_output("0") # OFF
+        if response:
+            self.log_message(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
+        else:
+            self.log_message(f"No response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
+    
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
             # if the output toggle is enabled, show a warning message

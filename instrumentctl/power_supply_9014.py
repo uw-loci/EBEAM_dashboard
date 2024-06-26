@@ -1,12 +1,16 @@
 import serial
 
 class PowerSupply9014:
-    def __init__(self, port, baudrate=9600, timeout=1, messages_frame=None):
+    def __init__(self, port, baudrate=9600, timeout=1, messages_frame=None, debug_mode=False):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
+        if not debug_mode:
+            self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.messages_frame = messages_frame
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
+        if self.debug_mode:
+            return "Mock response based on " + command
         try:
             self.ser.write(f"{command}\r".encode())
             response = self.ser.readline().decode().strip()
