@@ -71,12 +71,12 @@ class MessagesFrame:
             # os.path.abspath(".") gives the path to the current directory when running the script normally.
             if hasattr(sys, '_MEIPASS'):
                 # If running as a bundled executable
-                base_path = sys._MEIPASS
+                base_path = os.path.expanduser("~")  # Gets the home directory
             else:
                 # If running as a script (e.g., python main.py)
                 base_path = os.path.abspath(".")
 
-            self.log_dir = os.path.join(base_path, "logs")
+            self.log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
             if not os.path.exists(self.log_dir):
                 os.makedirs(self.log_dir)
         except Exception as e:
