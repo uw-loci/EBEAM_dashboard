@@ -11,6 +11,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib.dates import DateFormatter
 from instrumentctl.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9014 import PowerSupply9014
+from instrumentctl.ES5CN_modbus import ES5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np
@@ -55,11 +56,14 @@ class CathodeHeatingSubsystem:
         self.toggle_buttons = []
         self.entry_fields = []
         self.power_supplies = []
+        self.temperature_controllers = []
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.messages_frame = messages_frame
         self.init_cathode_model()
         self.initialize_power_supplies()
+        self.initialize_temperature_controllers()
+        
         self.setup_gui()
         self.update_data()
 
@@ -269,6 +273,20 @@ class CathodeHeatingSubsystem:
 
         except Exception as e:
             self.log_message(f"Failed to initialize cathode models: {str(e)}")
+
+    def initialize_temperature_controllers(self):
+        for unit in ES5CNModbus.UNIT_NUMBERS:
+            port = self.com_ports.get(f'TempCtrl{chr(65 + unit - 1)}', None)
+            if port:
+                try:
+                    tc = ES5CNModbus(port=port, messages_frame=self.messages_frame)
+                    if tc.connect():
+                        self.temperature_controllers.append(tc)
+                        self.log_message(f"Connected temperature controller at {port}")
+                    else:
+                        self.log_message(f"Failed to connect temperature controller at {port}")
+                except Exception as e:
+                    self.log_message(f"Exception while initializing temperature controller at {port}: {str(e)}")
 
     def read_current_voltage(self):
         # Placeholder method to read current and voltage from power supplies
