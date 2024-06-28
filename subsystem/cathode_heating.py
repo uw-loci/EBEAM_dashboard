@@ -63,7 +63,7 @@ class CathodeHeatingSubsystem:
         self.init_cathode_model()
         self.initialize_power_supplies()
         self.initialize_temperature_controllers()
-        
+
         self.setup_gui()
         self.update_data()
 
@@ -244,6 +244,18 @@ class CathodeHeatingSubsystem:
             ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
             output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
 
+            # Place echoback and temperature buttons on the config tab
+            echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
+                                        command=lambda unit=i+1: self.perform_echoback_test(unit))
+            echoback_button.grid(row=4, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
+                                        command=lambda unit=i+1: self.read_and_log_temperature(unit))
+            read_temp_button.grid(row=5, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+
+        # Ensure the grid layout of config_tab accommodates the new buttons
+        config_tab.columnconfigure(0, weight=1)
+        config_tab.columnconfigure(1, weight=1)
+
         self.init_time = datetime.datetime.now()
 
     def show_output_status(self, index):
@@ -275,18 +287,22 @@ class CathodeHeatingSubsystem:
             self.log_message(f"Failed to initialize cathode models: {str(e)}")
 
     def initialize_temperature_controllers(self):
-        for unit in ES5CNModbus.UNIT_NUMBERS:
-            port = self.com_ports.get(f'TempCtrl{chr(65 + unit - 1)}', None)
-            if port:
-                try:
-                    tc = ES5CNModbus(port=port, messages_frame=self.messages_frame)
-                    if tc.connect():
-                        self.temperature_controllers.append(tc)
-                        self.log_message(f"Connected temperature controller at {port}")
-                    else:
-                        self.log_message(f"Failed to connect temperature controller at {port}")
-                except Exception as e:
-                    self.log_message(f"Exception while initializing temperature controller at {port}: {str(e)}")
+        """
+        Initialize the connection to the Modbus devices.
+        """
+        port = self.com_ports.get('TempControllers', None)
+        if port:
+            try:
+                # Assuming only one Modbus controller object for all units
+                tc = ES5CNModbus(port=port, messages_frame=self.messages_frame)
+                if tc.connect():
+                    self.temperature_controllers = [tc]  # Store it in a list for compatibility with existing code structure
+                    self.log_message("Connected to all temperature controllers via Modbus on " + port)
+                else:
+                    self.log_message("Failed to connect to temperature controllers at " + port)
+            except Exception as e:
+                self.log_message(f"Exception while initializing temperature controllers at {port}: {str(e)}")
+
 
     def read_current_voltage(self):
         # Placeholder method to read current and voltage from power supplies
@@ -509,3 +525,23 @@ class CathodeHeatingSubsystem:
             self.messages_frame.log_message(message)
         else:
             print(message)
+
+def perform_echoback_test(self, unit):
+    """
+    Perform an echoback test using the specified temperature controller.
+    """
+    controller = self.temperature_controllers[0]
+    result = controller.perform_echoback_test(unit)
+    self.log_message(result)
+
+def read_and_log_temperature(self, controller):
+    """
+    Read the temperature from the specified controller and log the result.
+    """
+    controller = self.temperature_controllers[0]
+    temperature = controller.read_temperature(unit)
+    if temperature is not None:
+        message = f"Temperature from unit {controller.unit_number}: {temperature:.2f} °C"
+    else:
+        message = f"Error reading temperature from unit {controller.unit_number}"
+    self.log_message(message)

@@ -5,8 +5,8 @@ import serial
 
 class ES5CNModbus:
     ECHOBACK_ADDRESS = 0x0000  # Address for the echoback test, page 92
-    TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page xx
-    UNIT_NUMBERS = [1, 2, 3]  # Example unit numbers for each controller
+    TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
+    UNIT_NUMBERS = [1, 2, 3]  # Unit numbers for each controller
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='N', stopbits=1, bytesize=8, messages_frame=None, debug_mode=False):
         self.client = ModbusClient(method='rtu', port=port, baudrate=baudrate, parity=parity,
@@ -41,12 +41,12 @@ class ES5CNModbus:
         test_data = [0x12, 0x34]  # Example data for echoback
         response = self.client.write_registers(address=self.ECHOBACK_ADDRESS, values=test_data, unit=unit)
         if not response.isError():
-            success_msg = f"Echoback response from unit {unit}: Success"
+            success_msg = f"Echoback response from CathTempCtl unit {unit}: Success"
             if self.messages_frame:
                 self.messages_frame.log_message(success_msg)
             return True
         else:
-            error_msg = f"Failed echoback from unit {unit}, error: {response}"
+            error_msg = f"Failed echoback from CathTempCtl unit {unit}, error: {response}"
             if self.messages_frame:
                 self.messages_frame.log_message(error_msg)
             return False

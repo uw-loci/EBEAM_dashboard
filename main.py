@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk
 import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
+import cProfile
+import pstats
 
 def start_main_app(com_ports):
     root = tk.Tk()
@@ -20,7 +22,7 @@ def config_com_ports():
     selections = {}
 
     # Create a dropdown for each subsystem
-    subsystems = ['VTRXSubsystem', 'ApexMassFlowController', 'CathodeA', 'CathodeB', 'CathodeC']
+    subsystems = ['VTRXSubsystem', 'ApexMassFlowController', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']
     for subsystem in subsystems:
         tk.Label(config_root, text=f"{subsystem} COM Port:").pack()
         selected_port = tk.StringVar()
@@ -38,4 +40,8 @@ def config_com_ports():
     config_root.mainloop()
 
 if __name__ == "__main__":
+
+    profiler = cProfile.Profile()
+    profiler.enable()
     config_com_ports()
+    profiler.disable()
