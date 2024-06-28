@@ -8,7 +8,7 @@ class ES5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]  # Unit numbers for each controller
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='N', stopbits=1, bytesize=8, messages_frame=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=7, messages_frame=None, debug_mode=False):
         self.client = ModbusClient(method='rtu', port=port, baudrate=baudrate, parity=parity,
                                    stopbits=stopbits, bytesize=bytesize, timeout=timeout)
         self.messages_frame = messages_frame
@@ -50,3 +50,4 @@ class ES5CNModbus:
             if self.messages_frame:
                 self.messages_frame.log_message(error_msg)
             return False
+    
