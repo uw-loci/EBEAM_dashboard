@@ -357,9 +357,12 @@ class CathodeHeatingSubsystem:
     def update_plot(self, index):
         time_data = self.time_data[index]
         temperature_data = self.temperature_data[index][0].get_data()[1]
+
+        # Update the data points for the plot
         self.temperature_data[index][0].set_data(time_data, temperature_data)
         ax = self.temperature_data[index][0].axes
 
+        # Adjust color based on temperature status
         if self.overtemp_status_vars[index].get() == "OVERTEMP!":
             for spine in ax.spines.values():
                 spine.set_color('red')
@@ -368,15 +371,18 @@ class CathodeHeatingSubsystem:
             ax.tick_params(axis='both', colors='red')
             self.temperature_data[index][0].set_color('red')
         else:
+            color = 'blue'  # Default color
             for spine in ax.spines.values():
-                spine.set_color('black')
-            ax.xaxis.label.set_color('black')
-            ax.yaxis.label.set_color('black')
-            ax.tick_params(axis='both', colors='black')
-            self.temperature_data[index][0].set_color('blue')  # Default plot color
+                spine.set_color(color)
+            ax.xaxis.label.set_color(color)
+            ax.yaxis.label.set_color(color)
+            ax.tick_params(axis='both', colors=color)
+            self.temperature_data[index][0].set_color(color)
 
+        # Adjust plot to new data
         ax.relim()
         ax.autoscale_view()
+
         ax.figure.canvas.draw()
 
     def toggle_output(self, index):
@@ -530,23 +536,23 @@ class CathodeHeatingSubsystem:
         else:
             print(message)
 
-def perform_echoback_test(self, unit):
-    """
-    Perform an echoback test on the specified unit.
-    This method checks if the temperature controllers are connected before proceeding.
-    """
-    try:
-        # Ensure that the unit index is within the range of connected controllers
-        if unit - 1 >= len(self.temperature_controllers):
-            raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
+    def perform_echoback_test(self, unit):
+        """
+        Perform an echoback test on the specified unit.
+        This method checks if the temperature controllers are connected before proceeding.
+        """
+        try:
+            # Ensure that the unit index is within the range of connected controllers
+            if unit - 1 >= len(self.temperature_controllers):
+                raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
 
-        # Perform the echoback test
-        controller = self.temperature_controllers[unit - 1]
-        result = controller.perform_echoback_test()
-        self.log_message(f"Echoback test result for Unit {unit}: {result}")
-    except Exception as e:
-        self.log_message(f"Failed to perform echoback test on Unit {unit}: {str(e)}")
-        msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
+            # Perform the echoback test
+            controller = self.temperature_controllers[unit - 1]
+            result = controller.perform_echoback_test()
+            self.log_message(f"Echoback test result for Unit {unit}: {result}")
+        except Exception as e:
+            self.log_message(f"Failed to perform echoback test on Unit {unit}: {str(e)}")
+            msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
 
 
     def read_and_log_temperature(self, unit):
