@@ -210,47 +210,51 @@ class CathodeHeatingSubsystem:
             canvas.draw()
             canvas.get_tk_widget().grid(row=11, column=0, columnspan=3, pady=0.1)
 
+            ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
             # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (°C):', style='RightAlign.TLabel')
-            overtemp_label.grid(row=0, column=0, sticky='e')
+            overtemp_label.grid(row=1, column=0, sticky='e')
 
             temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
             overtemp_entry = ttk.Entry(config_tab, textvariable=temp_overtemp_var, width=7)
-            overtemp_entry.grid(row=0, column=1, sticky='w')
+            overtemp_entry.grid(row=1, column=1, sticky='w')
             
             set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
-            set_overtemp_button.grid(row=0, column=2, sticky='e')
+            set_overtemp_button.grid(row=1, column=2, sticky='e')
 
             # Overvoltage limit entry
             overvoltage_label = ttk.Label(config_tab, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
-            overvoltage_label.grid(row=1, column=0, sticky='e')
+            overvoltage_label.grid(row=2, column=0, sticky='e')
             overvoltage_entry = ttk.Entry(config_tab, textvariable=self.overvoltage_limit_vars[i], width=7)
-            overvoltage_entry.grid(row=1, column=1, sticky='w')
+            overvoltage_entry.grid(row=2, column=1, sticky='w')
             set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=1, column=2, sticky='e')
+            set_overvoltage_button.grid(row=2, column=2, sticky='e')
 
             # Overcurrent limit entry
             overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
-            overcurrent_label.grid(row=2, column=0, sticky='e')
+            overcurrent_label.grid(row=3, column=0, sticky='e')
             overcurrent_entry = ttk.Entry(config_tab, textvariable=self.overcurrent_limit_vars[i], width=7)
-            overcurrent_entry.grid(row=2, column=1, sticky='w')
+            overcurrent_entry.grid(row=3, column=1, sticky='w')
             set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_overcurrent_button.grid(row=2, column=2, sticky='e')
+            set_overcurrent_button.grid(row=3, column=2, sticky='e')
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
             output_status_button = ttk.Button(config_tab, text="Output Status:", width=18, command=lambda x=i: self.show_output_status(x))
-            output_status_button.grid(row=3, column=0, sticky='w')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
+            output_status_button.grid(row=4, column=0, sticky='w')
+            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
             output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
+
+            # Add label for Temperature Controller
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=7, column=0, columnspan=3, sticky="ew")
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=4, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=8, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=5, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=9, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -528,20 +532,39 @@ class CathodeHeatingSubsystem:
 
 def perform_echoback_test(self, unit):
     """
-    Perform an echoback test using the specified temperature controller.
+    Perform an echoback test on the specified unit.
+    This method checks if the temperature controllers are connected before proceeding.
     """
-    controller = self.temperature_controllers[0]
-    result = controller.perform_echoback_test(unit)
-    self.log_message(result)
+    try:
+        # Ensure that the unit index is within the range of connected controllers
+        if unit - 1 >= len(self.temperature_controllers):
+            raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
 
-def read_and_log_temperature(self, controller):
-    """
-    Read the temperature from the specified controller and log the result.
-    """
-    controller = self.temperature_controllers[0]
-    temperature = controller.read_temperature(unit)
-    if temperature is not None:
-        message = f"Temperature from unit {controller.unit_number}: {temperature:.2f} °C"
-    else:
-        message = f"Error reading temperature from unit {controller.unit_number}"
-    self.log_message(message)
+        # Perform the echoback test
+        controller = self.temperature_controllers[unit - 1]
+        result = controller.perform_echoback_test()
+        self.log_message(f"Echoback test result for Unit {unit}: {result}")
+    except Exception as e:
+        self.log_message(f"Failed to perform echoback test on Unit {unit}: {str(e)}")
+        msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
+
+
+    def read_and_log_temperature(self, unit):
+        """
+        Read the temperature from the specified unit and log the result.
+        Ensures the unit is connected before attempting to read.
+        """
+        try:
+            if unit - 1 >= len(self.temperature_controllers):
+                raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
+
+            controller = self.temperature_controllers[unit - 1]
+            temperature = controller.read_temperature()
+            if temperature is not None:
+                message = f"Temperature from Unit {unit}: {temperature:.2f} °C"
+                self.log_message(message)
+            else:
+                raise Exception("Failed to read temperature")
+        except Exception as e:
+            self.log_message(f"Error reading temperature from Unit {unit}: {str(e)}")
+            msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
