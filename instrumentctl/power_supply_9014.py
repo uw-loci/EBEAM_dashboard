@@ -49,6 +49,31 @@ class PowerSupply9014:
         """Get the display readings for voltage and current mode."""
         command = "GETD"
         return self.send_command(command)
+    
+    def get_voltage_current_mode(self):
+        """
+        Extract voltage and current from the power supply reading.
+        
+        Returns:
+        - A tuple (voltage, current) with both values converted to floats.
+        """
+        reading = self.get_display_readings()
+        if reading:
+            # Example response: '050001000\r\nOK\r\n' pg. 5 programming manual
+            try:
+                # Remove any trailing newlines or carriage returns
+                reading = reading.replace('\r', '').replace('\n', '')
+                # Assuming the response format is consistent with the example '050001000OK'
+                voltage = float(reading[0:5]) / 1000  # Convert to float and adjust scale
+                current = float(reading[5:10]) / 1000  # Convert to float and adjust scale
+                mode = 'CV Mode' if reading[10] == '0' else 'CC Mode'
+                return voltage, current, mode
+            except (ValueError, IndexError) as e:
+                self.log_message(f"Error parsing voltage/current/mode: {str(e)}")
+                return 0.0, 0.0, "Err"
+        else:
+            self.log_message("Failed to get display readings.")
+            return 0.0, 0.0
 
     def set_over_current_protection(self, ocp):
         """Set the over current protection value."""
