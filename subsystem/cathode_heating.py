@@ -46,6 +46,11 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.clamp_temp_labels = []
         self.previous_temperature = 20 # PLACEHOLDER
+
+        # Config tab
+        self.current_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.voltage_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.operation_mode_var = tk.StringVar(value='Mode: --')
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overvoltage_limit_vars= [tk.DoubleVar(value=50.0) for _ in range(3)]  
@@ -245,16 +250,35 @@ class CathodeHeatingSubsystem:
             ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
             output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
 
+            # Add labels for power supply readings
+            display_label = ttk.Label(config_tab, text='Power Supply Readings:', style='Bold.TLabel')
+            display_label.grid(row=5, column=0, columnspan=1, sticky='ew')
+
+            voltage_display_var = tk.StringVar(value='Voltage: -- V')
+            current_display_var = tk.StringVar(value='Current: -- A')
+            operation_mode_var = tk.StringVar(value='Mode: --')
+
+            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
+            voltage_label.grid(row=6, column=0, sticky='w')
+            current_label = ttk.Label(config_tab, textvariable=current_display_var, style='Bold.TLabel')
+            current_label.grid(row=6, column=1, sticky='w')
+            mode_label = ttk.Label(config_tab, textvariable=self.operation_mode_var, style='Bold.TLabel')
+            mode_label.grid(row=6, column=2, sticky='w')
+
+            # Store variables for later updates
+            self.voltage_display_vars.append(voltage_display_var)
+            self.current_display_vars.append(current_display_var)
+
             # Add label for Temperature Controller
-            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=7, column=0, columnspan=3, sticky="ew")
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=8, column=0, columnspan=3, sticky="ew")
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=8, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=9, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=9, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=10, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -324,32 +348,44 @@ class CathodeHeatingSubsystem:
     def update_data(self):
         current_time = datetime.datetime.now()
         for i in range(3):
-            voltage, current = self.read_current_voltage()
-            temperature = self.read_temperature()
+            if self.power_supplies_initialized and len(self.power_supplies) > i:
+                voltage, current, mode = self.power_supplies[i].get_voltage_current_mode(i)
+            else:
+                voltage, current = 0.0, 0.0  # Default values if not initialized or out of index
 
-            # Append new data efficiently with NumPy
+            temperature = self.read_temperature() # TODO index this
+
+            # Append new time and temperature data
             self.time_data[i] = np.append(self.time_data[i], current_time)
-            temperature_data = np.append(self.temperature_data[i][0].get_data()[1], temperature)
+            self.temperature_data[i][0].set_data(self.time_data[i], np.append(self.temperature_data[i][0].get_data()[1], temperature))
 
             # Trim data to maintain a maximum of MAX_POINTS
             if len(self.time_data[i]) > self.MAX_POINTS:
                 self.time_data[i] = self.time_data[i][-self.MAX_POINTS:]
-                temperature_data = temperature_data[-self.MAX_POINTS:]
+                self.temperature_data[i][0].set_data(self.time_data[i], self.temperature_data[i][0].get_data()[1][-self.MAX_POINTS:])
 
-            # Update the plot data
-            self.temperature_data[i][0].set_data(self.time_data[i], temperature_data)
-            self.clamp_temperature_vars[i].set(f"{temperature:.2f}")
-            self.update_plot(i)
+            # Update Main Page labels for voltage and current
+            self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+            self.e_beam_current_vars[i].set(f"{current:.2f} A")
+            self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
             
+            # Update Config page labels
+            self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V')
+            self.current_display_vars[i].set(f'Current: {current:.2f} A')
+            mode_text = 'CV Mode' if mode == 0 else 'CC Mode'
+            self.operation_mode_var.set(f'Mode: {mode_text}')
+
             # Overtemperature check and update label style
-            clamp_temp_label = f"clampTempLabel_{i}"
             if temperature > self.overtemp_limit_vars[i].get():
                 self.overtemp_status_vars[i].set("OVERTEMP!")
                 self.log_message(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!")
-                self.clamp_temp_labels[i].config(style='OverTemp.TLabel') # Change to red style
+                self.clamp_temp_labels[i].config(style='OverTemp.TLabel')  # Change to red style
             else:
-                self.overtemp_status_vars[i].set('OFF')
-                self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Change back to normal style
+                self.overtemp_status_vars[i].set('Normal')
+                self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Revert to normal style
+
+            # Update the plot for current cathode
+            self.update_plot(i)
 
         # Schedule next update
         self.parent.after(500, self.update_data)
@@ -525,7 +561,7 @@ class CathodeHeatingSubsystem:
                 self.predicted_temperature_vars[index].set("N/A")
 
             self.log_message(f"Manual voltage set for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V")
-            self.log_message(f"Manual current set for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}V")
+            self.log_message(f"Manual current set for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A")
             self.log_message(f"Updated predictions based on manual voltage input.")
 
         except ValueError as e:
