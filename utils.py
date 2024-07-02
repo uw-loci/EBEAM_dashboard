@@ -198,10 +198,14 @@ class ToolTip(object):
 
             # Add vertical and horizontal lines if values are provided
             if self.voltage_var.get() and self.current_var.get():
-                voltage = float(self.voltage_var.get())
-                current = float(self.current_var.get())
-                ax.axvline(voltage, color='red', linestyle='--')
-                ax.axhline(current, color='red', linestyle='--')
+
+                try:
+                    voltage = float(self.voltage_var.get())
+                    current = float(self.current_var.get())
+                    ax.axvline(voltage, color='red', linestyle='--')
+                    ax.axhline(current, color='red', linestyle='--')
+                except ValueError as e:
+                    self.log_message(f"Error parsing tooltip values: {str(e)}")
         else:
             label = tk.Label(tw, text=self.text, justify='left',
                              background="#ffffe0", relief='solid', borderwidth=1,
