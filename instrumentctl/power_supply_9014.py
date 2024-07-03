@@ -1,4 +1,6 @@
 import serial
+import threading
+import time
 
 class PowerSupply9014:
     def __init__(self, port, baudrate=9600, timeout=1, messages_frame=None, debug_mode=False):
@@ -33,7 +35,47 @@ class PowerSupply9014:
     def set_voltage(self, preset, voltage):
         """Set the output voltage."""
         command = f"VOLT{preset}{voltage}"
-        return self.send_command(command)
+    
+        response = self.send_command(command)
+        if response.strip() != "OK":
+            self.log_message(f"Error setting voltage: {response}")
+            return False
+        return True
+    
+    def ramp_voltage(self, target_voltage, ramp_rate=0.1, callback=None):
+        """
+        Slowly ramp the voltage to the target voltage at the specified ramp rate.
+        Runs in a separate thread to avoid blocking the GUI
+        
+        Args:
+            target_voltage (float): The target voltage to reach in volts.
+            ramp_rate (float): The rate at which to change the voltage in volts per second.
+            callback (function): Optional function to call when ramping is complete.
+        """        
+        thread = threading.Thread(target=self._ramp_voltage_thread,
+                                  args=(target_voltage, ramp_rate, callback))
+        thread.start()
+
+    def _ramp_voltage_thread(self, target_voltage, ramp_rate, callback):
+        current_voltage = 0.0  # Starting voltage, adjust if you can fetch from the PSU.
+        step_size = 0.1  # Voltage step in volts.
+        step_delay = step_size / ramp_rate  # Delay in seconds.
+
+        while current_voltage < target_voltage:
+            next_voltage = min(current_voltage + step_size, target_voltage)
+            if not self.set_voltage(1, next_voltage):  # Assume preset 1
+                self.log_message(f"Failed to set voltage to {next_voltage:.2f}V.")
+                if callback:
+                    callback(False)
+                return
+
+            self.log_message(f"Voltage set to {next_voltage:.2f}V.")
+            time.sleep(step_delay)
+            current_voltage = next_voltage
+
+        self.log_message("Target voltage reached.")
+        if callback:
+            callback(True)
 
     def set_current(self, preset, current):
         """Set the output current."""
