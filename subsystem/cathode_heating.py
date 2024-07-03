@@ -50,7 +50,7 @@ class CathodeHeatingSubsystem:
         # Config tab
         self.current_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.voltage_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.operation_mode_var = tk.StringVar(value='Mode: --')
+        self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overvoltage_limit_vars= [tk.DoubleVar(value=50.0) for _ in range(3)]  
@@ -143,7 +143,8 @@ class CathodeHeatingSubsystem:
             config_tab = ttk.Frame(notebook)
             notebook.add(config_tab, text='Config')
 
-            config_tab.columnconfigure(1, minsize=90)
+            config_tab.columnconfigure(1, minsize=70)
+            config_tab.columnconfigure(2, minsize=20)
 
             # Create voltage and current labels
             set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
@@ -251,7 +252,7 @@ class CathodeHeatingSubsystem:
             output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
 
             # Add labels for power supply readings
-            display_label = ttk.Label(config_tab, text='Power Supply Readings:', style='Bold.TLabel')
+            display_label = ttk.Label(config_tab, text='\nProtection Settings:')
             display_label.grid(row=5, column=0, columnspan=1, sticky='ew')
 
             voltage_display_var = tk.StringVar(value='Voltage: -- V')
@@ -260,10 +261,10 @@ class CathodeHeatingSubsystem:
 
             voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
             voltage_label.grid(row=6, column=0, sticky='w')
-            current_label = ttk.Label(config_tab, textvariable=current_display_var, style='Bold.TLabel')
-            current_label.grid(row=6, column=1, sticky='w')
-            mode_label = ttk.Label(config_tab, textvariable=self.operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=6, column=2, sticky='w')
+            # current_label = ttk.Label(config_tab, textvariable=current_display_var, style='Bold.TLabel')
+            # current_label.grid(row=6, column=1, sticky='w')
+            mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
+            mode_label.grid(row=6, column=1, sticky='w')
 
             # Store variables for later updates
             self.voltage_display_vars.append(voltage_display_var)
@@ -351,7 +352,7 @@ class CathodeHeatingSubsystem:
             if self.power_supplies_initialized and len(self.power_supplies) > i:
                 voltage, current, mode = self.power_supplies[i].get_voltage_current_mode(i)
             else:
-                voltage, current = 0.0, 0.0  # Default values if not initialized or out of index
+                voltage, current, mode = 0.0, 0.0, -1  # Default values if not initialized or out of index
 
             temperature = self.read_temperature() # TODO index this
 
@@ -368,12 +369,12 @@ class CathodeHeatingSubsystem:
             self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
             self.e_beam_current_vars[i].set(f"{current:.2f} A")
             self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
-            
+
             # Update Config page labels
             self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V')
             self.current_display_vars[i].set(f'Current: {current:.2f} A')
-            mode_text = 'CV Mode' if mode == 0 else 'CC Mode'
-            self.operation_mode_var.set(f'Mode: {mode_text}')
+            mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
+            self.operation_mode_var[i].set(f'Mode: {mode_text}')
 
             # Overtemperature check and update label style
             if temperature > self.overtemp_limit_vars[i].get():
