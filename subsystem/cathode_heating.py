@@ -474,29 +474,41 @@ class CathodeHeatingSubsystem:
 
                 # Set voltage and current on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
-                    self.power_supplies[index].set_voltage(1, heater_voltage)  # Preset 1 for voltage
-                    self.power_supplies[index].set_current(1, heater_current)  # Preset 1 for current
+                    voltage_set_success = self.power_supplies[index].set_voltage(1, heater_voltage)  # Preset 1 for voltage
+                    current_set_success = self.power_supplies[index].set_current(1, heater_current)  # Preset 1 for current
 
-                predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-                predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
+                    if voltage_set_success and current_set_success:
+                        predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
+                        predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
 
-                predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-                self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
-                self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
-                self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
-                self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
-                self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
+                        predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
+                        self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
+                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
+                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
+                        self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
+                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
 
-                self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
+                        self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
+                    else:
+                        self.reset_related_variables(index)
+                        self.log_message(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.")
 
         except ValueError:
             self.log_message("Invalid input for target current")
+
+    def reset_related_variables(self, index):
+        """ Resets display variables when setting voltage/current fails. """
+        self.predicted_emission_current_vars[index].set('0.00')
+        self.predicted_grid_current_vars[index].set('0.00')
+        self.predicted_heater_current_vars[index].set('0.00')
+        self.heater_voltage_vars[index].set('0.00')
+        self.predicted_temperature_vars[index].set('0.00')
 
     def reset_power_supply(self, index):
         """ Helper function to reset power supply voltage and current to zero """
         if self.power_supplies and len(self.power_supplies) > index:
             self.power_supplies[index].set_voltage(1, 0.0)
-            self.power_supplies[index].set_votlage(1, 0.0)
+            self.power_supplies[index].set_voltage(1, 0.0)
             self.log_message(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}")
         self.predicted_emission_current_vars[index].set('0.00')
         self.predicted_grid_current_vars[index].set('0.00')
@@ -508,65 +520,52 @@ class CathodeHeatingSubsystem:
         """ Handle clicks on heater voltage label to manually set heater voltage """
         new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
         if new_voltage is not None:
-            self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
-            self.entry_fields[index].delete(0, tk.END)
-            self.update_predictions_from_voltage(index, new_voltage)
+            success = self.update_predictions_from_voltage(index, new_voltage)
+            if success:
+                self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+                self.entry_fields[index].delete(0, tk.END)
+            else:
+                self.log_message(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.")
 
     def update_predictions_from_voltage(self, index, voltage):
         """Update predictions based on manually entered voltage."""
         try:
-            # Create an instance of the ES440_cathode using the voltage-current data
-            voltage_data = [data[1] for data in ES440_cathode.heater_voltage_current_data]  # y-values
-            current_data = [data[0] for data in ES440_cathode.heater_voltage_current_data]  # x-values
-            cathode_model = ES440_cathode(voltage_data, current_data, log_transform=False)
-
-            # Interpolate the current corresponding to the given voltage using inverse interpolation
+            # Use the ES440_cathode model to interpolate current from voltage
+            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+                                        log_transform=False)
             heater_current = cathode_model.interpolate(voltage, inverse=True)
-            self.log_message(f"Interpolated heater current: {heater_current:.3f}[A] based on {voltage:.3f}[V] input")
-           
+
+
+            # Check if the interpolated current is within the model's range
             if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
-                self.log_message("Warning: Heater current is out of the emission model's interpolation range.")
+                self.log_message("Heater current is out of the emission model's range.")
+                return False
 
-            self.predicted_heater_current_vars[index].set(f"{heater_current:.2f}" if heater_current not in [np.inf, -np.inf, np.nan] else "N/A")
+            # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
-                self.power_supplies[index].set_voltage(1, voltage)  # Set voltage on preset 1
-                self.power_supplies[index].set_current(1, heater_current)  # Set current on preset 1
+                voltage_set_success = self.power_supplies[index].set_voltage(1, voltage)
+                current_set_success = self.power_supplies[index].set_current(1, heater_current)
+                if not voltage_set_success or not current_set_success:
+                    return False
 
+            # Calculate dependent variables
+            ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
+            predicted_grid_current = 0.28 * ideal_emission_current
+            predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
+            predicted_temperature_C = predicted_temperature_K - 273.15
 
-            # Attempt to calculate the dependent variables
-            try:    
-                # Calculate ideal emission current from interpolated heater current
-                if self.emission_current_model.log_transform:
-                    log_heater_current = np.log10(heater_current)
-                    ideal_emission_current = self.emission_current_model.interpolate(log_heater_current, inverse=True)
-                else:
-                    ideal_emission_current = self.emission_current_model.interpolate(heater_current)
+            # Update GUI with new values
+            self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
+            self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
 
-                if not min(self.emission_current_model.x_data) * 1000 <= ideal_emission_current <= max(self.emission_current_model.x_data) * 1000:
-                    raise ValueError("Emission current is out of the interpolation range.")
-
-                # Update other predictions based on the new current
-                predicted_grid_current = 0.28 * ideal_emission_current  # Assumption that grid current is 28% of emission current
-                predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-                predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
-
-                self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
-                self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
-                self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
-
-            except ValueError as e:
-                self.log_message(str(e))
-                # Set only the variables related to invalid ranges to "N/A"
-                self.predicted_emission_current_vars[index].set("N/A")
-                self.predicted_grid_current_vars[index].set("N/A")
-                self.predicted_temperature_vars[index].set("N/A")
-
-            self.log_message(f"Manual voltage set for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V")
-            self.log_message(f"Manual current set for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A")
-            self.log_message(f"Updated predictions based on manual voltage input.")
-
+            self.log_message(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A")
+            return True
         except ValueError as e:
-            self.log_message(str(e))
+            self.log_message(f"Error processing manual voltage setting: {str(e)}")
+            self.reset_related_variables(index)
+            return False
 
     def set_overtemp_limit(self, index, temp_var):
         try:
