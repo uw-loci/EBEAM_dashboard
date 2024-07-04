@@ -97,7 +97,7 @@ class VTRXSubsystem:
     def update_gui_with_error_state(self):
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
-        self.ax.set_title('Live Pressure Readout (Error)', fontsize=10, color='red')
+        self.ax.set_title('(Error)', fontsize=10, color='red')
         for label in self.labels:
             label.config(image=self.indicators[0])
         
@@ -185,11 +185,11 @@ class VTRXSubsystem:
             plot_frame = tk.Frame(layout_frame)
             plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
             self.fig, self.ax = plt.subplots()
-            self.fig.subplots_adjust(left=0.15, right=0.95, top=0.88, bottom=0.14) 
+            self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
             self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
+            self.ax.set_title('')
             self.ax.set_xlabel('Time', fontsize=8)
             self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-            self.ax.set_title('Live Pressure Readout', fontsize=10)
             self.ax.set_yscale('log')
             self.ax.set_ylim(1e-6, 1200.0)
             self.ax.tick_params(axis='x', labelsize=6)
