@@ -155,12 +155,13 @@ class SetupScripts:
                 print(f"An error occurred while executing {script_name}: {e}")
 
 class ToolTip(object):
-    def __init__(self, widget, text=None, plot_data=None, voltage_var=None, current_var=None):
+    def __init__(self, widget, text=None, plot_data=None, voltage_var=None, current_var=None, messages_frame=None):
         self.widget = widget
         self.text = text
         self.plot_data = plot_data
         self.voltage_var = voltage_var
         self.current_var = current_var
+        self.messages_frame = messages_frame
         self.widget.bind("<Enter>", self.enter)
         self.widget.bind("<Leave>", self.leave)
         self.tip_window = None
@@ -200,12 +201,13 @@ class ToolTip(object):
             if self.voltage_var.get() and self.current_var.get():
 
                 try:
-                    voltage = float(self.voltage_var.get())
-                    current = float(self.current_var.get())
+                    voltage = float(self.voltage_var.get().replace(' V', ''))
+                    current = float(self.current_var.get().replace(' A', ''))
                     ax.axvline(voltage, color='red', linestyle='--')
                     ax.axhline(current, color='red', linestyle='--')
                 except ValueError as e:
-                    self.log_message(f"Error parsing tooltip values: {str(e)}")
+                    if self.messages_frame and hasattr(self.messages_frame, 'log_message'):
+                        self.messages_frame.log_message(f"Error parsing tooltip values: {str(e)}")
         else:
             label = tk.Label(tw, text=self.text, justify='left',
                              background="#ffffe0", relief='solid', borderwidth=1,
