@@ -37,10 +37,12 @@ class PowerSupply9014:
         command = f"VOLT{preset}{voltage}"
     
         response = self.send_command(command)
-        if response.strip() != "OK":
-            self.log_message(f"Error setting voltage: {response}")
+        if response and response.strip() == "OK":
+            return True
+        else:
+            error_message = "No response" if response is None else response
+            self.log_message(f"Error setting voltage: {error_message}")
             return False
-        return True
     
     def ramp_voltage(self, target_voltage, ramp_rate=0.1, callback=None):
         """
