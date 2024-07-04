@@ -44,7 +44,7 @@ class ES5CNModbus:
                 self.log_message(f"Temperature from unit {unit}: {temperature:.2f} °C")
                 return temperature
             else:
-                    raise ModbusException("Failed to read temperature due to Modbus error.")
+                raise ModbusException("Failed to read temperature due to Modbus error.")
         except ModbusException as e:
             self.log_message(f"Error reading temperature from unit {unit}: {str(e)}")
             return None
