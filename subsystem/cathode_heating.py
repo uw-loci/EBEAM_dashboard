@@ -27,7 +27,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class CathodeHeatingSubsystem:
-    MAX_POINTS = 20  # Maximum number of points to display on the plot
+    MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in °C
     
     def __init__(self, parent, com_ports, messages_frame=None):
@@ -46,6 +46,8 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.clamp_temp_labels = []
         self.previous_temperature = 20 # PLACEHOLDER
+        self.last_plot_time = datetime.datetime.now()
+        self.plot_interval = datetime.timedelta(seconds=5)
 
         # Config tab
         self.current_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -348,6 +350,8 @@ class CathodeHeatingSubsystem:
 
     def update_data(self):
         current_time = datetime.datetime.now()
+        plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
+
         for i in range(3):
             if self.power_supplies_initialized and len(self.power_supplies) > i:
                 voltage, current, mode = self.power_supplies[i].get_voltage_current_mode(i)
@@ -376,6 +380,9 @@ class CathodeHeatingSubsystem:
             mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
             self.operation_mode_var[i].set(f'Mode: {mode_text}')
 
+            if plot_this_cycle:
+                
+                
             # Overtemperature check and update label style
             if temperature > self.overtemp_limit_vars[i].get():
                 self.overtemp_status_vars[i].set("OVERTEMP!")
@@ -529,6 +536,7 @@ class CathodeHeatingSubsystem:
 
     def update_predictions_from_voltage(self, index, voltage):
         """Update predictions based on manually entered voltage."""
+
         try:
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
