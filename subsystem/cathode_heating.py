@@ -67,28 +67,13 @@ class CathodeHeatingSubsystem:
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.messages_frame = messages_frame
+        
         self.init_cathode_model()
-        self.initialize_power_supplies()
-        self.initialize_temperature_controllers()
-
         self.setup_gui()
+
+        self.initialize_temperature_controllers()
+        self.initialize_power_supplies()
         self.update_data()
-
-    def initialize_power_supplies(self):
-        self.power_supplies = []
-        for port_label, port in self.com_ports.items():
-            try:
-                ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
-                self.power_supplies.append(ps)
-                self.log_message(f"Initialized power supply on port {port}")
-            except Exception as e:
-                self.log_message(f"Failed to initialize power supply on port {port}: {str(e)}")
-
-        if self.power_supplies:
-            self.power_supplies_initialized = True
-        else:
-            self.power_supplies_initialized = False
-        self.log_message("No power supplies were initialized.")
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -246,27 +231,35 @@ class CathodeHeatingSubsystem:
             set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
             set_overcurrent_button.grid(row=3, column=2, sticky='e')
 
+            # Slew Rate setting
+            ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            slew_rate_var = tk.StringVar(value='0.01')  # Default value
+            slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
+            slew_rate_entry.grid(row=4, column=1, sticky='w')
+            set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
+            set_slew_rate_button.grid(row=4, column=2, sticky='e')
+
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
             output_status_button = ttk.Button(config_tab, text="Output Status:", width=18, command=lambda x=i: self.show_output_status(x))
-            output_status_button.grid(row=4, column=0, sticky='w')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
+            output_status_button.grid(row=5, column=0, sticky='w')
+            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
             output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
 
             # Add labels for power supply readings
             display_label = ttk.Label(config_tab, text='\nProtection Settings:')
-            display_label.grid(row=5, column=0, columnspan=1, sticky='ew')
+            display_label.grid(row=6, column=0, columnspan=1, sticky='ew')
 
             voltage_display_var = tk.StringVar(value='Voltage: -- V')
             current_display_var = tk.StringVar(value='Current: -- A')
             operation_mode_var = tk.StringVar(value='Mode: --')
 
             voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
-            voltage_label.grid(row=6, column=0, sticky='w')
+            voltage_label.grid(row=7, column=0, sticky='w')
             # current_label = ttk.Label(config_tab, textvariable=current_display_var, style='Bold.TLabel')
             # current_label.grid(row=6, column=1, sticky='w')
             mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=6, column=1, sticky='w')
+            mode_label.grid(row=7, column=1, sticky='w')
 
             # Store variables for later updates
             self.voltage_display_vars.append(voltage_display_var)
@@ -278,16 +271,51 @@ class CathodeHeatingSubsystem:
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=9, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=10, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=10, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
         config_tab.columnconfigure(1, weight=1)
 
         self.init_time = datetime.datetime.now()
+
+    
+    def initialize_power_supplies(self):
+        self.power_supplies = []
+        self.power_supply_status = []
+
+        for port_label, port in self.com_ports.items():
+            try:
+                ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
+                self.power_supplies.append(ps)
+                self.power_supply_status.append(True)
+                self.log_message(f"Initialized power supply on port {port}")
+            except Exception as e:
+                self.power_supplies.append(None)
+                self.power_supply_status.append(False)
+                self.log_message(f"Failed to initialize power supply on port {port}: {str(e)}")
+
+        # Update button states based on individual power supply status
+        for idx, status in enumerate(self.power_supply_status):
+            if idx < len(self.toggle_buttons): # Check if index is valid    
+                if status:
+                    self.toggle_buttons[idx]['state'] = 'normal'
+                else:
+                    self.toggle_buttons[idx]['state'] = 'disabled'
+                    self.log_message(f"Power supply {idx+1} not initialized. Button disabled.")
+            else:
+                self.log_message(f"Toggle button {idx+1} has not been initialized yet.")
+
+        if all(self.power_supply_status):
+            self.power_supplies_initialized = True
+        else:
+            self.power_supplies_initialized = False
+            self.log_message("Some power supplies were not initialized properly.")
+
+
 
     def show_output_status(self, index):
         if not self.power_supplies_initialized:
@@ -448,6 +476,11 @@ class CathodeHeatingSubsystem:
         if self.toggle_states[index]:
             # if the output toggle is enabled, show a warning message
             msgbox.showwarning("Warning", "Disable the output before setting a new target current.")
+            return
+
+        if not self.power_supplies[index]:
+            self.log_message(f"Power supply {index + 1} is not initialized. Cannot set target current.")
+            msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
             return
 
         try:
