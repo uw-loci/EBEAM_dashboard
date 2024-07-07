@@ -339,7 +339,7 @@ class CathodeHeatingSubsystem:
         # Placeholder method to read current and voltage from power supplies
         return random.uniform(2, 4), random.uniform(0.5, 0.9)
     
-    def read_temperature(self):
+    def read_temperature(self, index=None):
         # Placeholder method to read temperature from cathodes
         # Change temperature by a small random step
         step = random.uniform(-0.05, 0.05)
@@ -358,16 +358,16 @@ class CathodeHeatingSubsystem:
             else:
                 voltage, current, mode = 0.0, 0.0, -1  # Default values if not initialized or out of index
 
-            temperature = self.read_temperature() # TODO index this
+            temperature = self.read_temperature(i)  # Indexed to handle different temperature sensors
 
-            # Append new time and temperature data
-            self.time_data[i] = np.append(self.time_data[i], current_time)
-            self.temperature_data[i][0].set_data(self.time_data[i], np.append(self.temperature_data[i][0].get_data()[1], temperature))
+            if plot_this_cycle:
+                self.time_data[i] = np.append(self.time_data[i], current_time)
+                self.temperature_data[i][0].set_data(self.time_data[i], np.append(self.temperature_data[i][0].get_data()[1], temperature))
+                if len(self.time_data[i]) > self.MAX_POINTS:
+                    self.time_data[i] = self.time_data[i][-self.MAX_POINTS:]
+                    self.temperature_data[i][0].set_data(self.time_data[i], self.temperature_data[i][0].get_data()[1][-self.MAX_POINTS:])
 
-            # Trim data to maintain a maximum of MAX_POINTS
-            if len(self.time_data[i]) > self.MAX_POINTS:
-                self.time_data[i] = self.time_data[i][-self.MAX_POINTS:]
-                self.temperature_data[i][0].set_data(self.time_data[i], self.temperature_data[i][0].get_data()[1][-self.MAX_POINTS:])
+                self.last_plot_time = current_time  # Reset the plot timer
 
             # Update Main Page labels for voltage and current
             self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
@@ -380,9 +380,6 @@ class CathodeHeatingSubsystem:
             mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
             self.operation_mode_var[i].set(f'Mode: {mode_text}')
 
-            if plot_this_cycle:
-                
-                
             # Overtemperature check and update label style
             if temperature > self.overtemp_limit_vars[i].get():
                 self.overtemp_status_vars[i].set("OVERTEMP!")
@@ -393,7 +390,8 @@ class CathodeHeatingSubsystem:
                 self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Revert to normal style
 
             # Update the plot for current cathode
-            self.update_plot(i)
+            if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
+                self.update_plot(i)
 
         # Schedule next update
         self.parent.after(500, self.update_data)
