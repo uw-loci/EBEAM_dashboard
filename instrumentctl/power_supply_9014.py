@@ -16,9 +16,14 @@ class PowerSupply9014:
         try:
             self.ser.write(f"{command}\r".encode())
             response = self.ser.readline().decode().strip()
+            if not response:
+                raise ValueError("No response received from the device.")
             return response
         except serial.SerialException as e:
             print(f"Serial error: {e}")
+            return None
+        except ValueError as e:
+            self.log_message(f"Error processing response for command '{command}': {str(e)}")
             return None
 
     def set_output(self, state):
@@ -44,7 +49,7 @@ class PowerSupply9014:
             self.log_message(f"Error setting voltage: {error_message}")
             return False
     
-    def ramp_voltage(self, target_voltage, ramp_rate=0.1, callback=None):
+    def ramp_voltage(self, target_voltage, ramp_rate=0.01, callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
         Runs in a separate thread to avoid blocking the GUI
@@ -71,7 +76,7 @@ class PowerSupply9014:
                     callback(False)
                 return
 
-            self.log_message(f"Voltage set to {next_voltage:.2f}V.")
+            # self.log_message(f"Voltage set to {next_voltage:.2f}V.")
             time.sleep(step_delay)
             current_voltage = next_voltage
 
