@@ -104,14 +104,14 @@ class PowerSupply9014:
         Extract voltage and current from the power supply reading.
         
         Returns:
-        - A tuple (voltage, current) with both values converted to floats.
+        (voltage, current, mode)
         """
         reading = self.get_display_readings()
         if reading:
             # Example response: '050001000\r\nOK\r\n' pg. 5 programming manual
             try:
                 # Remove any trailing newlines or carriage returns
-                reading = reading.replace('\r', '').replace('\n', '')
+                reading = reading.strip()
                 # Assuming the response format is consistent with the example '050001000OK'
                 voltage = float(reading[0:5]) / 1000  # Convert to float and adjust scale
                 current = float(reading[5:10]) / 1000  # Convert to float and adjust scale
@@ -122,7 +122,7 @@ class PowerSupply9014:
                 return 0.0, 0.0, "Err"
         else:
             self.log_message("Failed to get display readings.")
-            return 0.0, 0.0
+            return 0.0, 0.0, "Err"
 
     def set_over_current_protection(self, ocp):
         """Set the over current protection value."""
