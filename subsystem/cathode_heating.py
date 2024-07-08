@@ -43,11 +43,17 @@ class CathodeHeatingSubsystem:
         self.e_beam_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        
+        self.actual_heater_current_vars = [tk.StringVar(value='0.0 A') for _ in range(3)]
+        self.actual_heater_voltage_vars = [tk.StringVar(value='0.0 V') for _ in range(3)]
+        self.actual_target_current_vars = [tk.StringVar(value='0.0 mA') for _ in range(3)]
         self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.clamp_temp_labels = []
         self.previous_temperature = 20 # PLACEHOLDER
         self.last_plot_time = datetime.datetime.now()
         self.plot_interval = datetime.timedelta(seconds=5)
+
+
 
         # Config tab
         self.current_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -175,14 +181,12 @@ class CathodeHeatingSubsystem:
 
             # Create measured values labels
             ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             ttk.Label(main_tab, text='Act ClampTemp (°C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
-
-            # Create entries and display labels for calculated values
-            ttk.Label(main_tab, textvariable=self.e_beam_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.target_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
-            ttk.Label(main_tab, textvariable=self.grid_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
             clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
@@ -381,12 +385,20 @@ class CathodeHeatingSubsystem:
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
         for i in range(3):
-            if self.power_supplies_initialized and len(self.power_supplies) > i:
-                voltage, current, mode = self.power_supplies[i].get_voltage_current_mode(i)
+            if self.power_supplies_initialized and self.power_supplies[i] is not None:
+                voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
+                self.actual_heater_current_vars[i].set(f"{current:.2f} A")
+                self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                # Assuming the target current should be calculated or retrieved similarly
+                # self.actual_target_current_vars[i].set(f"{calculated_target_current:.2f} mA")
             else:
-                voltage, current, mode = 0.0, 0.0, -1  # Default values if not initialized or out of index
+                voltage, current, mode = 0.0, 0.0, "Err"  # Default values if not initialized or out of index
+                self.actual_heater_current_vars[i].set("0.00 A")
+                self.actual_heater_voltage_vars[i].set("0.00 V")
+                self.actual_target_current_vars[i].set("0.00 mA")
 
-            temperature = self.read_temperature(i)  # Indexed to handle different temperature sensors
+            temperature = self.read_temperature(i)  # Indexed to handle different temperature sensors TODO: bind this to actual function
+            self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
