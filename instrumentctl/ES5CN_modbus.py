@@ -33,21 +33,33 @@ class ES5CNModbus:
         self.client.close()
 
     def read_temperature(self, unit):
-        if not self.client.is_socket_open():
-            if not self.connect():
-                self.log_message(f"Cannot read temperature: no connection to unit {unit}")
-        try:
-            response = self.client.read_holding_registers(address=self.TEMPERATURE_ADDRESS, count=2, unit=unit)
-            if not response.isError():
-                decoder = BinaryPayloadDecoder.fromRegisters(response.registers, byteorder=Endian.Big, wordorder=Endian.Little)
-                temperature = decoder.decode_32bit_float()
-                self.log_message(f"Temperature from unit {unit}: {temperature:.2f} °C")
-                return temperature
-            else:
-                raise ModbusException("Failed to read temperature due to Modbus error.")
-        except ModbusException as e:
-            self.log_message(f"Error reading temperature from unit {unit}: {str(e)}")
-            return None
+        attempts = 3
+        while attempts > 0:
+            try:
+                if not self.client.is_socket_open():
+                    self.connect()
+                        # self.log_message(f"Cannot read temperature: no connection to unit {unit}")
+                    response = self.client.read_holding_registers(address=self.TEMPERATURE_ADDRESS, count=2, unit=unit)
+                    if response.isError():
+                        attempts -= 1
+                        if attempts == 0:
+                            raise ModbusException("Failed to read temperature due to Modbus error.")
+                        continue
+
+                    decoder = BinaryPayloadDecoder.fromRegisters(response.registers, byteorder=Endian.Big, wordorder=Endian.Little)
+                    temperature = decoder.decode_32bit_float()
+                    self.log_message(f"Temperature from unit {unit}: {temperature:.2f} °C")
+                    return temperature
+
+            except ModbusException as e:
+                self.log_message(f"Error reading temperature from unit {unit}: {str(e)}")
+                attempts -= 1
+                continue
+
+            except Exception as e:
+                self.log_message(f"Unexpected error: {str(e)} for unit {unit}")
+                return None
+        return None # return if all the attempts fail
 
     def perform_echoback_test(self, unit):
         if not self.client.is_socket_open():
