@@ -34,6 +34,9 @@ class CathodeHeatingSubsystem:
         self.parent = parent
         self.com_ports = com_ports
         self.power_supplies_initialized = False
+        self.temp_controllers_connected = False
+        self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
+        self.log_interval = datetime.timedelta(seconds=10) # used for E5CN timeout msg
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
         self.predicted_emission_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -52,8 +55,6 @@ class CathodeHeatingSubsystem:
         self.previous_temperature = 20 # PLACEHOLDER
         self.last_plot_time = datetime.datetime.now()
         self.plot_interval = datetime.timedelta(seconds=5)
-
-
 
         # Config tab
         self.current_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
@@ -319,8 +320,6 @@ class CathodeHeatingSubsystem:
             self.power_supplies_initialized = False
             self.log_message("Some power supplies were not initialized properly.")
 
-
-
     def show_output_status(self, index):
         if not self.power_supplies_initialized:
             self.log_message("Power supplies not initialized.")
@@ -360,25 +359,47 @@ class CathodeHeatingSubsystem:
                 tc = ES5CNModbus(port=port, messages_frame=self.messages_frame)
                 if tc.connect():
                     self.temperature_controllers = [tc]  # Store it in a list for compatibility with existing code structure
+                    self.temp_controllers_connected = True
                     self.log_message("Connected to all temperature controllers via Modbus on " + port)
                 else:
                     self.log_message("Failed to connect to temperature controllers at " + port)
+                    self.temperature_controllers_connected = False
             except Exception as e:
                 self.log_message(f"Exception while initializing temperature controllers at {port}: {str(e)}")
-
+                self.temp_controllers_connected = False
 
     def read_current_voltage(self):
         # Placeholder method to read current and voltage from power supplies
         return random.uniform(2, 4), random.uniform(0.5, 0.9)
+
     
-    def read_temperature(self, index=None):
-        # Placeholder method to read temperature from cathodes
-        # Change temperature by a small random step
-        step = random.uniform(-0.05, 0.05)
-        new_temperature = self.previous_temperature + step
-        new_temperature = max(20, min(new_temperature, 22))
-        self.previous_temperature = new_temperature
-        return new_temperature
+    def read_temperature(self, index):
+        """
+        Read temperature from the temperature controller or set to zero if the controller is not initialized or fails.
+        Index corresponds to the cathode index (0-based).
+        """
+        current_time = datetime.datetime.now()
+        if self.temperature_controllers and self.temp_controllers_connected:
+            try:
+                # Attempt to read temperature from the connected temperature controller
+                temperature = self.temperature_controllers[index].read_temperature(index + 1)
+                if temperature is not None:
+                    self.clamp_temperature_vars[index].set(f"{temperature:.2f} °C")
+                    self.set_plot_alert(index, alert_status=False)
+                    return temperature
+                else:
+                    raise Exception("No temperature data received")
+            except Exception as e:
+                self.log_message(f"Error reading temperature for cathode {index+1}: {str(e)}")
+                self.set_plot_alert(index, alert_status=True)  # Set plot border to red
+        else:
+            if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
+                self.log_message(f"No connection to CCS temperature controller {index+1}")
+                self.last_no_conn_log_time[index] = current_time
+            self.set_plot_alert(index, alert_status=True)
+        # Set temperature to zero as default
+        self.clamp_temperature_vars[index].set("0.00 °C")
+        return 0.0
 
     def update_data(self):
         current_time = datetime.datetime.now()
@@ -397,7 +418,7 @@ class CathodeHeatingSubsystem:
                 self.actual_heater_voltage_vars[i].set("0.00 V")
                 self.actual_target_current_vars[i].set("0.00 mA")
 
-            temperature = self.read_temperature(i)  # Indexed to handle different temperature sensors TODO: bind this to actual function
+            temperature = self.read_temperature(i)
             self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
 
             if plot_this_cycle:
@@ -435,6 +456,22 @@ class CathodeHeatingSubsystem:
 
         # Schedule next update
         self.parent.after(500, self.update_data)
+
+    def set_plot_alert(self, index, alert_status):
+        """
+        Change the plot border color to red if there is a communication error, else reset to default.
+        """
+        ax = self.temperature_data[index][0].axes
+        line = self.temperature_data[index][0]
+        color = 'red' if alert_status else 'blue'  # Red for error, blue for normal operation
+
+        for spine in ax.spines.values():
+            spine.set_color(color)
+        ax.xaxis.label.set_color(color)
+        ax.yaxis.label.set_color(color)
+        ax.tick_params(axis='both', colors=color)
+        line.set_color(color)
+        ax.figure.canvas.draw()
 
     def update_plot(self, index):
         time_data = self.time_data[index]
