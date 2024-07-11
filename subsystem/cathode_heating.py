@@ -665,7 +665,7 @@ class CathodeHeatingSubsystem:
 
     def log_message(self, message):
         if hasattr(self, 'messages_frame') and self.messages_frame:
-            self.messages_frame.log_message(message)
+            self.parent.after (0, lambda: self.messages_frame.log_message(message))
         else:
             print(message)
 

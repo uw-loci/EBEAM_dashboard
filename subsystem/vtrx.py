@@ -10,6 +10,7 @@ import matplotlib.dates as mdates
 import time
 import os
 import sys
+import queue
 
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
@@ -70,7 +71,7 @@ class VTRXSubsystem:
 
     def setup_serial(self):
         try:
-            self.ser = serial.Serial(self.serial_port, self.baud_rate)
+            self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
         except serial.SerialException as e:
             self.log_message(f"Error opening serial port {self.serial_port}: {e}")
             self.ser = None
@@ -84,15 +85,17 @@ class VTRXSubsystem:
                     data = data_bytes.decode('utf-8', errors='replace').strip()
                     if data:
                         self.handle_serial_data(data)
-                    else:
-                        raise ValueError("Empty data received.")
                 else:
-                    raise serial.SerialException("No data bytes read from serial.")
-            except (serial.SerialException, UnicodeDecodeError, ValueError, Exception) as e:
+                    self.parent.after(0, self.update_gui_with_error_state)
+            except serial.SerialException as e:
                 self.error_state = True
-                self.log_message(f"Communication error: {e}")
-                self.parent.after(0, self.update_gui_with_error_state)
-                time.sleep(1)
+                self.log_message(f"Serial communication error: {e}")
+            except UnicodeDecodeError as e:
+                self.error_state = True
+                self.log_message(f"Data decoding error: {e}")
+            except Exception as e:
+                self.error_state = True
+                self.log_message(f"Unexpected error: {e}")
 
     def update_gui_with_error_state(self):
         self.label_pressure.config(text="No data...", fg="red")
@@ -136,12 +139,12 @@ class VTRXSubsystem:
                 self.update_gui_with_error_state()
 
         except ValueError as e:    
-            self.log_message(f"Error processing incoming data: {e}")
+            self.log_message(f"VTRX Data processing error: {e}")
             self.error_state = True
 
     def log_message(self, message):
         if self.messages_frame:
-            self.messages_frame.log_message(message)
+            self.parent.after(0, lambda: self.messages_frame.log_message(message))
         else:
             print(message)
 

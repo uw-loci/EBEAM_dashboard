@@ -5,8 +5,7 @@ import time
 class PowerSupply9014:
     def __init__(self, port, baudrate=9600, timeout=1, messages_frame=None, debug_mode=False):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
-        if not debug_mode:
-            self.ser = serial.Serial(port, baudrate, timeout=timeout)
+        self.debug_mode = debug_mode
         self.messages_frame = messages_frame
 
     def send_command(self, command):
@@ -20,7 +19,7 @@ class PowerSupply9014:
                 raise ValueError("No response received from the device.")
             return response
         except serial.SerialException as e:
-            print(f"Serial error: {e}")
+            self.log_message(f"Serial error: {e}")
             return None
         except ValueError as e:
             self.log_message(f"Error processing response for command '{command}': {str(e)}")
@@ -217,4 +216,4 @@ class PowerSupply9014:
         if hasattr(self, 'messages_frame') and self.messages_frame:
             self.messages_frame.log_message(message)
         else:
-            print(message)
+            self.parent.after(0, print(message))
