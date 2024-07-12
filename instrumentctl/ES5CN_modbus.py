@@ -5,6 +5,7 @@ from pymodbus.exceptions import ModbusException, ConnectionException
 from pymodbus.transaction import ModbusRtuFramer
 from pymodbus.pdu import ModbusRequest
 import struct
+import serial.tools.list_ports
 
 class ES5CNModbus:
     ECHOBACK_ADDRESS = 0x0000  # Address for the echoback test, page 92
@@ -20,6 +21,10 @@ class ES5CNModbus:
             print("Debug Mode: Modbus communication details will be outputted.")
 
     def connect(self):
+        available_ports = [port.device for port in serial.tools.list_ports.comports()]
+        if self.client.port not in available_ports:
+            self.log_message(f"COM port {self.client.port} is not available")
+            return False
         try:
             if self.client.connect():
                 return True
@@ -37,8 +42,12 @@ class ES5CNModbus:
         while attempts > 0:
             try:
                 if not self.client.is_socket_open():
-                    self.connect()
+                    self.log_message(f"Socket not open for unit {unit}. Attempting to reconnect...")
+                    if not self.connect():
+                        self.log_message(f"Failed to reconnect for unit {unit}")
+                        return None
                         # self.log_message(f"Cannot read temperature: no connection to unit {unit}")
+                    
                     response = self.client.read_holding_registers(address=self.TEMPERATURE_ADDRESS, count=2, unit=unit)
                     if response.isError():
                         attempts -= 1
@@ -51,14 +60,13 @@ class ES5CNModbus:
                     self.log_message(f"Temperature from unit {unit}: {temperature:.2f} °C")
                     return temperature
 
+            except ConnectionException as e:
+                self.log_message(f"Failed to reconnect for unit {unit}")
             except ModbusException as e:
                 self.log_message(f"Error reading temperature from unit {unit}: {str(e)}")
-                attempts -= 1
-                continue
-
             except Exception as e:
-                self.log_message(f"Unexpected error: {str(e)} for unit {unit}")
-                return None
+                self.log_message(f"Unexpected error for unit {unit}: {str(e)}")
+                attempts -= 1
         return None # return if all the attempts fail
 
     def perform_echoback_test(self, unit):
