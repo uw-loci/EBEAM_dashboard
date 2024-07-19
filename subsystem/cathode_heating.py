@@ -11,7 +11,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib.dates import DateFormatter
 from instrumentctl.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9014 import PowerSupply9014
-from instrumentctl.ES5CN_modbus import ES5CNModbus
+from instrumentctl.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np
@@ -356,7 +356,7 @@ class CathodeHeatingSubsystem:
         if port:
             try:
                 # Assuming only one Modbus controller object for all units
-                tc = ES5CNModbus(port=port, messages_frame=self.messages_frame)
+                tc = E5CNModbus(port=port, messages_frame=self.messages_frame)
                 if tc.connect():
                     self.temperature_controllers = [tc]  # Store it in a list for compatibility with existing code structure
                     self.temp_controllers_connected = True
