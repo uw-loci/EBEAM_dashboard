@@ -2,6 +2,7 @@
 
 ### 1. Development Workflow
 #### Branching strategy
+![branching](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/branching_diagram.png)
 All code development intended to impact a future release is done on the latest `develop` branch. This applies to new instrument features, bug fixes, etc. The `develop` branch is **not stable**.
 The `main` branch contains the latest production code.
 
