@@ -1,6 +1,36 @@
 # EBEAM System Dashboard Software
 
-### 1. Build Instructions
+### 1. Development Workflow
+#### Branching strategy
+All code development intended to impact a future release is done on the latest `develop` branch. This applies to new instrument features, bug fixes, etc. The `develop` branch is **not stable**.
+The `main` branch contains the latest production code.
+
+#### Development Process 
+Create a new branch from develop for your feature or bug fix:
+
+```
+git checkout develop
+git pull origin develop
+git checkout -b feature/your-feature-name
+```
+Make your changes and commit:
+```
+git add .
+git commit -m "Descriptive commit message"
+```
+
+Push your branch to GitHub:
+```
+git push origin feature/your-feature-name
+```
+
+Create a "New pull request".
+Set the base branch to develop and compare branch to your feature branch.
+Fill in the PR template with a description of your changes, any related issues, and testing performed.
+
+Assign reviewers to your PR. Merge.
+
+### 2. Executable Build Instructions
 ```
 git clone https://github.com/mslaffin/EBEAM_dashboard.git
 ```
@@ -12,7 +42,7 @@ python -m PyInstaller EBEAM_DASHBOARD.spec
 ```
 
 
-### 2. Architecture
+### 3. Architecture
 
 - **Language & Libraries**: Python, using the [Tkinter](https://docs.python.org/3/library/tkinter.html) interface for the GUI, [matplotlib](https://matplotlib.org/) for plotting, and [Pyserial](https://pythonhosted.org/pyserial/) for communication with external systems through virtual COM ports.
 - **High-level Design**: The application is divided into several modules:
@@ -42,7 +72,7 @@ EBEAM_DASHBOARD/
 └── utils.py
 ```
 
-### 3. Components
+### 4. Components
 
 - **Main Application (main.py)**:
   - **Configuration Loader**: Responsible for initial configurations, setting up COM ports, and starting the main dashboard.
@@ -50,7 +80,8 @@ EBEAM_DASHBOARD/
 
 - **Instrument Control (instrumentctl.py)**:
   - **Equipment specific driver libraries**:
-    - PowerSupply9014 [(datasheet)](https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9103_9104_programming_manual.pdf) IN PROGRESS
+    - 9104 Cathode Heating Power Supplies [(datasheet)](https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9103_9104_programming_manual.pdf) IN PROGRESS
+    - E5CN Cathode Temperature Controller [(datasheet)]() IN PROGRESS
     - Apex Mass Flow Controller [(datasheet)]() IN PROGRESS
     - TODO: Agilent 33120A [(datasheet)]()
     - TODO: Quantum 9530
@@ -60,7 +91,7 @@ EBEAM_DASHBOARD/
     - TODO: A655sc
     - TODO: BOP-100-2ML
 
-### 4. Dashboard (dashboard.py)
+### 5. Dashboard (dashboard.py)
 
 - **EBEAMSystemDashboard Class**: The main class that sets up the dashboard interface.
   - **`setup_main_pane`**: Initializes the main layout pane and its rows.
