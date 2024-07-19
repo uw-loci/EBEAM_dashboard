@@ -33,12 +33,12 @@ class PowerSupply9014:
     def get_output_status(self):
         """Get the output status."""
         command = "GOUT"
-        
         return self.send_command(command)
 
     def set_voltage(self, preset, voltage):
-        """Set the output voltage."""
-        command = f"VOLT{preset}{voltage}"
+        """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
+        formatted_voltage = int(voltage * 100)
+        command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
         if response and response.strip() == "OK":
@@ -48,6 +48,18 @@ class PowerSupply9014:
             self.log_message(f"Error setting voltage: {error_message}")
             return False
     
+    def set_current(self, preset, current):
+        """Set the output current."""
+        formatted_current = int(current * 100)
+        command = f"CURR {preset}{formatted_current:04d}"
+        response = self.send_command(command)
+        if response and response.strip() == "OK":
+            return True
+        else:
+            error_message = "No response" if response is None else response
+            self.log_message(f"Error setting current: {error_message}")
+            return False
+
     def ramp_voltage(self, target_voltage, ramp_rate=0.01, callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
@@ -83,11 +95,7 @@ class PowerSupply9014:
         if callback:
             callback(True)
 
-    def set_current(self, preset, current):
-        """Set the output current."""
-        command = f"CURR{preset}{current}"
-        return self.send_command(command)
-
+    
     def set_over_voltage_protection(self, ovp):
         """Set the over voltage protection value."""
         command = f"SOVP{ovp}"

@@ -561,8 +561,8 @@ class CathodeHeatingSubsystem:
 
                 # Set voltage and current on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
-                    voltage_set_success = self.power_supplies[index].set_voltage(1, heater_voltage)  # Preset 1 for voltage
-                    current_set_success = self.power_supplies[index].set_current(1, heater_current)  # Preset 1 for current
+                    voltage_set_success = self.power_supplies[index].set_voltage(heater_voltage)
+                    current_set_success = self.power_supplies[index].set_current(heater_current)
 
                     if voltage_set_success and current_set_success:
                         predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
@@ -594,8 +594,8 @@ class CathodeHeatingSubsystem:
     def reset_power_supply(self, index):
         """ Helper function to reset power supply voltage and current to zero """
         if self.power_supplies and len(self.power_supplies) > index:
-            self.power_supplies[index].set_voltage(1, 0.0)
-            self.power_supplies[index].set_voltage(1, 0.0)
+            self.power_supplies[index].set_voltage(0.0)
+            self.power_supplies[index].set_current(0.0)
             self.log_message(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}")
         self.predicted_emission_current_vars[index].set('0.00')
         self.predicted_grid_current_vars[index].set('0.00')
@@ -632,8 +632,8 @@ class CathodeHeatingSubsystem:
 
             # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
-                voltage_set_success = self.power_supplies[index].set_voltage(1, voltage)
-                current_set_success = self.power_supplies[index].set_current(1, heater_current)
+                voltage_set_success = self.power_supplies[index].set_voltage(voltage)
+                current_set_success = self.power_supplies[index].set_current(heater_current)
                 if not voltage_set_success or not current_set_success:
                     return False
 
