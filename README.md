@@ -16,7 +16,7 @@ git checkout -b feature/your-feature-name
 ```
 Make your changes and commit:
 ```
-git add .
+git add changedfile.py
 git commit -m "Descriptive commit message"
 ```
 
