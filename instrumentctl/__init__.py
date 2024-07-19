@@ -3,5 +3,6 @@ from .power_supply_9014 import PowerSupply9014
 
 __all__ = [
     'ApexMassFlowController',
-    'PowerSupply9014'
+    'PowerSupply9014',
+    'E5CNModbus'
 ]

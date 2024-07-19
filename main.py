@@ -4,6 +4,7 @@ import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
 import cProfile
 import pstats
+import sys
 
 def start_main_app(com_ports):
     root = tk.Tk()
@@ -11,6 +12,13 @@ def start_main_app(com_ports):
     root.mainloop()
 
 def config_com_ports():
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        try:
+            import pyi_splash
+            pyi_splash.close()
+        except ImportError:
+            pass
+
     config_root = tk.Tk()
     config_root.title("Configure COM Ports")
     config_root.geometry('600x400')

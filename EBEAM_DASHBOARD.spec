@@ -9,7 +9,7 @@ a = Analysis(
         ('scripts', './scripts'),
         ('media', './media')
     ],
-    hiddenimports=[],
+    hiddenimports=['pyi_splash'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -19,9 +19,21 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+splash = Splash('media/splashscreen.png',
+                binaries=a.binaries,
+                datas=a.datas,
+                text_pos=(10, 50),
+                text_size=12,
+                text_color='white',
+                minify_script=True,
+                fullscreen=False,
+                bgcolor=None)
+
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
+    splash.binaries,
     a.binaries,
     a.datas,
     [],

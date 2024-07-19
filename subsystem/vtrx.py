@@ -49,6 +49,7 @@ class VTRXSubsystem:
         self.serial_port = serial_port
         self.baud_rate = baud_rate
         self.messages_frame = messages_frame
+        self.data_queue = queue.Queue()
         self.x_data = []
         self.y_data = []
         self.indicators = {
@@ -84,9 +85,11 @@ class VTRXSubsystem:
                     self.last_data_received_time = time.time()  # Update last received time
                     data = data_bytes.decode('utf-8', errors='replace').strip()
                     if data:
-                        self.handle_serial_data(data)
+                        # self.handle_serial_data(data)
+                        self.data_queue.put(data)
                 else:
-                    self.parent.after(0, self.update_gui_with_error_state)
+                    # self.parent.after(0, self.update_gui_with_error_state)
+                    self.data_queue.put(None)
             except serial.SerialException as e:
                 self.error_state = True
                 self.log_message(f"Serial communication error: {e}")
@@ -96,6 +99,19 @@ class VTRXSubsystem:
             except Exception as e:
                 self.error_state = True
                 self.log_message(f"Unexpected error: {e}")
+
+    def process_queue(self):
+        try:
+            while True:
+                data = self.data_queue.get_nowait()
+                if data is None:
+                    self.update_gui_with_error_state()
+                else:
+                    self.handle_serial_data(data)
+        except queue.Empty:
+            pass
+        finally:
+            self.parent.after(100, self.process_queue)
 
     def update_gui_with_error_state(self):
         self.label_pressure.config(text="No data...", fg="red")
@@ -130,11 +146,7 @@ class VTRXSubsystem:
                         self.error_state = True
             
             if not self.error_state:    
-                self.parent.after(0, lambda: self.update_gui(
-                    pressure_value, 
-                    pressure_raw, 
-                    switch_states)
-                )
+                self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
 
@@ -245,6 +257,7 @@ class VTRXSubsystem:
         thread = threading.Thread(target=self.read_serial)
         thread.daemon = True
         thread.start()
+        self.parent.after(100, self.process_queue)
 
     def confirm_reset(self):
         if messagebox.askyesno("Confirm Reset", "Do you really want to reset the VTRX System?"):
