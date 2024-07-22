@@ -171,8 +171,8 @@ class VTRXSubsystem:
             # Setup labels for each switch
             switch_labels = [
                 "Pumps Power On ", "Turbo Rotor ON ", "Turbo Vent Open ",
-                "972b Power On ", "Turbo Gate Valve Open ",
-                "Turbo Gate Valve Closed ", "Argon Gate Valve Closed ", "Argon Gate Valve Open "
+                "972b Power On ", "Turbo Gate Valve Closed ",
+                "Turbo Gate Valve Open ", "Argon Gate Valve Open ", "Argon Gate Valve Closed "
             ]
             self.labels = []
             label_width = 17
