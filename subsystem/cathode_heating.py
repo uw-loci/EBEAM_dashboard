@@ -627,14 +627,18 @@ class CathodeHeatingSubsystem:
 
             # Check if the interpolated current is within the model's range
             if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
-                self.log_message("Heater current is out of the emission model's range.")
+                self.log_message(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]")
                 return False
 
             # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
                 voltage_set_success = self.power_supplies[index].set_voltage(voltage)
                 current_set_success = self.power_supplies[index].set_current(heater_current)
-                if not voltage_set_success or not current_set_success:
+                if not voltage_set_success:
+                    self.log_message(f"Unable to set voltage: {voltage}")
+                    return False
+                if not current_set_success:
+                    self.log_message(f"Unable to set current: {heater_current}")
                     return False
 
             # Calculate dependent variables
