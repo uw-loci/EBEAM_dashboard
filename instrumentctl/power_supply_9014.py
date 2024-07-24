@@ -54,6 +54,7 @@ class PowerSupply9014:
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
+            self.log_message(f"9104 power supply response: {response}")
             return True
         else:
             error_message = "No response" if response is None else response
