@@ -15,6 +15,7 @@ from instrumentctl.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np
+import traceback
 
 def resource_path(relative_path):
     """ Magic needed for paths to work for development and when running as bundled executable"""
@@ -77,7 +78,6 @@ class CathodeHeatingSubsystem:
         
         self.init_cathode_model()
         self.setup_gui()
-
         self.initialize_temperature_controllers()
         self.initialize_power_supplies()
         self.update_data()
@@ -287,7 +287,6 @@ class CathodeHeatingSubsystem:
 
         self.init_time = datetime.datetime.now()
 
-    
     def initialize_power_supplies(self):
         self.power_supplies = []
         self.power_supply_status = []
@@ -304,11 +303,13 @@ class CathodeHeatingSubsystem:
                     ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
                     self.power_supplies.append(ps)
                     self.power_supply_status.append(True)
-                    self.log_message(f"Initialized power supply on port {port}")
+                    self.log_message(f"Initialized {cathode} power supply on port {port}")
                 except Exception as e:
                     self.power_supplies.append(None)
                     self.power_supply_status.append(False)
-                    self.log_message(f"Failed to initialize power supply on port {port}: {str(e)}")
+                    self.log_message(f"Failed to initialize {cathode} power supply on port {port}: {str(e)}")
+                    self.log_message(f"Exception type: {type(e).__name__}")
+                    self.log_message(f"Exception traceback: {traceback.format_exc()}")
             else:
                 self.power_supplies.append(None)
                 self.power_supply_status.append(False)
@@ -330,6 +331,23 @@ class CathodeHeatingSubsystem:
         else:
             self.power_supplies_initialized = False
             self.log_message("Some power supplies were not initialized properly.")
+
+    def retry_connection(self, index):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                port = self.com_ports[f'Cathode{chr(65+index)} PS']
+                new_ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
+                self.power_supplies[index] = new_ps
+                self.power_supply_status[index] = True
+                self.toggle_buttons[index]['state'] = 'normal'
+                self.log_message(f"Reconnected to power supply on port {port}")
+                return True
+            except Exception as e:
+                self.log_message(f"Retry {attempt+1} failed: {str(e)}")
+        
+        self.log_message(f"Failed to reconnect after {max_retries} attempts")
+        return False
 
     def show_output_status(self, index):
         if not self.power_supplies_initialized:
@@ -383,7 +401,6 @@ class CathodeHeatingSubsystem:
         # Placeholder method to read current and voltage from power supplies
         return random.uniform(2, 4), random.uniform(0.5, 0.9)
 
-    
     def read_temperature(self, index):
         """
         Read temperature from the temperature controller or set to zero if the controller is not initialized or fails.
@@ -572,8 +589,10 @@ class CathodeHeatingSubsystem:
 
                 # Set voltage and current on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
+                    self.log_message("Setting voltage: ")
                     voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
+                    self.last_set_voltage = heater_voltage
 
                     if voltage_set_success and current_set_success:
                         predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
@@ -701,7 +720,6 @@ class CathodeHeatingSubsystem:
         except Exception as e:
             self.log_message(f"Failed to perform echoback test on Unit {unit}: {str(e)}")
             msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
-
 
     def read_and_log_temperature(self, unit):
         """
