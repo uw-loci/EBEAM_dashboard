@@ -292,16 +292,27 @@ class CathodeHeatingSubsystem:
         self.power_supplies = []
         self.power_supply_status = []
 
-        for port_label, port in self.com_ports.items():
-            try:
-                ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
-                self.power_supplies.append(ps)
-                self.power_supply_status.append(True)
-                self.log_message(f"Initialized power supply on port {port}")
-            except Exception as e:
+        cathode_ports = {
+            'CathodeA PS': self.com_ports.get('CathodeA PS'),
+            'CathodeB PS': self.com_ports.get('CathodeB PS'),
+            'CathodeC PS': self.com_ports.get('CathodeC PS')
+        }
+
+        for cathode, port in cathode_ports.items():
+            if port:
+                try:
+                    ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
+                    self.power_supplies.append(ps)
+                    self.power_supply_status.append(True)
+                    self.log_message(f"Initialized power supply on port {port}")
+                except Exception as e:
+                    self.power_supplies.append(None)
+                    self.power_supply_status.append(False)
+                    self.log_message(f"Failed to initialize power supply on port {port}: {str(e)}")
+            else:
                 self.power_supplies.append(None)
                 self.power_supply_status.append(False)
-                self.log_message(f"Failed to initialize power supply on port {port}: {str(e)}")
+                self.log_message(f"No COM port specified for {cathode}")
 
         # Update button states based on individual power supply status
         for idx, status in enumerate(self.power_supply_status):
