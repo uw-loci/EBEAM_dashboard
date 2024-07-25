@@ -435,11 +435,34 @@ class CathodeHeatingSubsystem:
 
         for i in range(3):
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
-                voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
-                self.actual_heater_current_vars[i].set(f"{current:.2f} A")
-                self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
-                # Assuming the target current should be calculated or retrieved similarly
-                # self.actual_target_current_vars[i].set(f"{calculated_target_current:.2f} mA")
+                try:
+                    if not self.power_supplies[i].is_connected():
+                        if self.retry_connection(i):
+                            self.log_message(f"Reconnected to power supply {i+1}")
+                        else:
+                            self.log_message(f"Failed to reconnect to power supply {i+1}")
+                            continue
+                    
+                    voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
+                    self.actual_heater_current_vars[i].set(f"{current:.2f} A")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                
+                    # Update heater voltage display
+                    if hasattr(self, f'last_set_voltage_{i}'):
+                        self.heater_voltage_vars[i].set(f"{getattr(self, f'last_set_voltage_{i}'):.2f} V")
+                    else:
+                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+
+                    # Update mode display
+                    mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
+                    self.operation_mode_var[i].set(f'Mode: {mode_text}')
+
+                except Exception as e:
+                    self.log_message(f"Error updating data for power supply {i+1}: {str(e)}")
+                    self.actual_heater_current_vars[i].set("0.00 A")
+                    self.actual_heater_voltage_vars[i].set("0.00 V")
+                    self.operation_mode_var[i].set("Mode: --")
+                
             else:
                 voltage, current, mode = 0.0, 0.0, "Err"  # Default values if not initialized or out of index
                 self.actual_heater_current_vars[i].set("0.00 A")
@@ -604,6 +627,8 @@ class CathodeHeatingSubsystem:
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
                         self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
+                        setattr(self, f'last_set_voltage{index}', heater_voltage)
+                        self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
 
                         self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
                     else:
