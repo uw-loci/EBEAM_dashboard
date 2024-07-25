@@ -8,6 +8,17 @@ class PowerSupply9014:
         self.debug_mode = debug_mode
         self.messages_frame = messages_frame
 
+    def is_connected(self):
+        """Check if the serial connection is still active."""
+        try:
+            # Attempt to write a simple command to the device
+            self.ser.write(b'\r')  # Send a carriage return
+            # Try to read a response (there might not be one)
+            self.ser.read(1)
+            return True
+        except serial.SerialException:
+            return False
+
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
         if self.debug_mode:
