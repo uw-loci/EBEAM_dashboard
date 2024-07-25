@@ -4,6 +4,8 @@ bool stringComplete = false;
 float voltage = 0.0;
 float current = 0.0;
 bool outputOn = false;
+float maxVoltage = 50.0;
+float maxCurrent = 10.0;
 
 void setup() {
   Serial.begin(9600);
@@ -39,18 +41,23 @@ void processCommand(String command) {
     Serial.println("OK");
   }
   else if (command.startsWith("VOLT")) {
-    int valueStartIndex = command.indexOf('3', 4) + 1; // Find the '3' after "VOLT"
-    if (valueStartIndex > 4) { // Make sure we found the '3'
+    int valueStartIndex = command.indexOf('3', 4) + 1;
+    if (valueStartIndex > 4) { 
       String valueStr = command.substring(valueStartIndex);
-      voltage = valueStr.toFloat() / 100.0;
-      Serial.println("OK");
+      float newCurrent = valueStr.toFloat() / 100.0;
+      if (newCurrent >= 0 && newCurrent <= maxCurrent) {
+        current = newCurrent;
+        Serial.println("OK");
+      } else {
+        Serial.println("ERROR: Current out of range");
+      }
     } else {
       Serial.println("ERROR");
     }
   }
   else if (command.startsWith("CURR")) {
-    int valueStartIndex = command.indexOf('3', 4) + 1; // Find the '3' after "CURR"
-    if (valueStartIndex > 4) { // Make sure we found the '3'
+    int valueStartIndex = command.indexOf('3', 4) + 1; 
+    if (valueStartIndex > 4) { 
       String valueStr = command.substring(valueStartIndex);
       current = valueStr.toFloat() / 100.0;
       Serial.println("OK");
