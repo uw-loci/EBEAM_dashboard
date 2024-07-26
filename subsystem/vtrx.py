@@ -4,6 +4,7 @@ from tkinter import messagebox
 import datetime
 import serial
 import threading
+from utils import LogLevel
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -44,11 +45,11 @@ class VTRXSubsystem:
         16: "UNSAFE FOR HV WARNING"
     }
 
-    def __init__(self, parent, serial_port='COM7', baud_rate=9600, messages_frame=None):
+    def __init__(self, parent, serial_port='COM7', baud_rate=9600, logger=None):
         self.parent = parent
         self.serial_port = serial_port
         self.baud_rate = baud_rate
-        self.messages_frame = messages_frame
+        self.logger = logger
         self.data_queue = queue.Queue()
         self.x_data = []
         self.y_data = []
@@ -73,8 +74,9 @@ class VTRXSubsystem:
     def setup_serial(self):
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
+            self.log(f"Serial connection established on {self.serial_port}", LogLevel.INFO)
         except serial.SerialException as e:
-            self.log_message(f"Error opening serial port {self.serial_port}: {e}")
+            self.log(f"Error opening serial port {self.serial_port}: {e}", LogLevel.ERROR)
             self.ser = None
 
     def read_serial(self):
@@ -92,13 +94,13 @@ class VTRXSubsystem:
                     self.data_queue.put(None)
             except serial.SerialException as e:
                 self.error_state = True
-                self.log_message(f"Serial communication error: {e}")
+                self.log(f"Serial communication error: {e}", LogLevel.ERROR)
             except UnicodeDecodeError as e:
                 self.error_state = True
-                self.log_message(f"Data decoding error: {e}")
+                self.log(f"Data decoding error: {e}", LogLevel.ERROR)
             except Exception as e:
                 self.error_state = True
-                self.log_message(f"Unexpected error: {e}")
+                self.log(f"Unexpected error: {e}", LogLevel.ERROR)
 
     def process_queue(self):
         try:
@@ -125,7 +127,7 @@ class VTRXSubsystem:
     def handle_serial_data(self, data):
         data_parts = data.split(';')
         if len(data_parts) < 3:
-            self.log_message("Incomplete data received.")
+            self.log("Incomplete data received.", LogLevel.WARNING)
             self.error_state = True
             self.update_gui_with_error_state()
             return
@@ -142,7 +144,7 @@ class VTRXSubsystem:
                 for error in errors:
                     if error.startswith("972b ERR:"):
                         error_code, error_message = error.split(":")[1:]
-                        self.log_message(f"VTRX Err {error_code}: Actual:{error_message}")
+                        self.log(f"VTRX Err {error_code}: Actual:{error_message}", LogLevel.ERROR)
                         self.error_state = True
             
             if not self.error_state:    
@@ -151,14 +153,14 @@ class VTRXSubsystem:
                 self.update_gui_with_error_state()
 
         except ValueError as e:    
-            self.log_message(f"VTRX Data processing error: {e}")
+            self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
             self.error_state = True
 
-    def log_message(self, message):
-        if self.messages_frame:
-            self.parent.after(0, lambda: self.messages_frame.log_message(message))
+    def log(self, message, level=LogLevel.INFO):
+        if self.logger:
+            self.logger.log(message, level)
         else:
-            print(message)
+            print(f"{level.name}: {message}")
 
     def setup_gui(self):
             layout_frame = tk.Frame(self.parent)
@@ -238,6 +240,8 @@ class VTRXSubsystem:
 
             for idx, state in enumerate(switch_states):
                 self.labels[idx].config(image=self.indicators[state])
+            
+            self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
     def update_plot(self):
         # Update the data for the line, rather than recreating it
@@ -266,10 +270,11 @@ class VTRXSubsystem:
     def send_reset_command(self):
         try:
             self.ser.write("RESET\n".encode('utf-8')) # Send RESET command to Arduino
-            self.log_message("Sent RESET command to VTRX.")
+            self.log("Sent RESET command to VTRX.", LogLevel.INFO)
         except serial.SerialException as e:
-            messagebox.showerror("Error", f"Failed to send reset command: {str(e)}")
-            print(f"Serial execution {str(e)}")
+            error_message = f"Failed to send reset command: {str(e)}"
+            messagebox.showerror("Error", error_message)
+            self.log(error_message, LogLevel.ERROR)
 
     def clear_graph(self):
         # Clear the plot as defined in the original setup...
@@ -280,4 +285,5 @@ class VTRXSubsystem:
         self.x_data = [datetime.datetime.now() + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * len(self.x_data)
         self.init_time = self.x_data[0]
+        self.log("VTRX Pressure Graph cleared", LogLevel.INFO)
 

@@ -1,6 +1,6 @@
 import subsystem
 import tkinter as tk
-from utils import MessagesFrame, SetupScripts
+from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
 
 class EBEAMSystemDashboard:
@@ -92,29 +92,29 @@ class EBEAMSystemDashboard:
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
                 serial_port=self.com_ports['VTRXSubsystem'], 
-                messages_frame = self.messages_frame
+                logger=self.logger
             ),
             'Environmental [°C]': subsystem.EnvironmentalSubsystem(
                 self.frames['Environmental'], 
-                messages_frame = self.messages_frame
+                logger=self.logger
             ),
             'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
                 self.frames['Visualization Gas Control'], 
                 serial_port=self.com_ports['ApexMassFlowController'],
-                messages_frame = self.messages_frame
+                logger=self.logger
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'], 
-                messages_frame = self.messages_frame
+                logger=self.logger
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'], 
-                messages_frame = self.messages_frame
+                logger=self.logger
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
-                messages_frame = self.messages_frame
+                logger=self.logger
             )
         }
 
@@ -122,3 +122,4 @@ class EBEAMSystemDashboard:
         """Create a frame for displaying messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[3])
         self.rows[3].add(self.messages_frame.frame, stretch='always')
+        self.logger = self.messages_frame.logger

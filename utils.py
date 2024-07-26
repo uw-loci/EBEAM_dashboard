@@ -7,6 +7,65 @@ from tkinter import messagebox, ttk
 import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import enum
+
+
+class LogLevel(enum.IntEnum):
+    VERBOSE = 0
+    DEBUG = 1
+    INFO = 2
+    WARNING = 3
+    ERROR = 4
+    CRITICAL = 5
+
+class Logger:
+    def __init__(self, text_widget, log_level=LogLevel.INFO, log_to_file=False):
+        self.text_widget = text_widget
+        self.log_level = log_level
+        self.log_to_file = log_to_file
+        self.log_file = None
+        if log_to_file:
+            self.setup_log_file()
+
+    def setup_log_file(self):
+        log_dir = os.path.join(os.path.dirname(sys.executable), 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_file_name = f"ebeam_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+
+    def log(self, msg, level=LogLevel.INFO):
+        if level >= self.log_level:
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+            formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+            
+            self.text_widget.insert(tk.END, formatted_message)
+            self.text_widget.see(tk.END)
+
+            if self.log_to_file and self.log_file:
+                self.log_file.write(formatted_message)
+                self.log_file.flush()
+
+    def debug(self, message):
+        self.log(message, LogLevel.DEBUG)
+
+    def info(self, message):
+        self.log(message, LogLevel.INFO)
+
+    def warning(self, message):
+        self.log(message, LogLevel.WARNING)
+    
+    def error(self, message):
+        self.log(message, LogLevel.ERROR)
+
+    def critical(self, message):
+        self.log(message, LogLevel.CRITICAL)
+
+    def set_log_level(self, level):
+        self.log_level = level
+
+    def close(self):
+        if self.log_file:
+            self.log_file.close()
 
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
@@ -37,6 +96,8 @@ class MessagesFrame:
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
+        
+        self.logger = Logger(self.text_widget, log_to_file=True)
 
         # Ensure that the log directory exists
         self.ensure_log_directory()
@@ -46,12 +107,11 @@ class MessagesFrame:
         self.text_widget.insert(tk.END, msg)
         self.trim_text()
 
-    def log_message(self, msg):
-        """ Log a message with a timestamp to the text widget """
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] - {msg}\n"
-        self.text_widget.insert(tk.END, formatted_message)
-        self.text_widget.see(tk.END)
+    def log_message(self, msg, level=LogLevel.INFO):
+        self.logger.log(msg, level)
+
+    def set_log_level(self, level):
+        self.logger.set_log_level(level)
 
     def flush(self):
         """ Flush method needed for stdout redirection compatibility. """

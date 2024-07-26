@@ -1,12 +1,13 @@
 import serial
 import threading
 import time
+from utils import LogLevel
 
 class PowerSupply9014:
-    def __init__(self, port, baudrate=9600, timeout=1, messages_frame=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1, logger=None, debug_mode=False):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
-        self.messages_frame = messages_frame
+        self.logger = logger
 
     def is_connected(self):
         """Check if the serial connection is still active."""
@@ -30,16 +31,18 @@ class PowerSupply9014:
                 raise ValueError("No response received from the device.")
             return response
         except serial.SerialException as e:
-            self.log_message(f"Serial error: {e}")
+            self.log(f"Serial error: {e}", LogLevel.ERROR)
             return None
         except ValueError as e:
-            self.log_message(f"Error processing response for command '{command}': {str(e)}")
+            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
 
     def set_output(self, state):
         """Set the output on/off."""
         command = f"SOUT{state}"
-        return self.send_command(command)
+        response = self.send_command(command)
+        self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
+        return response
 
     def get_output_status(self):
         """Get the output status."""
@@ -53,10 +56,11 @@ class PowerSupply9014:
     
         response = self.send_command(command)
         if response and response.strip() == "OK":
+            self.log(f"Voltage set to {voltage}V for preset {preset}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
-            self.log_message(f"Error setting voltage: {error_message}")
+            self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
             return False
     
     def set_current(self, preset, current):
@@ -65,11 +69,11 @@ class PowerSupply9014:
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
-            self.log_message(f"9104 power supply response: {response}")
+            self.log(f"Current set to {current}A for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
-            self.log_message(f"Error setting current: {error_message}")
+            self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
             return False
 
     def ramp_voltage(self, target_voltage, ramp_rate=0.01, callback=None):
@@ -94,20 +98,17 @@ class PowerSupply9014:
         while current_voltage < target_voltage:
             next_voltage = min(current_voltage + step_size, target_voltage)
             if not self.set_voltage(1, next_voltage):  # Assume preset 1
-                self.log_message(f"Failed to set voltage to {next_voltage:.2f}V.")
+                self.log(f"Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
                 if callback:
                     callback(False)
                 return
-
-            # self.log_message(f"Voltage set to {next_voltage:.2f}V.")
             time.sleep(step_delay)
             current_voltage = next_voltage
 
-        self.log_message("Target voltage reached.")
+        self.log("Target voltage reached.", LogLevel.INFO)
         if callback:
             callback(True)
 
-    
     def set_over_voltage_protection(self, ovp):
         """Set the over voltage protection value."""
         command = f"SOVP{ovp}"
@@ -116,7 +117,22 @@ class PowerSupply9014:
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
         command = "GETD"
+        self.log(f"Sent command: {command}", LogLevel.DEBUG)
         return self.send_command(command)
+    
+    def parse_getd_response(self, response):
+        try:
+            parts = response.split()
+            if len(parts) != 3:
+                raise ValueError("Invalid GETD response format")
+            voltage = float(parts[0]) / 100.0
+            current = float(parts[1]) / 100.0
+            mode = "CV Mode" if parts[2] == "0" else "CC Mode"
+            self.log(f"Parsed GETD response: {voltage}V, {current}A, {mode}", LogLevel.DEBUG)
+            return voltage, current, mode
+        except Exception as e:
+            self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
+            return 0.0, 0.0, "Err"
     
     def get_voltage_current_mode(self):
         """
@@ -127,20 +143,9 @@ class PowerSupply9014:
         """
         reading = self.get_display_readings()
         if reading:
-            # Example response: '050001000\r\nOK\r\n' pg. 5 programming manual
-            try:
-                # Remove any trailing newlines or carriage returns
-                reading = reading.strip()
-                # Assuming the response format is consistent with the example '050001000OK'
-                voltage = float(reading[0:5]) / 1000  # Convert to float and adjust scale
-                current = float(reading[5:10]) / 1000  # Convert to float and adjust scale
-                mode = 'CV Mode' if reading[10] == '0' else 'CC Mode'
-                return voltage, current, mode
-            except (ValueError, IndexError) as e:
-                self.log_message(f"Error parsing voltage/current/mode: {str(e)}")
-                return 0.0, 0.0, "Err"
+            return self.parse_getd_response(reading)
         else:
-            self.log_message("Failed to get display readings.")
+            self.log("Failed to get display readings.", LogLevel.ERROR)
             return 0.0, 0.0, "Err"
 
     def set_over_current_protection(self, ocp):
@@ -231,9 +236,10 @@ class PowerSupply9014:
     def close(self):
         """Close the serial connection."""
         self.ser.close()
+        self.log("Serial connection closed", LogLevel.INFO)
 
-    def log_message(self, message):
-        if hasattr(self, 'messages_frame') and self.messages_frame:
-            self.messages_frame.log_message(message)
+    def log(self, message, level=LogLevel.INFO):
+        if self.logger:
+            self.logger.log(message, level)
         else:
-            self.parent.after(0, print(message))
+            print(f"{level.name}: {message}")

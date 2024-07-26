@@ -13,9 +13,9 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class InterlocksSubsystem:
-    def __init__(self, parent, messages_frame=None):
+    def __init__(self, parent, logger=None):
         self.parent = parent
-        self.messages_frame = messages_frame
+        self.logger = logger
         self.interlock_status = {
             "Vacuum": True, "Water": False, "Door": False, "Timer": True,
             "Oil High": False, "Oil Low": False, "E-stop Ext": True,

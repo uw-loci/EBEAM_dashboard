@@ -15,7 +15,7 @@ from instrumentctl.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np
-import traceback
+from utils import LogLevel
 
 def resource_path(relative_path):
     """ Magic needed for paths to work for development and when running as bundled executable"""
@@ -31,7 +31,7 @@ class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in °C
     
-    def __init__(self, parent, com_ports, messages_frame=None):
+    def __init__(self, parent, com_ports, logger=None):
         self.parent = parent
         self.com_ports = com_ports
         self.power_supplies_initialized = False
@@ -74,7 +74,7 @@ class CathodeHeatingSubsystem:
         self.temperature_controllers = []
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
-        self.messages_frame = messages_frame
+        self.logger = logger
         
         self.init_cathode_model()
         self.setup_gui()
@@ -300,20 +300,18 @@ class CathodeHeatingSubsystem:
         for cathode, port in cathode_ports.items():
             if port:
                 try:
-                    ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
+                    ps = PowerSupply9014(port=port, logger=self.logger)
                     self.power_supplies.append(ps)
                     self.power_supply_status.append(True)
-                    self.log_message(f"Initialized {cathode} power supply on port {port}")
+                    self.log(f"Initialized {cathode} power supply on port {port}", LogLevel.INFO)
                 except Exception as e:
                     self.power_supplies.append(None)
                     self.power_supply_status.append(False)
-                    self.log_message(f"Failed to initialize {cathode} power supply on port {port}: {str(e)}")
-                    self.log_message(f"Exception type: {type(e).__name__}")
-                    self.log_message(f"Exception traceback: {traceback.format_exc()}")
+                    self.log(f"Failed to initialize {cathode} power supply on port {port}: {str(e)}", LogLevel.ERROR)
             else:
                 self.power_supplies.append(None)
                 self.power_supply_status.append(False)
-                self.log_message(f"No COM port specified for {cathode}")
+                self.log(f"No COM port specified for {cathode}", LogLevel.ERROR)
 
         # Update button states based on individual power supply status
         for idx, status in enumerate(self.power_supply_status):
@@ -322,40 +320,40 @@ class CathodeHeatingSubsystem:
                     self.toggle_buttons[idx]['state'] = 'normal'
                 else:
                     self.toggle_buttons[idx]['state'] = 'disabled'
-                    self.log_message(f"Power supply {idx+1} not initialized. Button disabled.")
+                    self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
             else:
-                self.log_message(f"Toggle button {idx+1} has not been initialized yet.")
+                self.log(f"Toggle button {idx+1} has not been initialized yet.", LogLevel.VERBOSE)
 
         if any(self.power_supply_status):
             self.power_supplies_initialized = True
         else:
             self.power_supplies_initialized = False
-            self.log_message("Some power supplies were not initialized properly.")
+            self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
 
     def retry_connection(self, index):
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 port = self.com_ports[f'Cathode{chr(65+index)} PS']
-                new_ps = PowerSupply9014(port=port, messages_frame=self.messages_frame)
+                new_ps = PowerSupply9014(port=port, logger=self.logger)
                 self.power_supplies[index] = new_ps
                 self.power_supply_status[index] = True
                 self.toggle_buttons[index]['state'] = 'normal'
-                self.log_message(f"Reconnected to power supply on port {port}")
+                self.log(f"Reconnected to power supply on port {port}", LogLevel.DEBUG)
                 return True
             except Exception as e:
-                self.log_message(f"Retry {attempt+1} failed: {str(e)}")
+                self.log(f"Retry {attempt+1} failed: {str(e)}", LogLevel.ERROR)
         
-        self.log_message(f"Failed to reconnect after {max_retries} attempts")
+        self.log(f"Failed to reconnect after {max_retries} attempts", LogLevel.ERROR)
         return False
 
     def show_output_status(self, index):
-        if not self.power_supplies_initialized:
-            self.log_message("Power supplies not initialized.")
+        if not self.power_supply_status[index]:
+            self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
         
         status = self.power_supplies[index].get_output_status()
-        self.log_message(f"Heater {['A', 'B', 'C'][index]} output status: {status}")
+        self.log(f"Heater {['A', 'B', 'C'][index]} output status: {status}", LogLevel.INFO)
 
     def init_cathode_model(self):
         try:
@@ -375,7 +373,7 @@ class CathodeHeatingSubsystem:
             self.true_temperature_model = ES440_cathode(heater_current_temp, true_temperature, log_transform=False)
 
         except Exception as e:
-            self.log_message(f"Failed to initialize cathode models: {str(e)}")
+            self.log(f"Failed to initialize cathode models: {str(e)}", LogLevel.ERROR)
 
     def initialize_temperature_controllers(self):
         """
@@ -385,16 +383,16 @@ class CathodeHeatingSubsystem:
         if port:
             try:
                 # Assuming only one Modbus controller object for all units
-                tc = E5CNModbus(port=port, messages_frame=self.messages_frame)
+                tc = E5CNModbus(port=port, logger=self.logger)
                 if tc.connect():
                     self.temperature_controllers = [tc]  # Store it in a list for compatibility with existing code structure
                     self.temp_controllers_connected = True
-                    self.log_message("Connected to all temperature controllers via Modbus on " + port)
+                    self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
                 else:
-                    self.log_message("Failed to connect to temperature controllers at " + port)
+                    self.log(f"Failed to connect to temperature controllers at {port}", LogLevel.ERROR)
                     self.temperature_controllers_connected = False
             except Exception as e:
-                self.log_message(f"Exception while initializing temperature controllers at {port}: {str(e)}")
+                self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
 
     def read_current_voltage(self):
@@ -418,11 +416,11 @@ class CathodeHeatingSubsystem:
                 else:
                     raise Exception("No temperature data received")
             except Exception as e:
-                self.log_message(f"Error reading temperature for cathode {index+1}: {str(e)}")
+                self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
                 self.set_plot_alert(index, alert_status=True)  # Set plot border to red
         else:
             if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
-                self.log_message(f"No connection to CCS temperature controller {index+1}")
+                self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
                 self.last_no_conn_log_time[index] = current_time
             self.set_plot_alert(index, alert_status=True)
         # Set temperature to zero as default
@@ -438,9 +436,9 @@ class CathodeHeatingSubsystem:
                 try:
                     if not self.power_supplies[i].is_connected():
                         if self.retry_connection(i):
-                            self.log_message(f"Reconnected to power supply {i+1}")
+                            self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
                         else:
-                            self.log_message(f"Failed to reconnect to power supply {i+1}")
+                            self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
                             continue
                     
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
@@ -458,7 +456,7 @@ class CathodeHeatingSubsystem:
                     self.operation_mode_var[i].set(f'Mode: {mode_text}')
 
                 except Exception as e:
-                    self.log_message(f"Error updating data for power supply {i+1}: {str(e)}")
+                    self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
                     self.actual_heater_current_vars[i].set("0.00 A")
                     self.actual_heater_voltage_vars[i].set("0.00 V")
                     self.operation_mode_var[i].set("Mode: --")
@@ -495,7 +493,7 @@ class CathodeHeatingSubsystem:
             # Overtemperature check and update label style
             if temperature > self.overtemp_limit_vars[i].get():
                 self.overtemp_status_vars[i].set("OVERTEMP!")
-                self.log_message(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!")
+                self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
                 self.clamp_temp_labels[i].config(style='OverTemp.TLabel')  # Change to red style
             else:
                 self.overtemp_status_vars[i].set('Normal')
@@ -557,7 +555,7 @@ class CathodeHeatingSubsystem:
 
     def toggle_output(self, index):
         if not self.power_supplies_initialized or not self.power_supplies:
-            self.log_message("Power supplies not properly initialized or list is empty.")
+            self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
         
         self.toggle_states[index] = not self.toggle_states[index]
@@ -568,9 +566,9 @@ class CathodeHeatingSubsystem:
         else:
             response = self.power_supplies[index].set_output("0") # OFF
         if response:
-            self.log_message(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
+            self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.INFO)
         else:
-            self.log_message(f"No response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}")
+            self.log(f"No response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
     
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
@@ -579,7 +577,7 @@ class CathodeHeatingSubsystem:
             return
 
         if not self.power_supply_status[index]:
-            self.log_message(f"Power supply {index + 1} is not initialized. Cannot set target current.")
+            self.log(f"Power supply {index + 1} is not initialized. Cannot set target current.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
             return
 
@@ -587,7 +585,7 @@ class CathodeHeatingSubsystem:
             target_current_mA = float(entry_field.get())
             ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
             log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            self.log_message(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA")
+            self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
             
             if ideal_emission_current == 0:
                 # Set all related variables to zero
@@ -596,7 +594,7 @@ class CathodeHeatingSubsystem:
 
             # Ensure current is within the data range
             if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
-                self.log_message("Desired emission current is below the minimum range of the model.")
+                self.log("Desired emission current is below the minimum range of the model.", LogLevel.DEBUG)
                 self.predicted_emission_current_vars[index].set('0.00')
                 self.predicted_grid_current_vars[index].set('0.00')
                 self.predicted_heater_current_vars[index].set('0.00')
@@ -607,12 +605,12 @@ class CathodeHeatingSubsystem:
                 heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
                 heater_voltage = self.heater_voltage_model.interpolate(heater_current)
 
-                self.log_message(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A")
-                self.log_message(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V")
+                self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
+                self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
 
                 # Set voltage and current on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
-                    self.log_message("Setting voltage: ")
+                    self.log(f"Setting voltage: {heater_voltage}", LogLevel.DEBUG)
                     voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
                     self.last_set_voltage = heater_voltage
@@ -627,16 +625,14 @@ class CathodeHeatingSubsystem:
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
                         self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
-                        setattr(self, f'last_set_voltage{index}', heater_voltage)
-                        self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
-
-                        self.log_message(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current")
+                        setattr(self, f'last_set_voltage_{index}', heater_voltage)
+                        self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
                     else:
                         self.reset_related_variables(index)
-                        self.log_message(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.")
+                        self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         except ValueError:
-            self.log_message("Invalid input for target current")
+            self.log("Invalid input for target current", LogLevel.ERROR)
 
     def reset_related_variables(self, index):
         """ Resets display variables when setting voltage/current fails. """
@@ -651,7 +647,7 @@ class CathodeHeatingSubsystem:
         if self.power_supply_status[index]:
             self.power_supplies[index].set_voltage(3, 0.0)
             self.power_supplies[index].set_current(3, 0.0)
-            self.log_message(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}")
+            self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
         self.predicted_emission_current_vars[index].set('0.00')
         self.predicted_grid_current_vars[index].set('0.00')
         self.predicted_heater_current_vars[index].set('0.00')
@@ -667,7 +663,7 @@ class CathodeHeatingSubsystem:
                 self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
                 self.entry_fields[index].delete(0, tk.END)
             else:
-                self.log_message(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.")
+                self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
     def update_predictions_from_voltage(self, index, voltage):
         """Update predictions based on manually entered voltage."""
@@ -682,7 +678,7 @@ class CathodeHeatingSubsystem:
 
             # Check if the interpolated current is within the model's range
             if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
-                self.log_message(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]")
+                self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
                 return False
 
             # Set voltage and current on the power supply
@@ -690,10 +686,10 @@ class CathodeHeatingSubsystem:
                 voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
                 current_set_success = self.power_supplies[index].set_current(3, heater_current)
                 if not voltage_set_success:
-                    self.log_message(f"Unable to set voltage: {voltage}")
+                    self.log(f"Unable to set voltage: {voltage} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     return False
                 if not current_set_success:
-                    self.log_message(f"Unable to set current: {heater_current}")
+                    self.log(f"Unable to set current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     return False
 
             # Calculate dependent variables
@@ -707,10 +703,10 @@ class CathodeHeatingSubsystem:
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
             self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
 
-            self.log_message(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A")
+            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
             return True
         except ValueError as e:
-            self.log_message(f"Error processing manual voltage setting: {str(e)}")
+            self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             self.reset_related_variables(index)
             return False
 
@@ -718,15 +714,15 @@ class CathodeHeatingSubsystem:
         try:
             new_limit = float(temp_var.get())
             self.overtemp_limit_vars[index].set(new_limit)
-            self.log_message(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}°C")
+            self.log(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}°C", LogLevel.INFO)
         except ValueError:
-            self.log_message("Invalid input for overtemperature limit")
+            self.log("Invalid input for overtemperature limit", LogLevel.ERROR)
 
-    def log_message(self, message):
-        if hasattr(self, 'messages_frame') and self.messages_frame:
-            self.parent.after (0, lambda: self.messages_frame.log_message(message))
+    def log(self, message, level=LogLevel.INFO):
+        if self.logger:
+            self.logger.log(message, level)
         else:
-            print(message)
+            print(f"{level.name}: {message}")
 
     def perform_echoback_test(self, unit):
         """
@@ -741,9 +737,9 @@ class CathodeHeatingSubsystem:
             # Perform the echoback test
             controller = self.temperature_controllers[unit - 1]
             result = controller.perform_echoback_test()
-            self.log_message(f"Echoback test result for Unit {unit}: {result}")
+            self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.ERROR)
         except Exception as e:
-            self.log_message(f"Failed to perform echoback test on Unit {unit}: {str(e)}")
+            self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
 
     def read_and_log_temperature(self, unit):
@@ -759,9 +755,9 @@ class CathodeHeatingSubsystem:
             temperature = controller.read_temperature()
             if temperature is not None:
                 message = f"Temperature from Unit {unit}: {temperature:.2f} °C"
-                self.log_message(message)
+                self.log(message, LogLevel.VERBOSE)
             else:
                 raise Exception("Failed to read temperature")
         except Exception as e:
-            self.log_message(f"Error reading temperature from Unit {unit}: {str(e)}")
+            self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")

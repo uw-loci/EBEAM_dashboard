@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
 class OilSubsystem:
-    def __init__(self, parent, messages_frame=None):
+    def __init__(self, parent, logger=None):
         self.parent = parent
-        self.messages_frame = messages_frame
+        self.logger = logger
         self.setup_gui()
 
     def setup_gui(self):

@@ -4,10 +4,10 @@ from tkinter import ttk
 import instrumentctl
 
 class VisualizationGasControlSubsystem:
-    def __init__(self, parent, serial_port='COM8', baud_rate=19200, messages_frame=None):
+    def __init__(self, parent, serial_port='COM8', baud_rate=19200, logger=None):
         self.parent = parent
-        self.controller = instrumentctl.ApexMassFlowController(serial_port, baud_rate, messages_frame=messages_frame)
-        self.messages_frame = messages_frame
+        self.controller = instrumentctl.ApexMassFlowController(serial_port, baud_rate, messages_frame=logger)
+        self.logger = logger
         self.setup_gui()
 
     def configure_controller(self): # TODO write this

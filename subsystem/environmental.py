@@ -9,9 +9,9 @@ from matplotlib.colors import Normalize
 
 
 class EnvironmentalSubsystem:
-    def __init__(self, parent, messages_frame=None):
+    def __init__(self, parent, logger=None):
         self.parent = parent
-        self.messages_frame = messages_frame
+        self.logger = logger
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chmbr Bot', 'Chmbr Top', 'Air temp']
         self.temperatures = {name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) for name in self.thermometers}
 
