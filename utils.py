@@ -97,7 +97,7 @@ class MessagesFrame:
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
         
-        self.logger = Logger(self.text_widget, log_to_file=True)
+        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Ensure that the log directory exists
         self.ensure_log_directory()
@@ -107,11 +107,11 @@ class MessagesFrame:
         self.text_widget.insert(tk.END, msg)
         self.trim_text()
 
-    def log_message(self, msg, level=LogLevel.INFO):
-        self.logger.log(msg, level)
-
     def set_log_level(self, level):
         self.logger.set_log_level(level)
+
+    def get_log_level(self):
+        return self.logger.log_level
 
     def flush(self):
         """ Flush method needed for stdout redirection compatibility. """

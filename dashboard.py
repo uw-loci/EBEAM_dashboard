@@ -1,5 +1,6 @@
 import subsystem
 import tkinter as tk
+from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
 
@@ -72,6 +73,7 @@ class EBEAMSystemDashboard:
             if title == "Main Control":
                 save_layout_button = tk.Button(frame, text="Save Layout", command=self.save_current_pane_state)
                 save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=1, pady=1)
+                self.create_log_level_dropdown(frame)
 
     def add_title(self, frame, title):
         """Add a title label to a frame."""
@@ -85,6 +87,23 @@ class EBEAMSystemDashboard:
     def load_saved_pane_state(self):
         num_sashes = len(self.rows) - 1
         load_pane_states(self.main_pane, num_sashes)
+
+    def create_log_level_dropdown(self, frame):
+        log_level_frame = ttk.Frame(frame)
+        log_level_frame.pack(side=tk.BOTTOM, anchor='sw', padx=1, pady=1)
+        ttk.Label(log_level_frame, text="Log Level:").pack(side=tk.LEFT)
+
+        self.log_level_var = tk.StringVar()
+        log_levels = [level.name for level in LogLevel]
+        log_level_dropdown = ttk.Combobox(log_level_frame, textvariable=self.log_level_var, values=log_levels, state="readonly")
+        log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
+        log_level_dropdown.set(LogLevel.INFO.name) 
+        log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
+
+    def on_log_level_change(self, event):
+        selected_level = LogLevel[self.log_level_var.get()]
+        self.messages_frame.set_log_level(selected_level)
+        print(f"Log level changed to: {selected_level.name}")
 
     def create_subsystems(self):
         """Initialize subsystems in their designated frames using component settings."""

@@ -10,7 +10,7 @@ import sys
 def start_main_app(com_ports):
     root = tk.Tk()
     app = EBEAMSystemDashboard(root, com_ports)
-    app.messages_frame.set_log_level(LogLevel.DEBUG)
+    # app.messages_frame.set_log_level(LogLevel.DEBUG)
     root.mainloop()
 
 def config_com_ports():
