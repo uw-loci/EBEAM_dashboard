@@ -23,9 +23,11 @@ void loop() {
 void serialEvent() {
   while (Serial.available()) {
     char inChar = (char)Serial.read();
-    inputString += inChar;
-    if (inChar == '\r') {
-      stringComplete = true;
+    if (inChar != '\n') {  // Ignore spaces and newlines
+      inputString += inChar;
+      if (inChar == '\r') {
+        stringComplete = true;
+      }
     }
   }
 }
@@ -41,9 +43,28 @@ void processCommand(String command) {
     Serial.println("OK");
   }
   else if (command.startsWith("VOLT")) {
-    int valueStartIndex = command.indexOf('3', 4) + 1;
-    if (valueStartIndex > 4) { 
-      String valueStr = command.substring(valueStartIndex);
+    // Find the position of '3' in the command
+    int valueStartIndex = command.indexOf('3');
+    if (valueStartIndex != -1 && valueStartIndex < command.length() - 1) {
+      // Extract the value part, ignoring any spaces
+      String valueStr = command.substring(valueStartIndex + 1);
+      valueStr.trim();  // Remove any leading/trailing spaces
+      float newVoltage = valueStr.toFloat() / 100.0;
+      if (newVoltage >= 0 && newVoltage <= maxVoltage) {
+        voltage = newVoltage;
+        Serial.println("OK");
+      } else {
+        Serial.println("ERROR: Voltage out of range");
+      }
+    } else {
+      Serial.println("ERROR");
+    }
+  }
+  else if (command.startsWith("CURR")) {
+    int valueStartIndex = command.indexOf('3');
+    if (valueStartIndex != -1 && valueStartIndex < command.length() - 1) {
+      String valueStr = command.substring(valueStartIndex + 1);
+      valueStr.trim();
       float newCurrent = valueStr.toFloat() / 100.0;
       if (newCurrent >= 0 && newCurrent <= maxCurrent) {
         current = newCurrent;
@@ -55,28 +76,19 @@ void processCommand(String command) {
       Serial.println("ERROR");
     }
   }
-  else if (command.startsWith("CURR")) {
-    int valueStartIndex = command.indexOf('3', 4) + 1; 
-    if (valueStartIndex > 4) { 
-      String valueStr = command.substring(valueStartIndex);
-      current = valueStr.toFloat() / 100.0;
-      Serial.println("OK");
-    } else {
-      Serial.println("ERROR");
-    }
-  }
-  else if (command == "GETS 3") {
+  else if (command == "GETS3") {
     char response[12];
-    sprintf(response, "%04d %04d", int(voltage * 100), int(current * 100));
+    sprintf(response, "%04d%04d", int(voltage * 100), int(current * 100));
     Serial.println(response);
   }
   else if (command == "GETD") {
     float actualVoltage = outputOn ? voltage : 0.0;
     float actualCurrent = outputOn ? min(current, voltage / 100.0) : 0.0;
     int mode = 0; // CV mode
-    char response[20];
-    sprintf(response, "%04d %04d %d", int(actualVoltage * 100), int(actualCurrent * 100), mode);
+    char response[11];
+    sprintf(response, "%04d%04d%d\n", int(actualVoltage * 100), int(actualCurrent * 100), mode);
     Serial.println(response);
+    Serial.println("OK");
   }
   else {
     Serial.println("ERROR");
