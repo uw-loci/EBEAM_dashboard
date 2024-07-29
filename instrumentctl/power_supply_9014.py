@@ -20,13 +20,27 @@ class PowerSupply9014:
         except serial.SerialException:
             return False
 
+    def flush_serial(self):
+        self.ser.reset_input_buffer()    
+
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
         if self.debug_mode:
             return "Mock response based on " + command
         try:
             self.ser.write(f"{command}\r".encode())
-            response = self.ser.readline().decode().strip()
+            time.sleep(0.1) # allow small delay to let PS process command
+            response = ""
+            while True:
+                line = self.ser.readline().decode().strip()
+                if line:
+                    response += line + "\n"
+                    if line == "OK" or line == "ERROR":
+                        break
+                else:
+                    break
+            
+            response = response.strip()
             if not response:
                 raise ValueError("No response received from the device.")
             return response
@@ -116,19 +130,30 @@ class PowerSupply9014:
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
+        self.flush_serial()
         command = "GETD"
-        self.log(f"Sent command: {command}", LogLevel.DEBUG)
+        self.log(f"Sent command:{command}", LogLevel.DEBUG)
         return self.send_command(command)
     
     def parse_getd_response(self, response):
         try:
-            parts = response.split()
-            if len(parts) != 3:
-                raise ValueError("Invalid GETD response format")
-            voltage = float(parts[0]) / 100.0
-            current = float(parts[1]) / 100.0
-            mode = "CV Mode" if parts[2] == "0" else "CC Mode"
-            self.log(f"Parsed GETD response: {voltage}V, {current}A, {mode}", LogLevel.DEBUG)
+            # Remove all whitespace and split by 'OK'
+            parts = response.replace('\r', '').replace('\n', '').split('OK')
+            
+            # Check if 'OK' is present in the response
+            if len(parts) < 2:
+                raise ValueError(f"Missing 'OK' in response: {response}")
+            
+            # The data should be in the first part
+            data = parts[0].strip()
+            if len(data) != 9:
+                raise ValueError(f"Invalid GETD data format: {data}")
+            
+            voltage = float(data[:4]) / 100.0
+            current = float(data[4:8]) / 100.0
+            mode = "CV Mode" if data[8] == "0" else "CC Mode"
+            
+            self.log(f"Parsed GETD response: {voltage:.2f}V, {current:.2f}A, {mode}", LogLevel.DEBUG)
             return voltage, current, mode
         except Exception as e:
             self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
@@ -143,6 +168,7 @@ class PowerSupply9014:
         """
         reading = self.get_display_readings()
         if reading:
+            self.log(f"Raw GETD response: {reading}", LogLevel.DEBUG)
             return self.parse_getd_response(reading)
         else:
             self.log("Failed to get display readings.", LogLevel.ERROR)
