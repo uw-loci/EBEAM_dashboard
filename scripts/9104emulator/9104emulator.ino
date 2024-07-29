@@ -86,11 +86,13 @@ void processCommand(String command) {
     float actualCurrent = outputOn ? min(current, voltage / 100.0) : 0.0;
     int mode = 0; // CV mode
     char response[11];
-    sprintf(response, "%04d%04d%d\n", int(actualVoltage * 100), int(actualCurrent * 100), mode);
+    sprintf(response, "%04d%04d%d", int(actualVoltage * 100), int(actualCurrent * 100), mode);
     Serial.println(response);
     Serial.println("OK");
+    delay(100);
   }
   else {
-    Serial.println("ERROR");
+    Serial.println("OK");
+    delay(100);
   }
 }
