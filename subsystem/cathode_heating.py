@@ -303,11 +303,11 @@ class CathodeHeatingSubsystem:
                     ps = PowerSupply9014(port=port, logger=self.logger)
                     self.power_supplies.append(ps)
                     self.power_supply_status.append(True)
-                    self.log(f"Initialized {cathode} power supply on port {port}", LogLevel.INFO)
+                    self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
                 except Exception as e:
                     self.power_supplies.append(None)
                     self.power_supply_status.append(False)
-                    self.log(f"Failed to initialize {cathode} power supply on port {port}: {str(e)}", LogLevel.ERROR)
+                    self.log(f"Failed to initialize {cathode} on port {port}: {str(e)}", LogLevel.ERROR)
             else:
                 self.power_supplies.append(None)
                 self.power_supply_status.append(False)
