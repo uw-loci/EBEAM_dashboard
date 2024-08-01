@@ -92,7 +92,7 @@ void processCommand(String command) {
     delay(100);
   }
   else {
-    Serial.println("OK");
+    Serial.println("Err");
     delay(100);
   }
 }
