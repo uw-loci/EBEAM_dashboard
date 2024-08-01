@@ -430,11 +430,15 @@ class CathodeHeatingSubsystem:
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
+        self.log(f"Starting update_data cycel at {current_time}, LogLevel.DEBUG")
 
         for i in range(3):
+            self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.DEBUG)
+
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 try:
                     if not self.power_supplies[i].is_connected():
+                        self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
                         if self.retry_connection(i):
                             self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
                         else:
@@ -442,6 +446,7 @@ class CathodeHeatingSubsystem:
                             continue
                     
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
+                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
                 
@@ -460,7 +465,6 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_current_vars[i].set("0.00 A")
                     self.actual_heater_voltage_vars[i].set("0.00 V")
                     self.operation_mode_var[i].set("Mode: --")
-                
             else:
                 voltage, current, mode = 0.0, 0.0, "Err"  # Default values if not initialized or out of index
                 self.actual_heater_current_vars[i].set("0.00 A")
