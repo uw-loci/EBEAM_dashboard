@@ -35,6 +35,7 @@ class CathodeHeatingSubsystem:
         self.parent = parent
         self.com_ports = com_ports
         self.power_supplies_initialized = False
+        self.voltage_set = [False, False, False]
         self.temp_controllers_connected = False
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
         self.log_interval = datetime.timedelta(seconds=10) # used for E5CN timeout msg
@@ -448,11 +449,11 @@ class CathodeHeatingSubsystem:
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
                 
                     # Update heater voltage display
                     if hasattr(self, f'last_set_voltage_{i}'):
-                        self.heater_voltage_vars[i].set(f"{getattr(self, f'last_set_voltage_{i}'):.2f} V")
+                        last_set_voltage = getattr(self, f'last_set_voltage_{i}')
+                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
                     else:
                         self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
 
@@ -630,6 +631,7 @@ class CathodeHeatingSubsystem:
                         self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
+                        self.voltage_set[index] = True
                         self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
                     else:
                         self.reset_related_variables(index)
@@ -643,8 +645,9 @@ class CathodeHeatingSubsystem:
         self.predicted_emission_current_vars[index].set('0.00')
         self.predicted_grid_current_vars[index].set('0.00')
         self.predicted_heater_current_vars[index].set('0.00')
-        self.heater_voltage_vars[index].set('0.00')
         self.predicted_temperature_vars[index].set('0.00')
+        if not self.voltage_set[index]:
+            self.heater_voltage_vars[index].set('0.00')
 
     def reset_power_supply(self, index):
         """ Helper function to reset power supply voltage and current to zero """
