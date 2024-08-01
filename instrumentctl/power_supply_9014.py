@@ -4,11 +4,13 @@ import time
 from utils import LogLevel
 
 class PowerSupply9014:
-    def __init__(self, port, baudrate=9600, timeout=1, logger=None, debug_mode=False):
+    MAX_RETRIES = 3 # 9104 display display reading attempts
+
+    def __init__(self, port, baudrate=9600, timeout=3, logger=None, debug_mode=False):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
-
+        
     def is_connected(self):
         """Check if the serial connection is still active."""
         try:
@@ -31,13 +33,14 @@ class PowerSupply9014:
             self.ser.write(f"{command}\r".encode())
             time.sleep(0.1) # allow small delay to let PS process command
             response = ""
+            start_time = time.time()
             while True:
                 line = self.ser.readline().decode().strip()
                 if line:
                     response += line + "\n"
-                    if line == "OK" or line == "ERROR":
+                    if "OK" in line or "ERROR" in line:
                         break
-                else:
+                if time.time() - start_time > 1:
                     break
             
             response = response.strip()
@@ -69,8 +72,9 @@ class PowerSupply9014:
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
+        self.log(f"Raw command sent to {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip() == "OK":
-            self.log(f"Voltage set to {voltage}V for preset {preset}", LogLevel.INFO)
+            self.log(f"Successful voltage set to {voltage:.2f}V", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
@@ -83,7 +87,7 @@ class PowerSupply9014:
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
-            self.log(f"Current set to {current}A for preset {preset}: {response}", LogLevel.INFO)
+            self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
@@ -166,13 +170,18 @@ class PowerSupply9014:
         Returns:
         (voltage, current, mode)
         """
-        reading = self.get_display_readings()
-        if reading:
-            self.log(f"Raw GETD response: {reading}", LogLevel.DEBUG)
-            return self.parse_getd_response(reading)
-        else:
-            self.log("Failed to get display readings.", LogLevel.ERROR)
-            return 0.0, 0.0, "Err"
+        for attempt in range(self.MAX_RETRIES):
+            reading = self.get_display_readings()
+            if reading:
+                self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
+                voltage, current, mode = self.parse_getd_response(reading)
+                if voltage is not None and current is not None:
+                    return voltage, current, mode
+            self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+            time.sleep(0.1)
+
+        self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+        return 0.0, 0.0, "Err"
 
     def set_over_current_protection(self, ocp):
         """Set the over current protection value."""
