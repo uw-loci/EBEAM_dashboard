@@ -150,8 +150,11 @@ class PowerSupply9014:
             
             # The data should be in the first part
             data = parts[0].strip()
+            data = data.lstrip('r')
+            
             if len(data) != 9:
                 raise ValueError(f"Invalid GETD data format: {data}")
+                
             
             voltage = float(data[:4]) / 100.0
             current = float(data[4:8]) / 100.0
