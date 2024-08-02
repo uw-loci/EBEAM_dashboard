@@ -40,27 +40,27 @@ class CathodeHeatingSubsystem:
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
         self.log_interval = datetime.timedelta(seconds=10) # used for E5CN timeout msg
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
-        self.predicted_emission_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.predicted_grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.predicted_heater_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.predicted_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.heater_voltage_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.e_beam_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.target_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.grid_current_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         
-        self.actual_heater_current_vars = [tk.StringVar(value='0.0 A') for _ in range(3)]
-        self.actual_heater_voltage_vars = [tk.StringVar(value='0.0 V') for _ in range(3)]
-        self.actual_target_current_vars = [tk.StringVar(value='0.0 mA') for _ in range(3)]
-        self.clamp_temperature_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]
+        self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]
+        self.actual_target_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)]
+        self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.clamp_temp_labels = []
         self.previous_temperature = 20 # PLACEHOLDER
         self.last_plot_time = datetime.datetime.now()
         self.plot_interval = datetime.timedelta(seconds=5)
 
         # Config tab
-        self.current_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
-        self.voltage_display_vars = [tk.StringVar(value='0.0') for _ in range(3)]
+        self.current_display_vars = [tk.StringVar(value='--') for _ in range(3)]
+        self.voltage_display_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
@@ -425,8 +425,8 @@ class CathodeHeatingSubsystem:
                 self.last_no_conn_log_time[index] = current_time
             self.set_plot_alert(index, alert_status=True)
         # Set temperature to zero as default
-        self.clamp_temperature_vars[index].set("0.00 °C")
-        return 0.0
+        self.clamp_temperature_vars[index].set("-- °C")
+        return None
 
     def update_data(self):
         current_time = datetime.datetime.now()
@@ -434,6 +434,11 @@ class CathodeHeatingSubsystem:
 
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.DEBUG)
+
+            voltage = None
+            current = None
+            mode = None
+            temperature = None
 
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 try:
@@ -448,15 +453,17 @@ class CathodeHeatingSubsystem:
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
-                    self.actual_heater_current_vars[i].set(f"{current:.2f} A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                    self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
                     
                     # Update heater voltage display
                     if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
                         last_set_voltage = getattr(self, f'last_set_voltage_{i}')
                         self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
-                    else:
+                    elif voltage is not None:
                         self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                    else:
+                        self.heater_voltage_vars[i].set("-- V")
 
                     # Update mode display
                     mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
@@ -468,13 +475,16 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_voltage_vars[i].set("-- V")
                     self.operation_mode_var[i].set("Mode: --")
             else:
-                voltage, current, mode = 0.0, 0.0, "Err"  # Default values if not initialized or out of index
-                self.actual_heater_current_vars[i].set("0.00 A")
-                self.actual_heater_voltage_vars[i].set("0.00 V")
-                self.actual_target_current_vars[i].set("0.00 mA")
+                self.actual_heater_current_vars[i].set("-- A")
+                self.actual_heater_voltage_vars[i].set("-- V")
+                self.actual_target_current_vars[i].set("-- mA")
 
             temperature = self.read_temperature(i)
-            self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
+
+            if temperature is not None:
+                self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
+            else:
+                self.clamp_temperature_vars[i].set("-- °C")
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
@@ -486,25 +496,27 @@ class CathodeHeatingSubsystem:
                 self.last_plot_time = current_time  # Reset the plot timer
 
             # Update Main Page labels for voltage and current
-            # self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
-            self.e_beam_current_vars[i].set(f"{current:.2f} A")
-            self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
+            self.e_beam_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
 
             # Update Config page labels
-            self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V')
-            self.current_display_vars[i].set(f'Current: {current:.2f} A')
+            self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V' if voltage is not None else 'Voltage: -- V')
+            self.current_display_vars[i].set(f'Current: {current:.2f} A' if current is not None else 'Current: -- A')
             mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
             self.operation_mode_var[i].set(f'Mode: {mode_text}')
 
             # Overtemperature check and update label style
-            if temperature > self.overtemp_limit_vars[i].get():
-                self.overtemp_status_vars[i].set("OVERTEMP!")
-                self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
-                self.clamp_temp_labels[i].config(style='OverTemp.TLabel')  # Change to red style
+            if temperature is not None:
+                if temperature > self.overtemp_limit_vars[i].get():
+                    self.overtemp_status_vars[i].set("OVERTEMP!")
+                    self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
+                    self.clamp_temp_labels[i].config(style='OverTemp.TLabel')  # Change to red style
+                else:
+                    self.overtemp_status_vars[i].set('Normal')
+                    self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Revert to normal style
             else:
-                self.overtemp_status_vars[i].set('Normal')
-                self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Revert to normal style
-
+                self.overtemp_status_vars[i].set('N/A')
+                self.clamp_temp_labels[i].config(style='Bold.TLabel')
+                
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
@@ -643,12 +655,12 @@ class CathodeHeatingSubsystem:
 
     def reset_related_variables(self, index):
         """ Resets display variables when setting voltage/current fails. """
-        self.predicted_emission_current_vars[index].set('0.00')
-        self.predicted_grid_current_vars[index].set('0.00')
-        self.predicted_heater_current_vars[index].set('0.00')
-        self.predicted_temperature_vars[index].set('0.00')
+        self.predicted_emission_current_vars[index].set('--')
+        self.predicted_grid_current_vars[index].set('--')
+        self.predicted_heater_current_vars[index].set('--')
+        self.predicted_temperature_vars[index].set('--')
         if not self.voltage_set[index]:
-            self.heater_voltage_vars[index].set('0.00')
+            self.heater_voltage_vars[index].set('--')
 
     def reset_power_supply(self, index):
         """ Helper function to reset power supply voltage and current to zero """
@@ -656,11 +668,11 @@ class CathodeHeatingSubsystem:
             self.power_supplies[index].set_voltage(3, 0.0)
             self.power_supplies[index].set_current(3, 0.0)
             self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
-        self.predicted_emission_current_vars[index].set('0.00')
-        self.predicted_grid_current_vars[index].set('0.00')
-        self.predicted_heater_current_vars[index].set('0.00')
-        self.heater_voltage_vars[index].set('0.00')
-        self.predicted_temperature_vars[index].set('0.00')
+        self.predicted_emission_current_vars[index].set('--')
+        self.predicted_grid_current_vars[index].set('--')
+        self.predicted_heater_current_vars[index].set('--')
+        self.heater_voltage_vars[index].set('--')
+        self.predicted_temperature_vars[index].set('--')
 
     def on_voltage_label_click(self, index):
         """ Handle clicks on heater voltage label to manually set heater voltage """
