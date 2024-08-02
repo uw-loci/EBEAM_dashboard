@@ -431,7 +431,6 @@ class CathodeHeatingSubsystem:
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
-        self.log(f"Starting update_data cycel at {current_time}, LogLevel.DEBUG")
 
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.DEBUG)
@@ -448,10 +447,12 @@ class CathodeHeatingSubsystem:
                     
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
+                    
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A")
-                
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                    
                     # Update heater voltage display
-                    if hasattr(self, f'last_set_voltage_{i}'):
+                    if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
                         last_set_voltage = getattr(self, f'last_set_voltage_{i}')
                         self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
                     else:
@@ -463,8 +464,8 @@ class CathodeHeatingSubsystem:
 
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
-                    self.actual_heater_current_vars[i].set("0.00 A")
-                    self.actual_heater_voltage_vars[i].set("0.00 V")
+                    self.actual_heater_current_vars[i].set("-- A")
+                    self.actual_heater_voltage_vars[i].set("-- V")
                     self.operation_mode_var[i].set("Mode: --")
             else:
                 voltage, current, mode = 0.0, 0.0, "Err"  # Default values if not initialized or out of index
@@ -485,7 +486,7 @@ class CathodeHeatingSubsystem:
                 self.last_plot_time = current_time  # Reset the plot timer
 
             # Update Main Page labels for voltage and current
-            self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+            # self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
             self.e_beam_current_vars[i].set(f"{current:.2f} A")
             self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
 
@@ -615,7 +616,7 @@ class CathodeHeatingSubsystem:
 
                 # Set voltage and current on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
-                    self.log(f"Setting voltage: {heater_voltage}", LogLevel.DEBUG)
+                    self.log(f"Setting voltage: {heater_voltage:.2f}", LogLevel.DEBUG)
                     voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
                     self.last_set_voltage = heater_voltage
@@ -668,6 +669,8 @@ class CathodeHeatingSubsystem:
             success = self.update_predictions_from_voltage(index, new_voltage)
             if success:
                 self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+                setattr(self, f'last_set_voltage_{index}', new_voltage)
+                self.voltage_set[index] = True
                 self.entry_fields[index].delete(0, tk.END)
             else:
                 self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
