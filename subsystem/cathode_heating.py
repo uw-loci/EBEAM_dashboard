@@ -516,7 +516,7 @@ class CathodeHeatingSubsystem:
             else:
                 self.overtemp_status_vars[i].set('N/A')
                 self.clamp_temp_labels[i].config(style='Bold.TLabel')
-                
+
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
@@ -638,10 +638,10 @@ class CathodeHeatingSubsystem:
                         predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
 
                         predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-                        self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
-                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
-                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f}')
-                        self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
+                        self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
+                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} °C')
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
                         self.voltage_set[index] = True
@@ -676,6 +676,10 @@ class CathodeHeatingSubsystem:
 
     def on_voltage_label_click(self, index):
         """ Handle clicks on heater voltage label to manually set heater voltage """
+        if self.toggle_states[index]:
+            msgbox.showwarning("Warning", "Disable the output before setting a new voltage.")
+            return # exit the method if the output is already on
+
         new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
         if new_voltage is not None:
             success = self.update_predictions_from_voltage(index, new_voltage)
@@ -701,7 +705,6 @@ class CathodeHeatingSubsystem:
             # Check if the interpolated current is within the model's range
             if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
                 self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
-                return False
 
             # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
@@ -721,9 +724,10 @@ class CathodeHeatingSubsystem:
             predicted_temperature_C = predicted_temperature_K - 273.15
 
             # Update GUI with new values
-            self.predicted_emission_current_vars[index].set(f"{ideal_emission_current:.2f}")
-            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f}')
-            self.predicted_temperature_vars[index].set(f"{predicted_temperature_C:.0f}")
+            self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
+            self.predicted_emission_current_vars[index].set("--")
+            self.predicted_grid_current_vars[index].set("--")
+            self.predicted_temperature_vars[index].set("--")
 
             self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
             return True
