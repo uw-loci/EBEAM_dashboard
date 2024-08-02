@@ -155,7 +155,6 @@ class PowerSupply9014:
             if len(data) != 9:
                 raise ValueError(f"Invalid GETD data format: {data}")
                 
-            
             voltage = float(data[:4]) / 100.0
             current = float(data[4:8]) / 100.0
             mode = "CV Mode" if data[8] == "0" else "CC Mode"
@@ -184,7 +183,7 @@ class PowerSupply9014:
             time.sleep(0.1)
 
         self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
-        return 0.0, 0.0, "Err"
+        return None, None, "Err"
 
     def set_over_current_protection(self, ocp):
         """Set the over current protection value."""
