@@ -4,6 +4,7 @@ from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
+import time
 import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ from instrumentctl.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9014 import PowerSupply9014
 from instrumentctl.E5CN_modbus import E5CNModbus
 from utils import ToolTip
-import os, sys
+import os, sys, threading
 import numpy as np
 from utils import LogLevel
 
@@ -39,6 +40,13 @@ class CathodeHeatingSubsystem:
         self.temp_controllers_connected = False
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
         self.log_interval = datetime.timedelta(seconds=10) # used for E5CN timeout msg
+        self.last_voltage_check = time.time()
+        self.voltage_check_interval = 5
+        self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
+        self.user_set_voltages = [None, None, None]  # Store user-set voltages
+        self.voltage_check_thread = threading.Thread(target=self.check_voltages, daemon=True)
+        self.voltage_check_thread.start()
+
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
         self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
@@ -356,6 +364,43 @@ class CathodeHeatingSubsystem:
         status = self.power_supplies[index].get_output_status()
         self.log(f"Heater {['A', 'B', 'C'][index]} output status: {status}", LogLevel.INFO)
 
+    def check_voltages(self):
+        while True:
+            current_time = time.time()
+            for i in range(3):
+                if current_time - self.last_voltage_check[i] >= self.voltage_check_interval:
+                    try:
+                        self.verify_voltage(i)
+                    except Exception as e:
+                        self.log(f"Error verifying voltage for Cathode {['A', 'B', 'C'][i]}: {str(e)}", LogLevel.ERROR)
+                    self.last_voltage_check[i] = current_time
+            time.sleep(0.1)  # Sleep briefly to prevent excessive CPU usage
+
+    def verify_voltage(self, index):
+        if self.user_set_voltages[index] is not None:
+            queried_voltage = self.query_supply_set_voltage(index)
+            if queried_voltage is not None:
+                if abs(queried_voltage - self.user_set_voltages[index]) > 0.1:  # 0.1V tolerance
+                    self.log(f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: "
+                            f"Set: {self.user_set_voltages[index]:.2f}V, "
+                            f"Actual: {queried_voltage:.2f}V", LogLevel.WARNING)
+    
+    def query_supply_set_voltage(self, index):
+        if self.power_supplies and len(self.power_supplies) > index:
+            settings = self.power_supplies[index].get_settings(3) # Using preset 3
+            voltage = self.parse_voltage_from_settings(settings)
+            return voltage
+        return None
+    
+    def parse_voltage_from_settings(self, settings):
+        try:
+            # Format: VVVVIIII" where VVVV is voltage in centivolts
+            voltage_cv = int(settings[:4])
+            return voltage_cv / 100.0 # Convert to volts
+        except ValueError:
+            self.log("Failed to parse set voltage from settings", LogLevel.ERROR)
+            return None
+
     def init_cathode_model(self):
         try:
             # initialize heater voltage model
@@ -631,7 +676,8 @@ class CathodeHeatingSubsystem:
                     self.log(f"Setting voltage: {heater_voltage:.2f}", LogLevel.DEBUG)
                     voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    self.last_set_voltage = heater_voltage
+                    # self.last_set_voltage = heater_voltage
+                    self.user_set_voltages[index] = heater_voltage
 
                     if voltage_set_success and current_set_success:
                         predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
@@ -716,6 +762,7 @@ class CathodeHeatingSubsystem:
                 if not current_set_success:
                     self.log(f"Unable to set current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     return False
+                self.user_set_voltages[index] = voltage
 
             # Calculate dependent variables
             ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
