@@ -80,6 +80,7 @@ void processCommand(String command) {
     char response[12];
     sprintf(response, "%04d%04d", int(voltage * 100), int(current * 100));
     Serial.println(response);
+    Serial.println("OK");
   }
   else if (command == "GETD") {
     float actualVoltage = outputOn ? voltage : 0.0;
