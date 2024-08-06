@@ -40,13 +40,10 @@ class CathodeHeatingSubsystem:
         self.temp_controllers_connected = False
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
         self.log_interval = datetime.timedelta(seconds=10) # used for E5CN timeout msg
-        self.last_voltage_check = time.time()
         self.voltage_check_interval = 5
         self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
         self.user_set_voltages = [None, None, None]  # Store user-set voltages
-        self.voltage_check_thread = threading.Thread(target=self.check_voltages, daemon=True)
-        self.voltage_check_thread.start()
-
+        self.query_settings_buttons = []
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
         self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
@@ -255,10 +252,11 @@ class CathodeHeatingSubsystem:
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            output_status_button = ttk.Button(config_tab, text="Output Status:", width=18, command=lambda x=i: self.show_output_status(x))
-            output_status_button.grid(row=5, column=0, sticky='w')
+            query_settings_button = ttk.Button(config_tab, text="Query Settings:", width=18, command=lambda x=i: self.query_and_check_settings(x))
+            query_settings_button.grid(row=5, column=0, sticky='w')
             ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
-            output_status_button['state'] = 'disabled' if not self.power_supplies_initialized else 'normal'
+            query_settings_button['state'] = 'disabled'
+            self.query_settings_buttons.append(query_settings_button)
 
             # Add labels for power supply readings
             display_label = ttk.Label(config_tab, text='\nProtection Settings:')
@@ -338,6 +336,8 @@ class CathodeHeatingSubsystem:
         else:
             self.power_supplies_initialized = False
             self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
+        
+        self.update_query_settings_button_states()
 
     def retry_connection(self, index):
         max_retries = 3
@@ -349,6 +349,7 @@ class CathodeHeatingSubsystem:
                 self.power_supply_status[index] = True
                 self.toggle_buttons[index]['state'] = 'normal'
                 self.log(f"Reconnected to power supply on port {port}", LogLevel.DEBUG)
+                self.update_query_settings_button_states()
                 return True
             except Exception as e:
                 self.log(f"Retry {attempt+1} failed: {str(e)}", LogLevel.ERROR)
@@ -364,34 +365,49 @@ class CathodeHeatingSubsystem:
         status = self.power_supplies[index].get_output_status()
         self.log(f"Heater {['A', 'B', 'C'][index]} output status: {status}", LogLevel.INFO)
 
-    def check_voltages(self):
-        while True:
-            current_time = time.time()
-            for i in range(3):
-                if current_time - self.last_voltage_check[i] >= self.voltage_check_interval:
-                    try:
-                        self.verify_voltage(i)
-                    except Exception as e:
-                        self.log(f"Error verifying voltage for Cathode {['A', 'B', 'C'][i]}: {str(e)}", LogLevel.ERROR)
-                    self.last_voltage_check[i] = current_time
-            time.sleep(0.1)  # Sleep briefly to prevent excessive CPU usage
+        mismatch = self.verify_voltage(index)
+        if mismatch:
+            self.log(mismatch, LogLevel.CRITICAL)
+        else:
+            self.log(f"Voltage for Cathode {['A', 'B', 'C'][index]} matches set value.", LogLevel.INFO)
 
-    def verify_voltage(self, index):
-        if self.user_set_voltages[index] is not None:
-            queried_voltage = self.query_supply_set_voltage(index)
-            if queried_voltage is not None:
-                if abs(queried_voltage - self.user_set_voltages[index]) > 0.1:  # 0.1V tolerance
-                    self.log(f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: "
-                            f"Set: {self.user_set_voltages[index]:.2f}V, "
-                            f"Actual: {queried_voltage:.2f}V", LogLevel.WARNING)
-    
-    def query_supply_set_voltage(self, index):
-        if self.power_supplies and len(self.power_supplies) > index:
-            settings = self.power_supplies[index].get_settings(3) # Using preset 3
-            voltage = self.parse_voltage_from_settings(settings)
-            return voltage
-        return None
-    
+    def update_query_settings_button_states(self):
+        for i, power_supply in enumerate(self.power_supplies):
+            if i < len(self.query_settings_buttons):
+                self.query_settings_buttons[i]['state'] = 'normal' if power_supply else 'disabled'
+
+    def query_and_check_settings(self, index):
+        if not self.power_supply_status[index]:
+            self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
+            return
+
+        settings = self.power_supplies[index].get_settings(3)  # Get settings for preset 3
+        if not settings or "OK" not in settings:
+            self.log(f"Failed to retrieve settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+            return
+
+        try:
+            # Split the response and take the first part (before 'OK')
+            settings_value = settings.split('OK')[0].strip()
+            
+            if len(settings_value) != 8:
+                raise ValueError(f"Unexpected settings format: {settings_value}")
+
+            voltage_cv, current_cv = int(settings_value[:4]), int(settings_value[4:])
+            voltage = voltage_cv / 100.0
+            current = current_cv / 100.0
+
+            expected_voltage = self.user_set_voltages[index]
+            if expected_voltage is None:
+                self.log(f"Cathode {['A', 'B', 'C'][index]} settings - Voltage: {voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
+            elif abs(voltage - expected_voltage) > 0.1:  # 0.1V tolerance
+                self.log(f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: Set: {expected_voltage:.2f}V, Actual: {voltage:.2f}V", LogLevel.ERROR)
+            else:
+                self.log(f"Cathode {['A', 'B', 'C'][index]} voltage matches set value. Voltage: {voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
+
+        except ValueError as e:
+            self.log(f"Failed to parse settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            
     def parse_voltage_from_settings(self, settings):
         try:
             # Format: VVVVIIII" where VVVV is voltage in centivolts
@@ -676,7 +692,6 @@ class CathodeHeatingSubsystem:
                     self.log(f"Setting voltage: {heater_voltage:.2f}", LogLevel.DEBUG)
                     voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    # self.last_set_voltage = heater_voltage
                     self.user_set_voltages[index] = heater_voltage
 
                     if voltage_set_success and current_set_success:
