@@ -208,7 +208,9 @@ class PowerSupply9014:
     def get_settings(self, preset):
         """Get settings of a preset."""
         command = f"GETS{preset}"
-        return self.send_command(command)
+        # Expected response: VVVVIIII
+        response = self.send_command(command)
+        return response.strip()
 
     def get_preset_selection(self):
         """Get the current preset selection."""
