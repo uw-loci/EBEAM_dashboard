@@ -72,9 +72,9 @@ class PowerSupply9014:
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
-        self.log(f"Raw command sent to {preset}: {command}", LogLevel.DEBUG)
+        self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip() == "OK":
-            self.log(f"Successful voltage set to {voltage:.2f}V", LogLevel.INFO)
+            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
