@@ -215,12 +215,29 @@ class PowerSupply9014:
     def get_preset_selection(self):
         """Get the current preset selection."""
         command = "GABC"
-        return self.send_command(command)
+        self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
+        response = self.send_command(command)
+        self.log(f"Raw response received: {response}", LogLevel.DEBUG)
+        if response:
+            self.log(f"Current preset selection: {response.strip()}", LogLevel.INFO)
+            return response.strip()
+        else:
+            self.log("Failed to get preset selection", LogLevel.ERROR)
+            return None
 
     def set_preset_selection(self, preset):
         """Set the ABC select."""
         command = f"SABC{preset}"
-        return self.send_command(command)
+        self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
+        response = self.send_command(command)
+        self.log(f"Raw response received: {response}", LogLevel.DEBUG)
+        if response and response.strip() == "OK":
+            self.log(f"Successfully set preset selection to {preset}", LogLevel.INFO)
+            return True
+        else:
+            error_message = "No response" if response is None else response
+            self.log(f"Error setting preset selection: {error_message}", LogLevel.WARNING)
+            return False
 
     def get_delta_time(self, index):
         """Get delta time setting value."""
