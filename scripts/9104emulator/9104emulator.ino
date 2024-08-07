@@ -6,6 +6,7 @@ float current = 0.0;
 bool outputOn = false;
 float maxVoltage = 50.0;
 float maxCurrent = 10.0;
+int preset = 3;
 
 void setup() {
   Serial.begin(9600);
@@ -40,6 +41,11 @@ void processCommand(String command) {
     Serial.println("OK");
   }
   else if (command == "SABC3") {
+    preset = 3;
+    Serial.println("OK");
+  }
+  else if (command == "GABC") {
+    Serial.println(String(preset));
     Serial.println("OK");
   }
   else if (command.startsWith("VOLT")) {
