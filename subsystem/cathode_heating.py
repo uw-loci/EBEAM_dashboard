@@ -4,7 +4,6 @@ from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
-import time
 import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
@@ -14,7 +13,7 @@ from instrumentctl.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9014 import PowerSupply9014
 from instrumentctl.E5CN_modbus import E5CNModbus
 from utils import ToolTip
-import os, sys, threading
+import os, sys
 import numpy as np
 from utils import LogLevel
 
@@ -308,6 +307,19 @@ class CathodeHeatingSubsystem:
             if port:
                 try:
                     ps = PowerSupply9014(port=port, logger=self.logger)
+                    
+                    # Set preset mode to 3
+                    set_preset_response = ps.set_preset_selection(3)
+                    if set_preset_response != "OK":
+                        self.log(f"Failed to set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
+                    
+                    # Confirm preset mode
+                    current_preset = ps.get_preset_selection()
+                    if current_preset != "3":
+                        self.log(f"{cathode} is not in preset mode 3 (normal mode). Current mode: {current_preset}", LogLevel.WARNING)
+                    else:
+                        self.log(f"{cathode} successfully set to preset mode 3", LogLevel.INFO)
+
                     self.power_supplies.append(ps)
                     self.power_supply_status.append(True)
                     self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
@@ -382,6 +394,7 @@ class CathodeHeatingSubsystem:
             return
 
         settings = self.power_supplies[index].get_settings(3)  # Get settings for preset 3
+        self.log(f"Raw settings response for Cathode {['A', 'B', 'C'][index]}", LogLevel.DEBUG)
         if not settings or "OK" not in settings:
             self.log(f"Failed to retrieve settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
             return
