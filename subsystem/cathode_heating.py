@@ -689,8 +689,8 @@ class CathodeHeatingSubsystem:
                     expected_voltage = self.user_set_voltages[index]
                     expected_current = float(self.predicted_heater_current_vars[index].get().split()[0])  # Extract the numeric part
                     
-                    voltage_mismatch = abs(set_voltage - expected_voltage) > 0.1  # 0.1V tolerance
-                    current_mismatch = abs(set_current - expected_current) > 0.1  # 0.1A tolerance
+                    voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
+                    current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
                     
                     if voltage_mismatch or current_mismatch:
                         mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
