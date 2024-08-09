@@ -322,6 +322,7 @@ class CathodeHeatingSubsystem:
 
                     # Set and confirm OVP
                     ovp_value = int(self.overvoltage_limit_vars[idx].get() * 100)  # Convert to centivolts
+                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:04d}", LogLevel.DEBUG)
                     ovp_set_response = ps.set_over_voltage_protection(f"{ovp_value:04d}")
                     if ovp_set_response != "OK":
                         self.log(f"Failed to set OVP for {cathode}. Response: {ovp_set_response}", LogLevel.WARNING)
@@ -334,6 +335,7 @@ class CathodeHeatingSubsystem:
 
                     # Set and confirm OCP
                     ocp_value = int(self.overcurrent_limit_vars[idx].get() * 100)  # Convert to centiamps
+                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:04d}", LogLevel.DEBUG)
                     ocp_set_response = ps.set_over_current_protection(f"{ocp_value:04d}")
                     if ocp_set_response != "OK":
                         self.log(f"Failed to set OCP for {cathode}. Response: {ocp_set_response}", LogLevel.WARNING)
