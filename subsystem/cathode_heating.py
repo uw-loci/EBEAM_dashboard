@@ -68,8 +68,8 @@ class CathodeHeatingSubsystem:
         self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]
         
         self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
-        self.overvoltage_limit_vars= [tk.DoubleVar(value=50.0) for _ in range(3)]  
-        self.overcurrent_limit_vars = [tk.DoubleVar(value=10.0) for _ in range(3)]
+        self.overvoltage_limit_vars= [tk.DoubleVar(value=1.0) for _ in range(3)]  
+        self.overcurrent_limit_vars = [tk.DoubleVar(value=8.5) for _ in range(3)]
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
 
         self.toggle_states = [False for _ in range(3)]
@@ -303,7 +303,7 @@ class CathodeHeatingSubsystem:
             'CathodeC PS': self.com_ports.get('CathodeC PS')
         }
 
-        for cathode, port in cathode_ports.items():
+        for idx, (cathode, port) in enumerate(cathode_ports.items()):
             if port:
                 try:
                     ps = PowerSupply9014(port=port, logger=self.logger)
@@ -319,6 +319,31 @@ class CathodeHeatingSubsystem:
                         self.log(f"{cathode} is not in preset mode 3 (normal mode). Current mode: {current_preset}", LogLevel.WARNING)
                     else:
                         self.log(f"{cathode} successfully set to preset mode 3", LogLevel.INFO)
+
+                    # Set and confirm OVP
+                    ovp_value = int(self.overvoltage_limit_vars[idx].get() * 100)  # Convert to centivolts
+                    ovp_set_response = ps.set_over_voltage_protection(f"{ovp_value:04d}")
+                    if ovp_set_response != "OK":
+                        self.log(f"Failed to set OVP for {cathode}. Response: {ovp_set_response}", LogLevel.WARNING)
+                    
+                    ovp_get_response = ps.get_over_voltage_protection().strip()
+                    if ovp_get_response != f"{ovp_value:04d}":
+                        self.log(f"OVP mismatch for {cathode}. Set: {ovp_value:04d}, Got: {ovp_get_response}", LogLevel.WARNING)
+                    else:
+                        self.log(f"OVP successfully set and confirmed for {cathode}: {ovp_value/100:.2f}V", LogLevel.INFO)
+
+                    # Set and confirm OCP
+                    ocp_value = int(self.overcurrent_limit_vars[idx].get() * 100)  # Convert to centiamps
+                    ocp_set_response = ps.set_over_current_protection(f"{ocp_value:04d}")
+                    if ocp_set_response != "OK":
+                        self.log(f"Failed to set OCP for {cathode}. Response: {ocp_set_response}", LogLevel.WARNING)
+                    
+                    ocp_get_response = ps.get_over_current_protection().strip()
+                    if ocp_get_response != f"{ocp_value:04d}":
+                        self.log(f"OCP mismatch for {cathode}. Set: {ocp_value:04d}, Got: {ocp_get_response}", LogLevel.WARNING)
+                    else:
+                        self.log(f"OCP successfully set and confirmed for {cathode}: {ocp_value/100:.2f}A", LogLevel.INFO)
+
 
                     self.power_supplies.append(ps)
                     self.power_supply_status.append(True)
@@ -670,9 +695,9 @@ class CathodeHeatingSubsystem:
                     if voltage_mismatch or current_mismatch:
                         mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
                         if voltage_mismatch:
-                            mismatch_message += f"Voltage - Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
+                            mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
                         if current_mismatch:
-                            mismatch_message += f"Current - Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
+                            mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
                         mismatch_message += "Do you want to proceed with turning on the output?"
                         
                         if not msgbox.askyesno("Value Mismatch", mismatch_message):
@@ -765,6 +790,8 @@ class CathodeHeatingSubsystem:
                                         self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
                                     if current_mismatch:
                                         self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
+                                    # GUI is updated with actual voltage
+                                    self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
                                 else:
                                     self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
                             else:
