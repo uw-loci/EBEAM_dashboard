@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.dates import DateFormatter
 from instrumentctl.ES440_cathode import ES440_cathode
-from instrumentctl.power_supply_9014 import PowerSupply9014
+from instrumentctl.power_supply_9104 import PowerSupply9104
 from instrumentctl.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
@@ -306,7 +306,7 @@ class CathodeHeatingSubsystem:
         for idx, (cathode, port) in enumerate(cathode_ports.items()):
             if port:
                 try:
-                    ps = PowerSupply9014(port=port, logger=self.logger)
+                    ps = PowerSupply9104(port=port, logger=self.logger)
                     
                     # Set preset mode to 3
                     set_preset_response = ps.set_preset_selection(3)
@@ -381,7 +381,7 @@ class CathodeHeatingSubsystem:
         for attempt in range(max_retries):
             try:
                 port = self.com_ports[f'Cathode{chr(65+index)} PS']
-                new_ps = PowerSupply9014(port=port, logger=self.logger)
+                new_ps = PowerSupply9104(port=port, logger=self.logger)
                 self.power_supplies[index] = new_ps
                 self.power_supply_status[index] = True
                 self.toggle_buttons[index]['state'] = 'normal'

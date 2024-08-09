@@ -2,8 +2,9 @@ import serial
 import threading
 import time
 from utils import LogLevel
+import os
 
-class PowerSupply9014:
+class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
 
     def __init__(self, port, baudrate=9600, timeout=3, logger=None, debug_mode=False):
