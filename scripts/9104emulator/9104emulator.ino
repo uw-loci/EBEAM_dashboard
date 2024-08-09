@@ -7,6 +7,8 @@ bool outputOn = false;
 float maxVoltage = 50.0;
 float maxCurrent = 10.0;
 int preset = 3;
+int ovp = 4200; // 42.00V in centivolts
+int ocp = 1000; // 10.00A in centiamps
 
 void setup() {
   Serial.begin(9600);
@@ -97,6 +99,38 @@ void processCommand(String command) {
     Serial.println(response);
     Serial.println("OK");
     delay(100);
+  }
+  else if (command.startsWith("SOVP")) {
+    String valueStr = command.substring(4);
+    int newOVP = valueStr.toInt();
+    if (newOVP >= 0 && newOVP <= 5000) {  // Max 50.00V
+      ovp = newOVP;
+      Serial.println("OK");
+    } else {
+      Serial.println("ERROR: OVP out of range");
+    }
+  }
+  else if (command == "GOVP") {
+    char response[5];
+    sprintf(response, "%04d", ovp);
+    Serial.println(response);
+    Serial.println("OK");
+  }
+  else if (command.startsWith("SOCP")) {
+    String valueStr = command.substring(4);
+    int newOCP = valueStr.toInt();
+    if (newOCP >= 0 && newOCP <= 1000) {  // Max 10.00A
+      ocp = newOCP;
+      Serial.println("OK");
+    } else {
+      Serial.println("ERROR: OCP out of range");
+    }
+  }
+  else if (command == "GOCP") {
+    char response[5];
+    sprintf(response, "%04d", ocp);
+    Serial.println(response);
+    Serial.println("OK");
   }
   else {
     Serial.println("Err");
