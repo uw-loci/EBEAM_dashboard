@@ -119,7 +119,6 @@ class EBEAMSystemDashboard:
             ),
             'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
                 self.frames['Visualization Gas Control'], 
-                serial_port=self.com_ports['ApexMassFlowController'],
                 logger=self.logger
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
