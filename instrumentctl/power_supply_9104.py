@@ -2,7 +2,8 @@ import serial
 import threading
 import time
 from utils import LogLevel
-import os
+import queue
+import asyncio
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
@@ -11,7 +12,59 @@ class PowerSupply9104:
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
+        self.command_queue = queue.Queue()
+        self.last_readings = {'voltage': None, 'current:': None, 'mode': None}
+        self.lock = threading.Lock()
+        self.running = True
+        self.communication_thread = threading.Thread(target=self._communication_loop)
+        self.communication_thread.start()
+
+        def _communication_loop(self):
+            while self.running:
+                try:
+                    command, future = self.command_queue.get(timeout=1)
+                    response = self._execute_command(command)
+                    self._process_response(command, response)
+                    future.set_result(response)
+                except queue.Empty:
+                    pass
+                except Exception as e:
+                    self.log(f"Error in communication loop: {str(e)}", LogLevel.ERROR)
+
+        def _execute_command(self, command):
+            for _ in range(self.MAX_RETRIES):
+                try:
+                    with self.lock:
+                        self.ser.write(f"{command}\r".encode())
+                        time.sleep(0.1)
+                        response = ""
+                        start_time = time.time()
+                        while True:
+                            line = self.ser.readline().decode().strip()
+                            if line:
+                                response += line + "\n"
+                                if "OK" in line or "ERROR" in line:
+                                    break
+                            if time.time() - start_time > 1:
+                                break
+                        
+                        response = response.strip()
+                        if not response:
+                            raise ValueError("No response received from the device.")
+                        return response
+                except serial.SerialException as e:
+                    self.log(f"Serial error: {e}", LogLevel.ERROR)
+                    return None
+                except ValueError as e:
+                    self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+            return None
         
+    def _process_response(self, command, response):
+        if command == "GETD" and response:
+            voltage, current, mode = self.parse_getd_response(response)
+            with self.lock:
+                self.last_readings = {'voltage': voltage, 'current': current, 'mode': mode}
+
     def is_connected(self):
         """Check if the serial connection is still active."""
         try:
@@ -26,34 +79,13 @@ class PowerSupply9104:
     def flush_serial(self):
         self.ser.reset_input_buffer()    
 
-    def send_command(self, command):
-        """Send a command to the power supply and read the response."""
-        if self.debug_mode:
-            return "Mock response based on " + command
-        try:
-            self.ser.write(f"{command}\r".encode())
-            time.sleep(0.1) # allow small delay to let PS process command
-            response = ""
-            start_time = time.time()
-            while True:
-                line = self.ser.readline().decode().strip()
-                if line:
-                    response += line + "\n"
-                    if "OK" in line or "ERROR" in line:
-                        break
-                if time.time() - start_time > 1:
-                    break
-            
-            response = response.strip()
-            if not response:
-                raise ValueError("No response received from the device.")
-            return response
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
+    async def send_command(self, command):
+        future = asyncio.Future()
+        self.command_queue.put((command, future))
+        response = await future
+        if response is None:
+            self.log(f"Command '{command}' failed after {self.MAX_RETRIES} attempts", LogLevel.ERROR)
+        return response
 
     def set_output(self, state):
         """Set the output on/off."""
