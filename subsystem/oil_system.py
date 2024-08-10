@@ -22,7 +22,7 @@ class OilSubsystem:
 
         # Create a vertical temperature gauge
         self.fig, self.ax = plt.subplots(figsize=(0.8, 6))  # Adjust size for vertical layout
-        self.temperature = 50  # Initial temperature
+        self.temperature = 0  # Initial temperature
         self.bar = plt.bar(1, self.temperature, width=0.4)
         self.ax.set_ylim(0, 100)
         self.ax.set_xlim(0.5, 1.5)
