@@ -24,7 +24,8 @@ class PowerSupply9104:
                 if callback:
                     callback(result)
             except Exception as e:
-                self.log(f"Error in command worker: {str(e)}", LogLevel.ERROR)
+                # self.log(f"Error in command worker: {str(e)}", LogLevel.ERROR)
+                pass
             finally:
                 self.command_queue.task_done()
 
@@ -68,17 +69,17 @@ class PowerSupply9104:
                 raise ValueError("No response received from the device.")
             return response
         except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
+            # self.log(f"Serial error: {e}", LogLevel.ERROR)
             return None
         except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+            # self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
 
     def set_output(self, state):
         """Set the output on/off."""
         command = f"SOUT{state}"
         response = self.send_command(command)
-        self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
+        # self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
         return response
 
     def get_output_status(self):
@@ -92,13 +93,13 @@ class PowerSupply9104:
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
-        self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
+        # self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip() == "OK":
-            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
+            # self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
-            self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
+            # self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
             return False
     
     def set_current(self, preset, current):
@@ -107,11 +108,11 @@ class PowerSupply9104:
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
-            self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.INFO)
+            # self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
-            self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
+            # self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
             return False
 
     def ramp_voltage(self, target_voltage, ramp_rate=0.01, callback=None):
@@ -156,7 +157,7 @@ class PowerSupply9104:
         """Get the display readings for voltage and current mode."""
         self.flush_serial()
         command = "GETD"
-        self.log(f"Sent command:{command}", LogLevel.DEBUG)
+        # self.log(f"Sent command:{command}", LogLevel.DEBUG)
         return self.send_command(command)
     
     def parse_getd_response(self, response):
@@ -179,10 +180,10 @@ class PowerSupply9104:
             current = float(data[4:8]) / 100.0
             mode = "CV Mode" if data[8] == "0" else "CC Mode"
             
-            self.log(f"Parsed GETD response: {voltage:.2f}V, {current:.2f}A, {mode}", LogLevel.DEBUG)
+            # self.log(f"Parsed GETD response: {voltage:.2f}V, {current:.2f}A, {mode}", LogLevel.DEBUG)
             return voltage, current, mode
         except Exception as e:
-            self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
+            # self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
             return 0.0, 0.0, "Err"
     
     def get_voltage_current_mode(self):
@@ -195,14 +196,14 @@ class PowerSupply9104:
         for attempt in range(self.MAX_RETRIES):
             reading = self.get_display_readings()
             if reading:
-                self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
+                # self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
                 if voltage is not None and current is not None:
                     return voltage, current, mode
-            self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+            # self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
             time.sleep(0.1)
 
-        self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+        # self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
         return None, None, "Err"
 
     def set_over_current_protection(self, ocp):
@@ -235,28 +236,28 @@ class PowerSupply9104:
     def get_preset_selection(self):
         """Get the current preset selection."""
         command = "GABC"
-        self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
+        # self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
         response = self.send_command(command)
-        self.log(f"Raw response received: {response}", LogLevel.DEBUG)
+        # self.log(f"Raw response received: {response}", LogLevel.DEBUG)
         if response:
-            self.log(f"Current preset selection: {response.strip()}", LogLevel.INFO)
+            # self.log(f"Current preset selection: {response.strip()}", LogLevel.INFO)
             return response.strip()
         else:
-            self.log("Failed to get preset selection", LogLevel.ERROR)
+            # self.log("Failed to get preset selection", LogLevel.ERROR)
             return None
 
     def set_preset_selection(self, preset):
         """Set the ABC select."""
         command = f"SABC{preset}"
-        self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
+        # self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
         response = self.send_command(command)
-        self.log(f"Raw response received: {response}", LogLevel.DEBUG)
+        # self.log(f"Raw response received: {response}", LogLevel.DEBUG)
         if response and response.strip() == "OK":
-            self.log(f"Successfully set preset selection to {preset}", LogLevel.INFO)
+            # self.log(f"Successfully set preset selection to {preset}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
-            self.log(f"Error setting preset selection: {error_message}", LogLevel.WARNING)
+            # self.log(f"Error setting preset selection: {error_message}", LogLevel.WARNING)
             return False
 
     def get_delta_time(self, index):
@@ -313,7 +314,7 @@ class PowerSupply9104:
         """Close the serial connection."""
         self.command_queue.join() # wait for all commands to complete
         self.ser.close()
-        self.log("Serial connection closed", LogLevel.INFO)
+        # self.log("Serial connection closed", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
