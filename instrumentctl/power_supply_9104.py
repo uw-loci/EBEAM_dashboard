@@ -2,7 +2,7 @@ import serial
 import threading
 import time
 from utils import LogLevel
-import queue
+import os
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
@@ -11,96 +11,48 @@ class PowerSupply9104:
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
-        self.command_queue = queue.Queue()
-        self.response_queue = queue.Queue()
-        self.last_readings = {'voltage': None, 'current:': None, 'mode': None}
-        self.lock = threading.Lock()
-        self.running = True
-        self.communication_thread = threading.Thread(target=self._communication_loop)
-        self.communication_thread.start()
-
-    def _communication_loop(self):
-        while self.running:
-            try:
-                command, event = self.command_queue.get(timeout=1)
-                response = self._execute_command(command)
-                self._process_response(command, response)
-                self.response_queue.put((command, response))
-                event.set()
-            except queue.Empty:
-                pass
-            except Exception as e:
-                self.log(f"Error in communication loop: {str(e)}", LogLevel.ERROR)
-
-    def _execute_command(self, command):
-        for _ in range(self.MAX_RETRIES):
-            try:
-                with self.lock:
-                    self.ser.write(f"{command}\r\n".encode())
-                    time.sleep(0.1)
-                    response = ""
-                    start_time = time.time()
-                    while True:
-                        line = self.ser.readline().decode().strip()
-                        if line:
-                            response += line + "\n"
-                            if "OK" in line or "ERROR" in line:
-                                break
-                        if time.time() - start_time > 1:
-                            break
-                    
-                    response = response.strip()
-                    if not response:
-                        raise ValueError("No response received from the device.")
-                    return response
-            except serial.SerialException as e:
-                self.log(f"Serial error: {e}", LogLevel.ERROR)
-            except ValueError as e:
-                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-        return None
         
-    def _process_response(self, command, response):
-        if command == "GETD" and response:
-            voltage, current, mode = self.parse_getd_response(response)
-            with self.lock:
-                self.last_readings = {'voltage': voltage, 'current': current, 'mode': mode}
-
     def is_connected(self):
         """Check if the serial connection is still active."""
         try:
-            with self.lock:
-                # Attempt to write a simple command to the device
-                self.ser.write(b'\r')  # Send a carriage return
-                # Try to read a response (there might not be one)
-                self.ser.read(1)
+            # Attempt to write a simple command to the device
+            self.ser.write(b'\r')  # Send a carriage return
+            # Try to read a response (there might not be one)
+            self.ser.read(1)
             return True
         except serial.SerialException:
             return False
 
     def flush_serial(self):
-        with self.lock:
-            self.ser.reset_input_buffer()    
+        self.ser.reset_input_buffer()    
 
-    def send_command(self, command, timeout=5):
-        event = threading.Event()
-        self.command_queue.put((command, event))
-
-        if not event.wait(timeout):
-            self.log(f"9104 Command '{command}' timed out after {timeout} seconds", LogLevel.ERROR)
-            return None
-        
+    def send_command(self, command):
+        """Send a command to the power supply and read the response."""
+        if self.debug_mode:
+            return "Mock response based on " + command
         try:
-            cmd, response = self.response_queue.get_nowait()
-            if cmd == command:
-                if response is None:
-                    self.log(f"Command '{command}' failed after {self.MAX_RETRIES} attempts", LogLevel.ERROR)
-                else:
-                    self.log(f"Received response for command '{command}': {response}", LogLevel.DEBUG)
-                return response
-            else:
-                self.log(f"Received response for wrong command. ")
-        except queue.Empty:
-            self.log(f"No response received for command '{command}'", LogLevel.ERROR)
+            self.ser.write(f"{command}\r".encode())
+            time.sleep(0.1) # allow small delay to let PS process command
+            response = ""
+            start_time = time.time()
+            while True:
+                line = self.ser.readline().decode().strip()
+                if line:
+                    response += line + "\n"
+                    if "OK" in line or "ERROR" in line:
+                        break
+                if time.time() - start_time > 1:
+                    break
+            
+            response = response.strip()
+            if not response:
+                raise ValueError("No response received from the device.")
+            return response
+        except serial.SerialException as e:
+            self.log(f"Serial error: {e}", LogLevel.ERROR)
+            return None
+        except ValueError as e:
+            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
 
     def set_output(self, state):
@@ -116,7 +68,7 @@ class PowerSupply9104:
         return self.send_command(command)
 
     def set_voltage(self, preset, voltage):
-        """Set the output voltage. Assumes input voltage is in a form such as: 5.00 """
+        """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         formatted_voltage = int(voltage * 100)
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
@@ -340,8 +292,6 @@ class PowerSupply9104:
 
     def close(self):
         """Close the serial connection."""
-        self.running = False
-        self.communication_thread.join()
         self.ser.close()
         self.log("Serial connection closed", LogLevel.INFO)
 
