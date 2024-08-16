@@ -353,6 +353,7 @@ class CathodeHeatingSubsystem:
                 self.toggle_buttons[index]['state'] = 'normal'
                 self.log(f"Reconnected to power supply on port {port}", LogLevel.DEBUG)
                 self.update_query_settings_button_states()
+                self._initialize_power_supply_settings(index, ['A', 'B', 'C'][index])
                 return True
             except Exception as e:
                 self.log(f"Retry {attempt+1} failed: {str(e)}", LogLevel.ERROR)
@@ -432,13 +433,17 @@ class CathodeHeatingSubsystem:
             self.log(f"OCP mismatch for {cathode}. Set: {ocp_value:04d}, Got: {response.strip()}", LogLevel.WARNING)
         else:
             self.log(f"OCP successfully set and confirmed for {cathode}: {ocp_value/100:.2f}A", LogLevel.INFO)
+        self.log(f"Initialization complete for {cathode}", LogLevel.INFO)
+    
+        if all(self.power_supply_status):
+            self.power_supplies_initialized = True
+            self.log("All power supplies initialized", LogLevel.INFO)
     
     def set_overvoltage_limit(self, index):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OVP.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set OVP.")
             return
-
         try:
             ovp_value = int(self.overvoltage_limit_vars[index].get() * 100)  # Convert to centivolts
             cathode = ['A', 'B', 'C'][index]
@@ -467,11 +472,22 @@ class CathodeHeatingSubsystem:
             self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
         
-        status = self.power_supplies[index].get_output_status()
-        self.log(f"Heater {['A', 'B', 'C'][index]} output status: {status}", LogLevel.INFO)
+        self.power_supplies[index].enqueue_command('get_output_status', 
+                                               callback=lambda response: self._output_status_callback(response, index))
 
-        mismatch = self.verify_voltage(index)
-        if mismatch:
+    def _output_status_callback(self, response, index):
+        self.log(f"Heater {['A', 'B', 'C'][index]} output status: {response}", LogLevel.INFO)
+        self.verify_voltage(index)
+
+    def verify_voltage(self, index):
+        self.power_supplies[index].enqueue_command('get_voltage', 
+                                                callback=lambda response: self._verify_voltage_callback(response, index))
+
+    def _verify_voltage_callback(self, response, index):
+        actual_voltage = float(response)
+        expected_voltage = self.user_set_voltages[index]
+        if abs(actual_voltage - expected_voltage) > 0.1:  # 0.1V tolerance
+            mismatch = f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: Set: {expected_voltage:.2f}V, Actual: {actual_voltage:.2f}V"
             self.log(mismatch, LogLevel.CRITICAL)
         else:
             self.log(f"Voltage for Cathode {['A', 'B', 'C'][index]} matches set value.", LogLevel.INFO)
@@ -485,16 +501,17 @@ class CathodeHeatingSubsystem:
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
+        self.power_supplies[index].enqueue_command('get_settings', 3, 
+                                                   callback=lambda response: self._check_settings_callback(response, index))
 
-        settings = self.power_supplies[index].get_settings(3)  # Get settings for preset 3
-        self.log(f"Raw settings response for Cathode {['A', 'B', 'C'][index]}", LogLevel.DEBUG)
-        if not settings or "OK" not in settings:
+    def _check_settings_callback(self, response, index):
+        self.log(f"Raw settings response for Cathode {['A', 'B', 'C'][index]}: {response}", LogLevel.DEBUG)
+        if not response or "OK" not in response:
             self.log(f"Failed to retrieve settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
             return
 
         try:
-            # Split the response and take the first part (before 'OK')
-            settings_value = settings.split('OK')[0].strip()
+            settings_value = response.split('OK')[0].strip()
             
             if len(settings_value) != 8:
                 raise ValueError(f"Unexpected settings format: {settings_value}")
@@ -513,7 +530,7 @@ class CathodeHeatingSubsystem:
 
         except ValueError as e:
             self.log(f"Failed to parse settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
-            
+
     def parse_voltage_from_settings(self, settings):
         try:
             # Format: VVVVIIII" where VVVV is voltage in centivolts
@@ -563,10 +580,6 @@ class CathodeHeatingSubsystem:
                 self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
 
-    def read_current_voltage(self):
-        # Placeholder method to read current and voltage from power supplies
-        return random.uniform(2, 4), random.uniform(0.5, 0.9)
-
     def read_temperature(self, index):
         """
         Read temperature from the temperature controller or set to zero if the controller is not initialized or fails.
@@ -615,27 +628,11 @@ class CathodeHeatingSubsystem:
                             self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
                         else:
                             self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
+                            self._reset_display_values(i)
                             continue
                     
-                    voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
-                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
-                    
-                    self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
-                    
-                    # Update heater voltage display
-                    if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                        last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
-                    elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
-                    else:
-                        self.heater_voltage_vars[i].set("-- V")
-
-                    # Update mode display
-                    mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
-                    self.operation_mode_var[i].set(f'Mode: {mode_text}')
-
+                    self.power_supplies[i].enqueue_command('get_voltage_current_mode', 
+                                        callback=lambda response, index=i: self._update_power_supply_data(response, index, current_time, plot_this_cycle))
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
                     self.actual_heater_current_vars[i].set("-- A")
@@ -690,6 +687,49 @@ class CathodeHeatingSubsystem:
 
         # Schedule next update
         self.parent.after(500, self.update_data)
+
+    def _update_power_supply_data(self, response, index, current_time, plot_this_cycle):
+        if response:
+            voltage, current, mode = response
+            self.log(f"Power supply {index+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
+            
+            self.actual_heater_current_vars[index].set(f"{current:.2f} A" if current is not None else "-- A")
+            self.actual_heater_voltage_vars[index].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
+            
+            # Update heater voltage display
+            if self.voltage_set[index] and hasattr(self, f'last_set_voltage_{index}'):
+                last_set_voltage = getattr(self, f'last_set_voltage_{index}')
+                self.heater_voltage_vars[index].set(f"{last_set_voltage:.2f} V")
+            elif voltage is not None:
+                self.heater_voltage_vars[index].set(f"{voltage:.2f} V")
+            else:
+                self.heater_voltage_vars[index].set("-- V")
+
+            # Update mode display
+            mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
+            self.operation_mode_var[index].set(f'Mode: {mode_text}')
+
+            # Update Main Page labels for voltage and current
+            self.e_beam_current_vars[index].set(f"{current:.2f} A" if current is not None else "-- A")
+
+            # Update Config page labels
+            self.voltage_display_vars[index].set(f'Voltage: {voltage:.2f} V' if voltage is not None else 'Voltage: -- V')
+            self.current_display_vars[index].set(f'Current: {current:.2f} A' if current is not None else 'Current: -- A')
+
+            if plot_this_cycle:
+                self.update_plot(index)
+        else:
+            self._reset_display_values(index)
+
+    def _reset_display_values(self, index):
+        self.actual_heater_current_vars[index].set("-- A")
+        self.actual_heater_voltage_vars[index].set("-- V")
+        self.actual_target_current_vars[index].set("-- mA")
+        self.heater_voltage_vars[index].set("-- V")
+        self.operation_mode_var[index].set("Mode: --")
+        self.e_beam_current_vars[index].set("-- A")
+        self.voltage_display_vars[index].set('Voltage: -- V')
+        self.current_display_vars[index].set('Current: -- A')
 
     def set_plot_alert(self, index, alert_status):
         """
@@ -746,55 +786,64 @@ class CathodeHeatingSubsystem:
         new_state = not self.toggle_states[index]
         
         if new_state:  # If we're trying to turn the output ON
-            # Check the current settings
-            settings = self.power_supplies[index].get_settings(3)
-            if settings:
-                settings_values = settings.split('\n')[0].strip()  # Take the first line
-                if len(settings_values) == 8:
-                    set_voltage = int(settings_values[:4]) / 100.0
-                    set_current = int(settings_values[4:]) / 100.0
-                    
-                    expected_voltage = self.user_set_voltages[index]
-                    expected_current = float(self.predicted_heater_current_vars[index].get().split()[0])  # Extract the numeric part
-                    
-                    voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
-                    current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
-                    
-                    if voltage_mismatch or current_mismatch:
-                        mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
-                        if voltage_mismatch:
-                            mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
-                        if current_mismatch:
-                            mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
-                        mismatch_message += "Do you want to proceed with turning on the output?"
-                        
-                        if not msgbox.askyesno("Value Mismatch", mismatch_message):
-                            self.log(f"Output activation cancelled due to set value mismatch for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
-                            return
-                    else:
-                        self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
-                else:
-                    self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
-                    return
-            else:
-                self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
-                return
-        
-        # If we've made it here, either we're turning off, or the user has confirmed they want to proceed
-        self.toggle_states[index] = new_state
-        current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
-        self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
-        
-        if self.toggle_states[index]:
-            response = self.power_supplies[index].set_output("1") # ON
+            self.power_supplies[index].enqueue_command('get_settings', 3, 
+                                                   callback=lambda response: self._toggle_output_check_settings(response, index, new_state))
         else:
-            response = self.power_supplies[index].set_output("0") # OFF
-        
+            self._perform_toggle(index, new_state)
+
+    def _toggle_output_check_settings(self, response, index, new_state):
         if response:
-            self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.INFO)
+            settings_values = response.split('\n')[0].strip()
+            if len(settings_values) == 8:
+                set_voltage = int(settings_values[:4]) / 100.0
+                set_current = int(settings_values[4:]) / 100.0
+                
+                expected_voltage = self.user_set_voltages[index]
+                expected_current = float(self.predicted_heater_current_vars[index].get().split()[0])
+                
+                voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02
+                current_mismatch = abs(set_current - expected_current) > 0.01
+                
+                if voltage_mismatch or current_mismatch:
+                    mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
+                    if voltage_mismatch:
+                        mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
+                    if current_mismatch:
+                        mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
+                    mismatch_message += "Do you want to proceed with turning on the output?"
+                    
+                    if not msgbox.askyesno("Value Mismatch", mismatch_message):
+                        self.log(f"Output activation cancelled due to set value mismatch for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
+                        return
+                else:
+                    self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
+            else:
+                self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
+                return
         else:
-            self.log(f"No response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
-    
+            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
+            return
+        
+        self._perform_toggle(index, new_state)
+
+    def _perform_toggle(self, index, new_state):
+        self.toggle_states[index] = new_state
+        current_image = self.toggle_on_image if new_state else self.toggle_off_image
+        self.toggle_buttons[index].config(image=current_image)
+        
+        self.power_supplies[index].enqueue_command('set_output', "1" if new_state else "0", 
+                                                callback=lambda response: self._toggle_output_callback(response, index, new_state))
+
+    def _toggle_output_callback(self, response, index, new_state):
+        if response == "OK":
+            self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if new_state else 'OFF'}", LogLevel.INFO)
+        else:
+            self.log(f"Failed to toggle heater {['A', 'B', 'C'][index]} output {'ON' if new_state else 'OFF'}", LogLevel.CRITICAL)
+            # Revert the toggle state and button image if the operation failed
+            self.toggle_states[index] = not new_state
+            current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
+            self.toggle_buttons[index].config(image=current_image)
+
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
             # if the output toggle is enabled, show a warning message
@@ -820,11 +869,7 @@ class CathodeHeatingSubsystem:
             # Ensure current is within the data range
             if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
                 self.log("Desired emission current is below the minimum range of the model.", LogLevel.DEBUG)
-                self.predicted_emission_current_vars[index].set('0.00')
-                self.predicted_grid_current_vars[index].set('0.00')
-                self.predicted_heater_current_vars[index].set('0.00')
-                self.heater_voltage_vars[index].set('0.00')
-                self.predicted_temperature_vars[index].set('0.00')
+                self.reset_related_variables(index)
             else:
                 # Calculate heater current from the ES440 model
                 heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
@@ -836,55 +881,52 @@ class CathodeHeatingSubsystem:
                 # Set Upper Voltage Limit and Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
                     self.log(f"Setting voltage: {heater_voltage:.2f}", LogLevel.DEBUG)
-                    voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
-                    current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    self.user_set_voltages[index] = heater_voltage
-
-                    if voltage_set_success and current_set_success:
-                        # Confirm the set values
-                        settings = self.power_supplies[index].get_settings(3)
-                        if settings:
-                            settings_values = settings.split('\n')[0].strip()  # Take the first line
-                            if len(settings_values) == 8:
-                                set_voltage = int(settings_values[:4]) / 100.0
-                                set_current = int(settings_values[4:]) / 100.0
-                                
-                                voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
-                                current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                                
-                                if voltage_mismatch or current_mismatch:
-                                    self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.CRITICAL)
-                                    if voltage_mismatch:
-                                        self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
-                                    if current_mismatch:
-                                        self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
-                                    # GUI is updated with actual voltage
-                                    self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
-                                else:
-                                    self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
-                            else:
-                                self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
-                        else:
-                            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
-                        
-                        predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-                        predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
-
-                        predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-                        self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
-                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} °C')
-                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
-                        setattr(self, f'last_set_voltage_{index}', heater_voltage)
-                        self.voltage_set[index] = True
-                        self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
-                    else:
-                        self.reset_related_variables(index)
-                        self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
-
+                    self.power_supplies[index].enqueue_command('set_voltage', 3, heater_voltage,
+                                                               callback=lambda response: self._set_voltage_callback(response, index, heater_voltage, heater_current))
         except ValueError:
             self.log("Invalid input for target current", LogLevel.ERROR)
+
+    def _set_voltage_callback(self, response, index, heater_voltage, heater_current):
+        if response == "OK":
+            self.power_supplies[index].enqueue_command('set_current', 3, heater_current, 
+                                                    callback=lambda response: self._set_current_callback(response, index, heater_voltage, heater_current))
+        else:
+            self.log(f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+            self.reset_related_variables(index)
+
+    def _set_current_callback(self, response, index, heater_voltage, heater_current):
+        if response == "OK":
+            self.user_set_voltages[index] = heater_voltage
+            self.power_supplies[index].enqueue_command('get_settings', 3, 
+                                                    callback=lambda response: self._confirm_settings_callback(response, index, heater_voltage, heater_current))
+        else:
+            self.log(f"Failed to set current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+            self.reset_related_variables(index)
+
+    def _confirm_settings_callback(self, response, index, heater_voltage, heater_current):
+        if response:
+            settings_values = response.split('\n')[0].strip()
+            if len(settings_values) == 8:
+                set_voltage = int(settings_values[:4]) / 100.0
+                set_current = int(settings_values[4:]) / 100.0
+                
+                voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01
+                current_mismatch = abs(set_current - heater_current) > 0.01
+                
+                if voltage_mismatch or current_mismatch:
+                    self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.CRITICAL)
+                    if voltage_mismatch:
+                        self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
+                    if current_mismatch:
+                        self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
+                    self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
+                else:
+                    self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                    self._update_predictions(index, heater_voltage, heater_current)
+            else:
+                self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
+        else:
+            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
 
     def reset_related_variables(self, index):
         """ Resets display variables when setting voltage/current fails. """
@@ -898,9 +940,27 @@ class CathodeHeatingSubsystem:
     def reset_power_supply(self, index):
         """ Helper function to reset power supply voltage and current to zero """
         if self.power_supply_status[index]:
-            self.power_supplies[index].set_voltage(3, 0.0)
-            self.power_supplies[index].set_current(3, 0.0)
+            self.power_supplies[index].enqueue_command('set_voltage', 3, 0.0,
+                                                   callback=lambda response: self._reset_voltage_callback(response, index))
+        else:
+            self.predicted_emission_current_vars[index].set('--')
+            self.predicted_grid_current_vars[index].set('--')
+            self.predicted_heater_current_vars[index].set('--')
+            self.heater_voltage_vars[index].set('--')
+            self.predicted_temperature_vars[index].set('--')
+
+    def _reset_voltage_callback(self, response, index):
+        if response == "OK":
+            self.power_supplies[index].enqueue_command('set_current', 3, 0.0,
+                                                    callback=lambda response: self._reset_current_callback(response, index))
+        else:
+            self.log(f"Failed to reset voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def _reset_current_callback(self, response, index):
+        if response == "OK":
             self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+        else:
+            self.log(f"Failed to reset current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
         self.predicted_emission_current_vars[index].set('--')
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
@@ -926,7 +986,6 @@ class CathodeHeatingSubsystem:
 
     def update_predictions_from_voltage(self, index, voltage):
         """Update predictions based on manually entered voltage."""
-
         try:
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
@@ -934,66 +993,76 @@ class CathodeHeatingSubsystem:
                                         log_transform=False)
             heater_current = cathode_model.interpolate(voltage, inverse=True)
 
-
             # Check if the interpolated current is within the model's range
             if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
                 self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
 
             # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
-                voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
-                current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                if not voltage_set_success or not current_set_success:
-                    self.log(f"Unable to set voltage: {voltage} or current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                    return False
-                
-                # Confirm the set values
-                settings = self.power_supplies[index].get_settings(3)
-                if settings:
-                    settings_values = settings.split('\n')[0].strip()  # Take the first line
-                    if len(settings_values) == 8:
-                        set_voltage = int(settings_values[:4]) / 100.0
-                        set_current = int(settings_values[4:]) / 100.0
-                        
-                        voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
-                        current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                        
-                        if voltage_mismatch or current_mismatch:
-                            self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.CRITICAL)
-                            if voltage_mismatch:
-                                self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
-                            if current_mismatch:
-                                self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
-                            return False
-                        else:
-                            self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
-                    else:
-                        self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
-                        return False
-                else:
-                    self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
-                    return False
-
-                self.user_set_voltages[index] = voltage
-
-            # Calculate dependent variables
-            ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
-            predicted_grid_current = 0.28 * ideal_emission_current
-            predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-            predicted_temperature_C = predicted_temperature_K - 273.15
-
-            # Update GUI with new values
-            self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-            self.predicted_emission_current_vars[index].set("--")
-            self.predicted_grid_current_vars[index].set("--")
-            self.predicted_temperature_vars[index].set("--")
-
-            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
-            return True
+                self.power_supplies[index].enqueue_command('set_voltage', 3, voltage,
+                                                       callback=lambda response: self._update_voltage_callback(response, index, voltage, heater_current))
+                return True
+            else:
+                return False
         except ValueError as e:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             self.reset_related_variables(index)
             return False
+
+    def _update_voltage_callback(self, response, index, voltage, heater_current):
+        if response == "OK":
+            self.power_supplies[index].enqueue_command('set_current', 3, heater_current,
+                                                    callback=lambda response: self._update_current_callback(response, index, voltage, heater_current))
+        else:
+            self.log(f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+            self.reset_related_variables(index)
+
+    def _update_current_callback(self, response, index, voltage, heater_current):
+        if response == "OK":
+            self.power_supplies[index].enqueue_command('get_settings', 3,
+                                                    callback=lambda response: self._update_confirm_settings_callback(response, index, voltage, heater_current))
+        else:
+            self.log(f"Failed to set current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+            self.reset_related_variables(index)
+
+    def _update_confirm_settings_callback(self, response, index, voltage, heater_current):
+        if response:
+            settings_values = response.split('\n')[0].strip()
+            if len(settings_values) == 8:
+                set_voltage = int(settings_values[:4]) / 100.0
+                set_current = int(settings_values[4:]) / 100.0
+                
+                voltage_mismatch = abs(set_voltage - voltage) > 0.01
+                current_mismatch = abs(set_current - heater_current) > 0.01
+                
+                if voltage_mismatch or current_mismatch:
+                    self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.CRITICAL)
+                    if voltage_mismatch:
+                        self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
+                    if current_mismatch:
+                        self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
+                else:
+                    self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                    self._update_predictions(index, voltage, heater_current)
+            else:
+                self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
+        else:
+            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
+
+    def _update_predictions(self, index, voltage, heater_current):
+        ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
+        predicted_grid_current = 0.28 * ideal_emission_current
+        predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
+        predicted_temperature_C = predicted_temperature_K - 273.15
+
+        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
+        self.predicted_emission_current_vars[index].set(f'{ideal_emission_current * 1000:.2f} mA')
+        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current * 1000:.2f} mA')
+        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} °C')
+        self.heater_voltage_vars[index].set(f'{voltage:.2f}')
+        self.user_set_voltages[index] = voltage
+
+        self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
 
     def set_overtemp_limit(self, index, temp_var):
         try:
