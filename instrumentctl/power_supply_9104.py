@@ -3,6 +3,7 @@ import threading
 import time
 from utils import LogLevel
 import os
+import queue
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
@@ -11,7 +12,25 @@ class PowerSupply9104:
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
+        self.command_queue = queue.Queue()
+        self.worker_thread = threading.Thread(target=self._command_worker, daemon=True)
+        self.worker_thread.start()
         
+    def _command_worker(self):
+        while True:
+            try:
+                command, args, callback = self.command_queue.get(block=True)
+                result = getattr(self, command)(*args)
+                if callback:
+                    callback(result)
+            except Exception as e:
+                self.log(f"Error in command worker: {str(e)}", LogLevel.ERROR)
+            finally:
+                self.command_queue.task_done()
+
+    def enqueue_command(self, command, *args, callback=None):
+        self.command_queue.put((command, args, callback))
+
     def is_connected(self):
         """Check if the serial connection is still active."""
         try:
@@ -292,6 +311,7 @@ class PowerSupply9104:
 
     def close(self):
         """Close the serial connection."""
+        self.command_queue.join() # wait for all commands to complete
         self.ser.close()
         self.log("Serial connection closed", LogLevel.INFO)
 
