@@ -233,7 +233,6 @@ class PowerSupply9104:
         response = self.send_command(command)
         self.log(f"Raw response received: {response}", LogLevel.DEBUG)
         if response and response.strip() == "OK":
-            self.log(f"Successfully set preset selection to {preset}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
