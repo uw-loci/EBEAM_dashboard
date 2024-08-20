@@ -1,6 +1,7 @@
 String inputString = "";
 bool stringComplete = false;
 
+unsigned long commandDelay = 500;
 float voltage = 0.0;
 float current = 0.0;
 bool outputOn = false;
@@ -36,6 +37,7 @@ void serialEvent() {
 }
 
 void processCommand(String command) {
+  delay(commandDelay);
   command.trim();
   
   if (command.startsWith("SOUT")) {
@@ -133,7 +135,7 @@ void processCommand(String command) {
     Serial.println("OK");
   }
   else {
-    Serial.println("Err");
+    //Serial.println("Err");
     delay(100);
   }
 }
