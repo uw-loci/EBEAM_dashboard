@@ -7,7 +7,7 @@ import os
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
 
-    def __init__(self, port, baudrate=9600, timeout=3, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
@@ -28,26 +28,21 @@ class PowerSupply9104:
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        if self.debug_mode:
-            return "Mock response based on " + command
         try:
-            self.ser.write(f"{command}\r".encode())
-            time.sleep(0.1) # allow small delay to let PS process command
-            response = ""
-            start_time = time.time()
-            while True:
-                line = self.ser.readline().decode().strip()
-                if line:
-                    response += line + "\n"
-                    if "OK" in line or "ERROR" in line:
-                        break
-                if time.time() - start_time > 1:
-                    break
+            self.ser.write(f"{command}\r\n".encode())
             
-            response = response.strip()
+            response = self.ser.read_until(b'\r', timeout=0.4).decode()
+
+            if 'OK' not in response:
+                additional = self.ser.read_until(b'\r', timeout=0.4).decode().strip()
+                response = f"{response}\r{additional}"
+
             if not response:
-                raise ValueError("No response received from the device.")
-            return response
+                raise ValueError("No response received from 9104 supply")
+            if 'OK' not in response:
+                self.log(f"Acknowledgement not in 9104 supply response")
+
+            return response.strip()
         except serial.SerialException as e:
             self.log(f"Serial error: {e}", LogLevel.ERROR)
             return None
@@ -57,6 +52,7 @@ class PowerSupply9104:
 
     def set_output(self, state):
         """Set the output on/off."""
+        """ Expected return value: OK[CR] """
         command = f"SOUT{state}"
         response = self.send_command(command)
         self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
@@ -64,11 +60,13 @@ class PowerSupply9104:
 
     def get_output_status(self):
         """Get the output status."""
+        """ Example return value: 0[CR]OK[CR] """
         command = "GOUT"
         return self.send_command(command)
 
     def set_voltage(self, preset, voltage):
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
+        """ Expected return value: OK[CR] """
         formatted_voltage = int(voltage * 100)
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
@@ -84,6 +82,7 @@ class PowerSupply9104:
     
     def set_current(self, preset, current):
         """Set the output current."""
+        """ Expected return value: OK[CR] """
         formatted_current = int(current * 100)
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
@@ -130,11 +129,14 @@ class PowerSupply9104:
 
     def set_over_voltage_protection(self, ovp):
         """Set the over voltage protection value."""
+        """ Expected response: OK[CR] """
         command = f"SOVP{ovp}"
         return self.send_command(command)
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
+        """ Example response: 050001000[CR]OK[CR] """
+        """ Which corresponds to 05.00V, 01.00A, supply is in CV mode"""
         self.flush_serial()
         command = "GETD"
         self.log(f"Sent command:{command}", LogLevel.DEBUG)
@@ -142,7 +144,7 @@ class PowerSupply9104:
     
     def parse_getd_response(self, response):
         try:
-            # Remove all whitespace and split by 'OK'
+            # Remove whitespace and split by 'OK'
             parts = response.replace('\r', '').replace('\n', '').split('OK')
             
             # Check if 'OK' is present in the response
@@ -188,11 +190,13 @@ class PowerSupply9104:
 
     def set_over_current_protection(self, ocp):
         """Set the over current protection value."""
+        """ Expected response: OK[CR] """
         command = f"SOCP{ocp}"
         return self.send_command(command)
 
     def get_over_voltage_protection(self):
         """Get the upper limit of the output voltage."""
+        """ Example response: 4220[CR]OK[CR] """
         command = "GOVP"
         return self.send_command(command)
 
