@@ -311,7 +311,7 @@ class CathodeHeatingSubsystem:
                     # Set preset mode to 3
                     set_preset_response = ps.set_preset_selection(3)
                     if set_preset_response:
-                        self.log(f"Set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
+                        self.log(f"Set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.INFO)
                     else:
                         self.log(f"Failed to set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
                     
@@ -325,20 +325,23 @@ class CathodeHeatingSubsystem:
                     # Set and confirm OVP
                     ovp_value = self.overvoltage_limit_vars[idx].get()
                     self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
-                    ovp_set_response = ps.set_over_voltage_protection(f"{ovp_value:.2f}")
-                    if not ovp_set_response:
-                        self.log(f"Failed to set OVP for {cathode}.", LogLevel.WARNING)
+                    if ps.set_over_voltage_protection(ovp_value):
+                        self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
+                        
+                        # Confirm the OVP setting
+                        confirmed_ovp = ps.get_over_voltage_protection()
+                        if confirmed_ovp is not None:
+                            if abs(confirmed_ovp - ovp_value) < 0.1:  # 0.1V tolerance
+                                self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
+                            else:
+                                self.log(f"OVP mismatch for cathode {cathode}. Set: {ovp_value:.2f}V, Got: {confirmed_ovp:.2f}V", LogLevel.WARNING)
+                        else:
+                            self.log(f"Failed to confirm OVP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
-                        self.log(f"Set OVP for cathode {cathode} to {ovp_value}V. Response: {ovp_set_response}", LogLevel.INFO)
-                    
-                    ovp_get_response = ps.get_over_voltage_protection().strip()
-                    if ovp_get_response != f"{ovp_value:04d}":
-                        self.log(f"OVP mismatch for {cathode}. Set: {ovp_value:04d}, Got: {ovp_get_response}", LogLevel.WARNING)
-                    else:
-                        self.log(f"OVP successfully set and confirmed for {cathode}: {ovp_value/100:.2f}V", LogLevel.INFO)
+                        self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = int(self.overcurrent_limit_vars[idx].get() * 100)  # Convert to centiamps
+                    ocp_value = self.overcurrent_limit_vars[idx].get()
                     self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:04d}", LogLevel.DEBUG)
                     ocp_set_response = ps.set_over_current_protection(f"{ocp_value:04d}")
                     if ocp_set_response != "OK":
