@@ -127,15 +127,17 @@ class PowerSupply9104:
         if callback:
             callback(True)
 
-    def set_over_voltage_protection(self, ovp):
+    def set_over_voltage_protection(self, ovp_volts):
         """Set the over voltage protection value."""
         """ Expected response: OK[CR] """
-        command = f"SOVP{ovp}"
+        ovp_centivolts = int(ovp_volts * 100)
+        command = f"SOVP{ovp_centivolts:04d}" # format as 4-digit string
         response = self.send_command(command)
 
         if response and "OK" in response:
             return True
         else:
+            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
             return False
 
     def get_display_readings(self):
@@ -204,7 +206,23 @@ class PowerSupply9104:
         """ Example response: 4220[CR]OK[CR] """
         # Example response corresponds to 42.20V
         command = "GOVP"
-        return self.send_command(command)
+        response = self.send_command(command)
+
+        if response:
+            try:
+                # split the response and take the part before 'OK'
+                ovp_str = response.split('\r')[0]
+                # convert to integer, then to a float
+                ovp_volts = int(ovp_str) / 100.0
+                self.log(f"OVP value: {ovp_volts:.2f}")
+                return ovp_volts
+            except (ValueError, IndexError) as e:
+                self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
+                return None
+        else:
+            self.log("Failed to get OVP value", LogLevel.ERROR)
+            return None
+
 
     def get_over_current_protection(self):
         """Get the upper limit of the output current."""
