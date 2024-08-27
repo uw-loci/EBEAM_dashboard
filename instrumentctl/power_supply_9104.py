@@ -34,7 +34,7 @@ class PowerSupply9104:
             response = self.ser.read_until(b'\r', timeout=0.4).decode()
 
             if 'OK' not in response:
-                additional = self.ser.read_until(b'\r', timeout=0.4).decode().strip()
+                additional = self.ser.read_until(b'\r', timeout=0.2).decode().strip()
                 response = f"{response}\r{additional}"
 
             if not response:
@@ -131,12 +131,17 @@ class PowerSupply9104:
         """Set the over voltage protection value."""
         """ Expected response: OK[CR] """
         command = f"SOVP{ovp}"
-        return self.send_command(command)
+        response = self.send_command(command)
+
+        if response and "OK" in response:
+            return True
+        else:
+            return False
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
-        """ Which corresponds to 05.00V, 01.00A, supply is in CV mode"""
+        # Example corresponds to 05.00V, 01.00A, supply in CV mode
         self.flush_serial()
         command = "GETD"
         self.log(f"Sent command:{command}", LogLevel.DEBUG)
@@ -197,21 +202,27 @@ class PowerSupply9104:
     def get_over_voltage_protection(self):
         """Get the upper limit of the output voltage."""
         """ Example response: 4220[CR]OK[CR] """
+        # Example response corresponds to 42.20V
         command = "GOVP"
         return self.send_command(command)
 
     def get_over_current_protection(self):
         """Get the upper limit of the output current."""
+        """ Example response: 1020[CR]OK """
+        # Example response corresponds to 10.20A
         command = "GOCP"
         return self.send_command(command)
 
     def set_preset(self, preset, voltage, current):
         """Set the voltage and current for a preset."""
+        """ Expected response: OK[CR] """
         command = f"SETD{preset}{voltage}{current}"
         return self.send_command(command)
 
     def get_settings(self, preset):
         """Get settings of a preset."""
+        """ Example response: 05000100 """
+        # Example response corresponds to 5.00V and 1.00A
         command = f"GETS{preset}"
         # Expected response: VVVVIIII
         response = self.send_command(command)
@@ -219,19 +230,27 @@ class PowerSupply9104:
 
     def get_preset_selection(self):
         """Get the current preset selection."""
+        """ Example response: 3[CR]OK[CR] """
+        # Example response corresponds to "normal" mode 3
         command = "GABC"
         self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
         response = self.send_command(command)
         self.log(f"Raw response received: {response}", LogLevel.DEBUG)
         if response:
-            self.log(f"Current preset selection: {response.strip()}", LogLevel.INFO)
-            return response.strip()
+            try:
+                preset = int(response.split('\r')[0])
+                self.log(f"Current preset selection: {preset}", LogLevel.INFO)
+                return preset
+            except ValueError:
+                self.log(f"Failed to parse preset selection from response: {response}", LogLevel.ERROR)
+                return None
         else:
             self.log("Failed to get preset selection", LogLevel.ERROR)
             return None
 
     def set_preset_selection(self, preset):
         """Set the ABC select."""
+        """ Expected response: OK[CR] """
         command = f"SABC{preset}"
         self.log(f"Raw command sent: {command}", LogLevel.DEBUG)
         response = self.send_command(command)

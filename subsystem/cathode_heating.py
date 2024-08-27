@@ -310,22 +310,26 @@ class CathodeHeatingSubsystem:
                     
                     # Set preset mode to 3
                     set_preset_response = ps.set_preset_selection(3)
-                    if set_preset_response != "OK":
+                    if set_preset_response:
+                        self.log(f"Set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
+                    else:
                         self.log(f"Failed to set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
                     
                     # Confirm preset mode
-                    current_preset = ps.get_preset_selection()
-                    if current_preset != "3":
-                        self.log(f"{cathode} is not in preset mode 3 (normal mode). Current mode: {current_preset}", LogLevel.WARNING)
+                    get_preset_response = ps.get_preset_selection()
+                    if get_preset_response != "3":
+                        self.log(f"Cathode {cathode} is not in preset mode 3 (normal mode). Current mode: {get_preset_response}", LogLevel.WARNING)
                     else:
-                        self.log(f"{cathode} successfully set to preset mode 3", LogLevel.INFO)
+                        self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
                     ovp_value = int(self.overvoltage_limit_vars[idx].get() * 100)  # Convert to centivolts
                     self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:04d}", LogLevel.DEBUG)
                     ovp_set_response = ps.set_over_voltage_protection(f"{ovp_value:04d}")
-                    if ovp_set_response != "OK":
+                    if not ovp_set_response:
                         self.log(f"Failed to set OVP for {cathode}. Response: {ovp_set_response}", LogLevel.WARNING)
+                    else:
+                        self.log(f"Set OVP for cathode {cathode} to {ovp_value}V. Response: {ovp_set_response}", LogLevel.INFO)
                     
                     ovp_get_response = ps.get_over_voltage_protection().strip()
                     if ovp_get_response != f"{ovp_value:04d}":
