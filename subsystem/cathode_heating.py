@@ -323,11 +323,11 @@ class CathodeHeatingSubsystem:
                         self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = int(self.overvoltage_limit_vars[idx].get() * 100)  # Convert to centivolts
-                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:04d}", LogLevel.DEBUG)
-                    ovp_set_response = ps.set_over_voltage_protection(f"{ovp_value:04d}")
+                    ovp_value = self.overvoltage_limit_vars[idx].get()
+                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
+                    ovp_set_response = ps.set_over_voltage_protection(f"{ovp_value:.2f}")
                     if not ovp_set_response:
-                        self.log(f"Failed to set OVP for {cathode}. Response: {ovp_set_response}", LogLevel.WARNING)
+                        self.log(f"Failed to set OVP for {cathode}.", LogLevel.WARNING)
                     else:
                         self.log(f"Set OVP for cathode {cathode} to {ovp_value}V. Response: {ovp_set_response}", LogLevel.INFO)
                     
