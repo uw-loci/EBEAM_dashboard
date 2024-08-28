@@ -342,17 +342,21 @@ class CathodeHeatingSubsystem:
 
                     # Set and confirm OCP
                     ocp_value = self.overcurrent_limit_vars[idx].get()
-                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:04d}", LogLevel.DEBUG)
-                    ocp_set_response = ps.set_over_current_protection(f"{ocp_value:04d}")
-                    if ocp_set_response != "OK":
-                        self.log(f"Failed to set OCP for {cathode}. Response: {ocp_set_response}", LogLevel.WARNING)
-                    
-                    ocp_get_response = ps.get_over_current_protection().strip()
-                    if ocp_get_response != f"{ocp_value:04d}":
-                        self.log(f"OCP mismatch for {cathode}. Set: {ocp_value:04d}, Got: {ocp_get_response}", LogLevel.WARNING)
+                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
+                    if ps.set_over_current_protection(ocp_value):
+                        self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
+                        
+                        # Confirm the OCP setting
+                        confirmed_ocp = ps.get_over_current_protection()
+                        if confirmed_ocp is not None:
+                            if abs(confirmed_ocp - ocp_value) < 0.05:  # 0.05A tolerance
+                                self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
+                            else:
+                                self.log(f"OCP mismatch for cathode {cathode}. Set: {ocp_value:.2f}A, Got: {confirmed_ocp:.2f}A", LogLevel.WARNING)
+                        else:
+                            self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
-                        self.log(f"OCP successfully set and confirmed for {cathode}: {ocp_value/100:.2f}A", LogLevel.INFO)
-
+                        self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.WARNING)
 
                     self.power_supplies.append(ps)
                     self.power_supply_status.append(True)

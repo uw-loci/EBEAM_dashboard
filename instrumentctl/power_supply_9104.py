@@ -229,7 +229,21 @@ class PowerSupply9104:
         """ Example response: 1020[CR]OK """
         # Example response corresponds to 10.20A
         command = "GOCP"
-        return self.send_command(command)
+        response = self.send_command(command)
+        if response:
+            try:
+                # Split the response and take the part before 'OK'
+                ocp_str = response.split('\r')[0]
+                # Convert to integer (centiamps) and then to float (amps)
+                ocp_amps = int(ocp_str) / 100.0
+                self.log(f"OCP value: {ocp_amps:.2f}A", LogLevel.DEBUG)
+                return ocp_amps
+            except (ValueError, IndexError) as e:
+                self.log(f"Error parsing OCP response: {response}. Error: {str(e)}", LogLevel.ERROR)
+                return None
+        else:
+            self.log("Failed to get OCP value", LogLevel.ERROR)
+            return None
 
     def set_preset(self, preset, voltage, current):
         """Set the voltage and current for a preset."""
