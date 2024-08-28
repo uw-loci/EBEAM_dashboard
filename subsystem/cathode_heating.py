@@ -560,10 +560,6 @@ class CathodeHeatingSubsystem:
                 self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
 
-    def read_current_voltage(self):
-        # Placeholder method to read current and voltage from power supplies
-        return random.uniform(2, 4), random.uniform(0.5, 0.9)
-
     def read_temperature(self, index):
         """
         Read temperature from the temperature controller or set to zero if the controller is not initialized or fails.
