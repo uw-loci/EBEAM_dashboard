@@ -253,12 +253,28 @@ class PowerSupply9104:
 
     def get_settings(self, preset):
         """Get settings of a preset."""
-        """ Example response: 05000100 """
+        """ Example response: 05000100[CR]OK[CR] """
         # Example response corresponds to 5.00V and 1.00A
         command = f"GETS{preset}"
-        # Expected response: VVVVIIII
         response = self.send_command(command)
-        return response.strip()
+
+        if response and 'OK' in response:
+            try:
+                # extract the first part before 'OK' and remove whitespace
+                settings_str = response.split('OK')[0].strip()
+                if len(settings_str) == 8:
+                    voltage = int(settings_str[:4]) / 100.0 # centivolts to volts
+                    current = int(settings_str[4:]) / 100.0 # centiamps to amps
+                    self.log(f"Preset {preset} settings - Voltage: {voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
+                    return voltage, current
+                else:
+                    self.log(f"Invalid settings format: {settings_str}", LogLevel.ERROR)
+            except ValueError as e:
+                self.log(f"Error parsing settings: {str(e)}", LogLevel.ERROR)
+        else:
+            self.log(f"Failed to get settings for preset {preset}", LogLevel.ERROR)
+
+        return None, None
 
     def get_preset_selection(self):
         """Get the current preset selection."""

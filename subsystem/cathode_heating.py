@@ -626,8 +626,7 @@ class CathodeHeatingSubsystem:
                         self.heater_voltage_vars[i].set("-- V")
 
                     # Update mode display
-                    mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
-                    self.operation_mode_var[i].set(f'Mode: {mode_text}')
+                    self.operation_mode_var[i].set(f'Mode: {mode}' if mode != "Err" else 'Mode: --')
 
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
@@ -661,8 +660,7 @@ class CathodeHeatingSubsystem:
             # Update Config page labels
             self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V' if voltage is not None else 'Voltage: -- V')
             self.current_display_vars[i].set(f'Current: {current:.2f} A' if current is not None else 'Current: -- A')
-            mode_text = 'CV Mode' if mode == 0 else 'CC Mode' if mode == 1 else '--'
-            self.operation_mode_var[i].set(f'Mode: {mode_text}')
+            self.operation_mode_var[i].set(f'Mode: {mode}' if mode != "Err" else 'Mode: --')
 
             # Overtemperature check and update label style
             if temperature is not None:
@@ -828,35 +826,28 @@ class CathodeHeatingSubsystem:
 
                 # Set Upper Voltage Limit and Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
-                    self.log(f"Setting voltage: {heater_voltage:.2f}", LogLevel.DEBUG)
+                    self.log(f"Setting voltage: {heater_voltage:.2f}V and current: {heater_current:.2f}A", LogLevel.DEBUG)
                     voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    self.user_set_voltages[index] = heater_voltage
-
+                    
                     if voltage_set_success and current_set_success:
+                        self.user_set_voltages[index] = heater_voltage
                         # Confirm the set values
-                        settings = self.power_supplies[index].get_settings(3)
-                        if settings:
-                            settings_values = settings.split('\n')[0].strip()  # Take the first line
-                            if len(settings_values) == 8:
-                                set_voltage = int(settings_values[:4]) / 100.0
-                                set_current = int(settings_values[4:]) / 100.0
-                                
-                                voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
-                                current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                                
-                                if voltage_mismatch or current_mismatch:
-                                    self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.CRITICAL)
-                                    if voltage_mismatch:
-                                        self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
-                                    if current_mismatch:
-                                        self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
-                                    # GUI is updated with actual voltage
-                                    self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
-                                else:
-                                    self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                        set_voltage, set_current = self.power_supplies[index].get_settings(3)
+                        if set_voltage is not None and set_current is not None:
+                            voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
+                            current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
+                            
+                            if voltage_mismatch or current_mismatch:
+                                self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
+                                if voltage_mismatch:
+                                    self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                                if current_mismatch:
+                                    self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
+                                # GUI is updated with actual voltage
+                                self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
                             else:
-                                self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
+                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
                         else:
                             self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
                         
