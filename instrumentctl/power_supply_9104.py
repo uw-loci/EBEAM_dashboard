@@ -127,19 +127,6 @@ class PowerSupply9104:
         if callback:
             callback(True)
 
-    def set_over_voltage_protection(self, ovp_volts):
-        """Set the over voltage protection value."""
-        """ Expected response: OK[CR] """
-        ovp_centivolts = int(ovp_volts * 100)
-        command = f"SOVP{ovp_centivolts:04d}" # format as 4-digit string
-        response = self.send_command(command)
-
-        if response and "OK" in response:
-            return True
-        else:
-            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
-            return False
-
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
@@ -175,6 +162,19 @@ class PowerSupply9104:
             self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
             return 0.0, 0.0, "Err"
     
+    def set_over_voltage_protection(self, ovp_volts):
+        """Set the over voltage protection value."""
+        """ Expected response: OK[CR] """
+        ovp_centivolts = int(ovp_volts * 100)
+        command = f"SOVP{ovp_centivolts:04d}" # format as 4-digit string
+        response = self.send_command(command)
+
+        if response and "OK" in response:
+            return True
+        else:
+            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
+            return False
+
     def get_voltage_current_mode(self):
         """
         Extract voltage and current from the power supply reading.
@@ -200,6 +200,7 @@ class PowerSupply9104:
         """ Expected response: OK[CR] """
         command = f"SOCP{ocp}"
         return self.send_command(command)
+
 
     def get_over_voltage_protection(self):
         """Get the upper limit of the output voltage."""
