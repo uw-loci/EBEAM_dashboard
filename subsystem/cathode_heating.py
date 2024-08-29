@@ -311,13 +311,15 @@ class CathodeHeatingSubsystem:
                     # Set preset mode to 3
                     set_preset_response = ps.set_preset_selection(3)
                     if set_preset_response:
-                        self.log(f"Set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.INFO)
+                        self.log(f"Set preset mode for {cathode} to 3.", LogLevel.INFO)
                     else:
                         self.log(f"Failed to set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
                     
                     # Confirm preset mode
                     get_preset_response = ps.get_preset_selection()
-                    if get_preset_response != "3":
+                    if get_preset_response is None:
+                        self.log(f"Failed to get preset mode for {cathode}", LogLevel.ERROR)
+                    elif get_preset_response != 3:
                         self.log(f"Cathode {cathode} is not in preset mode 3 (normal mode). Current mode: {get_preset_response}", LogLevel.WARNING)
                     else:
                         self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
@@ -417,13 +419,13 @@ class CathodeHeatingSubsystem:
             ovp_value = int(self.overvoltage_limit_vars[index].get() * 100)  # Convert to centivolts
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {ovp_value:04d}", LogLevel.DEBUG)
             ovp_set_response = self.power_supplies[index].set_over_voltage_protection(f"{ovp_value:04d}")
-            if ovp_set_response != "OK":
+            if not ovp_set_response:
                 self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.WARNING)
                 return
 
             # Verify the set value
             ovp_get_response = self.power_supplies[index].get_over_voltage_protection().strip()
-            if ovp_get_response != f"{ovp_value:04d}":
+            if ovp_get_response is None or abs(ovp_get_response - (ovp_value / 100.0)) > 0.01:
                 self.log(f"OVP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {ovp_value:04d}, Got: {ovp_get_response}", LogLevel.WARNING)
             else:
                 self.log(f"OVP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {ovp_value/100:.2f}V", LogLevel.INFO)
@@ -443,13 +445,13 @@ class CathodeHeatingSubsystem:
             ocp_value = int(self.overcurrent_limit_vars[index].get() * 100)  # Convert to centiamps
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {ocp_value:04d}", LogLevel.DEBUG)
             ocp_set_response = self.power_supplies[index].set_over_current_protection(f"{ocp_value:04d}")
-            if ocp_set_response != "OK":
+            if not ocp_set_response:
                 self.log(f"Failed to set OCP for Cathode {['A', 'B', 'C'][index]}. Response: {ocp_set_response}", LogLevel.WARNING)
                 return
 
             # Verify the set value
-            ocp_get_response = self.power_supplies[index].get_over_current_protection().strip()
-            if ocp_get_response != f"{ocp_value:04d}":
+            ocp_get_response = self.power_supplies[index].get_over_current_protection()
+            if ocp_get_response is None or abs(ocp_get_response - (ocp_value / 100.0)) > 0.01:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {ocp_value:04d}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
                 self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {ocp_value/100:.2f}A", LogLevel.INFO)
