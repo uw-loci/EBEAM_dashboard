@@ -512,15 +512,6 @@ class CathodeHeatingSubsystem:
 
         except ValueError as e:
             self.log(f"Failed to parse settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
-            
-    def parse_voltage_from_settings(self, settings):
-        try:
-            # Format: VVVVIIII" where VVVV is voltage in centivolts
-            voltage_cv = int(settings[:4])
-            return voltage_cv / 100.0 # Convert to volts
-        except ValueError:
-            self.log("Failed to parse set voltage from settings", LogLevel.ERROR)
-            return None
 
     def init_cathode_model(self):
         try:
