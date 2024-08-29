@@ -932,32 +932,24 @@ class CathodeHeatingSubsystem:
                     return False
                 
                 # Confirm the set values
-                settings = self.power_supplies[index].get_settings(3)
-                if settings:
-                    settings_values = settings.split('\n')[0].strip()  # Take the first line
-                    if len(settings_values) == 8:
-                        set_voltage = int(settings_values[:4]) / 100.0
-                        set_current = int(settings_values[4:]) / 100.0
-                        
-                        voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
-                        current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                        
-                        if voltage_mismatch or current_mismatch:
-                            self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.CRITICAL)
-                            if voltage_mismatch:
-                                self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.CRITICAL)
-                            if current_mismatch:
-                                self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.CRITICAL)
-                            return False
-                        else:
-                            self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
-                    else:
-                        self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
+                set_voltage, set_current = self.power_supplies[index].get_settings(3)
+                if set_voltage is not None and set_current is not None:    
+                    voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
+                    current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
+                    
+                    if voltage_mismatch or current_mismatch:
+                        self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
+                        if voltage_mismatch:
+                            self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                        if current_mismatch:
+                            self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                         return False
+                    else:
+                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
                 else:
-                    self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
+                    self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
                     return False
-
+                
                 self.user_set_voltages[index] = voltage
 
             # Calculate dependent variables
