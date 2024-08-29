@@ -485,33 +485,23 @@ class CathodeHeatingSubsystem:
             self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
 
-        settings = self.power_supplies[index].get_settings(3)  # Get settings for preset 3
+        voltage, current = self.power_supplies[index].get_settings(3)  # Get settings for preset 3
         self.log(f"Raw settings response for Cathode {['A', 'B', 'C'][index]}", LogLevel.DEBUG)
-        if not settings or "OK" not in settings:
+        if voltage is None or current is None:
             self.log(f"Failed to retrieve settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
             return
 
         try:
-            # Split the response and take the first part (before 'OK')
-            settings_value = settings.split('OK')[0].strip()
-            
-            if len(settings_value) != 8:
-                raise ValueError(f"Unexpected settings format: {settings_value}")
-
-            voltage_cv, current_cv = int(settings_value[:4]), int(settings_value[4:])
-            voltage = voltage_cv / 100.0
-            current = current_cv / 100.0
-
             expected_voltage = self.user_set_voltages[index]
             if expected_voltage is None:
-                self.log(f"Cathode {['A', 'B', 'C'][index]} settings - Voltage: {voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
-            elif abs(voltage - expected_voltage) > 0.1:  # 0.1V tolerance
+                self.log(f"Cathode {['A', 'B', 'C'][index]} settings - Voltage{voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
+            elif abs(voltage - expected_voltage) > 0.1:
                 self.log(f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: Set: {expected_voltage:.2f}V, Actual: {voltage:.2f}V", LogLevel.ERROR)
             else:
                 self.log(f"Cathode {['A', 'B', 'C'][index]} voltage matches set value. Voltage: {voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
 
-        except ValueError as e:
-            self.log(f"Failed to parse settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+        except Exception as e:
+            self.log(f"Error checking settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
 
     def init_cathode_model(self):
         try:
