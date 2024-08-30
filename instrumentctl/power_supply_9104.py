@@ -56,7 +56,7 @@ class PowerSupply9104:
         command = f"SOUT{state}"
         response = self.send_command(command)
         self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
-        return response
+        return response and "OK" in response
 
     def get_output_status(self):
         """Get the output status."""
@@ -195,12 +195,18 @@ class PowerSupply9104:
         self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
         return None, None, "Err"
 
-    def set_over_current_protection(self, ocp):
+    def set_over_current_protection(self, ocp_amps):
         """Set the over current protection value."""
         """ Expected response: OK[CR] """
-        command = f"SOCP{ocp}"
-        return self.send_command(command)
-
+        ocp_centiamps = int(ocp_amps * 100)
+        
+        command = f"SOCP{ocp_centiamps:04d}"
+        response = self.send_command(command) 
+        if response and "OK" in response:
+            return True
+        else:
+            self.log(f"Failed to set OCP to {ocp_centiamps:04d}", LogLevel.DEBUG)
+            return False
 
     def get_over_voltage_protection(self):
         """Get the upper limit of the output voltage."""
