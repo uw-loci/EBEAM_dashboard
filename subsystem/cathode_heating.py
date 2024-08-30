@@ -721,37 +721,29 @@ class CathodeHeatingSubsystem:
         
         if new_state:  # If we're trying to turn the output ON
             # Check the current settings
-            settings = self.power_supplies[index].get_settings(3)
-            if settings:
-                settings_values = settings.split('\n')[0].strip()  # Take the first line
-                if len(settings_values) == 8:
-                    set_voltage = int(settings_values[:4]) / 100.0
-                    set_current = int(settings_values[4:]) / 100.0
+            set_voltage, set_current = self.power_supplies[index].get_settings(3)
+            if set_voltage is not None and set_current is not None:
+                expected_voltage = self.user_set_voltages[index]
+                expected_current = float(self.predicted_heater_current_vars[index].get().split()[0])  # Extract the numeric part
+                
+                voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
+                current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
+                
+                if voltage_mismatch or current_mismatch:
+                    mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
+                    if voltage_mismatch:
+                        mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
+                    if current_mismatch:
+                        mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
+                    mismatch_message += "Do you want to proceed with turning on the output?"
                     
-                    expected_voltage = self.user_set_voltages[index]
-                    expected_current = float(self.predicted_heater_current_vars[index].get().split()[0])  # Extract the numeric part
-                    
-                    voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
-                    current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
-                    
-                    if voltage_mismatch or current_mismatch:
-                        mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
-                        if voltage_mismatch:
-                            mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
-                        if current_mismatch:
-                            mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
-                        mismatch_message += "Do you want to proceed with turning on the output?"
-                        
-                        if not msgbox.askyesno("Value Mismatch", mismatch_message):
-                            self.log(f"Output activation cancelled due to set value mismatch for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
-                            return
-                    else:
-                        self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
+                    if not msgbox.askyesno("Value Mismatch", mismatch_message):
+                        self.log(f"Output activation cancelled due to set value mismatch for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
+                        return
                 else:
-                    self.log(f"Invalid settings format for Cathode {['A', 'B', 'C'][index]}. Received: {settings_values}", LogLevel.ERROR)
-                    return
+                    self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
             else:
-                self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
+                self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received.", LogLevel.ERROR)
                 return
         
         # If we've made it here, either we're turning off, or the user has confirmed they want to proceed
@@ -764,10 +756,10 @@ class CathodeHeatingSubsystem:
         else:
             response = self.power_supplies[index].set_output("0") # OFF
         
-        if response:
+        if response == "OK":
             self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.INFO)
         else:
-            self.log(f"No response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
+            self.log(f"Unexpected response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
     
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
