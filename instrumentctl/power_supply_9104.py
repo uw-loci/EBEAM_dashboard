@@ -31,10 +31,10 @@ class PowerSupply9104:
         try:
             self.ser.write(f"{command}\r\n".encode())
             
-            response = self.ser.read_until(b'\r', timeout=0.4).decode()
+            response = self.ser.read_until(b'\r').decode()
 
             if 'OK' not in response:
-                additional = self.ser.read_until(b'\r', timeout=0.2).decode().strip()
+                additional = self.ser.read_until(b'\r').decode().strip()
                 response = f"{response}\r{additional}"
 
             if not response:
