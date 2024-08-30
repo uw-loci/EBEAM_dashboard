@@ -609,8 +609,11 @@ class CathodeHeatingSubsystem:
                         self.heater_voltage_vars[i].set("-- V")
 
                     # Update mode display
-                    self.operation_mode_var[i].set(f'Mode: {mode}' if mode != "Err" else 'Mode: --')
-
+                    if mode in ["CV Mode", "CC Mode"]:
+                        self.operation_mode_var[i].set(f'Mode: {mode}')
+                    else:
+                        self.operation_mode_var[i].set('Mode: --')
+    
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
                     self.actual_heater_current_vars[i].set("-- A")
@@ -643,7 +646,10 @@ class CathodeHeatingSubsystem:
             # Update Config page labels
             self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V' if voltage is not None else 'Voltage: -- V')
             self.current_display_vars[i].set(f'Current: {current:.2f} A' if current is not None else 'Current: -- A')
-            self.operation_mode_var[i].set(f'Mode: {mode}' if mode != "Err" else 'Mode: --')
+            if mode in ["CV Mode", "CC Mode"]:
+                self.operation_mode_var[i].set(f'Mode: {mode}')
+            else:
+                self.operation_mode_var[i].set('Mode: --')
 
             # Overtemperature check and update label style
             if temperature is not None:
