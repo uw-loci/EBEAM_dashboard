@@ -1,7 +1,7 @@
 String inputString = "";
 bool stringComplete = false;
 
-unsigned long commandDelay = 500;
+unsigned long commandDelay = 300;
 float voltage = 0.0;
 float current = 0.0;
 bool outputOn = false;
