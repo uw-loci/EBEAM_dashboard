@@ -11,7 +11,7 @@ Clone the repo to your machine.
 ```
 git clone github.com/bwalker/EBEAM_dashboard.git
 ```
-Install requirements. Navigate to your project directory:
+Navigate to your project directory:
 ```
 cd EBEAM_dashboard
 ```
