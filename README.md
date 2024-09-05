@@ -7,6 +7,28 @@ All code development intended to impact a future release is done on the latest `
 The `main` branch contains the latest production code.
 
 #### Development Process 
+Install requirements.
+Navigate to your project directory:
+```
+cd project_directory_location
+```
+Create a virtual environment:
+```
+python -m venv venv
+```
+Activate the virtual environment (assuming on Windows):
+```
+venv\Scripts\activate
+```
+Install the requirements:
+```
+pip install -r requirements.txt
+```
+Run the main application:
+```
+python main.py
+```
+
 Create a new branch from develop for your feature or bug fix:
 
 ```
