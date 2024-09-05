@@ -7,10 +7,13 @@ All code development intended to impact a future release is done on the latest `
 The `main` branch contains the latest production code.
 
 #### Development Process 
-Install requirements.
-Navigate to your project directory:
+Clone the repo to your machine.
 ```
-cd project_directory_location
+git clone github.com/bwalker/EBEAM_dashboard.git
+```
+Install requirements. Navigate to your project directory:
+```
+cd EBEAM_dashboard
 ```
 Create a virtual environment:
 ```
@@ -55,15 +58,8 @@ Assign reviewers to your PR. Merge.
 
 ### 2. Executable Build Instructions
 ```
-git clone https://github.com/mslaffin/EBEAM_dashboard.git
-```
-```
-cd EBEAM_dashboard
-```
-```
 python -m PyInstaller EBEAM_DASHBOARD.spec
 ```
-
 
 ### 3. Architecture
 
@@ -159,5 +155,3 @@ EBEAM_DASHBOARD/
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
-### 7. Flowchart
-![Application architecture](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/CCS_GUI_flowchart.png)
