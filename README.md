@@ -9,7 +9,7 @@ The `main` branch contains the latest production code.
 #### Development Process 
 Clone the repo to your machine.
 ```
-git clone github.com/bwalker/EBEAM_dashboard.git
+git clone https://github.com/bwalkerMIR/EBEAM_dashboard.git
 ```
 Navigate to your project directory:
 ```
