@@ -1,5 +1,5 @@
-matplotlib==3.8.2
-numpy==2.1.1
+matplotlib
+numpy
 picosdk==1.0
 pymodbus==3.6.9
 pyserial==3.5
