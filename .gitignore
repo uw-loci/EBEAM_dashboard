@@ -3,4 +3,5 @@ instrumentctl/
 subsystem/
 usr/
 venv/
-
+build/
+dist/

@@ -1,10 +1,12 @@
 # usr/panel_config.py
 import json
+# import tkinter as tk
+# from tkinter import PanedWindow
 
 # Assuming you have a list of all PanedWindows you want to manage
 def save_pane_states(paned_windows, filepath='usr/pane_state.json'):
     data = {}
-    for index, pw in enumerate(paned_windows):
+    for index, pw in enumerate(paned_windows.panes()):
         num_sashes = len(pw.panes()) - 1
         sash_positions = [pw.sash_coord(i) for i in range(num_sashes)]
         data[f'paned_window_{index}'] = sash_positions

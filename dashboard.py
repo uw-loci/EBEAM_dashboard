@@ -25,6 +25,7 @@ class EBEAMSystemDashboard:
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
+        #TODO: once the save works uncomment this
         # Load the saved state of the GUI pane layout if available
         # self.load_saved_pane_state()
 
@@ -80,10 +81,27 @@ class EBEAMSystemDashboard:
         label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
         label.pack(pady=0, fill=tk.X)
 
+
+    #TODO: check that this save funciton is working correctly, I am not totally sure what it is doing 
     def save_current_pane_state(self):
+        # tk.messagebox.showinfo(message=str(self.main_pane.panes()))
+
+        # this will correct extract the demensions of the rows, but not the cols
+        _ = len(self.main_pane.panes())
+        # for i in range(_ -1 ):
+        #     tk.messagebox.showinfo(message=str(self.main_pane.sash_coord(i)))
+
+        
+        tk.messagebox.showinfo(message=str(self.rows))
+
+
+
         num_sashes = len(self.rows) - 1  # Assuming each row might have one sash
+        #TODO: currently self.main_pane is throwing an error because it can't be emunerated on
         save_pane_states(self.main_pane, num_sashes)
 
+
+    #TODO: check to see that if this is loading correctly, should do this after the save is working
     def load_saved_pane_state(self):
         num_sashes = len(self.rows) - 1
         load_pane_states(self.main_pane, num_sashes)
