@@ -20,8 +20,6 @@ class EBEAMSystemDashboard:
         # Initialize all the frames within the main pane
         self.create_frames()
 
-        self.create_com_port_frame()
-
         # Set up a frame for displaying messages and errors
         self.create_messages_frame()
 
@@ -74,9 +72,25 @@ class EBEAMSystemDashboard:
             if title == "Setup Script":
                 SetupScripts(frame)
             if title == "Main Control":
-                save_layout_button = tk.Button(frame, text="Save Layout", command=self.save_current_pane_state)
-                save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=1, pady=1)
-                self.create_log_level_dropdown(frame)
+                self.create_main_control_notebook(frame)
+
+    def create_main_control_notebook(self, frame):
+        notebook = ttk.Notebook(frame)
+        notebook.pack(expand=True, fill='both')
+
+        main_tab = ttk.Frame(notebook)
+        config_tab = ttk.Frame(notebook)
+
+        notebook.add(main_tab, text='Main')
+        notebook.add(config_tab, text='Config')
+
+        # TODO: add main control buttons to main tab here
+
+        # Add stuff to Config tab
+        self.create_com_port_frame(config_tab)
+        self.create_log_level_dropdown(config_tab)
+        save_layout_button = tk.Button(config_tab, text="Save Layout", command=self.save_current_pane_state)
+        save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=5)
 
     def add_title(self, frame, title):
         """Add a title label to a frame."""
@@ -91,9 +105,9 @@ class EBEAMSystemDashboard:
         num_sashes = len(self.rows) - 1
         load_pane_states(self.main_pane, num_sashes)
 
-    def create_log_level_dropdown(self, frame):
-        log_level_frame = ttk.Frame(frame)
-        log_level_frame.pack(side=tk.BOTTOM, anchor='sw', padx=1, pady=1)
+    def create_log_level_dropdown(self, parent_frame):
+        log_level_frame = ttk.Frame(parent_frame)
+        log_level_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
         ttk.Label(log_level_frame, text="Log Level:").pack(side=tk.LEFT)
 
         self.log_level_var = tk.StringVar()
@@ -145,9 +159,9 @@ class EBEAMSystemDashboard:
         self.rows[3].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
 
-    def create_com_port_frame(self):
-        self.com_port_frame = ttk.Frame(self.frames['Main Control'])
-        self.com_port_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
+    def create_com_port_frame(self, parent_frame):
+        self.com_port_frame = ttk.Frame(parent_frame)
+        self.com_port_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
         self.com_port_button = ttk.Button(self.com_port_frame, text="Configure COM Ports", command=self.toggle_com_port_menu)
         self.com_port_button.pack(side=tk.TOP, anchor='w')
