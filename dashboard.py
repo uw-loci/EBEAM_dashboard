@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
+import serial.tools.list_ports
 
 class EBEAMSystemDashboard:
     def __init__(self, root, com_ports):
@@ -18,6 +19,8 @@ class EBEAMSystemDashboard:
 
         # Initialize all the frames within the main pane
         self.create_frames()
+
+        self.create_com_port_frame()
 
         # Set up a frame for displaying messages and errors
         self.create_messages_frame()
@@ -141,3 +144,65 @@ class EBEAMSystemDashboard:
         self.messages_frame = MessagesFrame(self.rows[3])
         self.rows[3].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
+
+    def create_com_port_frame(self):
+        self.com_port_frame = ttk.Frame(self.frames['Main Control'])
+        self.com_port_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
+
+        self.com_port_button = ttk.Button(self.com_port_frame, text="Configure COM Ports", command=self.toggle_com_port_menu)
+        self.com_port_button.pack(side=tk.TOP, anchor='w')
+
+        self.com_port_menu = ttk.Frame(self.com_port_frame)
+        self.com_port_menu.pack(side=tk.TOP, fill=tk.X, expand=True)
+        self.com_port_menu.pack_forget()  # Initially hidden
+
+        self.port_selections = {}
+        self.port_dropdowns = {}
+
+        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']:
+            frame = ttk.Frame(self.com_port_menu)
+            frame.pack(fill=tk.X, padx=5, pady=2)
+            ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
+            port_var = tk.StringVar(value=self.com_ports.get(subsystem, ''))
+            self.port_selections[subsystem] = port_var
+            dropdown = ttk.Combobox(frame, textvariable=port_var)
+            dropdown.pack(side=tk.RIGHT)
+            self.port_dropdowns[subsystem] = dropdown
+
+        ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
+
+    def toggle_com_port_menu(self):
+        if self.com_port_menu.winfo_viewable():
+            self.com_port_menu.pack_forget()
+            self.com_port_button.config(text="Configure COM Ports")
+        else:
+            self.update_available_ports() 
+            self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
+            self.com_port_button.config(text="Hide COM Port Configuration")
+
+    def update_available_ports(self):
+        available_ports = [port.device for port in serial.tools.list_ports.comports()]
+        for dropdown in self.port_dropdowns.values():
+            current_value = dropdown.get()
+            dropdown['values'] = available_ports
+            if current_value in available_ports:
+                dropdown.set(current_value)
+            elif available_ports:
+                dropdown.set(available_ports[0])
+            else:
+                dropdown.set('')
+
+    def apply_com_port_changes(self):
+        new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
+        self.update_com_ports(new_com_ports)
+        self.toggle_com_port_menu()
+
+    def update_com_ports(self, new_com_ports):
+        self.com_ports = new_com_ports
+        # TODO: update the COM ports for each subsystem
+        # reinitializing componnents
+
+        for subsystem_name, subsystem in self.subsystems.items():
+            if hasattr(subsystem, 'update_com_port'):
+                subsystem.update_com_port(new_com_ports.get(subsystem_name))
+        self.logger.info(f"COM ports updated: {self.com_ports}")
