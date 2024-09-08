@@ -2,13 +2,34 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
-from usr.panel_config import save_pane_states, load_pane_states
+from usr.panel_config import save_pane_states2, load_pane_states, saveFileExists
+
+frames_config = [
+    ("Oil System", 0, 50, 150),
+    ("Visualization Gas Control", 0, 50, 150),
+    ("System Checks", 0, None, None),
+    ("Beam Extraction", 0, None, None),
+    ("Vacuum System", 1, 150, 300),
+    ("Deflection Monitor", 1, None, None),
+    ("Beam Pulse", 1, None, None),
+    ("Main Control", 1, 50, 300),
+    ("Setup Script", 2, None, 25),
+    ("Interlocks", 2, None, 25),
+    ("High Voltage Warning", 2, None, 25),
+    ("Environmental", 3, 150, 450),
+    ("Cathode Heating", 3, 960, 450),
+]
 
 class EBEAMSystemDashboard:
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
+
+
+        # if save file exisit call it and open it
+        if saveFileExists():
+             self.load_saved_pane_state()
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
@@ -25,47 +46,27 @@ class EBEAMSystemDashboard:
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
-        #TODO: once the save works uncomment this
-        # Load the saved state of the GUI pane layout if available
-        # self.load_saved_pane_state()
-
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-
-        # Create horizontal paned windows for each row
         self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
         for row_pane in self.rows:
             self.main_pane.add(row_pane, stretch='always')
 
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
-        frames_config = [
-            ("Oil System", 0, 50, 150),
-            ("Visualization Gas Control", 0, 50, 150),
-            ("System Checks", 0, None, None),
-            ("Beam Extraction", 0, None, None),
-            ("Vacuum System", 1, 150, 300),
-            ("Deflection Monitor", 1, None, None),
-            ("Beam Pulse", 1, None, None),
-            ("Main Control", 1, 50, 300),
-            ("Setup Script", 2, None, 25),
-            ("Interlocks", 2, None, 25),
-            ("High Voltage Warning", 2, None, 25),
-            ("Environmental", 3, 150, 450),
-            ("Cathode Heating", 3, 960, 450),
-        ]
+        global frames_config
+
 
         for title, row, width, height in frames_config:
-            if width and height:
-                frame = tk.Frame(borderwidth=1, relief="solid", width=width, height=height)
+            if width and height and title:
+                frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
-
             self.rows[row].add(frame, stretch='always')
             self.add_title(frame, title)
             self.frames[title] = frame
@@ -81,30 +82,15 @@ class EBEAMSystemDashboard:
         label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
         label.pack(pady=0, fill=tk.X)
 
-
-    #TODO: check that this save funciton is working correctly, I am not totally sure what it is doing 
     def save_current_pane_state(self):
-        # tk.messagebox.showinfo(message=str(self.main_pane.panes()))
+        save_pane_states2(frames_config, self.frames, self.main_pane)
 
-        # this will correct extract the demensions of the rows, but not the cols
-        _ = len(self.main_pane.panes())
-        # for i in range(_ -1 ):
-        #     tk.messagebox.showinfo(message=str(self.main_pane.sash_coord(i)))
-
-        
-        tk.messagebox.showinfo(message=str(self.rows))
-
-
-
-        num_sashes = len(self.rows) - 1  # Assuming each row might have one sash
-        #TODO: currently self.main_pane is throwing an error because it can't be emunerated on
-        save_pane_states(self.main_pane, num_sashes)
-
-
-    #TODO: check to see that if this is loading correctly, should do this after the save is working
     def load_saved_pane_state(self):
-        num_sashes = len(self.rows) - 1
-        load_pane_states(self.main_pane, num_sashes)
+        savedData = load_pane_states()
+
+        for i in range(len(frames_config)):
+            if frames_config[i][0] in savedData:
+                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
 
     def create_log_level_dropdown(self, frame):
         log_level_frame = ttk.Frame(frame)
