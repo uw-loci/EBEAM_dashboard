@@ -2,7 +2,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
-from usr.panel_config import save_pane_states2, load_pane_states, saveFileExists
+from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 
 frames_config = [
     ("Oil System", 0, 50, 150),
@@ -27,7 +27,7 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
 
-        # if save file exisit call it and open it
+        # if save file exists call it and open it
         if saveFileExists():
              self.load_saved_pane_state()
 
@@ -60,7 +60,6 @@ class EBEAMSystemDashboard:
         """Create frames for different systems and controls within the dashboard."""
         global frames_config
 
-
         for title, row, width, height in frames_config:
             if width and height and title:
                 frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
@@ -82,9 +81,11 @@ class EBEAMSystemDashboard:
         label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
         label.pack(pady=0, fill=tk.X)
 
+    # saves data to file when button is pressed
     def save_current_pane_state(self):
-        save_pane_states2(frames_config, self.frames, self.main_pane)
+        save_pane_states(frames_config, self.frames, self.main_pane)
 
+    # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
         savedData = load_pane_states()
 
