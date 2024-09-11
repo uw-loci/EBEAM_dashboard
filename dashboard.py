@@ -219,9 +219,13 @@ class EBEAMSystemDashboard:
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
         # TODO: update the COM ports for each subsystem
-        # reinitializing componnents
 
         for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'update_com_port'):
-                subsystem.update_com_port(new_com_ports.get(subsystem_name))
+                if subsystem_name == 'Vacuum System':
+                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
+                elif subsystem_name == 'Cathode Heating':
+                    subsystem.update_com_ports(new_com_ports)
+            else:
+                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")

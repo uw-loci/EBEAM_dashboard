@@ -293,9 +293,46 @@ class CathodeHeatingSubsystem:
 
         self.init_time = datetime.datetime.now()
 
+    def update_com_ports(self, new_com_ports):
+            self.log("Updating COM ports for Cathode Heating Subsystem", LogLevel.INFO)
+            
+            # Update power supply COM ports
+            cathode_ports = {
+                'CathodeA PS': new_com_ports.get('CathodeA PS'),
+                'CathodeB PS': new_com_ports.get('CathodeB PS'),
+                'CathodeC PS': new_com_ports.get('CathodeC PS')
+            }
+
+            for idx, (cathode, new_port) in enumerate(cathode_ports.items()):
+                if new_port and new_port != self.com_ports.get(cathode):
+                    if idx < len(self.power_supplies):
+                        try:
+                            if self.power_supplies[idx] is not None:
+                                self.power_supplies[idx].update_com_port(new_port)
+                            else:
+                                self.power_supplies[idx] = PowerSupply9104(port=new_port, logger=self.logger)
+                            self.com_ports[cathode] = new_port
+                            self.log(f"Updated {cathode} to port {new_port}", LogLevel.INFO)
+                        except Exception as e:
+                            self.log(f"Failed to update {cathode} to port {new_port}: {str(e)}", LogLevel.ERROR)
+                            self.power_supplies[idx] = None
+                    else:
+                        self.log(f"Cannot update {cathode}. Power supply index out of range.", LogLevel.WARNING)
+
+            # Update temperature controller COM port
+            new_temp_controller_port = new_com_ports.get('TempControllers')
+            if new_temp_controller_port and new_temp_controller_port != self.com_ports.get('TempControllers'):
+                self.com_ports['TempControllers'] = new_temp_controller_port
+                self.initialize_temperature_controllers()
+                self.log(f"Updated temperature controllers to port {new_temp_controller_port}", LogLevel.INFO)
+
+            # Reinitialize power supplies to ensure all settings are applied
+            self.initialize_power_supplies()
+
     def initialize_power_supplies(self):
-        self.power_supplies = []
-        self.power_supply_status = []
+        if not self.power_supplies:
+            self.power_supplies = [None, None, None]
+        self.power_supply_status = [False, False, False]
 
         cathode_ports = {
             'CathodeA PS': self.com_ports.get('CathodeA PS'),
@@ -306,8 +343,13 @@ class CathodeHeatingSubsystem:
         for idx, (cathode, port) in enumerate(cathode_ports.items()):
             if port:
                 try:
-                    ps = PowerSupply9104(port=port, logger=self.logger)
-                    
+                    if self.power_supplies[idx] is None:
+                        self.power_supplies[idx] = PowerSupply9104(port=port, logger=self.logger)
+                    elif not self.power_supplies[idx].is_connected():
+                        self.power_supplies[idx].update_com_port(port)
+
+                    ps = self.power_supplies[idx]
+
                     # Set preset mode to 3
                     set_preset_response = ps.set_preset_selection(3)
                     if set_preset_response:
@@ -360,33 +402,28 @@ class CathodeHeatingSubsystem:
                     else:
                         self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.WARNING)
 
-                    self.power_supplies.append(ps)
-                    self.power_supply_status.append(True)
+                    self.power_supply_status[idx] = True
                     self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
                 except Exception as e:
-                    self.power_supplies.append(None)
-                    self.power_supply_status.append(False)
+                    self.power_supplies[idx] = None
+                    self.power_supply_status[idx] = False  
                     self.log(f"Failed to initialize {cathode} on port {port}: {str(e)}", LogLevel.ERROR)
             else:
-                self.power_supplies.append(None)
-                self.power_supply_status.append(False)
+                self.power_supplies[idx] = None
+                self.power_supply_status[idx] = False
                 self.log(f"No COM port specified for {cathode}", LogLevel.ERROR)
 
         # Update button states based on individual power supply status
         for idx, status in enumerate(self.power_supply_status):
-            if idx < len(self.toggle_buttons): # Check if index is valid    
-                if status:
-                    self.toggle_buttons[idx]['state'] = 'normal'
-                else:
-                    self.toggle_buttons[idx]['state'] = 'disabled'
+            if idx < len(self.toggle_buttons):
+                self.toggle_buttons[idx]['state'] = 'normal' if status else 'disabled'
+                if not status:
                     self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
             else:
                 self.log(f"Toggle button {idx+1} has not been initialized yet.", LogLevel.VERBOSE)
 
-        if any(self.power_supply_status):
-            self.power_supplies_initialized = True
-        else:
-            self.power_supplies_initialized = False
+        self.power_supplies_initialized = any(self.power_supply_status)
+        if not self.power_supplies_initialized:
             self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
         
         self.update_query_settings_button_states()

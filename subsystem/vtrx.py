@@ -71,6 +71,23 @@ class VTRXSubsystem:
         if self.ser is not None:
             self.start_serial_thread()
 
+    def update_com_port(self, new_port):
+        self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
+        
+        # Close existing serial connection if it exists
+        if hasattr(self, 'ser') and self.ser is not None:
+            self.ser.close()
+
+        self.serial_port = new_port
+        self.setup_serial()
+
+        # If the new connection is successful, restart the serial thread
+        if self.ser is not None:
+            self.start_serial_thread()
+            self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
+        else:
+            self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
+
     def setup_serial(self):
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)

@@ -8,20 +8,39 @@ class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
-        self.ser = serial.Serial(port, baudrate, timeout=timeout)
-        self.debug_mode = debug_mode
+        self.port = port
+        self.baudrate = baudrate
+        self.timeout = timeout
         self.logger = logger
-        
-    def is_connected(self):
-        """Check if the serial connection is still active."""
+        self.debug_mode = debug_mode
+        self.setup_serial()
+
+    def setup_serial(self):
         try:
-            # Attempt to write a simple command to the device
-            self.ser.write(b'\r')  # Send a carriage return
-            # Try to read a response (there might not be one)
-            self.ser.read(1)
-            return True
-        except serial.SerialException:
-            return False
+            self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+            self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
+        except serial.SerialException as e:
+            self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
+            self.ser = None
+
+    def update_com_port(self, new_port):
+        self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
+        
+        # Close existing serial connection if it exists
+        if self.ser is not None:
+            self.ser.close()
+            self.ser = None
+
+        self.port = new_port
+        self.setup_serial()
+
+        if self.ser is not None:
+            self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
+        else:
+            self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
+
+    def is_connected(self):
+        return self.ser is not None and self.ser.is_open
 
     def flush_serial(self):
         self.ser.reset_input_buffer()    
