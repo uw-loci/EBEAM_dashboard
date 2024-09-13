@@ -12,6 +12,8 @@ class PowerSupply9104:
         self.debug_mode = debug_mode
         self.logger = logger
         
+        # Baud rate refers to speed of transmission 
+
     def is_connected(self):
         """Check if the serial connection is still active."""
         try:
@@ -24,12 +26,12 @@ class PowerSupply9104:
             return False
 
     def flush_serial(self):
-        self.ser.reset_input_buffer()    
+        self.ser.reset_input_buffer()    # flushes the input buffer to rid of unwanted bits
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
         try:
-            self.ser.write(f"{command}\r\n".encode())
+            self.ser.write(f"{command}\r\n".encode()) #\r\n indicates end of command for the serial reader
             
             response = self.ser.read_until(b'\r').decode()
 
@@ -50,7 +52,7 @@ class PowerSupply9104:
             self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
 
-    def set_output(self, state):
+    def set_output(self, state):   
         """Set the output on/off."""
         """ Expected return value: OK[CR] """
         command = f"SOUT{state}"
@@ -64,10 +66,10 @@ class PowerSupply9104:
         command = "GOUT"
         return self.send_command(command)
 
-    def set_voltage(self, preset, voltage):
+    def set_voltage(self, preset, voltage): #What does the preset do? 
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
-        formatted_voltage = int(voltage * 100)
+        formatted_voltage = int(voltage * 100) # Why are we multiplying a 100??
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
