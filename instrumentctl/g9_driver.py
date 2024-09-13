@@ -21,25 +21,34 @@ class G9Driver:
 
     #TODO: send query for data
     #TODO: decided if we want to store command args in here (like with a dict) or if we should do it in the callee file
-    def sendCommand():
-        if 
+    def sendCommand(self):
+        # TODO: frontend topic : decided how we want to display the exception
+        if not self.is_connected():
+            #TODO: throw an exception so the program does has to handle the serial connection
+            raise 
+        
         query = f'{b'400000F4B034D0001'}'
 
 
     #TODO: async function, waiting for responce from query
     #TODO: how do we want to handle the data 
     def response():
+        pass
 
 
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
     def checkStatus():
+        pass
 
     def flush_serial(self):
         self.ser.reset_input_buffer()    # flushes the input buffer to rid of unwanted bits
 
+
+    #TODO: make funtion to turn all interlocks to red
     def is_connected(self):
         try:
+            #TODO: check if this works with G9 copied from Power Supply Driver
             # Attempt to write a simple command to the device
             self.ser.write(b'\r')  # Send a carriage return
             # Try to read a response (there might not be one)
@@ -49,3 +58,6 @@ class G9Driver:
             return True
         except serial.SerialException:
             return False
+        
+
+    #TODO: Figure out how to handle all the errors (end task)
