@@ -1,5 +1,6 @@
 import subsystem
 import tkinter as tk
+import tkinter.messagebox as msgbox
 from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
@@ -211,21 +212,45 @@ class EBEAMSystemDashboard:
             else:
                 dropdown.set('')
 
+    def update_com_ports(self, new_com_ports):
+        update_successful = True
+
+        try:
+            for subsystem_name, subsystem in self.subsystems.items():
+                if hasattr(subsystem, 'update_com_port'):
+                    try:
+                        if subsystem_name == 'Vacuum System':
+                            success = subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
+                        elif subsystem_name == 'Cathode Heating':
+                            success = subsystem.update_com_port(new_com_ports)
+                        else:
+                            success = False
+                            self.logger.warning(f"Unhandled subsystem: {subsystem_name}")
+
+                        if not success:
+                            raise Exception(f"Failed to update {subsystem_name}")
+
+                    except Exception as e:
+                        self.logger.error(f"Error updating {subsystem_name}: {str(e)}")
+                        update_successful = False
+                        break
+                else:
+                    self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+
+            if update_successful:
+                self.com_ports = new_com_ports
+                self.logger.info(f"COM ports updated: {self.com_ports}")
+                msgbox.showinfo("Success", "COM ports updated successfully")
+            else:
+                raise Exception("COM port update failed")
+
+        except Exception as e:
+            self.logger.error(f"COM port update failed: {str(e)}")
+            msgbox.showerror("Error", "Failed to update COM ports. Please check the logs for details.")
+
+        return update_successful
+
     def apply_com_port_changes(self):
         new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
         self.update_com_ports(new_com_ports)
         self.toggle_com_port_menu()
-
-    def update_com_ports(self, new_com_ports):
-        self.com_ports = new_com_ports
-        # TODO: update the COM ports for each subsystem
-
-        for subsystem_name, subsystem in self.subsystems.items():
-            if hasattr(subsystem, 'update_com_port'):
-                if subsystem_name == 'Vacuum System':
-                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
-                elif subsystem_name == 'Cathode Heating':
-                    subsystem.update_com_ports(new_com_ports)
-            else:
-                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
-        self.logger.info(f"COM ports updated: {self.com_ports}")

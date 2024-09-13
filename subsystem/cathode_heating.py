@@ -293,7 +293,7 @@ class CathodeHeatingSubsystem:
 
         self.init_time = datetime.datetime.now()
 
-    def update_com_ports(self, new_com_ports):
+    def update_com_port(self, new_com_ports):
             self.log("Updating COM ports for Cathode Heating Subsystem", LogLevel.INFO)
             
             # Update power supply COM ports
@@ -323,8 +323,12 @@ class CathodeHeatingSubsystem:
             new_temp_controller_port = new_com_ports.get('TempControllers')
             if new_temp_controller_port and new_temp_controller_port != self.com_ports.get('TempControllers'):
                 self.com_ports['TempControllers'] = new_temp_controller_port
-                self.initialize_temperature_controllers()
-                self.log(f"Updated temperature controllers to port {new_temp_controller_port}", LogLevel.INFO)
+                try:
+                    self.initialize_temperature_controllers()
+                    self.log(f"Updated temperature controllers to port {new_temp_controller_port}", LogLevel.INFO)
+                except Exception as e:
+                    self.log(f"Failed to initialize temperature controllers on port {new_temp_controller_port}: {str(e)}", LogLevel.ERROR)
+                    self.temp_controllers_connected = False
 
             # Reinitialize power supplies to ensure all settings are applied
             self.initialize_power_supplies()
