@@ -10,7 +10,14 @@ from subsystem import interlocks
 
 # Ask if we need to communicate the status should be also end the the power supplies 
 
-# Ask what the unwritten area of response data should be (0s or Fs, or random) 
+# Ask what the unwritten area of response data should be (0s or Fs, or random)
+
+# Ask him what he says that we don't understand 
+
+# What configuration data in the G9SP configuration data from the config program
+# - system settings, saftey program I/O terminal settings
+
+# what does the PLC mean in the manual refer to? Our program? or something else?
 
 class G9Driver:
     #TODO: Return to this and check if these parms are good by default
@@ -26,8 +33,8 @@ class G9Driver:
         if not self.is_connected():
             #TODO: throw an exception so the program does has to handle the serial connection
             raise 
-        
-        query = f'{b'400000F4B034D0001'}'
+        data = b''
+        query = f'{b'400000F4B034D0001'}{data}{checkSum}'
 
 
     #TODO: async function, waiting for responce from query
