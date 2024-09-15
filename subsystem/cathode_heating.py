@@ -637,9 +637,17 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
                     
                     # Update heater voltage display
-                    if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                        last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
+                    # if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
+                    #     last_set_voltage = getattr(self, f'last_set_voltage_{i}')
+                    #     self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
+                    # elif voltage is not None:
+                    #     self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                    # else:
+                    #     self.heater_voltage_vars[i].set("-- V")
+
+                    # update heater voltage display
+                    if self.user_set_voltages[i] is not None:
+                        self.heater_voltage_vars[i].set(f"{self.user_set_voltages[i]:.2f} V")
                     elif voltage is not None:
                         self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
                     else:
@@ -878,7 +886,7 @@ class CathodeHeatingSubsystem:
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
                         self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} °C')
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
-                        setattr(self, f'last_set_voltage_{index}', heater_voltage)
+                        # setattr(self, f'last_set_voltage_{index}', heater_voltage)
                         self.voltage_set[index] = True
                         self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
                     else:
@@ -908,6 +916,8 @@ class CathodeHeatingSubsystem:
         self.predicted_heater_current_vars[index].set('--')
         self.heater_voltage_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
+        self.user_set_voltages[index] = None
+        self.voltage_set[index] = False
 
     def on_voltage_label_click(self, index):
         """ Handle clicks on heater voltage label to manually set heater voltage """
@@ -1005,7 +1015,7 @@ class CathodeHeatingSubsystem:
 
     def perform_echoback_test(self, unit):
         """
-        Perform an echoback test on the specified unit.
+        Perform an echoback test on the specified temperature controller unit.
         This method checks if the temperature controllers are connected before proceeding.
         """
         try:
