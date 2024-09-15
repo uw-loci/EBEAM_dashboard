@@ -648,8 +648,8 @@ class CathodeHeatingSubsystem:
                     # update heater voltage display
                     if self.user_set_voltages[i] is not None:
                         self.heater_voltage_vars[i].set(f"{self.user_set_voltages[i]:.2f} V")
-                    elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                    # elif voltage is not None:
+                    #     self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
                     else:
                         self.heater_voltage_vars[i].set("-- V")
 
@@ -668,6 +668,7 @@ class CathodeHeatingSubsystem:
                 self.actual_heater_current_vars[i].set("-- A")
                 self.actual_heater_voltage_vars[i].set("-- V")
                 self.actual_target_current_vars[i].set("-- mA")
+                self.heater_voltage_vars[i].set("-- V")
 
             temperature = self.read_temperature(i)
 
