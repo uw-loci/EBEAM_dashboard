@@ -31,10 +31,10 @@ class G9Driver:
     def sendCommand(self):
         # TODO: frontend topic : decided how we want to display the exception
         if not self.is_connected():
-            #TODO: throw an exception so the program does has to handle the serial connection
-            raise 
+            raise ConnectionError("Seiral Port is Not Open.")
+        query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
+        footer = b'\x2A\x0D' # marks the end of the command 
         data = b''
-        query = f'{b'400000F4B034D0001'}{data}{checkSum}'
 
 
     #TODO: async function, waiting for responce from query

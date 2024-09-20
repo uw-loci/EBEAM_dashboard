@@ -1,0 +1,2 @@
+https://pypi.org/project/colour/
+https://pypi.org/project/Pillow/
