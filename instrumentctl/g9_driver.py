@@ -34,7 +34,14 @@ class G9Driver:
             raise ConnectionError("Seiral Port is Not Open.")
         query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
         footer = b'\x2A\x0D' # marks the end of the command 
-        data = b''
+        data = data.ljust(6, b'\x00')[:6]
+        checksum_data = query + data
+        checksum = self.calculate_checksum(checksum_data)
+
+
+    def calculate_checksum(data):
+
+
 
 
     #TODO: async function, waiting for responce from query
