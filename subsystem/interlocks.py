@@ -32,8 +32,8 @@ class InterlocksSubsystem:
             "Oil Low", "E-stop Ext", "E-stop Int", "G9SP Active"
         ]
         self.indicators = {
-            'active': tk.PhotoImage(file=resource_path("media/off_orange.png")),
-            'inactive': tk.PhotoImage(file=resource_path("media/on.png"))
+            'active': tk.PhotoImage(file=resource_path("media/on.png")),
+            'inactive': tk.PhotoImage(file=resource_path("media/redOff.png"))
         }
 
         for label in interlock_labels:
