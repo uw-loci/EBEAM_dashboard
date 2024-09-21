@@ -37,7 +37,9 @@ class G9Driver:
         data = data.ljust(6, b'\x00')[:6]
         checksum_data = query + data
         checksum = self.calculate_checksum(checksum_data)
+        
 
+        self.response()
 
     def calculate_checksum(data):
 
@@ -46,10 +48,18 @@ class G9Driver:
 
     #TODO: async function, waiting for responce from query
     #TODO: how do we want to handle the data 
-    def response():
+    def response(self):
         pass
 
 
+
+    #TODO: make a method that is constantly running to be pulling data all the time. 
+    def run(self):
+        if self.is_connected():
+            # call sendCommand to get G9 to send new data
+            self.sendCommand()
+
+            time.sleep(0.)
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
     def checkStatus():
