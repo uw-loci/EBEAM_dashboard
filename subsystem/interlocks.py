@@ -17,9 +17,9 @@ class InterlocksSubsystem:
         self.parent = parent
         self.logger = logger
         self.interlock_status = {
-            "Vacuum": True, "Water": False, "Door": False, "Timer": True,
-            "Oil High": False, "Oil Low": False, "E-stop Ext": True,
-            "E-stop Int": True, "G9SP Active": True
+            "Vacuum": 1 , "Water": 0, "Door": 0, "Timer": 1,
+            "Oil High": 0, "Oil Low": 0, "E-stop Ext": 1,
+            "E-stop Int": 1, "G9SP Active": 1 
         }
         self.setup_gui()
 
@@ -43,7 +43,7 @@ class InterlocksSubsystem:
             lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
             lbl.pack(side=tk.LEFT)
             status = self.interlock_status[label]
-            indicator = tk.Label(frame, image=self.indicators['active'] if status else self.indicators['inactive'])
+            indicator = tk.Label(frame, image=self.indicators['active'] if status == 1 else self.indicators['inactive'])
             indicator.pack(side=tk.RIGHT, pady=1)
             frame.indicator = indicator  # Store reference to the indicator for future updates
 
