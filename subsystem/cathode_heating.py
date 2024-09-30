@@ -842,6 +842,16 @@ class CathodeHeatingSubsystem:
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
 
+                current_ovp = self.get_ovp(index)
+                if current_ovp is None:
+                    self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                    return
+
+                if heater_voltage > current_ovp:
+                    self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                    msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                    return
+
                 # Set Upper Voltage Limit and Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
                     self.log(f"Setting voltage: {heater_voltage:.2f}V and current: {heater_current:.2f}A", LogLevel.DEBUG)
@@ -930,6 +940,16 @@ class CathodeHeatingSubsystem:
         """Update predictions based on manually entered voltage."""
 
         try:
+            current_ovp = self.get_ovp(index)
+            if current_ovp is None:
+                self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                return False
+
+            if voltage > current_ovp:
+                self.log(f"Requested voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                msgbox.showwarning("Voltage Exceeds OVP", f"The requested voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower voltage.")
+                return False
+
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
                                         [data[0] for data in ES440_cathode.heater_voltage_current_data], 
@@ -988,6 +1008,18 @@ class CathodeHeatingSubsystem:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             self.reset_related_variables(index)
             return False
+
+    def get_ovp(self, index):
+        try:
+            ovp = self.power_supplies[index].get_over_voltage_protection()
+            if ovp is not None:
+                return ovp
+            else:
+                self.log(f"Failed to get OVP for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return None
+        except Exception as e:
+            self.log(f"Error getting OVP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            return None
 
     def set_overtemp_limit(self, index, temp_var):
         try:
