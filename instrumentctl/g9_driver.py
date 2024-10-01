@@ -5,7 +5,7 @@ from utils import LogLevel
 import os
 from subsystem import interlocks
 
-# Ask nerd team if the G9 is storing the data that it is reading from sensors or if it is just checking 
+# Ask electronics team if the G9 is storing the data that it is reading from sensors or if it is just checking 
 # if it is just checking we will have to figure out how to read that data thur the G9, to display on GUI
 
 # Ask if we need to communicate the status should be also end the the power supplies 
@@ -18,13 +18,41 @@ from subsystem import interlocks
 # - system settings, saftey program I/O terminal settings
 
 # what does the PLC mean in the manual refer to? Our program? or something else?
+inStatus = {
+    0: "No error",
+    1: "Invalid configuration",
+    2: 'External test signal failure',
+    3: 'Internal circuit error',
+    4: 'Discrepancy error',
+    5: 'Failure of the associated dual-channel input'
+}
+
+outStatus = {
+    0: 'No error',
+    1: 'Invalid configuration',
+    2: 'Overcurrent detection',
+    3: 'Short circuit detection',
+    4: 'Stuck-at-high detection',
+    5: 'Failure of the associated dual-channel output',
+    6: 'Internal circuit error',
+    8: 'Dual channel violation'
+}
+
+usStatus = {
+    32: "Output Power Supply Error Flag",
+    64: "Safety I/O Terminal Error Flag",
+    512: "Function Block Error Flag"
+}
 
 class G9Driver:
+
+
     #TODO: Return to this and check if these parms are good by default
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.ser = serial.Serial(port, baudrate, timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
+        self.lastResponse = None
 
     #TODO: send query for data
     #TODO: decided if we want to store command args in here (like with a dict) or if we should do it in the callee file
@@ -33,15 +61,40 @@ class G9Driver:
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
         query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
-        footer = b'\x2A\x0D' # marks the end of the command 
         data = data.ljust(6, b'\x00')[:6]
         checksum_data = query + data
         checksum = self.calculate_checksum(checksum_data)
-        
+        footer = b'\x2A\x0D' # marks the end of the command 
+        self.ser(query + data + checksum + footer)
 
         self.response()
 
-    def calculate_checksum(data):
+    # used mainly for the check sum but can also be used to check for error flags
+    # needs an input of a byte string and the range of bytes that need to be sum
+    # will return the sum of the bytes in the a byte string in the form of b'\x12'
+    def calculate_checksum(byteString, startByte, endByte):
+        assert isinstance(byteString, bytes)
+        return sum(byteString[startByte:endByte + 1]).to_bytes(1, "big") 
+
+    # helper function to convert bytes to bits for checking flags
+    # not currently being used but many be helpful in the future for getting errors
+    def bytesToBinary(byte_string):
+        return ''.join(format(byte, '08b') for byte in byte_string)
+    
+    # this method is made to check the error flags, right not only checks the last 13 bits
+    # of a byte string
+    def checkFlags13(self, byteString, startByte, endByte, inputs, norm = 1):
+        assert isinstance(byteString, bytes)
+        # this is for if we only need the last 13 bits (more or less hardcoding this 
+        # just including the rest if it might be helpful in the future
+        if inputs == -1:
+            if sum(byteString[-1] >= 13):
+                # all flags we care about are 1
+                return True
+            else:
+                # there is an error
+                return False
+
 
 
 
@@ -49,9 +102,128 @@ class G9Driver:
     #TODO: async function, waiting for responce from query
     #TODO: how do we want to handle the data 
     def response(self):
+        if not self.is_connected():
+            raise ConnectionError("Seiral Port is Not Open.")
+        
+        data = self.ser.read(size=198)
+        self.lastResponse = data
+        if len(data) == 198:
+            # TODO: Need to add OCTD
+
+            # TODO: Need to add SITDF
+
+            # TODO: Need to add SOTDF
+
+
+            SITSF = data[14:21]
+            SOTSF = data[20:25]
+            if not self.checkFlags13(SITSF):
+                if self.safetyInTerminalError(SITSF):
+                    raise ValueError("Error was detected but was not found")
+            if not self.checkFlags13(SOTSF):
+                if self.safetyOutTerminalError(SOTSF):
+                    raise ValueError("Error was detected but was not found")
+                
+            # TODO: Need to add error cause
+
+            US = data[66:69]
+            if US != 0:
+                if self.unitStateError(US):
+                    raise ValueError("Error was detected in Unit State. Could be more than one")
+                
+            
+            # TODO: Need to add error log
+
+            # TODO: Need to add operation log
+                
+
+
+        else:
+            self.sendCommand()
+
         pass
 
 
+    """
+    0: No error
+    1: Invalid configuration
+    2: External test signal failure
+    3: Internal circuit error
+    4: Discrepancy error
+    5: Failure of the associated dual-channel input
+    """
+
+    # checks all the SITSFs, throws error is one is found
+    def safetyInTerminalError(self, data, inputs=13):
+        if len(data) < inputs:
+            raise ValueError(f"Expected at least {inputs} bytes, but received {len(data)}.")
+
+        last_bytes = data[-inputs:]
+        last_bytes = last_bytes[::-1]
+
+        for i, byte in enumerate(last_bytes):
+            msb = byte >> 4  # most sig bits
+            lsb = byte & 0x0F  # least sig bits
+
+            # check high bits for errors
+            if msb in inStatus and msb != 0:
+                raise ValueError(f"Error at byte {i}H, MSB: {inStatus[msb]} (code {msb})")
+            # check low bits for errors
+            if lsb in inStatus and lsb != 0:
+                raise ValueError(f"Error at byte {i}L, LSB: {inStatus[lsb]} (code {lsb})")
+        return True
+        
+
+
+    """
+    0: No error
+    1: Invalid configuration
+    2: Overcurrent detection
+    3: Short circuit detection
+    4: Stuck-at-high detection
+    5: Failure of the associated dual-channel output
+    6: Internal circuit error
+    8: Dual channel violation
+    """
+
+    # checks all the SOTSFs, throws error is one is found 
+    def safetyOutTerminalError(self, data, inputs = 13):
+        if len(data) < inputs:
+            raise ValueError(f"Expected at least {inputs} bytes, but received {len(data)}.")
+
+        # only keep needs bytes
+        last_bytes = data[-inputs:]
+        # flip direction so enumerate can if us the byte number in the error
+        last_bytes = last_bytes[::-1]
+
+        for i, byte in enumerate(last_bytes):
+            msb = byte >> 4  # most sig bits
+            lsb = byte & 0x0F  # least sig bits
+
+            # check high bits for errors
+            if msb in outStatus and msb != 0:
+                raise ValueError(f"Error at byte {i}H, MSB: {outStatus[msb]} (code {msb})")
+            # check low bits for errors
+            if lsb in outStatus and lsb != 0:
+                raise ValueError(f"Error at byte {i}L, LSB: {outStatus[lsb]} (code {lsb})")
+        return True
+    
+    """
+    32: Output Power Supply Error Flag
+    64: Safety I/O Terminal Error Flag
+    512: Function Block Error Flag
+    """
+    
+    # rn am hoping that only one of the error flags can be set at a time
+    def unitStateError(self, data):
+        if len(data) != 2:
+            raise ValueError(f"Expected at least 2 bytes, but received {len(data)}.")
+        
+        er = sum(data)
+        
+        if er in usStatus:
+            raise ValueError(f"Unit State Error: {usStatus[er]} (code {er})")
+        return True
 
     #TODO: make a method that is constantly running to be pulling data all the time. 
     def run(self):
@@ -60,6 +232,7 @@ class G9Driver:
             self.sendCommand()
 
             time.sleep(0.)
+
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
     def checkStatus():
