@@ -58,6 +58,9 @@ class VTRXSubsystem:
             1: tk.PhotoImage(file=resource_path("media/on.png"))
         }
         self.error_state = False
+        self.last_incomplete_data_warning_time = 0
+        self.last_data_received_time = time.time()
+        self.warning_interval = 5  # rate limit to once per 5 seconds
         self.setup_serial()
         self.setup_gui()
 
@@ -107,8 +110,8 @@ class VTRXSubsystem:
                         # self.handle_serial_data(data)
                         self.data_queue.put(data)
                 else:
-                    # self.parent.after(0, self.update_gui_with_error_state)
-                    self.data_queue.put(None)
+                    # self.data_queue.put(None)
+                    time.sleep(0.1)
             except serial.SerialException as e:
                 self.error_state = True
                 self.log(f"Serial communication error: {e}", LogLevel.ERROR)
@@ -130,6 +133,9 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
+            current_time = time.time()
+            if current_time - self.last_data_received_time > self.data_timeout:
+                self.update_gui_with_error_state()
             self.parent.after(100, self.process_queue)
 
     def update_gui_with_error_state(self):
@@ -144,11 +150,14 @@ class VTRXSubsystem:
     def handle_serial_data(self, data):
         data_parts = data.split(';')
         if len(data_parts) < 3:
-            self.log("Incomplete data received.", LogLevel.WARNING)
+            current_time = time.time()
+            if current_time - self.last_incomplete_data_warning_time > self.warning_interval:
+                self.log("Incomplete data received.", LogLevel.WARNING)
+                self.last_incomplete_data_warning_time = current_time
             self.error_state = True
             self.update_gui_with_error_state()
             return
-        
+
         try:
             pressure_value = float(data_parts[0])   # numerical pressure value
             pressure_raw = data_parts[1]            # raw string from 972b sensor
@@ -278,7 +287,7 @@ class VTRXSubsystem:
         thread = threading.Thread(target=self.read_serial)
         thread.daemon = True
         thread.start()
-        self.parent.after(100, self.process_queue)
+        self.parent.after(200, self.process_queue)
 
     def confirm_reset(self):
         if messagebox.askyesno("Confirm Reset", "Do you really want to reset the VTRX System?"):
