@@ -115,8 +115,8 @@ class G9Driver:
             # TODO: Need to add SOTDF
 
 
-            SITSF = data[14:21]
-            SOTSF = data[20:25]
+            SITSF = data[14:20]
+            SOTSF = data[20:24]
             if not self.checkFlags13(SITSF):
                 if self.safetyInTerminalError(SITSF):
                     raise ValueError("Error was detected but was not found")
@@ -126,15 +126,17 @@ class G9Driver:
                 
             # TODO: Need to add error cause
 
-            US = data[66:69]
+            US = data[66:68]
             if US != 0:
                 if self.unitStateError(US):
                     raise ValueError("Error was detected in Unit State. Could be more than one")
                 
             
             # TODO: Need to add error log
+            errorLog = data[108:148]
 
             # TODO: Need to add operation log
+            operationLog = data[148:198]
                 
 
 
