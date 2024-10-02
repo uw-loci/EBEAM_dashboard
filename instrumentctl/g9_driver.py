@@ -108,11 +108,15 @@ class G9Driver:
         data = self.ser.read(size=198)
         self.lastResponse = data
         if len(data) == 198:
-            # TODO: Need to add OCTD
+            # TODO: Need to add OCTD functionality
+            OCTD = data[0:4]
 
-            # TODO: Need to add SITDF
+            # TODO: Need to add SITDF functionality
+            SITDF = data[4:10]
 
-            # TODO: Need to add SOTDF
+            # TODO: Need to add SOTDF functionality
+            SOTDF = data[10:14]
+
 
 
             SITSF = data[14:20]
@@ -126,6 +130,7 @@ class G9Driver:
                 
             # TODO: Need to add error cause
 
+            # US - Unit Status
             US = data[66:68]
             if US != 0:
                 if self.unitStateError(US):
