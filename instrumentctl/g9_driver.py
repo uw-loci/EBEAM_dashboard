@@ -53,6 +53,8 @@ class G9Driver:
         self.debug_mode = debug_mode
         self.logger = logger
         self.lastResponse = None
+        self.msgOptData = None
+
 
     #TODO: send query for data
     #TODO: decided if we want to store command args in here (like with a dict) or if we should do it in the callee file
@@ -62,6 +64,7 @@ class G9Driver:
             raise ConnectionError("Seiral Port is Not Open.")
         query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
         data = data.ljust(6, b'\x00')[:6]
+        self.msgOptData = data
         checksum_data = query + data
         checksum = self.calculate_checksum(checksum_data)
         footer = b'\x2A\x0D' # marks the end of the command 
@@ -108,8 +111,10 @@ class G9Driver:
         data = self.ser.read(size=198)
         self.lastResponse = data
         if len(data) == 198:
-            # TODO: Need to add OCTD functionality
             OCTD = data[0:4]
+            if OCTD != self.msgOptData:
+                raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
+
 
             # TODO: Need to add SITDF functionality
             SITDF = data[4:10]
