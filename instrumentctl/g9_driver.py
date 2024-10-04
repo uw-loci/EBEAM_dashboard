@@ -115,9 +115,11 @@ class G9Driver:
             # TODO: Need to add SITDF functionality
             SITDF = data[4:10]           
 
-            # TODO: Need to add SOTDF functionality
+
             SOTDF = data[10:14]
             SOTDFBits = self.bytesToBinary(SOTDF)
+
+            # Dictionary with status
             interlocks_status = self.SOTDF_Reading(SOTDFBits) 
 
             SITSF = data[14:20]
@@ -169,22 +171,25 @@ class G9Driver:
 
         interlocks_status = { 
         
-        "eStopInt" : bool(int(data[0])) and bool(int(data[1])), #checking if both 2B and 2A return 1
-        "eStopExt" :  bool(int(data[2])) and bool(int(data[3])), #checking if both 2B and 2A return 1
+        "E-Stop Int" : bool(int(data[0])) and bool(int(data[1])), #checking if both 2B and 2A return 1
+        "E-Stop Ext" :  bool(int(data[2])) and bool(int(data[3])), #checking if both 2B and 2A return 1
 
-        "door" : bool(int(data[4])),
-        "doorLock" : bool(int(data[5])),
+        "Door Status" : bool(int(data[4])),
+        "Door Lock" : bool(int(data[5])),
 
-        "vacuumPower" : bool(int(data[6])),
-        "vacuumPressue" : bool(int(data[7])),
+        "Vacuum Power" : bool(int(data[6])),
+        "Vacuum Pressue" : bool(int(data[7])),
 
-        "oilHigh" : bool(int(data[8])),
-        "oilLow" : bool(int(data[9])),
+        "Oil High" : bool(int(data[8])),
+        "Oil Low" : bool(int(data[9])),
 
-        "water" : bool(int(data[10])),
+        "Water" : bool(int(data[10])),
 
-        "G9SP_Active" : bool(int(data[11])),
-        "resetEnableButton" : bool((data[12]))
+        # HV status relay
+        "G9SP_Active" : bool(int(data[11])), 
+
+        # Reset\Enable has an output sensor but should only be active if ALL other incoming states are true
+        "Reset\Enable Button" : bool((data[12]))
         }
 
 
