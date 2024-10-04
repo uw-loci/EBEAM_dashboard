@@ -99,9 +99,6 @@ class G9Driver:
                 return False
 
 
-
-
-
     #TODO: async function, waiting for responce from query
     #TODO: how do we want to handle the data 
     def response(self):
@@ -115,14 +112,13 @@ class G9Driver:
             if OCTD != self.msgOptData:
                 raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
 
-
             # TODO: Need to add SITDF functionality
-            SITDF = data[4:10]
+            SITDF = data[4:10]           
 
             # TODO: Need to add SOTDF functionality
             SOTDF = data[10:14]
-
-
+            SOTDFBits = self.bytesToBinary(SOTDF)
+            interlocks_status = self.SOTDF_Reading(SOTDFBits) 
 
             SITSF = data[14:20]
             SOTSF = data[20:24]
@@ -164,6 +160,35 @@ class G9Driver:
     4: Discrepancy error
     5: Failure of the associated dual-channel input
     """
+
+    # Retrieves status from S01-S12 and returns sensor status
+    def SOTDF_Readings(SOTDFBits):
+
+        #Reversing bits 
+        data = SOTDFBits[::-1]
+
+        interlocks_status = { 
+        
+        "eStopInt" : bool(int(data[0])) and bool(int(data[1])), #checking if both 2B and 2A return 1
+        "eStopExt" :  bool(int(data[2])) and bool(int(data[3])), #checking if both 2B and 2A return 1
+
+        "door" : bool(int(data[4])),
+        "doorLock" : bool(int(data[5])),
+
+        "vacuumPower" : bool(int(data[6])),
+        "vacuumPressue" : bool(int(data[7])),
+
+        "oilHigh" : bool(int(data[8])),
+        "oilLow" : bool(int(data[9])),
+
+        "water" : bool(int(data[10])),
+
+        "G9SP_Active" : bool(int(data[11])),
+        "resetEnableButton" : bool((data[12]))
+        }
+
+
+        return interlocks_status
 
     # checks all the SITSFs, throws error is one is found
     def safetyInTerminalError(self, data, inputs=13):
