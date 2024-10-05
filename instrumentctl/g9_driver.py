@@ -61,12 +61,12 @@ class G9Driver:
     def sendCommand(self):
         # TODO: frontend topic : decided how we want to display the exception
         if not self.is_connected():
-            raise ConnectionError("Seiral Port is Not Open.")
+            raise ConnectionError("Serial Port is Not Open.")
         query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
-        data = data.ljust(6, b'\x00')[:6]
+        data = b'\x00\x00\x00\x00\x00\x00' 
         self.msgOptData = data
         checksum_data = query + data
-        checksum = self.calculate_checksum(checksum_data)
+        checksum = self.calculate_checksum(checksum_data, 0, len(checksum_data) - 1) #called calculate_cheksum with correct parameters
         footer = b'\x2A\x0D' # marks the end of the command 
         self.ser(query + data + checksum + footer)
 
@@ -77,7 +77,9 @@ class G9Driver:
     # will return the sum of the bytes in the a byte string in the form of b'\x12'
     def calculate_checksum(byteString, startByte, endByte):
         assert isinstance(byteString, bytes)
-        return sum(byteString[startByte:endByte + 1]).to_bytes(1, "big") 
+        checksum_value = sum(byteString[startByte:endByte + 1])
+        return checksum_value.to_bytes(2, "big") # can return a value in the range of 0 to 2^16 - 1
+        # return sum(byteString[startByte:endByte + 1]).to_bytes(1, "big") 
 
     # helper function to convert bytes to bits for checking flags
     # not currently being used but many be helpful in the future for getting errors
@@ -102,8 +104,9 @@ class G9Driver:
     #TODO: async function, waiting for responce from query
     #TODO: how do we want to handle the data 
     def response(self):
+        # raise a connection error if the serial port is open
         if not self.is_connected():
-            raise ConnectionError("Seiral Port is Not Open.")
+            raise ConnectionError("Serial Port is Not Open.")
         
         data = self.ser.read(size=198)
         self.lastResponse = data
@@ -273,7 +276,7 @@ class G9Driver:
             # call sendCommand to get G9 to send new data
             self.sendCommand()
 
-            time.sleep(0.)
+            time.sleep(0.5)
 
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
