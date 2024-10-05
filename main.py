@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
 from utils import LogLevel
@@ -37,14 +37,24 @@ def config_com_ports(root):
 
     def on_submit():
         selected_ports = {key: value.get() for key, value in selections.items()}
+        
+        # check that all COM ports are selected
+        if not all(selected_ports.values()):
+            messagebox.showerror("Error", "Please select all COM ports.")
+            return
+        
+        # show the root window
+        root.deiconify()
         config_root.destroy()
         start_main_app(root, selected_ports)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack()
     
-    config_root.mainloop()
+    config_root.grab_set()
+    root.wait_window(config_root)
 
 if __name__ == "__main__":
     root = tk.Tk()
+    root.withdraw() # hide root window while configuring
     config_com_ports(root)
