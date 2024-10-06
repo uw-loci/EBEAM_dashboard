@@ -58,6 +58,8 @@ class VTRXSubsystem:
             1: tk.PhotoImage(file=resource_path("media/on.png"))
         }
         self.error_state = False
+        self.error_logged = False
+        self.stop_event = threading.Event()
         self.setup_serial()
         self.setup_gui()
 
@@ -68,23 +70,27 @@ class VTRXSubsystem:
         self.x_data = [self.init_time + datetime.timedelta(seconds=i) for i in range(self.time_window)]
         self.y_data = [0] * self.time_window
 
-        if self.ser is not None:
+        if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
         
-        # Close existing serial connection if it exists
-        if hasattr(self, 'ser') and self.ser is not None:
+        # stop the existing serial thread
+        self.stop_serial_thread()
+
+        # close existing serial connection if it exists
+        if self.ser and self.ser.is_open:
             self.ser.close()
+            self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
 
         self.serial_port = new_port
         self.setup_serial()
 
         # If the new connection is successful, restart the serial thread
-        if self.ser is not None:
+        if self.ser and self.ser.is_open:
             self.start_serial_thread()
-            self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
+            self.log(f"Successfully updated VTRX COM port to {new_port}", LogLevel.INFO)
         else:
             self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
 
@@ -92,32 +98,41 @@ class VTRXSubsystem:
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
             self.log(f"Serial connection established on {self.serial_port}", LogLevel.INFO)
+            self.error_logged = False # reset error flag on success
         except serial.SerialException as e:
             self.log(f"Error opening serial port {self.serial_port}: {e}", LogLevel.ERROR)
             self.ser = None
+            self.error_logged = False
 
     def read_serial(self):
-        while True:
-            try:
-                data_bytes = self.ser.readline()
-                if data_bytes:
-                    self.last_data_received_time = time.time()  # Update last received time
-                    data = data_bytes.decode('utf-8', errors='replace').strip()
-                    if data:
-                        # self.handle_serial_data(data)
-                        self.data_queue.put(data)
-                else:
-                    # self.parent.after(0, self.update_gui_with_error_state)
-                    self.data_queue.put(None)
-            except serial.SerialException as e:
-                self.error_state = True
-                self.log(f"Serial communication error: {e}", LogLevel.ERROR)
-            except UnicodeDecodeError as e:
-                self.error_state = True
-                self.log(f"Data decoding error: {e}", LogLevel.ERROR)
-            except Exception as e:
-                self.error_state = True
-                self.log(f"Unexpected error: {e}", LogLevel.ERROR)
+        while not self.stop_event.is_set():
+            if self.ser and self.ser.is_open:
+                try:
+                    data_bytes = self.ser.readline()
+                    if data_bytes:
+                        self.last_data_received_time = time.time()  # Update last received time
+                        data = data_bytes.decode('utf-8', errors='replace').strip()
+                        if data:
+                            self.data_queue.put(data)
+                    else:
+                        self.data_queue.put(None)
+                except serial.SerialException as e:
+                    if not self.error_logged:
+                        self.log(f"Serial communication error: {e}", LogLevel.ERROR)
+                        self.error_logged = True
+                except UnicodeDecodeError as e:
+                    if not self.error_logged:
+                        self.log(f"Data decoding error: {e}", LogLevel.ERROR)
+                        self.error_logged = True
+                except Exception as e:
+                    if not self.error_logged:
+                        self.log(f"Unexpected error: {e}", LogLevel.ERROR)
+                        self.error_logged = True
+            else:
+                if not self.error_logged:
+                    self.log("Serial port is not open.", LogLevel.ERROR)
+                    self.error_logged = True
+                time.sleep(1)
 
     def process_queue(self):
         try:
@@ -130,7 +145,7 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
-            self.parent.after(100, self.process_queue)
+            self.parent.after(500, self.process_queue)
 
     def update_gui_with_error_state(self):
         self.label_pressure.config(text="No data...", fg="red")
@@ -168,6 +183,7 @@ class VTRXSubsystem:
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
+            self.error_logged = False # reset error flag on successful data processing
 
         except ValueError as e:    
             self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
@@ -275,21 +291,31 @@ class VTRXSubsystem:
         self.canvas.flush_events()
 
     def start_serial_thread(self):
-        thread = threading.Thread(target=self.read_serial)
-        thread.daemon = True
-        thread.start()
+        self.stop_event.clear()
+        self.serial_thread = threading.Thread(target=self.read_serial, daemon=True)
+        self.serial_thread.start()
         self.parent.after(100, self.process_queue)
+
+    def stop_serial_thread(self):
+        self.stop_event.set()
+        if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
+            self.serial_thread.join()
 
     def confirm_reset(self):
         if messagebox.askyesno("Confirm Reset", "Do you really want to reset the VTRX System?"):
             self.send_reset_command()
 
     def send_reset_command(self):
-        try:
-            self.ser.write("RESET\n".encode('utf-8')) # Send RESET command to Arduino
-            self.log("Sent RESET command to VTRX.", LogLevel.INFO)
-        except serial.SerialException as e:
-            error_message = f"Failed to send reset command: {str(e)}"
+        if self.ser and self.ser.is_open:
+            try:
+                self.ser.write("RESET\n".encode('utf-8')) # Send RESET command to Arduino
+                self.log("Sent RESET command to VTRX.", LogLevel.INFO)
+            except serial.SerialException as e:
+                error_message = f"Failed to send reset command: {str(e)}"
+                messagebox.showerror("Error", error_message)
+                self.log(error_message, LogLevel.ERROR)
+        else:
+            error_message = "Cannot send RESET command. VTRX serial port is not open."
             messagebox.showerror("Error", error_message)
             self.log(error_message, LogLevel.ERROR)
 
@@ -304,3 +330,9 @@ class VTRXSubsystem:
         self.init_time = self.x_data[0]
         self.log("VTRX Pressure Graph cleared", LogLevel.INFO)
 
+    def __del__(self):
+            # TBD ensure serial thread is stopped when the object is destroyed
+            self.stop_serial_thread()
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+          
