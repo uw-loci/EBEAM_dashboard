@@ -63,7 +63,7 @@ class G9Driver:
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open.")
         query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
-        data = b'\x00\x00\x00\x00\x00\x00' 
+        data = b'\x00\x00\x00\x00' #reduced it to 4 bytes from 6 bytes since it  is compared to OCTD which is 4 bytes
         self.msgOptData = data
         checksum_data = query + data
         checksum = self.calculate_checksum(checksum_data, 0, len(checksum_data) - 1) #called calculate_cheksum with correct parameters
@@ -113,7 +113,7 @@ class G9Driver:
         if len(data) == 198:
             OCTD = data[0:4]
             if OCTD != self.msgOptData:
-                raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
+                raise ValueError("Optional Communications Transmission Data does not match data sent to the G9SP")
 
             # TODO: Need to add SITDF functionality
             SITDF = data[4:10]           
@@ -208,7 +208,7 @@ class G9Driver:
 
         for i, byte in enumerate(last_bytes):
             msb = byte >> 4  # most sig bits
-            lsb = byte & 0x0F  # least sig bits
+            lsb = byte & 0x0F  # least sig bits 
 
             # check high bits for errors
             if msb in inStatus and msb != 0:
