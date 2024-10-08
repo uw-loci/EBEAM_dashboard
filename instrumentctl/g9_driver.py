@@ -63,12 +63,13 @@ class G9Driver:
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open.")
         query = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
-        data = b'\x00\x00\x00\x00' #reduced it to 4 bytes from 6 bytes since it  is compared to OCTD which is 4 bytes
-        self.msgOptData = data
-        checksum_data = query + data
+        optional_data = b'\x00\x00\x00\x00' #reduced it to 4 bytes from 6 bytes since it  is compared to OCTD which is 4 bytes
+        self.msgOptData = optional_data
+        reserved_data = b'\x00\x00'
+        checksum_data = query + optional_data
         checksum = self.calculate_checksum(checksum_data, 0, len(checksum_data) - 1) #called calculate_cheksum with correct parameters
         footer = b'\x2A\x0D' # marks the end of the command 
-        self.ser(query + data + checksum + footer)
+        self.ser(query + optional_data + reserved_data + checksum + footer)
 
         self.response()
 
