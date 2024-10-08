@@ -111,21 +111,26 @@ class G9Driver:
         data = self.ser.read(size=198)
         self.lastResponse = data
         if len(data) == 198:
+
+            # OCTD: Optional Communications Transmission Data(data sent to the g9)
             OCTD = data[0:4]
             if OCTD != self.msgOptData:
                 raise ValueError("Optional Communications Transmission Data does not match data sent to the G9SP")
 
             # TODO: Need to add SITDF functionality
+            # SITDF: Safety Input Terminal Data Flags
             SITDF = data[4:10]           
 
-
+            # SOTDF: Safety Input Terminal Data Flags(sensor status)
             SOTDF = data[10:14]
             SOTDFBits = self.bytesToBinary(SOTDF)
 
             # Dictionary with status
             interlocks_status = self.SOTDF_Reading(SOTDFBits) 
 
+            # SITSF: Safety Input Terminal Status Flags(trigger upon an error)
             SITSF = data[14:20]
+            # SOTSF: Safety Output Terminal Status Flags(trigger upon an error)
             SOTSF = data[20:24]
             if not self.checkFlags13(SITSF):
                 if self.safetyInTerminalError(SITSF):
