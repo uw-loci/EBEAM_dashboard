@@ -90,7 +90,7 @@ class VTRXSubsystem:
         # If the new connection is successful, restart the serial thread
         if self.ser and self.ser.is_open:
             self.start_serial_thread()
-            self.log(f"Successfully updated VTRX COM port to {new_port}", LogLevel.INFO)
+            self.log(f"Updated VTRX COM port to {new_port}", LogLevel.INFO)
         else:
             self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
 
@@ -160,6 +160,7 @@ class VTRXSubsystem:
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.log("Incomplete data received.", LogLevel.WARNING)
+            self.log(f"Literal data from VTRX: {data}", LogLevel.VERBOSE)
             self.error_state = True
             self.update_gui_with_error_state()
             return
