@@ -613,7 +613,7 @@ class CathodeHeatingSubsystem:
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
         for i in range(3):
-            self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.DEBUG)
+            self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
 
             voltage = None
             current = None
@@ -771,18 +771,11 @@ class CathodeHeatingSubsystem:
                 
                 voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
                 current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
-                
-                if voltage_mismatch or current_mismatch:
-                    mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
-                    if voltage_mismatch:
-                        mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
-                    if current_mismatch:
-                        mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
-                    mismatch_message += "Do you want to proceed with turning on the output?"
-                    
-                    if not msgbox.askyesno("Value Mismatch", mismatch_message):
-                        self.log(f"Output activation cancelled due to set value mismatch for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
-                        return
+            
+                if voltage_mismatch:
+                    self.log(f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n", LogLevel.WARNING)
+                elif current_mismatch:
+                    self.log(f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n", LogLevel.WARNING)
                 else:
                     self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
             else:
@@ -818,6 +811,9 @@ class CathodeHeatingSubsystem:
         try:
             target_current_mA = float(entry_field.get())
             ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
+            if ideal_emission_current < 0:
+                raise ValueError("Target current must be positive")
+            
             log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
             self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
             
@@ -895,8 +891,10 @@ class CathodeHeatingSubsystem:
                         self.reset_related_variables(index)
                         self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
-        except ValueError:
+        except ValueError as e:
             self.log("Invalid input for target current", LogLevel.ERROR)
+            msgbox.showerror("Invalid Input", str(e))
+            return
 
     def reset_related_variables(self, index):
         """ Resets display variables when setting voltage/current fails. """
