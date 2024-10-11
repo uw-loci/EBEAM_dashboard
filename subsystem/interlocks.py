@@ -85,6 +85,13 @@ class InterlocksSubsystem:
             indicator.config(image=new_image)
             indicator.image = new_image  # Keep a reference
 
+            # logging the update
+            old_status = self.interlock_status.get(name, None)
+            if old_status is not None and old_status != status:
+                log_message = f"Interlock status chnaged from {old_status} to {status}"
+                self.logger.info(log_message)
+                self.interlock_status[name] = status # log the previous state, and update it to the new state
+
     def update_pressure_dependent_locks(self, pressure):
         # Disable the Vacuum lock if pressure is below 2 mbar
         self.update_interlock("Vacuum", pressure >= 2)
