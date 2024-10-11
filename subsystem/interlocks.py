@@ -1,25 +1,26 @@
 # interlocks.py
 import tkinter as tk
 import os, sys
-import instrumentctl.g9_driver as g9_driv
+from ..instrumentctl import g9_driver as g9_driv
+# import instrumentctl.g9_driver as g9_driv
 # from logging import LogLevel
 
 
 
     
 def handle_errors(self, data):
-
-    response = g9_driv.response()
     try:
+        response = g9_driv.response()
         g9_driv.safetyInTerminalError(response)
         g9_driv.safetyOutTerminalError(response)
         g9_driv.unitStateError(response)
+        return {"status":"passes", "message":"No errors thrown at this time."}
 
 
     except ValueError as e:
         return {"status":"error", "message":str(e)}
     
-    return {"status":"passes", "message":"No errors thrown at this time."}
+    
         
     
 
@@ -34,12 +35,14 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
+
 class InterlocksSubsystem:
     def __init__(self, parent, logger=None):
         self.parent = parent
         self.logger = logger
         self.interlock_status = {
-            "Vacuum": True, "Water": False, "Door": False, "Timer": True,
+            "Vacuum": True, "Water": False, "Door&Lock": False, "Timer": True,
             "Oil High": False, "Oil Low": False, "E-stop Ext": True,
             "E-stop Int": True, "G9SP Active": True
         }
@@ -73,6 +76,7 @@ class InterlocksSubsystem:
             indicator.pack(side=tk.RIGHT, pady=1)
             frame.indicator = indicator  # Store reference to the indicator for future updates
 
+    # logging the history of updates
     def update_interlock(self, name, status):
         if name in self.parent.children:
             frame = self.parent.children[name]
@@ -88,7 +92,9 @@ class InterlocksSubsystem:
 
     def reset_frame_highlights(self):
         for frame in self.frame.values:
+            print(self.frame.values)
             frame.config(bg=self.parent.cget('bg'))
+
 
 
     def highlight_frame(self, label):
