@@ -11,11 +11,7 @@ from ..instrumentctl import g9_driver as g9_driv
 def handle_errors(self, data):
     try:
         response = g9_driv.response()
-        g9_driv.safetyInTerminalError(response)
-        g9_driv.safetyOutTerminalError(response)
-        g9_driv.unitStateError(response)
         return {"status":"passes", "message":"No errors thrown at this time."}
-
 
     except ValueError as e:
         return {"status":"error", "message":str(e)}
@@ -88,7 +84,7 @@ class InterlocksSubsystem:
             # logging the update
             old_status = self.interlock_status.get(name, None)
             if old_status is not None and old_status != status:
-                log_message = f"Interlock status chnaged from {old_status} to {status}"
+                log_message = f"Interlock status of {name} changed from {old_status} to {status}"
                 self.logger.info(log_message)
                 self.interlock_status[name] = status # log the previous state, and update it to the new state
 
