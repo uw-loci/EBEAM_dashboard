@@ -69,14 +69,14 @@ class G9Driver:
         checksum_data = query + optional_data
         checksum = self.calculate_checksum(checksum_data, 0, len(checksum_data) - 1) #called calculate_cheksum with correct parameters
         footer = b'\x2A\x0D' # marks the end of the command 
-        self.ser(query + optional_data + reserved_data + checksum + footer)
+        self.ser.write(query + optional_data + reserved_data + checksum + footer)
 
         self.response()
 
     # used mainly for the check sum but can also be used to check for error flags
     # needs an input of a byte string and the range of bytes that need to be sum
     # will return the sum of the bytes in the a byte string in the form of b'\x12'
-    def calculate_checksum(byteString, startByte, endByte):
+    def calculate_checksum(self, byteString, startByte, endByte):
         assert isinstance(byteString, bytes)
         checksum_value = sum(byteString[startByte:endByte + 1])
         return checksum_value.to_bytes(2, "big") # can return a value in the range of 0 to 2^16 - 1
@@ -84,7 +84,7 @@ class G9Driver:
 
     # helper function to convert bytes to bits for checking flags
     # not currently being used but many be helpful in the future for getting errors
-    def bytesToBinary(byte_string):
+    def bytesToBinary(self, byte_string):
         return ''.join(format(byte, '08b') for byte in byte_string)
     
     # this method is made to check the error flags, right not only checks the last 13 bits
@@ -306,6 +306,9 @@ class G9Driver:
             return True
         except serial.SerialException:
             return False
+
+
+        
         
 
     #TODO: Figure out how to handle all the errors (end task)

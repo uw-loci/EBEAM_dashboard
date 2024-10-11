@@ -1,6 +1,28 @@
 # interlocks.py
 import tkinter as tk
 import os, sys
+import instrumentctl.g9_driver as g9_driv
+# from logging import LogLevel
+
+
+
+    
+def handle_errors(self, data):
+
+    response = g9_driv.response()
+    try:
+        g9_driv.safetyInTerminalError(response)
+        g9_driv.safetyOutTerminalError(response)
+        g9_driv.unitStateError(response)
+
+
+    except ValueError as e:
+        return {"status":"error", "message":str(e)}
+    
+    return {"status":"passes", "message":"No errors thrown at this time."}
+        
+    
+
 
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
