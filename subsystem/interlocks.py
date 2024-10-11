@@ -65,6 +65,10 @@ class InterlocksSubsystem:
             lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
             lbl.pack(side=tk.LEFT)
             status = self.interlock_status[label]
+            if not status:
+                self.highlight_frame(label)
+            else:
+                self.reset_frame_highlights()
             indicator = tk.Label(frame, image=self.indicators['active'] if status else self.indicators['inactive'])
             indicator.pack(side=tk.RIGHT, pady=1)
             frame.indicator = indicator  # Store reference to the indicator for future updates
@@ -80,3 +84,14 @@ class InterlocksSubsystem:
     def update_pressure_dependent_locks(self, pressure):
         # Disable the Vacuum lock if pressure is below 2 mbar
         self.update_interlock("Vacuum", pressure >= 2)
+
+
+    def reset_frame_highlights(self):
+        for frame in self.frame.values:
+            frame.config(bg=self.parent.cget('bg'))
+
+
+    def highlight_frame(self, label):
+        if label in self.frames:
+            self.frames[label].config(bg="red")
+
