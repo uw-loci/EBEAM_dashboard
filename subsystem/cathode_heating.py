@@ -782,20 +782,32 @@ class CathodeHeatingSubsystem:
                 self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received.", LogLevel.ERROR)
                 return
         
-        # If we've made it here, either we're turning off, or the user has confirmed they want to proceed
+            # zero out voltage before enabling output
+            self.power_supplies[index].set_voltage(3, 0.0)
+
+            # enable output 
+            self.power_supplies[index].set_output("1")
+
+            # Start ramping voltage to target voltage
+            target_voltage = self.user_set_voltages[index]
+            if target_voltage is not None:
+                self.power_supplies[index].ramp_voltage(
+                    target_voltage,
+                    step_size=0.02,
+                    step_delay=2.0,
+                    preset=3
+                )
+            else:
+                self.log(f"No target voltage set for cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+                return
+        else:
+            # turning off the output
+            self.power_supplies[index].set_output("0")
+
+        # Update the toggle state and button image
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
-        self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
-        
-        if self.toggle_states[index]:
-            response = self.power_supplies[index].set_output("1") # ON
-        else:
-            response = self.power_supplies[index].set_output("0") # OFF
-        
-        if response == "OK":
-            self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.INFO)
-        else:
-            self.log(f"Unexpected response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
+        self.toggle_buttons[index].config(image=current_image)
     
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
