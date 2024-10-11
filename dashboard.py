@@ -122,11 +122,12 @@ class EBEAMSystemDashboard:
                 logger=self.logger
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
-                self.frames['Interlocks'], 
+                self.frames['Interlocks'],
+                com_ports = self.com_ports,
                 logger=self.logger
             ),
             'Oil System': subsystem.OilSubsystem(
-                self.frames['Oil System'], 
+                self.frames['Oil System'],
                 logger=self.logger
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
