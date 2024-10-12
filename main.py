@@ -4,12 +4,13 @@ import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
 from utils import LogLevel
 import sys
+from usr.com_port_config import save_com_ports, load_com_ports
 
 def start_main_app(root, com_ports):
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
-def config_com_ports(root):
+def config_com_ports(root, saved_com_ports):
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
             import pyi_splash
@@ -19,20 +20,27 @@ def config_com_ports(root):
 
     config_root = tk.Toplevel(root)
     config_root.title("Configure COM Ports")
-    config_root.geometry('600x400')
+    # config_root.geometry('600x400')
     
     com_ports = serial.tools.list_ports.comports()
     available_ports = [port.device for port in com_ports]
-    
-    # Store COM port selections
+
     selections = {}
+
+    main_frame = ttk.Frame(config_root, padding="20 20 20 20")
+    main_frame.pack(side=tk.TOP, fill=tk.X)
 
     # Create a dropdown for each subsystem
     subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']
     for subsystem in subsystems:
-        tk.Label(config_root, text=f"{subsystem} COM Port:").pack()
-        selected_port = tk.StringVar()
-        ttk.Combobox(config_root, values=available_ports, textvariable=selected_port).pack()
+        frame = ttk.Frame(main_frame)
+        frame.pack(pady=5, anchor='center')
+        label = tk.Label(frame, text=f"{subsystem} COM Port:", width=25, anchor='e')
+        label.pack(side=tk.LEFT, padx=(0, 10))
+
+        selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
+        combobox = ttk.Combobox(frame, values=available_ports, textvariable=selected_port, state='readonly', width=15)
+        combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
 
     def on_submit():
@@ -43,13 +51,17 @@ def config_com_ports(root):
             messagebox.showerror("Error", "Please select all COM ports.")
             return
         
+        save_com_ports(selected_ports)
+        
         # show the root window
         root.deiconify()
         config_root.destroy()
+        
+        # Start the main application
         start_main_app(root, selected_ports)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
-    submit_button.pack()
+    submit_button.pack(pady=20)
     
     config_root.grab_set()
     root.wait_window(config_root)
@@ -57,4 +69,11 @@ def config_com_ports(root):
 if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw() # hide root window while configuring
-    config_com_ports(root)
+    
+    saved_com_ports = load_com_ports()
+
+    # Prompt the user to confirm or change COM ports
+    config_com_ports(root, saved_com_ports)
+
+    # After configuration, start the main application
+    start_main_app(root, saved_com_ports)
