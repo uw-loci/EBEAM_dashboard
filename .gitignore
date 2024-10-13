@@ -2,8 +2,4 @@ __pycache__/
 usr/
 venv/
 build/
-<<<<<<< HEAD
 dist/
-=======
-dist/
->>>>>>> feature/interlocks_frontend

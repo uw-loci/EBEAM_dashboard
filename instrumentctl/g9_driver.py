@@ -32,7 +32,6 @@ usStatus = {
 }
 
 class G9Driver:
-    #TODO: Return to this and check if these parms are good by default
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         if port:
             self.ser = serial.Serial(port, baudrate, parity=serial.PARITY_EVEN, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS, timeout=timeout)
@@ -41,14 +40,10 @@ class G9Driver:
         self.lastResponse = None
         self.msgOptData = None
 
-
-    #TODO: send query for data
-    #TODO: decided if we want to store command args in here (like with a dict) or if we should do it in the callee file
     def send_command(self):
-        # TODO: frontend topic : decided how we want to display the exception
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
-        header = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
+        header = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
         data = b'\x00\x00\x00\x00\x00\x00'
         self.msgOptData = data
         checksum = self.calculate_checksum(header + data, 0 , len(header + data))
@@ -82,7 +77,6 @@ class G9Driver:
         else:
             return False
 
-    #TODO: how do we want to handle the data 
     def response(self):
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
@@ -100,19 +94,26 @@ class G9Driver:
             if OCTD != self.msgOptData:
                 raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
 
-
+            # Terminal Data Flags
             SITDF = data[11:17]
             if not self.check_flags13(SITDF):
-                #TODO: add a function to check which input
-                raise ValueError("An input is either off or throwing an error")
-
-
+                err = []
+                gates = self.bytes_to_binary(SITDF)
+                for i in range(18):
+                    if gates[-i + 1] == "0":
+                        err.append(i)
+                raise ValueError("An input is either off or throwing an error: {err}")
+            
             SOTDF = data[17:21]
             if not self.check_flags13(SOTDF):
-                #TODO: add a function to check which output
-                raise ValueError("An output is either off or throwing an error")
+                err = []
+                gates = self.bytes_to_binary(SITDF)
+                for i in range(14):
+                    if gates[-i + 1] == "0":
+                        err.append(i)
+                raise ValueError("There is output(s) off: {err}")
 
-
+            # Terminal Status Flags
             SITSF = data[21:27]
             if not self.check_flags13(SITSF):
                 if self.safety_in_terminal_error(data[31:55]):
@@ -123,6 +124,7 @@ class G9Driver:
                 if self.safety_out_terminal_error(data[55:71]):
                     raise ValueError("Error was detected in outputs but was not found")
                 
+            # Unit status
             US = data[73:75]
             print("US: ", US)
             if US != 0:
@@ -169,92 +171,6 @@ class G9Driver:
                 raise ValueError(f"Error at byte {i}L, LSB: {inStatus[lsb]} (code {lsb})")
         return True
         
-    """
-    0: No error
-    1: Invalid configuration
-    2: Overcurrent detection
-    3: Short circuit detection
-    4: Stuck-at-high detection
-    5: Failure of the associated dual-channel output
-    6: Internal circuit error
-    8: Dual channel violation
-    """
-
-    # checks all the SOTSFs, throws error is one is found 
-    def safety_out_terminal_error(self, data, inputs = 13):
-        if len(data) != 16:
-            raise ValueError(f"Expected 16 bytes, but received {len(data)}.")
-
-        # only keep needs bytes
-        last_bytes = data[-inputs:]
-        # flip direction so enumerate can if us the byte number in the error
-        last_bytes = last_bytes[::-1]
-
-        for i, byte in enumerate(last_bytes):
-            msb = byte >> 4  # most sig bits
-            lsb = byte & 0x0F  # least sig bits
-
-            # check high bits for errors
-            if msb in outStatus and msb != 0:
-                raise ValueError(f"Error at byte {i}H, MSB: {outStatus[msb]} (code {msb})")
-            # check low bits for errors
-            if lsb in outStatus and lsb != 0:
-                raise ValueError(f"Error at byte {i}L, LSB: {outStatus[lsb]} (code {lsb})")
-        return True
-    
-    """
-    bit position: error
-    0: Normal Operation Error Flag
-    9: Output Power Supply Error Flag
-    10: Safety I/O Terminal Error Flag
-    13: Function Block Error Flag
-    """
-    
-    # rn am hoping that only one of the error flags can be set at a time
-    def unit_state_error(self, data):
-        if len(data) != 2:
-            raise ValueError(f"Expected 2 bytes, but received {len(data)}.")
-        
-        bits = self.bytes_to_binary(data)
-
-        if bits[-1] == "0":
-            raise ValueError(f"Unit State Error: Normal Operation Error Flag (bit 0)")
-        
-        for k in usStatus.keys():
-            if bits[-(k + 1)] == "1":
-                raise ValueError(f"Unit State Error: {usStatus[k]} (bit {k})")
-
-    """
-    0: No error
-    1: Invalid configuration
-    2: External test signal failure
-    3: Internal circuit error
-    4: Discrepancy error
-    5: Failure of the associated dual-channel input
-    """
-
-    # checks all the SITSFs, throws error is one is found
-    def safety_in_terminal_error(self, data):
-        if len(data) != 24:
-            raise ValueError(f"Expected 24 bytes, but received {len(data)}.")
-
-        last_bytes = data[-13:]
-        last_bytes = last_bytes[::-1]
-
-        for i, byte in enumerate(last_bytes):
-            msb = byte >> 4  # most sig bits
-            lsb = byte & 0x0F  # least sig bits
-
-            # check high bits for errors
-            if msb in inStatus and msb != 0:
-                raise ValueError(f"Error at byte {i}H, MSB: {inStatus[msb]} (code {msb})")
-            # check low bits for errors
-            if lsb in inStatus and lsb != 0:
-                raise ValueError(f"Error at byte {i}L, LSB: {inStatus[lsb]} (code {lsb})")
-        return True
-        
-
-
     """
     0: No error
     1: Invalid configuration
