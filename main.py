@@ -32,7 +32,7 @@ def config_com_ports():
     selections = {}
 
     # Create a dropdown for each subsystem
-    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']
+    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']
     for subsystem in subsystems:
         tk.Label(config_root, text=f"{subsystem} COM Port:").pack()
         selected_port = tk.StringVar()
