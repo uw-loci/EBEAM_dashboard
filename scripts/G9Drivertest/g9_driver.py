@@ -32,7 +32,6 @@ usStatus = {
 }
 
 class G9Driver:
-    #TODO: Return to this and check if these parms are good by default
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         if port:
             self.ser = serial.Serial(port, baudrate, parity=serial.PARITY_EVEN, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS, timeout=timeout)
@@ -41,14 +40,10 @@ class G9Driver:
         self.lastResponse = None
         self.msgOptData = None
 
-
-    #TODO: send query for data
-    #TODO: decided if we want to store command args in here (like with a dict) or if we should do it in the callee file
     def send_command(self):
-        # TODO: frontend topic : decided how we want to display the exception
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
-        header = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' # could also use bytes.fromhex() method in future for simplicity
+        header = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
         data = b'\x00\x00\x00\x00\x00\x00'
         self.msgOptData = data
         checksum = self.calculate_checksum(header + data, 0 , len(header + data))
@@ -82,7 +77,6 @@ class G9Driver:
         else:
             return False
 
-    #TODO: how do we want to handle the data 
     def response(self):
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
@@ -92,27 +86,32 @@ class G9Driver:
         if len(data) == 199:
             alwaysHeader = data[0:3]
             alwaysFooter = data[-2:]
-            print(alwaysFooter, alwaysHeader)
             if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
                 raise ValueError("Always bits are incorrect")
             OCTD = data[7:11]
-            print("OCTD: ", OCTD)
             if OCTD != self.msgOptData:
                 raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
 
-
+            # Terminal Data Flags
             SITDF = data[11:17]
             if not self.check_flags13(SITDF):
-                #TODO: add a function to check which input
-                raise ValueError("An input is either off or throwing an error")
-
-
+                err = []
+                gates = self.bytes_to_binary(SITDF)
+                for i in range(18):
+                    if gates[-i + 1] == "0":
+                        err.append(i)
+                raise ValueError("An input is either off or throwing an error: {err}")
+            
             SOTDF = data[17:21]
             if not self.check_flags13(SOTDF):
-                #TODO: add a function to check which output
-                raise ValueError("An output is either off or throwing an error")
+                err = []
+                gates = self.bytes_to_binary(SITDF)
+                for i in range(14):
+                    if gates[-i + 1] == "0":
+                        err.append(i)
+                raise ValueError("There is output(s) off: {err}")
 
-
+            # Terminal Status Flags
             SITSF = data[21:27]
             if not self.check_flags13(SITSF):
                 if self.safety_in_terminal_error(data[31:55]):
@@ -123,8 +122,8 @@ class G9Driver:
                 if self.safety_out_terminal_error(data[55:71]):
                     raise ValueError("Error was detected in outputs but was not found")
                 
+            # Unit status
             US = data[73:75]
-            print("US: ", US)
             if US != 0:
                 if self.unit_state_error(US):
                     raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
@@ -224,6 +223,7 @@ class G9Driver:
             if bits[-(k + 1)] == "1":
                 raise ValueError(f"Unit State Error: {usStatus[k]} (bit {k})")
 
+
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
     def checkStatus():
@@ -251,4 +251,4 @@ class G9Driver:
         
 
     #TODO: Figure out how to handle all the errors (end task)
-    #TODO: add a function to keep track of the driver uptime
+    #TODO: add a function to keep track of the driver uptime\
