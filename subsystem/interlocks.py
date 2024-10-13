@@ -1,13 +1,11 @@
 # interlocks.py
 import tkinter as tk
 import os, sys
-from ..instrumentctl import g9_driver as g9_driv
+# from ..instrumentctl import g9_driver as g9_driv
 import instrumentctl.g9_driver as g9_driv
-from logging import LogLevel
+from utils import LogLevel
 
 
-
-    
 def handle_errors(self, data):
     try:
         response = g9_driv.response()
