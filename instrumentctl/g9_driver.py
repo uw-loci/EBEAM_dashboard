@@ -86,11 +86,9 @@ class G9Driver:
         if len(data) == 199:
             alwaysHeader = data[0:3]
             alwaysFooter = data[-2:]
-            print(alwaysFooter, alwaysHeader)
             if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
                 raise ValueError("Always bits are incorrect")
             OCTD = data[7:11]
-            print("OCTD: ", OCTD)
             if OCTD != self.msgOptData:
                 raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
 
@@ -126,7 +124,6 @@ class G9Driver:
                 
             # Unit status
             US = data[73:75]
-            print("US: ", US)
             if US != 0:
                 if self.unit_state_error(US):
                     raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
