@@ -2,8 +2,8 @@
 import tkinter as tk
 import os, sys
 from ..instrumentctl import g9_driver as g9_driv
-# import instrumentctl.g9_driver as g9_driv
-# from logging import LogLevel
+import instrumentctl.g9_driver as g9_driv
+from logging import LogLevel
 
 
 
