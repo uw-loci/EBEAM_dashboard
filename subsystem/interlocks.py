@@ -1,9 +1,9 @@
 # interlocks.py
 import tkinter as tk
 import os, sys
-# from ..instrumentctl import g9_driver as g9_driv
 import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
+import time
 
 
 def handle_errors(self, data):
@@ -14,11 +14,6 @@ def handle_errors(self, data):
     except ValueError as e:
         return {"status":"error", "message":str(e)}
     
-    
-        
-    
-
-
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
     try:
@@ -32,14 +27,15 @@ def resource_path(relative_path):
 
 
 class InterlocksSubsystem:
-    def __init__(self, parent, com_ports, logger=None):
+    def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
         self.logger = logger
         self.com_ports = com_ports
+        self.frames = frames
         self.interlock_status = {
-            "Vacuum": True, "Water": False, "Door&Lock": False, "Timer": True,
-            "Oil High": False, "Oil Low": False, "E-stop Ext": True,
-            "E-stop Int": True, "G9SP Active": True
+            "Vacuum": 1 , "Water": 0, "Door": 0, "Timer": 1,
+            "Oil High": 0, "Oil Low": 0, "E-stop Ext": 1,
+            "E-stop Int": 1, "G9SP Active": 1 
         }
         self.setup_gui()
 
@@ -52,8 +48,8 @@ class InterlocksSubsystem:
             "Oil Low", "E-stop Ext", "E-stop Int", "G9SP Active"
         ]
         self.indicators = {
-            'active': tk.PhotoImage(file=resource_path("media/off_orange.png")),
-            'inactive': tk.PhotoImage(file=resource_path("media/on.png"))
+            'active': tk.PhotoImage(file=resource_path("media/on.png")),
+            'inactive': tk.PhotoImage(file=resource_path("media/redOff.png"))
         }
 
         for label in interlock_labels:
@@ -63,11 +59,12 @@ class InterlocksSubsystem:
             lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
             lbl.pack(side=tk.LEFT)
             status = self.interlock_status[label]
-            if not status:
-                self.highlight_frame(label)
-            else:
-                self.reset_frame_highlights()
-            indicator = tk.Label(frame, image=self.indicators['active'] if status else self.indicators['inactive'])
+            # if status == 0:
+            #     self.highlight_frame('Vacuum System', flashes=5, interval=500)
+            # else:
+            #     self.reset_frame_highlights()
+
+            indicator = tk.Label(frame, image=self.indicators['active'] if status == 1 else self.indicators['inactive'])
             indicator.pack(side=tk.RIGHT, pady=1)
             frame.indicator = indicator  # Store reference to the indicator for future updates
 
@@ -92,14 +89,24 @@ class InterlocksSubsystem:
         self.update_interlock("Vacuum", pressure >= 2)
 
 
-    def reset_frame_highlights(self):
-        for frame in self.frame.values:
-            print(self.frame.values)
-            frame.config(bg=self.parent.cget('bg'))
+    # def reset_frame_highlights(self):
+    #     for frame in self.frame.values:
+    #         print(self.frame.values)
+    #         frame.config(bg=self.parent.cget('bg'))
 
 
-
-    def highlight_frame(self, label):
+    # this method right now only sets the frame boarder to be red TODO: make it flash
+    def highlight_frame(self, label, flashes=5, interval=500):
+        """Make the frame's border flash red for a given number of flashes."""
         if label in self.frames:
-            self.frames[label].config(bg="red")
+            frame = self.frames[label]
+            reg = frame.cget('highlightbackground')
+            new_color = 'red'
+
+
+            frame.config(highlightbackground=new_color, highlightthickness=5, relief='solid')
+
+
+
+
 

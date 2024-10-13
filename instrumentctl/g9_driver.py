@@ -224,6 +224,93 @@ class G9Driver:
             if bits[-(k + 1)] == "1":
                 raise ValueError(f"Unit State Error: {usStatus[k]} (bit {k})")
 
+    """
+    0: No error
+    1: Invalid configuration
+    2: External test signal failure
+    3: Internal circuit error
+    4: Discrepancy error
+    5: Failure of the associated dual-channel input
+    """
+
+    # checks all the SITSFs, throws error is one is found
+    def safety_in_terminal_error(self, data):
+        if len(data) != 24:
+            raise ValueError(f"Expected 24 bytes, but received {len(data)}.")
+
+        last_bytes = data[-13:]
+        last_bytes = last_bytes[::-1]
+
+        for i, byte in enumerate(last_bytes):
+            msb = byte >> 4  # most sig bits
+            lsb = byte & 0x0F  # least sig bits
+
+            # check high bits for errors
+            if msb in inStatus and msb != 0:
+                raise ValueError(f"Error at byte {i}H, MSB: {inStatus[msb]} (code {msb})")
+            # check low bits for errors
+            if lsb in inStatus and lsb != 0:
+                raise ValueError(f"Error at byte {i}L, LSB: {inStatus[lsb]} (code {lsb})")
+        return True
+        
+
+
+    """
+    0: No error
+    1: Invalid configuration
+    2: Overcurrent detection
+    3: Short circuit detection
+    4: Stuck-at-high detection
+    5: Failure of the associated dual-channel output
+    6: Internal circuit error
+    8: Dual channel violation
+    """
+
+    # checks all the SOTSFs, throws error is one is found 
+    def safety_out_terminal_error(self, data, inputs = 13):
+        if len(data) != 16:
+            raise ValueError(f"Expected 16 bytes, but received {len(data)}.")
+
+        # only keep needs bytes
+        last_bytes = data[-inputs:]
+        # flip direction so enumerate can if us the byte number in the error
+        last_bytes = last_bytes[::-1]
+
+        for i, byte in enumerate(last_bytes):
+            msb = byte >> 4  # most sig bits
+            lsb = byte & 0x0F  # least sig bits
+
+            # check high bits for errors
+            if msb in outStatus and msb != 0:
+                raise ValueError(f"Error at byte {i}H, MSB: {outStatus[msb]} (code {msb})")
+            # check low bits for errors
+            if lsb in outStatus and lsb != 0:
+                raise ValueError(f"Error at byte {i}L, LSB: {outStatus[lsb]} (code {lsb})")
+        return True
+    
+    """
+    bit position: error
+    0: Normal Operation Error Flag
+    9: Output Power Supply Error Flag
+    10: Safety I/O Terminal Error Flag
+    13: Function Block Error Flag
+    """
+    
+    # rn am hoping that only one of the error flags can be set at a time
+    def unit_state_error(self, data):
+        if len(data) != 2:
+            raise ValueError(f"Expected 2 bytes, but received {len(data)}.")
+        
+        bits = self.bytes_to_binary(data)
+
+        if bits[-1] == "0":
+            raise ValueError(f"Unit State Error: Normal Operation Error Flag (bit 0)")
+        
+        for k in usStatus.keys():
+            if bits[-(k + 1)] == "1":
+                raise ValueError(f"Unit State Error: {usStatus[k]} (bit {k})")
+
+
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
     def checkStatus():
@@ -251,4 +338,4 @@ class G9Driver:
         
 
     #TODO: Figure out how to handle all the errors (end task)
-    #TODO: add a function to keep track of the driver uptime
+    #TODO: add a function to keep track of the driver uptime\
