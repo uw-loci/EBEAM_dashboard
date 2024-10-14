@@ -116,10 +116,6 @@ class G9Driver:
                     if self.safety_in_terminal_error(data[31:55][-10:]):
                         raise ValueError("Error was detected in inputs but was not found")
                     
-                SOTSF = data[27:31]
-                if not self.check_flags13(SOTSF):
-                    if self.safety_out_terminal_error(data[55:71][-10:]):
-                        raise ValueError("Error was detected in outputs but was not found")
                     
                 SOTDF = data[17:21]
                 if not self.check_flags13(SOTDF):
@@ -129,6 +125,13 @@ class G9Driver:
                         if gates[-i + 1] == "0":
                             err.append(i)
                     raise ValueError(f"There is output(s) off: {err}")
+                
+                    
+                SOTSF = data[27:31]
+                if not self.check_flags13(SOTSF):
+                    if self.safety_out_terminal_error(data[55:71][-10:]):
+                        raise ValueError("Error was detected in outputs but was not found")
+                    
                     
                 OCTD = data[7:11]
                 if OCTD != self.msgOptData:
