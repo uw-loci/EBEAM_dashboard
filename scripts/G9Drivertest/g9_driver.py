@@ -39,6 +39,7 @@ class G9Driver:
         self.logger = logger
         self.lastResponse = None
         self.msgOptData = None
+        self.input_flags = None
 
     def send_command(self):
         if not self.is_connected():
@@ -95,16 +96,15 @@ class G9Driver:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
 
                 # Terminal Data Flags
-                #TODO: this might be throwing an error that it shouldnt
-                # I think that it might have to do with the reserve area of the SITDF There is a \x08 byte ...
                 SITDF = data[11:17]
                 if not self.check_flags13(SITDF):
                     err = []
                     print(SITDF)
                     gates = self.bytes_to_binary(SITDF[-3:])
-                    for i in range(18):
+                    for i in range(20):
                         if gates[-i + 1] == "0":
                             err.append(i)
+                    self.input_flags = gates
                     raise ValueError(f"An input is either off or throwing an error: {err}")
                 
                 SOTDF = data[17:21]

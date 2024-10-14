@@ -78,7 +78,7 @@ class InterlocksSubsystem:
         if name in self.parent.children:
             frame = self.parent.children[name]
             indicator = frame.indicator
-            new_image = self.indicators['active'] if status else self.indicators['inactive']
+            new_image = self.indicators['active'] if status == 1 else self.indicators['inactive']
             indicator.config(image=new_image)
             indicator.image = new_image  # Keep a reference
 
@@ -90,18 +90,33 @@ class InterlocksSubsystem:
                 self.interlock_status[name] = status # log the previous state, and update it to the new state
 
 
+    inputs = {
+        0 : "Chassis Estop 2B",
+        1 : "Chassis Estop 2A",
+        2 : "Peripheral Estop 2B",
+        3 : "Peripheral Estop 2A",
+        4 : "Door",
+        5 : "Door Lock",
+        6 : "VTRX Power Relay",
+        7 : "VTRX Pressure Relay",
+        8 : "High Oil Pressure",
+        9 : "Low Oil Pressure",
+        10 : "Water Sensor",
+        11 : "H Volt ON Relay",
+        12 : "Reset Button"
+    }
 
     def update_data(self):
-        # TODO: need to handle the errors that are thrown, this is making me think we need to redo how the errors are thrown in the driver
-        # because only the first one will be thrown, either reorder on the most important or not all those show be throwing errors
         try:
             self.driver.send_command()
         except:
             pass
 
-        msg = self.driver.lastResponse
-        # TODO: parse the msg and update the interlocks
-        # update each interlock by calling the update_interlock method
+        # Updates all the the interlocks at each iteration
+        # this could be more optimal if we only update the ones that change
+        input_err = self.driver.input_flags
+        for i in range(20):
+            self.update_interlock(map[0], input_err[-i + 1] =="1")
 
         # Schedule next update
         self.parent.after(500, self.update_interlock)
