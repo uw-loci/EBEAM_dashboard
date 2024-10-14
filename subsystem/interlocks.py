@@ -4,7 +4,6 @@ import os, sys
 import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
-import random
 
 def handle_errors(self, data):
     try:
@@ -24,20 +23,24 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
-
-
 class InterlocksSubsystem:
     def __init__(self, parent, com_ports, logger=None, frames=None):
+        if com_ports:
+            self.driver = g9_driv.G9Driver(com_ports)
         self.parent = parent
         self.logger = logger
         self.com_ports = com_ports
         self.frames = frames
         self.interlock_status = {
-            "Vacuum":  random.randint(0, 1), "Water": 0, "Door": 0, "Timer": 1,
+            "Vacuum":  1, "Water": 0, "Door": 0, "Timer": 1,
             "Oil High": 0, "Oil Low": 0, "E-stop Ext": 1,
             "E-stop Int": 1, "G9SP Active": 1 
         }
         self.setup_gui()
+
+    def update_com_port(self, com_port):
+        if com_port:
+            self.driver = g9_driv.G9Driver(com_port)
 
     def setup_gui(self):
         self.interlocks_frame = tk.Frame(self.parent)
@@ -59,6 +62,8 @@ class InterlocksSubsystem:
             lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
             lbl.pack(side=tk.LEFT)
             status = self.interlock_status[label]
+            # TODO: this currently does not work make because of frame keys not matching the interlock_status keys
+            # also flashing method only turns red, make flash
             # if status == 0:
             #     self.highlight_frame('Vacuum System', flashes=5, interval=500)
             # else:
@@ -84,11 +89,30 @@ class InterlocksSubsystem:
                 self.logger.info(log_message)
                 self.interlock_status[name] = status # log the previous state, and update it to the new state
 
+
+
+    def update_data(self):
+        # TODO: need to handle the errors that are thrown, this is making me think we need to redo how the errors are thrown in the driver
+        # because only the first one will be thrown, either reorder on the most important or not all those show be throwing errors
+        try:
+            self.driver.send_command()
+        except:
+            pass
+
+        msg = self.driver.lastResponse
+        # TODO: parse the msg and update the interlocks
+        # update each interlock by calling the update_interlock method
+
+        # Schedule next update
+        self.parent.after(500, self.update_interlock)
+
+
     def update_pressure_dependent_locks(self, pressure):
         # Disable the Vacuum lock if pressure is below 2 mbar
         self.update_interlock("Vacuum", pressure >= 2)
 
 
+    # first trying to get the highlight method to work first
     # def reset_frame_highlights(self):
     #     for frame in self.frame.values:
     #         print(self.frame.values)
