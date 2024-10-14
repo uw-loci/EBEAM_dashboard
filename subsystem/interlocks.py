@@ -26,7 +26,7 @@ def resource_path(relative_path):
 class InterlocksSubsystem:
     def __init__(self, parent, com_ports, logger=None, frames=None):
         if com_ports:
-            self.driver = g9_driv.G9Driver(com_ports)
+            self.driver = g9_driv.G9Driver(None)
         self.parent = parent
         self.logger = logger
         self.com_ports = com_ports
@@ -64,8 +64,8 @@ class InterlocksSubsystem:
             status = self.interlock_status[label]
             # TODO: this currently does not work make because of frame keys not matching the interlock_status keys
             # also flashing method only turns red, make flash
-            # if status == 0:
-            #     self.highlight_frame('Vacuum System', flashes=5, interval=500)
+            if status == 0:
+                self.highlight_frame('Vacuum System', flashes=5, interval=500)
             # else:
             #     self.reset_frame_highlights()
 
@@ -120,7 +120,7 @@ class InterlocksSubsystem:
             self.update_interlock(map[0], input_err[-i + 1] =="1")
 
         # Schedule next update
-        self.parent.after(500, self.update_interlock)
+        self.parent.after(500, self.update_data)
 
 
     def update_pressure_dependent_locks(self, pressure):
