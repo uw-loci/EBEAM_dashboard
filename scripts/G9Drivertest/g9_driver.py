@@ -49,7 +49,7 @@ class G9Driver:
         checksum = self.calculate_checksum(header + data, 0 , len(header + data))
         cs = b'\x00' + checksum if len(checksum) == 1 else checksum
         footer = b'\x2A\x0D' 
-        self.ser(header + data + cs + footer)
+        self.ser.write(header + data + cs + footer)
 
         self.response()
 

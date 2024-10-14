@@ -4,7 +4,7 @@ import os, sys
 import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
-
+import random
 
 def handle_errors(self, data):
     try:
@@ -33,7 +33,7 @@ class InterlocksSubsystem:
         self.com_ports = com_ports
         self.frames = frames
         self.interlock_status = {
-            "Vacuum": 1 , "Water": 0, "Door": 0, "Timer": 1,
+            "Vacuum":  random.randint(0, 1), "Water": 0, "Door": 0, "Timer": 1,
             "Oil High": 0, "Oil Low": 0, "E-stop Ext": 1,
             "E-stop Int": 1, "G9SP Active": 1 
         }
@@ -97,12 +97,10 @@ class InterlocksSubsystem:
 
     # this method right now only sets the frame boarder to be red TODO: make it flash
     def highlight_frame(self, label, flashes=5, interval=500):
-        """Make the frame's border flash red for a given number of flashes."""
         if label in self.frames:
             frame = self.frames[label]
             reg = frame.cget('highlightbackground')
             new_color = 'red'
-
 
             frame.config(highlightbackground=new_color, highlightthickness=5, relief='solid')
 

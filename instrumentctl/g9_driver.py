@@ -105,7 +105,7 @@ class G9Driver:
             SOTDF = data[17:21]
             if not self.check_flags13(SOTDF):
                 err = []
-                gates = self.bytes_to_binary(SITDF)
+                gates = self.bytes_to_binary(SOTDF)
                 for i in range(14):
                     if gates[-i + 1] == "0":
                         err.append(i)
@@ -124,7 +124,7 @@ class G9Driver:
                 
             # Unit status
             US = data[73:75]
-            if US != 0:
+            if US != b'\x00\x01':
                 if self.unit_state_error(US):
                     raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
                 
