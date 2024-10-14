@@ -109,15 +109,6 @@ class G9Driver:
                             err.append(i)
                     self.input_flags = gates
                     raise ValueError(f"An input is either off or throwing an error: {err}")
-                
-                SOTDF = data[17:21]
-                if not self.check_flags13(SOTDF):
-                    err = []
-                    gates = self.bytes_to_binary(SOTDF[-2:])
-                    for i in range(14):
-                        if gates[-i + 1] == "0":
-                            err.append(i)
-                    raise ValueError(f"There is output(s) off: {err}")
 
                 # Terminal Status Flags
                 SITSF = data[21:27]
@@ -129,6 +120,15 @@ class G9Driver:
                 if not self.check_flags13(SOTSF):
                     if self.safety_out_terminal_error(data[55:71][-10:]):
                         raise ValueError("Error was detected in outputs but was not found")
+                    
+                SOTDF = data[17:21]
+                if not self.check_flags13(SOTDF):
+                    err = []
+                    gates = self.bytes_to_binary(SOTDF[-2:])
+                    for i in range(14):
+                        if gates[-i + 1] == "0":
+                            err.append(i)
+                    raise ValueError(f"There is output(s) off: {err}")
                     
                 OCTD = data[7:11]
                 if OCTD != self.msgOptData:
