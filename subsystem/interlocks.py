@@ -32,9 +32,9 @@ class InterlocksSubsystem:
         self.com_ports = com_ports
         self.frames = frames
         self.interlock_status = {
-            "Vacuum":  1, "Water": 0, "Door": 0, "Timer": 1,
-            "Oil High": 0, "Oil Low": 0, "E-stop Ext": 1,
-            "E-stop Int": 1, "G9SP Active": 1 
+            "Door":  1, "Water": 0, "Vacuum Power": 0, "Vacuum Pressure": 1,
+            "Oil High": 0, "Oil Low": 0, "Chassis Estop": 1,
+            "Chassis Estop": 1, "All Interlocks" : 0, "G9SP Active": 1, "HVOLT ON" : 0 
         }
         self.setup_gui()
 
@@ -47,8 +47,8 @@ class InterlocksSubsystem:
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
 
         interlock_labels = [
-            "Vacuum", "Water", "Door", "Timer", "Oil High",
-            "Oil Low", "E-stop Ext", "E-stop Int", "G9SP Active"
+            "Door", "Water", "Vacuum Power", "Vacuum Pressure", "Oil High",
+            "Oil Low", "Chassis Estop", "Chassis Estop", "G9SP Active", "HVOLT ON"
         ]
         self.indicators = {
             'active': tk.PhotoImage(file=resource_path("media/on.png")),
@@ -90,20 +90,21 @@ class InterlocksSubsystem:
                 self.interlock_status[name] = status # log the previous state, and update it to the new state
 
 
+    # the bit poistion for each interlock
     inputs = {
-        0 : "Chassis Estop 2B",
-        1 : "Chassis Estop 2A",
-        2 : "Peripheral Estop 2B",
-        3 : "Peripheral Estop 2A",
+        0 : "Chassis Estop",
+        1 : "Chassis Estop",
+        2 : "Peripheral Estop",
+        3 : "Peripheral Estop",
         4 : "Door",
         5 : "Door Lock",
-        6 : "VTRX Power Relay",
-        7 : "VTRX Pressure Relay",
-        8 : "High Oil Pressure",
-        9 : "Low Oil Pressure",
-        10 : "Water Sensor",
-        11 : "H Volt ON Relay",
-        12 : "Reset Button"
+        6 : "Vacuum Power",
+        7 : "Vacuum Pressure",
+        8 : "Oil High",
+        9 : "Oil Low",
+        10 : "Water",
+        11 : "HVolt ON",
+        12 : "G9SP Active"
     }
 
     def update_data(self):
