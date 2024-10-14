@@ -82,67 +82,67 @@ class G9Driver:
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
         
-        data = self.ser.read(size=199)
+        data = self.ser.read_until('b\r')
         self.lastResponse = data
-        if len(data) == 199:
-            alwaysHeader = data[0:3]
-            alwaysFooter = data[-2:]
-            if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
-                raise ValueError("Always bits are incorrect")
-            OCTD = data[7:11]
-            if OCTD != self.msgOptData:
-                raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
+        if data[1] == b'@':
+            if data[3] == 195:
+                alwaysHeader = data[0:3]
+                alwaysFooter = data[-2:]
+                if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
+                    raise ValueError("Always bits are incorrect")
+                OCTD = data[7:11]
+                if OCTD != self.msgOptData:
+                    raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
 
-            # Terminal Data Flags
-            #TODO: this might be throwing an error that it shouldnt
-            # I think that it might have to do with the reserve area of the SITDF There is a \x08 byte ...
-            SITDF = data[11:17]
-            if not self.check_flags13(SITDF):
-                err = []
-                print(SITDF)
-                gates = self.bytes_to_binary(SITDF)
-                for i in range(18):
-                    if gates[-i + 1] == "1":
-                        err.append(i)
-                raise ValueError(f"An input is either off or throwing an error: {err}")
-            
-            SOTDF = data[17:21]
-            if not self.check_flags13(SOTDF):
-                err = []
-                gates = self.bytes_to_binary(SOTDF)
-                for i in range(14):
-                    if gates[-i + 1] == "0":
-                        err.append(i)
-                raise ValueError(f"There is output(s) off: {err}")
+                # Terminal Data Flags
+                #TODO: this might be throwing an error that it shouldnt
+                # I think that it might have to do with the reserve area of the SITDF There is a \x08 byte ...
+                SITDF = data[11:17]
+                if not self.check_flags13(SITDF):
+                    err = []
+                    print(SITDF)
+                    gates = self.bytes_to_binary(SITDF[-3:])
+                    for i in range(18):
+                        if gates[-i + 1] == "0":
+                            err.append(i)
+                    raise ValueError(f"An input is either off or throwing an error: {err}")
+                
+                SOTDF = data[17:21]
+                if not self.check_flags13(SOTDF):
+                    err = []
+                    gates = self.bytes_to_binary(SOTDF[-2:])
+                    for i in range(14):
+                        if gates[-i + 1] == "0":
+                            err.append(i)
+                    raise ValueError(f"There is output(s) off: {err}")
 
-            # Terminal Status Flags
-            SITSF = data[21:27]
-            if not self.check_flags13(SITSF):
-                if self.safety_in_terminal_error(data[31:55]):
-                    raise ValueError("Error was detected in inputs but was not found")
+                # Terminal Status Flags
+                SITSF = data[21:27]
+                if not self.check_flags13(SITSF):
+                    if self.safety_in_terminal_error(data[31:55][-10:]):
+                        raise ValueError("Error was detected in inputs but was not found")
+                    
+                SOTSF = data[27:31]
+                if not self.check_flags13(SOTSF):
+                    if self.safety_out_terminal_error(data[55:71][-10:]):
+                        raise ValueError("Error was detected in outputs but was not found")
+                    
+                # Unit status
+                US = data[73:75]
+                if US != b'\x00\x01':
+                    if self.unit_state_error(US):
+                        raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
+                    
                 
-            SOTSF = data[27:31]
-            if not self.check_flags13(SOTSF):
-                if self.safety_out_terminal_error(data[55:71]):
-                    raise ValueError("Error was detected in outputs but was not found")
-                
-            # Unit status
-            US = data[73:75]
-            if US != b'\x00\x01':
-                if self.unit_state_error(US):
-                    raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
-                
-            
-            # # TODO: Need to add error log
-            # errorLog = data[108:149]
+                # # TODO: Need to add error log
+                # errorLog = data[108:149]
 
-            # # TODO: Need to add operation log
-            # operationLog = data[148:199]
-                
-        else:
-            self.sendCommand()
+                # # TODO: Need to add operation log
+                # operationLog = data[148:199]
+                    
+            else:
+                raise ValueError("Response length was not OxC3, either an error or command formate invalid.")
 
-        pass
 
     """
     0: No error
