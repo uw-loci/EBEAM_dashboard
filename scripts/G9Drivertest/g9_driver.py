@@ -99,7 +99,6 @@ class G9Driver:
                 SITDF = data[11:17]
                 if not self.check_flags13(SITDF):
                     err = []
-                    print(SITDF)
                     gates = self.bytes_to_binary(SITDF[-3:])
                     for i in range(20):
                         if gates[-i + 1] == "0":

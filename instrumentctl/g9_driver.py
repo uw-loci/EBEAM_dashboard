@@ -39,6 +39,7 @@ class G9Driver:
         self.logger = logger
         self.lastResponse = None
         self.msgOptData = None
+        self.input_flags = None
 
     def send_command(self):
         if not self.is_connected():
@@ -50,6 +51,7 @@ class G9Driver:
         checksum = self.calculate_checksum(header + data + reserve, 0 , len(header + data))
         cs = b'\x00' + checksum if len(checksum) == 1 else checksum
         footer = b'\x2A\x0D' 
+        #TODO: add try and catch
         self.ser.write(header + data + reserve+ cs + footer)
 
         self.response()
@@ -84,27 +86,28 @@ class G9Driver:
         
         data = self.ser.read_until('b\r')
         self.lastResponse = data
-        if data[1] == b'@':
+        if data[0] == b'@':
             if data[3] == 195:
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
                 if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
                     raise ValueError("Always bits are incorrect")
-                OCTD = data[7:11]
-                if OCTD != self.msgOptData:
-                    raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
+                
+                # Unit status
+                US = data[73:75]
+                if US != b'\x00\x01':
+                    if self.unit_state_error(US):
+                        raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
 
                 # Terminal Data Flags
-                #TODO: this might be throwing an error that it shouldnt
-                # I think that it might have to do with the reserve area of the SITDF There is a \x08 byte ...
                 SITDF = data[11:17]
                 if not self.check_flags13(SITDF):
                     err = []
-                    print(SITDF)
                     gates = self.bytes_to_binary(SITDF[-3:])
-                    for i in range(18):
+                    for i in range(20):
                         if gates[-i + 1] == "0":
                             err.append(i)
+                    self.input_flags = gates
                     raise ValueError(f"An input is either off or throwing an error: {err}")
                 
                 SOTDF = data[17:21]
@@ -127,11 +130,11 @@ class G9Driver:
                     if self.safety_out_terminal_error(data[55:71][-10:]):
                         raise ValueError("Error was detected in outputs but was not found")
                     
-                # Unit status
-                US = data[73:75]
-                if US != b'\x00\x01':
-                    if self.unit_state_error(US):
-                        raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
+                OCTD = data[7:11]
+                if OCTD != self.msgOptData:
+                    raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
+                    
+
                     
                 
                 # # TODO: Need to add error log

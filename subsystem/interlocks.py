@@ -116,7 +116,7 @@ class InterlocksSubsystem:
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
         input_err = self.driver.input_flags
-        for i in range(20):
+        for i in range(13):
             self.update_interlock(map[0], input_err[-i + 1] =="1")
 
         # Schedule next update
