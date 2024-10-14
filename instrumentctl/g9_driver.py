@@ -49,7 +49,7 @@ class G9Driver:
         checksum = self.calculate_checksum(header + data, 0 , len(header + data))
         cs = b'\x00' + checksum if len(checksum) == 1 else checksum
         footer = b'\x2A\x0D' 
-        self.ser(header + data + cs + footer)
+        self.ser.write(header + data + cs + footer)
 
         self.response()
 
@@ -100,7 +100,7 @@ class G9Driver:
                 for i in range(18):
                     if gates[-i + 1] == "0":
                         err.append(i)
-                raise ValueError("An input is either off or throwing an error: {err}")
+                raise ValueError(f"An input is either off or throwing an error: {err}")
             
             SOTDF = data[17:21]
             if not self.check_flags13(SOTDF):
@@ -109,7 +109,7 @@ class G9Driver:
                 for i in range(14):
                     if gates[-i + 1] == "0":
                         err.append(i)
-                raise ValueError("There is output(s) off: {err}")
+                raise ValueError(f"There is output(s) off: {err}")
 
             # Terminal Status Flags
             SITSF = data[21:27]
