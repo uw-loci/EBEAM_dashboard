@@ -71,13 +71,22 @@ class G9Driver:
     # of a byte string
     def check_flags13(self, byteString, norm = 1):
         assert isinstance(byteString, bytes)
-        # this is for if we only need the last 13 bits (more or less hardcoding this 
-        # just including the rest if it might be helpful in the future
-        if int(self.bytes_to_binary(byteString)[-13:], 2) >= (13 * norm):
-            # all flags we care about are 1
+        binary_string = self.bytes_to_binary(byteString)[-13:]
+        string_of_ones = '1' * 13
+        if byteString == string_of_ones:
             return True
         else:
             return False
+
+
+        # assert isinstance(byteString, bytes)
+        # # this is for if we only need the last 13 bits (more or less hardcoding this 
+        # # just including the rest if it might be helpful in the future
+        # if int(self.bytes_to_binary(byteString)[-13:], 2) >= (13 * norm):
+        #     # all flags we care about are 1
+        #     return True
+        # else:
+        #     return False
 
     def response(self):
         if not self.is_connected():
