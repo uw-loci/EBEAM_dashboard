@@ -67,6 +67,7 @@ class G9Driver:
     def bytes_to_binary(self, byte_string):
         return ''.join(format(byte, '08b') for byte in byte_string)
     
+    
     # this method is made to check the error flags, right not only checks the last 13 bits
     # of a byte string
     def check_flags13(self, byteString, norm = 1):
@@ -88,12 +89,15 @@ class G9Driver:
 
     def response(self):
         if not self.is_connected():
-            raise ConnectionError("Seiral Port is Not Open.")
+            raise ConnectionError("Serial Port is Not Open.")
         
         data = self.ser.read_until('b\r')
         self.lastResponse = data
-        if data[0] == b'@':
-            if data[3] == 195:
+
+
+        # Indexing such that we don't return an integer
+        if data[0:1] == '\x40':
+            if data[3:4] == b'\x3c':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
                 if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
