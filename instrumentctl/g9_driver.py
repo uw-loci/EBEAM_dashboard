@@ -49,10 +49,9 @@ class G9Driver:
         reserve = b'\x00\x00'
         self.msgOptData = data
         checksum = self.calculate_checksum(header + data + reserve, 0 , len(header + data))
-        cs = b'\x00' + checksum if len(checksum) == 1 else checksum
         footer = b'\x2A\x0D' 
         #TODO: add try and catch
-        self.ser.write(header + data + reserve+ cs + footer)
+        self.ser.write(header + data + reserve+ checksum + footer)
 
         self.response()
 
@@ -61,7 +60,7 @@ class G9Driver:
     # will return the sum of the bytes in the a byte string in the form of b'\x12'
     def calculate_checksum(self, byteString, startByte, endByte):
         assert isinstance(byteString, bytes)
-        return sum(byteString[startByte:endByte + 1]).to_bytes(1, "big") 
+        return sum(byteString[startByte:endByte + 1]).to_bytes(2, "big") 
 
     # helper function to convert bytes to bits for checking flags
     # not currently being used but many be helpful in the future for getting errors
