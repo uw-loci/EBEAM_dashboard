@@ -73,10 +73,8 @@ class G9Driver:
         assert isinstance(byteString, bytes)
         binary_string = self.bytes_to_binary(byteString)[-13:]
         string_of_ones = '1' * 13
-        if byteString == string_of_ones:
-            return True
-        else:
-            return False
+        return binary_string == string_of_ones
+           
 
 
         # assert isinstance(byteString, bytes)
