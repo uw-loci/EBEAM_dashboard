@@ -13,20 +13,25 @@ class E5CNModbus:
     UNIT_NUMBERS = [1, 2, 3]  # Unit numbers for each controller
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=7, logger=None, debug_mode=False):
+        self.logger = logger
+        self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
         self.client = ModbusClient(method='rtu', port=port, baudrate=baudrate, parity=parity,
                                    stopbits=stopbits, bytesize=bytesize, timeout=timeout)
-        self.logger = logger
+        
+        self.client.comm_params.port = port
         self.debug_mode = debug_mode
         if self.debug_mode:
             self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
 
     def connect(self):
         available_ports = [port.device for port in serial.tools.list_ports.comports()]
-        if self.client.port not in available_ports:
-            self.log(f"E5CN COM port {self.client.port} is not available", LogLevel.WARNING)
+        self.log(f"Available ports: {available_ports}", LogLevel.DEBUG)
+        self.log(f"Client port: {self.client.comm_params.port}")
+        if self.client.comm_params.port not in available_ports:
+            self.log(f"E5CN COM port {self.client.comm_params.port} is not available", LogLevel.WARNING)
             return False
         try:
-            if self.client.connect():
+            if self.client.is_socket_open():
                 return True
             else:
                 self.log("Failed to connect to the E5CN modbus device.", LogLevel.ERROR)
@@ -49,7 +54,7 @@ class E5CNModbus:
                         attempts -= 1
                         continue
 
-                response = self.client.read_holding_registers(address=self.TEMPERATURE_ADDRESS, count=2, unit=unit)
+                response = self.client.read_holding_registers(address=self.TEMPERATURE_ADDRESS, count=10, unit=unit)
                 if response.isError():
                     self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                     attempts -= 1
@@ -57,11 +62,10 @@ class E5CNModbus:
 
                 decoder = BinaryPayloadDecoder.fromRegisters(
                     response.registers, 
-                    byteorder=Endian.Big, 
-                    wordorder=Endian.Little
+                    byteorder=Endian.Big
                     )
                 
-                value = decoder.decode_32bit_float()
+                value = decoder.decode_16bit_int()
 
                 """
                 Section 5.3 Variable Area, page 5-8 (PDF pg.90):
