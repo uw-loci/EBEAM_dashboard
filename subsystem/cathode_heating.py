@@ -42,12 +42,15 @@ class CathodeHeatingSubsystem:
         self.voltage_check_interval = 5
         self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
         self.user_set_voltages = [None, None, None]  # Store user-set voltages
+        self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.query_settings_buttons = []
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
+        
         self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
+
         self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]
@@ -125,6 +128,7 @@ class CathodeHeatingSubsystem:
 
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
+        self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
@@ -248,6 +252,7 @@ class CathodeHeatingSubsystem:
             slew_rate_entry.grid(row=4, column=1, sticky='w')
             set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
+            self.slew_rate_vars.append(slew_rate_var) # store user variable
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
@@ -446,6 +451,17 @@ class CathodeHeatingSubsystem:
         self.log(f"Failed to reconnect after {max_retries} attempts", LogLevel.ERROR)
         return False
     
+    def set_slew_rate(self, index, var):
+        try:
+            new_slew_rate = float(var.get())
+            if new_slew_rate <= 0:
+                raise ValueError("Slew rate must be positive.")
+            self.slew_rates[index] = new_slew_rate
+            self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} V/s", LogLevel.INFO)
+        except ValueError as e:
+            self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
+
     def set_overvoltage_limit(self, index):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OVP.", LogLevel.ERROR)
@@ -782,20 +798,47 @@ class CathodeHeatingSubsystem:
                 self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received.", LogLevel.ERROR)
                 return
         
-        # If we've made it here, either we're turning off, or the user has confirmed they want to proceed
+            # zero out voltage before enabling output
+            self.power_supplies[index].set_voltage(3, 0.0)
+
+            # enable output 
+            self.power_supplies[index].set_output("1")
+
+            # Start ramping voltage to target voltage
+            target_voltage = self.user_set_voltages[index]
+            if target_voltage is not None:
+                slew_rate = self.slew_rates[index] # V/s
+                if slew_rate <= 0:
+                    self.log(f"Slew rate must be positive for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    return
+                step_delay = 0.5 # seconds
+                step_size = slew_rate * step_delay # V
+                if step_size < 0.01:
+                    step_size = 0.01 # minimum step size
+                elif step_size > 1.0:
+                    step_size = 1.0 # max step size
+
+                # recalculate step_delay based on adjusted step_size
+                step_delay = step_size / slew_rate
+                self.log(f"Starting voltage ramp for Cathode {['A', 'B', 'C'][index]} with step size {step_size:.3f} V and step delay {step_delay:.3f} s (Slew rate {slew_rate} V/s)", LogLevel.INFO)
+
+                self.power_supplies[index].ramp_voltage(
+                    target_voltage,
+                    step_size=step_size,
+                    step_delay=step_delay,
+                    preset=3
+                )
+            else:
+                self.log(f"No target voltage set for cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+                return
+        else:
+            # turning off the output
+            self.power_supplies[index].set_output("0")
+
+        # Update the toggle state and button image
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
-        self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
-        
-        if self.toggle_states[index]:
-            response = self.power_supplies[index].set_output("1") # ON
-        else:
-            response = self.power_supplies[index].set_output("0") # OFF
-        
-        if response == "OK":
-            self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.INFO)
-        else:
-            self.log(f"Unexpected response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
+        self.toggle_buttons[index].config(image=current_image)
     
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
