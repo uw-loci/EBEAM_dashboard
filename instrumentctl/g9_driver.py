@@ -1,9 +1,9 @@
 import serial
 import threading
 import time
-from utils import LogLevel
+# from utils import LogLevel
 import os
-from subsystem import interlocks
+# from subsystem import interlocks
 
 inStatus = {
     0: "No error",
