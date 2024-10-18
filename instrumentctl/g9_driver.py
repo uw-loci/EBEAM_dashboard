@@ -77,8 +77,6 @@ class G9Driver:
         string_of_ones = '1' * 13
         return binary_string == string_of_ones
            
-
-
         # assert isinstance(byteString, bytes)
         # # this is for if we only need the last 13 bits (more or less hardcoding this 
         # # just including the rest if it might be helpful in the future
@@ -126,8 +124,7 @@ class G9Driver:
                 if not self.check_flags13(SITSF):
                     if self.safety_in_terminal_error(data[31:55][-10:]):
                         raise ValueError("Error was detected in inputs but was not found")
-                    
-                    
+                       
                 SOTDF = data[17:21]
                 if not self.check_flags13(SOTDF):
                     err = []
@@ -137,7 +134,6 @@ class G9Driver:
                             err.append(i)
                     raise ValueError(f"There is output(s) off: {err}")
                 
-                    
                 SOTSF = data[27:31]
                 if not self.check_flags13(SOTSF):
                     if self.safety_out_terminal_error(data[55:71][-10:]):
@@ -146,9 +142,6 @@ class G9Driver:
                 OCTD = data[7:11]
                 if OCTD != self.msgOptData:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
-                    
-
-                    
                 
                 # # TODO: Need to add error log
                 # errorLog = data[108:149]
@@ -158,7 +151,6 @@ class G9Driver:
                     
             else:
                 raise ValueError("Response length was not OxC3, either an error or command formate invalid.")
-
 
     """
     0: No error
@@ -236,12 +228,12 @@ class G9Driver:
         
         bits = self.bytes_to_binary(data)
 
-        if bits[-1] == "0":
-            raise ValueError(f"Unit State Error: Normal Operation Error Flag (bit 0)")
-        
         for k in usStatus.keys():
             if bits[-(k + 1)] == "1":
                 raise ValueError(f"Unit State Error: {usStatus[k]} (bit {k})")
+            
+        if bits[-1] == "0":
+            raise ValueError(f"Unit State Error: Normal Operation Error Flag (bit 0)")
 
 
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
@@ -251,7 +243,6 @@ class G9Driver:
 
     def flush_serial(self):
         self.ser.reset_input_buffer()
-
 
     #TODO: make funtion to turn all interlocks to red
     def is_connected(self):
