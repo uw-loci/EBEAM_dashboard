@@ -92,7 +92,6 @@ class G9Driver:
         data = self.ser.read_until(b'\r')
         self.lastResponse = data
 
-
         # Indexing such that we don't return an integer
         if data[0:1] == b'\x40':
             if data[3:4] == b'\xc3':
@@ -233,7 +232,6 @@ class G9Driver:
             
         if bits[-1] == "0":
             raise ValueError(f"Unit State Error: Normal Operation Error Flag (bit 0)")
-
 
     #TODO: Check to see if the G9 switch is allowing high Voltage or not
     # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
