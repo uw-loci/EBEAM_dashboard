@@ -68,13 +68,12 @@ class G9Driver:
     def bytes_to_binary(self, byte_string):
         return ''.join(format(byte, '08b') for byte in byte_string)
     
-    
     # this method is made to check the error flags, right not only checks the last 13 bits
     # of a byte string
-    def check_flags13(self, byteString, norm = 1):
+    def check_flags13(self, byteString, norm = '1'):
         assert isinstance(byteString, bytes)
         binary_string = self.bytes_to_binary(byteString)[-13:]
-        string_of_ones = '1' * 13
+        string_of_ones = norm * 13
         return binary_string == string_of_ones
            
         # assert isinstance(byteString, bytes)
