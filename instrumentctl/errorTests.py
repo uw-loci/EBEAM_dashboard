@@ -27,22 +27,24 @@ class TestG9Driver(unittest.TestCase):
 
     #     self.assertIn("An input is either off or throwing an error", str(context.exception))
 
-    # def test_output_error(self):
-    #     self.driver.ser.read_until.return_value = msg
+    def test_output_error(self):
+        msg[21:22] = '00'
+        print(msg[21:22])
+        self.driver.ser.read_until.return_value = msg
 
-    #     with self.assertRaises(ValueError) as context:
-    #         self.driver.response()
+        with self.assertRaises(ValueError) as context:
+            self.driver.response()
 
-    #     self.assertIn("There is output(s) off", str(context.exception))
+        self.assertIn("There is output(s) off", str(context.exception))
 
-    # def test_mismatched_optional_data(self):
-    #     # self.driver.msgOptData = b'\x00\x01\x00\x00'
-    #     self.driver.ser.read_until.return_value = msg
+    def test_mismatched_optional_data(self):
+        self.driver.msgOptData = b'\x00\x01\x00\x00'
+        self.driver.ser.read_until.return_value = msg
         
-    #     with self.assertRaises(ValueError) as context:
-    #         self.driver.response()
+        with self.assertRaises(ValueError) as context:
+            self.driver.response()
 
-    #     self.assertIn("Optional Transmission data doesn't match", str(context.exception))
+        self.assertIn("Optional Transmission data doesn't match", str(context.exception))
 
     def test_no_error(self):
         self.driver.ser.read_until.return_value = msg

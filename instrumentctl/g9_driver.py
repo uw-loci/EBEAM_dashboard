@@ -142,7 +142,6 @@ class G9Driver:
                     if self.safety_out_terminal_error(data[55:71][-10:]):
                         raise ValueError("Error was detected in outputs but was not found")
                     
-                print(data[7:11], self.msgOptData)
                 OCTD = data[7:11]
                 if OCTD != self.msgOptData:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
