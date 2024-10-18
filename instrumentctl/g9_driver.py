@@ -91,7 +91,7 @@ class G9Driver:
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open.")
         
-        data = self.ser.read_until('b\r')
+        data = self.ser.read_until(b'\r')
         self.lastResponse = data
 
 
