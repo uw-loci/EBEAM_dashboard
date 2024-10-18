@@ -97,7 +97,7 @@ class G9Driver:
 
         # Indexing such that we don't return an integer
         if data[0:1] == b'\x40':
-            if data[3:4] == b'\x3c':
+            if data[3:4] == b'\xc3':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
                 if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
@@ -142,7 +142,7 @@ class G9Driver:
                     if self.safety_out_terminal_error(data[55:71][-10:]):
                         raise ValueError("Error was detected in outputs but was not found")
                     
-                    
+                print(data[7:11], self.msgOptData)
                 OCTD = data[7:11]
                 if OCTD != self.msgOptData:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
