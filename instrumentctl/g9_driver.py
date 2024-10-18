@@ -96,7 +96,7 @@ class G9Driver:
 
 
         # Indexing such that we don't return an integer
-        if data[0:1] == '\x40':
+        if data[0:1] == b'\x40':
             if data[3:4] == b'\x3c':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
