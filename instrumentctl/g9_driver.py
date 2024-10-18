@@ -122,16 +122,19 @@ class G9Driver:
 
                 # Terminal Status Flags
                 SITSF = data[21:27]
+                print(SITSF)
                 if not self.check_flags13(SITSF):
                     if self.safety_in_terminal_error(data[31:55][-10:]):
                         raise ValueError("Error was detected in inputs but was not found")
                     
                     
+                
                 SOTDF = data[17:21]
+                
                 if not self.check_flags13(SOTDF):
                     err = []
                     gates = self.bytes_to_binary(SOTDF[-2:])
-                    for i in range(14):
+                    for i in range(13):
                         if gates[-i + 1] == "0":
                             err.append(i)
                     raise ValueError(f"There is output(s) off: {err}")
