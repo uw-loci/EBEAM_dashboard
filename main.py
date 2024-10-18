@@ -2,15 +2,16 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
-from utils import LogLevel
 import sys
 from usr.com_port_config import save_com_ports, load_com_ports
 
-def start_main_app(root, com_ports):
+def start_main_app(com_ports):
+    root = tk.Tk()
+    root.title("EBEAM System Dashboard")
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
-def config_com_ports(root, saved_com_ports):
+def config_com_ports(saved_com_ports):
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
             import pyi_splash
@@ -18,7 +19,7 @@ def config_com_ports(root, saved_com_ports):
         except ImportError:
             pass
 
-    config_root = tk.Toplevel(root)
+    config_root = tk.Tk()
     config_root.title("Configure COM Ports")
     # config_root.geometry('600x400')
     
@@ -52,28 +53,19 @@ def config_com_ports(root, saved_com_ports):
             return
         
         save_com_ports(selected_ports)
-        
-        # show the root window
-        root.deiconify()
         config_root.destroy()
         
         # Start the main application
-        start_main_app(root, selected_ports)
+        start_main_app(selected_ports)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
     
-    config_root.grab_set()
-    root.wait_window(config_root)
+    config_root.mainloop()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    root.withdraw() # hide root window while configuring
     
     saved_com_ports = load_com_ports()
 
     # Prompt the user to confirm or change COM ports
-    config_com_ports(root, saved_com_ports)
-
-    # After configuration, start the main application
-    start_main_app(root, saved_com_ports)
+    config_com_ports(saved_com_ports)
