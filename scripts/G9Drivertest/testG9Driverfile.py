@@ -1,4 +1,4 @@
-import g9_driver
+from ..Instrumentctl import g9_driver
 import time
 
 g9 = g9_driver.G9Driver(port='COM11')
