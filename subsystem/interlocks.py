@@ -44,35 +44,89 @@ class InterlocksSubsystem:
             self.driver = g9_driv.G9Driver(com_port)
 
     def setup_gui(self):
+        def create_indicator(frame, color):
+            canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
+            canvas.create_oval(2, 2, 18, 18, fill=color, outline="")
+            return canvas
+        
         self.interlocks_frame = tk.Frame(self.parent)
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
+        self.interlocks_frame.grid_rowconfigure(0, weight=1)
+        self.interlocks_frame.grid_columnconfigure(0, weight=1)
+        self.interlocks_frame.grid_columnconfigure(1, weight=1)
 
-        interlock_labels = [
-            "Door", "Water", "Vacuum Power", "Vacuum Pressure", "Oil High",
-            "Oil Low", "Chassis Estop", "Chassis Estop", "G9SP Active", "HVOLT ON"
-        ]
-        self.indicators = {
-            'active': tk.PhotoImage(file=resource_path("media/on.png")),
-            'inactive': tk.PhotoImage(file=resource_path("media/redOff.png"))
-        }
+        interlocks_frame = tk.Frame(self.interlocks_frame)
+        interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
 
-        for label in interlock_labels:
-            frame = tk.Frame(self.interlocks_frame)
-            frame.pack(side=tk.LEFT, expand=True, padx=5)
+        indicators = {'DOOR': [], 
+                      'WATER': [], 
+                      'VACUUM': [], 
+                      'OIL': [], 
+                      'E-STOP': [], 
+                      'ALL INTERLOCKS': []
+                      }
+        
+        for i, k in enumerate(indicators.keys()):
+            tk.Label(interlocks_frame, text=k, font=("Arial", 10, "bold")).grid(row=0, column=i)
+            curr_frame = tk.Frame(interlocks_frame)
+            curr_frame.grid(row=1, column=i)
+            if k == "VACUUM":
+                tk.Label(curr_frame, text="Power").grid(row=1, column=0)
+                tk.Label(curr_frame, text="Pressure").grid(row=1, column=1)
+                for _ in range(2):
+                    indicators[k].append(create_indicator(curr_frame, 'green'))
+                    indicators[k][-1].grid(row=2, column=_)
+            elif k == "OIL":
+                tk.Label(curr_frame, text="Low").grid(row=1, column=0)
+                tk.Label(curr_frame, text="High").grid(row=1, column=1)
+                for _ in range(2):
+                    indicators[k].append(create_indicator(curr_frame, 'green'))
+                    indicators[k][-1].grid(row=2, column=_)
+            else:
+                tk.Label(curr_frame, text=" ").grid(row=1, column=0)
+                indicators[k].append(create_indicator(curr_frame, 'green'))
+                indicators[k][-1].grid(row=2, column=i, columnspan=2, sticky="ew")
 
-            lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
-            lbl.pack(side=tk.LEFT)
-            status = self.interlock_status[label]
-            # TODO: this currently does not work make because of frame keys not matching the interlock_status keys
-            # also flashing method only turns red, make flash
-            if status == 0:
-                self.highlight_frame('Vacuum System', flashes=5, interval=500)
-            # else:
-            #     self.reset_frame_highlights()
+        # HV Status Section
+        hv_frame = tk.Frame(self.interlocks_frame)
+        hv_frame.grid(row=0, column=1, padx=10, pady=10)
 
-            indicator = tk.Label(frame, image=self.indicators['active'] if status == 1 else self.indicators['inactive'])
-            indicator.pack(side=tk.RIGHT, pady=1)
-            frame.indicator = indicator  # Store reference to the indicator for future updates
+        tk.Label(hv_frame, text="HV STATUS", font=("Arial", 10, "bold")).grid(row=0, column=0, columnspan=2)
+
+        # HV Output On and HVOLT On indicators
+        tk.Label(hv_frame, text="G9 OUTPUT ON").grid(row=1, column=0)
+        tk.Label(hv_frame, text="HVOLT ON").grid(row=1, column=1)
+
+        create_indicator(hv_frame, 'red').grid(row=2, column=0, padx=10, pady=10)
+        create_indicator(hv_frame, 'green').grid(row=2, column=1, padx=10, pady=10)
+
+        # interlock_labels = [
+        #     "Door", "Water", "Vacuum Power", "Vacuum Pressure", "Oil High",
+        #     "Oil Low", "Chassis Estop", "Chassis Estop", "G9SP Active", "HVOLT ON"
+        # ]
+        # self.indicators = {
+        #     'active': tk.PhotoImage(file=resource_path("media/on.png")),
+        #     'inactive': tk.PhotoImage(file=resource_path("media/redOff.png"))
+        # }
+
+        # for label in interlock_labels:
+        #     frame = tk.Frame(self.interlocks_frame)
+        #     frame.pack(side=tk.LEFT, expand=True, padx=5)
+
+        #     lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
+        #     lbl.pack(side=tk.LEFT)
+        #     status = self.interlock_status[label]
+        #     #  for later to add frames being highlighted with red
+        #     # # TODO: this currently does not work make because of frame keys not matching the interlock_status keys
+        #     # # also flashing method only turns red, make flash
+        #     # if status == 0:
+        #     #     self.highlight_frame('Vacuum System', flashes=5, interval=500)
+        #     # # else:
+        #     # #     self.reset_frame_highlights()
+
+        #     indicator = tk.Label(frame, image=self.indicators['active'] if status == 1 else self.indicators['inactive'])
+        #     indicator.pack(side=tk.RIGHT, pady=1)
+        #     frame.indicator = indicator  # Store reference to the indicator for future updates
 
     # logging the history of updates
     def update_interlock(self, name, status):
@@ -136,14 +190,14 @@ class InterlocksSubsystem:
     #         frame.config(bg=self.parent.cget('bg'))
 
 
-    # this method right now only sets the frame boarder to be red TODO: make it flash
-    def highlight_frame(self, label, flashes=5, interval=500):
-        if label in self.frames:
-            frame = self.frames[label]
-            reg = frame.cget('highlightbackground')
-            new_color = 'red'
+    # # this method right now only sets the frame boarder to be red TODO: make it flash
+    # def highlight_frame(self, label, flashes=5, interval=500):
+    #     if label in self.frames:
+    #         frame = self.frames[label]
+    #         reg = frame.cget('highlightbackground')
+    #         new_color = 'red'
 
-            frame.config(highlightbackground=new_color, highlightthickness=5, relief='solid')
+    #         frame.config(highlightbackground=new_color, highlightthickness=5, relief='solid')
 
 
 
