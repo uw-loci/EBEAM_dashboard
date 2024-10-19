@@ -12,7 +12,7 @@ class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]  # Unit numbers for each controller
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=7, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
         self.logger = logger
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
         self.client = ModbusClient(method='rtu', port=port, baudrate=baudrate, parity=parity,
@@ -106,28 +106,3 @@ class E5CNModbus:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
-
-# class echobackRequest(ModbusRequest):
-    
-#     function_code = 0x08
-
-#     def __init__(self, address, values):
-#         """ Initializes the request with the address and data values """
-#         super().__init__()
-#         self.address = address
-#         self.values = values
-
-#     def encode(self):
-#         """ Encode request data """
-#         packet = struct.pack('>H', self.address)  # Echo back the address
-#         for value in self.values:
-#             packet += struct.pack('>H', value)
-#         return packet
-
-#     def decode(self, data):
-#         """ Decode response data from the server """
-#         self.address, self.values = struct.unpack('>HH', data)
-
-#     def create(self, unit):
-#         """ Create the full request packet, including unit ID """
-#         return self.encode() + struct.pack('>B', unit)
