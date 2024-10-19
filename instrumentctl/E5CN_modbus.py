@@ -24,14 +24,11 @@ class E5CNModbus:
             self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
 
     def connect(self):
-        available_ports = [port.device for port in serial.tools.list_ports.comports()]
-        self.log(f"Available ports: {available_ports}", LogLevel.DEBUG)
-        self.log(f"Client port: {self.client.comm_params.port}")
-        if self.client.comm_params.port not in available_ports:
-            self.log(f"E5CN COM port {self.client.comm_params.port} is not available", LogLevel.WARNING)
-            return False
         try:
             if self.client.is_socket_open():
+                return True
+            if self.client.connect():
+                self.log(f"E5CN Connected to port {self.client.comm_params.port}.", LogLevel.INFO)
                 return True
             else:
                 self.log("Failed to connect to the E5CN modbus device.", LogLevel.ERROR)
@@ -47,7 +44,7 @@ class E5CNModbus:
         attempts = 3
         while attempts > 0:
             try:
-                if not self.client.connected:
+                if not self.client.is_socket_open():
                     self.log(f"Socket not open for unit {unit}. Attempting to reconnect...", LogLevel.WARNING)
                     if not self.connect():
                         self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
@@ -82,7 +79,7 @@ class E5CNModbus:
         return None # return if all the attempts fail
 
     def perform_echoback_test(self, unit):
-        if not self.client.connected():
+        if not self.client.is_socket_open():
             if not self.connect():
                 self.log(f"Cannot perform echoback test: no connection to unit {unit}", LogLevel.ERROR)
                 return False
