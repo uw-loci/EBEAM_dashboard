@@ -76,7 +76,7 @@ class CathodeHeatingSubsystem:
         self.toggle_buttons = []
         self.entry_fields = []
         self.power_supplies = []
-        self.temperature_controllers = []
+        self.temperature_controller = None
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.logger = logger
@@ -570,7 +570,7 @@ class CathodeHeatingSubsystem:
                 # Assuming only one Modbus controller object for all units
                 tc = E5CNModbus(port=port, logger=self.logger)
                 if tc.connect():
-                    self.temperature_controllers = [tc]  # Store it in a list for compatibility with existing code structure
+                    self.temperature_controller = tc
                     self.temp_controllers_connected = True
                     self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
                 else:
@@ -586,10 +586,10 @@ class CathodeHeatingSubsystem:
         Index corresponds to the cathode index (0-based).
         """
         current_time = datetime.datetime.now()
-        if self.temperature_controllers and self.temp_controllers_connected:
+        if self.temperature_controller and self.temp_controllers_connected:
             try:
                 # Attempt to read temperature from the connected temperature controller
-                temperature = self.temperature_controllers[index].read_temperature(index + 1)
+                temperature = self.temperature_controller.read_temperature(unit=index + 1)
                 if temperature is not None:
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} °C")
                     self.set_plot_alert(index, alert_status=False)
@@ -1043,12 +1043,11 @@ class CathodeHeatingSubsystem:
         """
         try:
             # Ensure that the unit index is within the range of connected controllers
-            if unit - 1 >= len(self.temperature_controllers):
-                raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
+            if not self.temperature_controller:
+                raise ValueError(f"Temperature Controller is not connected or initialized.")
 
             # Perform the echoback test
-            controller = self.temperature_controllers[unit - 1]
-            result = controller.perform_echoback_test()
+            result = self.temperature_controller.perform_echoback_test(unit=unit)
             self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.ERROR)
         except Exception as e:
             self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
@@ -1060,11 +1059,10 @@ class CathodeHeatingSubsystem:
         Ensures the unit is connected before attempting to read.
         """
         try:
-            if unit - 1 >= len(self.temperature_controllers):
-                raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
+            if not self.temperature_controller:
+                raise ValueError(f"Temperature Controller is not connected or initialized.")
 
-            controller = self.temperature_controllers[unit - 1]
-            temperature = controller.read_temperature()
+            temperature = self.temperature_controller.read_temperature(unit=unit)
             if temperature is not None:
                 message = f"Temperature from Unit {unit}: {temperature:.2f} °C"
                 self.log(message, LogLevel.VERBOSE)
