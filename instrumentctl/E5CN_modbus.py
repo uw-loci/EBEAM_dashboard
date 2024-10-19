@@ -76,6 +76,8 @@ class E5CNModbus:
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
                 attempts -= 1
+        
+        self.log(f"Failed to read temperature from unit {unit} after {3 - attempts} attempts.", LogLevel.ERROR)
         return None # return if all the attempts fail
 
     def perform_echoback_test(self, unit):
