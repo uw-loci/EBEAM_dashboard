@@ -725,6 +725,9 @@ class CathodeHeatingSubsystem:
         ax.figure.canvas.draw()
 
     def update_plot(self, index):
+        if len(self.time_data[index]) == 0: # skip if there's no new data
+            return
+        
         time_data = self.time_data[index]
         temperature_data = self.temperature_data[index][0].get_data()[1]
 
@@ -733,7 +736,7 @@ class CathodeHeatingSubsystem:
         ax = self.temperature_data[index][0].axes
 
         # Adjust color based on temperature status
-        if self.overtemp_status_vars[index].get() == "OVERTEMP!":
+        if self.overtemp_status_vars[index].get() == "OVERTEMP!" or not self.temp_controllers_connected:
             for spine in ax.spines.values():
                 spine.set_color('red')
             ax.xaxis.label.set_color('red')
