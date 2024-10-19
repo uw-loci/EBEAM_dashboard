@@ -83,21 +83,23 @@ class E5CNModbus:
             if not self.connect():
                 self.log(f"Cannot perform echoback test: no connection to unit {unit}", LogLevel.ERROR)
                 return False
+        
+        try:
+            request = ReturnQueryDataRequest(message=b'\x12\x34')
+            request.unit_id = unit
+            response = self.client.execute(request)
             
-        request = ReturnQueryDataRequest(message=b'\x12\x34')
-        request.unit_id = unit
-        response = self.client.execute(request)
-        if not response.isError():
-            if response.message == b'\x12\x34':
+            if not response.isError() and response.message == b'\x12\x34':
                 self.log(f"Echoback test succeeded for unit {unit}", LogLevel.INFO)
                 return True
             else:
                 self.log(f"Echoback test failed for unit {unit}: unexpected response data", LogLevel.ERROR)
                 return False
-        else:
-            self.log(f"Echoback test failed for unit {unit}: {response}", LogLevel.ERROR)
+
+        except Exception as e:
+            self.log(f"Echoback test failed with error: {str(e)}", LogLevel.ERROR)
             return False
-        
+    
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
             self.logger.log(message, level)
