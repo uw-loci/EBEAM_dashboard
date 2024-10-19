@@ -85,7 +85,7 @@ class InterlocksSubsystem:
             else:
                 tk.Label(curr_frame, text=" ").grid(row=1, column=0)
                 indicators[k].append(create_indicator(curr_frame, 'green'))
-                indicators[k][-1].grid(row=2, column=i, columnspan=2, sticky="ew")
+                indicators[k][-1].grid(row=2, column=0, columnspan=2, sticky="ew")
 
         # HV Status Section
         hv_frame = tk.Frame(self.interlocks_frame)
