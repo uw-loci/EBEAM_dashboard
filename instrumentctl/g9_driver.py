@@ -2,7 +2,6 @@ import serial
 import threading
 import time
 # from utils import LogLevel
-
 import os
 # from subsystem import interlocks
 
@@ -241,21 +240,9 @@ class G9Driver:
     def flush_serial(self):
         self.ser.reset_input_buffer()
 
-    #TODO: make funtion to turn all interlocks to red
+    # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
-        # i do not think this will work right now
-        # try:
-        #     #TODO: check if this works with G9 copied from Power Supply Driver
-        #     # Attempt to write a simple command to the device
-        #     self.ser.write(b'\r')  # Send a carriage return
-        #     # Try to read a response (there might not be one)
-        #     self.ser.read(1)
-
-        #     self.isConnected = True
-        #     return True
-        # except serial.SerialException:
-        #     return False
-        return True
+        return self.ser.is_open
         
 
     #TODO: Figure out how to handle all the errors (end task)
