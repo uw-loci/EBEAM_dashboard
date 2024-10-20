@@ -103,8 +103,11 @@ class InterlocksSubsystem:
         tk.Label(hv_frame, text="G9 OUTPUT ON").grid(row=1, column=0)
         tk.Label(hv_frame, text="HVOLT ON").grid(row=1, column=1)
 
-        create_indicator_circle(hv_frame, 'red').grid(row=2, column=0, padx=10, pady=10)
-        create_indicator_circle(hv_frame, 'green').grid(row=2, column=1, padx=10, pady=10)
+        indicators["G9 OUTPUT ON"] = [create_indicator_circle(hv_frame, 'red')]
+        indicators["G9 OUTPUT ON"][-1].grid(row=2, column=0, padx=10, pady=10)
+
+        indicators["HVOLT ON"] = [create_indicator_circle(hv_frame, 'red')]
+        indicators["HVOLT ON"][-1].grid(row=2, column=1, padx=10, pady=10)
 
         # interlock_labels = [
         #     "Door", "Water", "Vacuum Power", "Vacuum Pressure", "Oil High",
