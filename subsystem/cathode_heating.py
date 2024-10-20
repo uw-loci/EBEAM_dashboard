@@ -1,4 +1,4 @@
-# subsystem.py
+# cathode_heating.py
 import tkinter as tk
 from tkinter import ttk
 import tkinter.simpledialog as tksd
@@ -78,6 +78,8 @@ class CathodeHeatingSubsystem:
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
         self.entry_fields = []
+        self.voltage_labels = []
+        self.voltage_entries = [None, None, None]
         self.power_supplies = []
         self.temperature_controllers = []
         self.time_data = [[] for _ in range(3)]
@@ -165,6 +167,7 @@ class CathodeHeatingSubsystem:
             voltage_label.grid(row=1, column=1, sticky='w')
             voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
             ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
+            self.voltage_labels.append(voltage_label)
 
             pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
             pred_emission_label.grid(row=2, column=0, sticky='e')
@@ -966,8 +969,29 @@ class CathodeHeatingSubsystem:
             msgbox.showwarning("Warning", "Disable the output before setting a new voltage.")
             return # exit the method if the output is already on
 
-        new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
-        if new_voltage is not None:
+        voltage_label = self.voltage_labels[index]
+        grid_info = voltage_label.grid_info()
+        voltage_label.grid_remove()
+
+        # Create an Entry widget
+        voltage_entry = ttk.Entry(voltage_label.master, width=7)
+        voltage_entry.insert(0, self.heater_voltage_vars[index].get())
+        voltage_entry.grid(row=grid_info['row'], column=grid_info['column'], sticky=grid_info['sticky'])
+        voltage_entry.focus_set()
+
+        # Bind events to the Entry widget
+        voltage_entry.bind('<Return>', lambda e, idx=index: self.on_voltage_entry_submit(idx))
+        voltage_entry.bind('<FocusOut>', lambda e, idx=index: self.on_voltage_entry_focusout(idx))
+
+        # Store the entry widget
+        self.voltage_entries[index] = voltage_entry
+
+    def on_voltage_entry_submit(self, index):
+        """Handle the submission of the voltage entry."""
+        voltage_entry = self.voltage_entries[index]
+        new_voltage_str = voltage_entry.get()
+        try:
+            new_voltage = float(new_voltage_str)
             success = self.update_predictions_from_voltage(index, new_voltage)
             if success:
                 self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
@@ -976,6 +1000,22 @@ class CathodeHeatingSubsystem:
                 self.entry_fields[index].delete(0, tk.END)
             else:
                 self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        except ValueError:
+            msgbox.showerror("Invalid Input", "Please enter a valid voltage.")
+
+        # Remove the Entry widget and show the Label again
+        voltage_entry.destroy()
+        self.voltage_entries[index] = None
+        self.voltage_labels[index].grid()
+
+    def on_voltage_entry_focusout(self, index):
+        """Handle focus out event from the voltage entry."""
+        voltage_entry = self.voltage_entries[index]
+        # Optionally, process the input or just cancel
+        # Here we just restore the label without processing
+        voltage_entry.destroy()
+        self.voltage_entries[index] = None
+        self.voltage_labels[index].grid()
 
     def update_predictions_from_voltage(self, index, voltage):
         """Update predictions based on manually entered voltage."""
