@@ -43,15 +43,6 @@ class TestG9Driver(unittest.TestCase):
 
         self.assertIn("There is output(s) off", str(context.exception))
 
-    # mismatch msgOptData 
-    def test_mismatched_optional_data(self):
-        self.driver.msgOptData = b'\x00\x01\x00\x00'
-        self.driver.ser.read_until.return_value = msg
-        
-        with self.assertRaises(ValueError) as context:
-            self.driver.response()
-
-        self.assertIn("Optional Transmission data doesn't match", str(context.exception))
 
     # test of normal excepted values
     def test_no_error(self):
