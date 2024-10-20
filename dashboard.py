@@ -145,7 +145,7 @@ class EBEAMSystemDashboard:
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'],
-                com_ports = self.com_ports,
+                com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
                 frames = self.frames
             ),

@@ -26,11 +26,9 @@ def resource_path(relative_path):
 
 class InterlocksSubsystem:
     def __init__(self, parent, com_ports, logger=None, frames=None):
-        if com_ports:
-            self.driver = g9_driv.G9Driver(None)
+        self.driver = g9_driv.G9Driver(None)
         self.parent = parent
         self.logger = logger
-        self.com_ports = com_ports
         self.frames = frames
         self.interlock_status = {
             "Door":  1, "Water": 0, "Vacuum Power": 0, "Vacuum Pressure": 1,
