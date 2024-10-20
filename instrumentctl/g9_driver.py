@@ -31,6 +31,13 @@ usStatus = {
     13: "Function Block Error Flag"
 }
 
+NUMIN = 13
+
+SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
+SNDFOOTER = b'\x2A\x0D'
+SNDDATA = b'\x00\x00\x00\x00'
+SNDRES = b'\x00\x00'
+
 class G9Driver:
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         if port:
@@ -38,20 +45,15 @@ class G9Driver:
         self.debug_mode = debug_mode
         self.logger = logger
         self.lastResponse = None
-        self.msgOptData = None
         self.input_flags = None
 
     def send_command(self):
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
-        header = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
-        data = b'\x00\x00\x00\x00'
-        reserve = b'\x00\x00'
-        self.msgOptData = data
-        checksum = self.calculate_checksum(header + data + reserve, 0 , len(header + data))
-        footer = b'\x2A\x0D' 
-        #TODO: add try and catch
-        self.ser.write(header + data + reserve+ checksum + footer)
+
+        checksum = self.calculate_checksum(SNDHEADER + SNDDATA + SNDRES, 0 , len(SNDHEADER + SNDDATA))
+
+        self.ser.write(SNDHEADER + SNDDATA + SNDRES + checksum + SNDFOOTER)
 
         self.response()
 
@@ -71,8 +73,8 @@ class G9Driver:
     # of a byte string
     def check_flags13(self, byteString, norm = '1'):
         assert isinstance(byteString, bytes)
-        binary_string = self.bytes_to_binary(byteString)[-13:]
-        string_of_ones = norm * 13
+        binary_string = self.bytes_to_binary(byteString)[-NUMIN:]
+        string_of_ones = norm * NUMIN
         return binary_string == string_of_ones
            
         # assert isinstance(byteString, bytes)
@@ -162,7 +164,7 @@ class G9Driver:
         if len(data) != 24:
             raise ValueError(f"Expected 24 bytes, but received {len(data)}.")
 
-        last_bytes = data[-13:]
+        last_bytes = data[-NUMIN:]
         last_bytes = last_bytes[::-1]
 
         for i, byte in enumerate(last_bytes):
@@ -189,12 +191,12 @@ class G9Driver:
     """
 
     # checks all the SOTSFs, throws error is one is found 
-    def safety_out_terminal_error(self, data, inputs = 13):
+    def safety_out_terminal_error(self, data):
         if len(data) != 16:
             raise ValueError(f"Expected 16 bytes, but received {len(data)}.")
 
         # only keep needs bytes
-        last_bytes = data[-inputs:]
+        last_bytes = data[-NUMIN:]
         # flip direction so enumerate can if us the byte number in the error
         last_bytes = last_bytes[::-1]
 
