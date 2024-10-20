@@ -43,12 +43,16 @@ FOOTER = b'\x2A\x0D'
 
 class G9Driver:
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+        # not sure if we will need all of these but just adding them now in case
+        self.US, self.SITDF, self.SITSF, self.SOTDF, self.SOTSF, self.lastResponse = None, None, None, None, None, None
         if port:
-            self.ser = serial.Serial(port, baudrate, parity=serial.PARITY_EVEN, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS, timeout=timeout)
+            self.ser = serial.Serial(port, baudrate, parity=serial.PARITY_EVEN,
+                                      stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS,
+                                        timeout=timeout)
         self.debug_mode = debug_mode
         self.logger = logger
-        self.lastResponse = None
-        self.input_flags = None
+        self.NUMIN = NUMIN
+        self.input_flags = []
 
     def send_command(self):
         if not self.is_connected():
@@ -79,16 +83,7 @@ class G9Driver:
         binary_string = self.bytes_to_binary(byteString)[-NUMIN:]
         string_of_ones = norm * NUMIN
         return binary_string == string_of_ones
-           
-        # assert isinstance(byteString, bytes)
-        # # this is for if we only need the last 13 bits (more or less hardcoding this 
-        # # just including the rest if it might be helpful in the future
-        # if int(self.bytes_to_binary(byteString)[-13:], 2) >= (13 * norm):
-        #     # all flags we care about are 1
-        #     return True
-        # else:
-        #     return False
-
+    
     def response(self):
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open.")
@@ -104,45 +99,51 @@ class G9Driver:
                 if alwaysHeader != RECHEADER or alwaysFooter != FOOTER:
                     raise ValueError("Always bits are incorrect")
                 
+                # Save all the msg data so backend can access before checking for errors
+                self.US = data[73:75]
+                self.SITDF = data[11:17]
+                self.SITSF = data[21:27]
+                self.SOTDF = data[17:21]
+                self.SOTSF = data[27:31]
+
                 # Unit status
-                US = data[73:75]
-                if US != b'\x00\x01':
-                    if self.unit_state_error(US):
+                if self.US != b'\x00\x01':
+                    if self.unit_state_error(self.US):
                         raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
 
-                # Terminal Data Flags
-                SITDF = data[11:17]
-                if not self.check_flags13(SITDF):
+                # Input Terminal Data Flags (1 - ON 0 - OFF)
+                if not self.check_flags13(self.SITDF):
                     err = []
-                    gates = self.bytes_to_binary(SITDF[-3:])
+                    gates = self.bytes_to_binary(self.SITDF[-3:])
                     for i in range(20):
                         if gates[-i + 1] == "0":
                             err.append(i)
                     self.input_flags = gates
                     raise ValueError(f"An input is either off or throwing an error: {err}")
 
-                # Terminal Status Flags
-                SITSF = data[21:27]
-                if not self.check_flags13(SITSF):
+                # Input Terminal Status Flags (1 - OK 0 - OFF/ERR)
+                if not self.check_flags13(self.SITSF):
+                    # if error dected checkout terminal error cause
                     if self.safety_in_terminal_error(data[31:55][-10:]):
                         raise ValueError("Error was detected in inputs but was not found")
                        
-                SOTDF = data[17:21]
-                if not self.check_flags13(SOTDF):
+                # Output Terminal Data Flags (1 - ON 0 - OFF)
+                if not self.check_flags13(self.SOTDF):
                     err = []
-                    gates = self.bytes_to_binary(SOTDF[-2:])
+                    gates = self.bytes_to_binary(self.SOTDF[-3:])
                     for i in range(NUMIN):
                         if gates[-i + 1] == "0":
                             err.append(i)
                     raise ValueError(f"There is output(s) off: {err}")
                 
-                SOTSF = data[27:31]
-                if not self.check_flags13(SOTSF):
+                # Output Terminal Status Flags (1 - OK 0 - OFF/ERR)
+                if not self.check_flags13(self.SOTSF):
                     if self.safety_out_terminal_error(data[55:71][-10:]):
                         raise ValueError("Error was detected in outputs but was not found")
                     
+                # Optional Communication data 
                 OCTD = data[7:11]
-                if OCTD != self.msgOptData:
+                if OCTD != SNDDATA:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
                 
                 # # TODO: Need to add error log

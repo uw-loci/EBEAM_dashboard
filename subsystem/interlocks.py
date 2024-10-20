@@ -87,6 +87,7 @@ class InterlocksSubsystem:
                 indicators[k].append(create_indicator(curr_frame, 'green'))
                 indicators[k][-1].grid(row=2, column=0, columnspan=2, sticky="ew")
 
+        # TODO: need to finish adding all this to the dictionary
         # HV Status Section
         hv_frame = tk.Frame(self.interlocks_frame)
         hv_frame.grid(row=0, column=1, padx=10, pady=10)
@@ -163,15 +164,24 @@ class InterlocksSubsystem:
     }
 
     def update_data(self):
+        # this is a point of dicussion, should be always be checking or only when we have an error
+        # one point of view is that we check very throughly in the driver file so if nothing is being thrown everything must be working
+        # the other end would be it is the safety controller it should always be checked
+
+        # i think it should be the second, not only becuase this hardware is for safety but the interlocks on the screen will need to be updated,
+        # when an error is no longer being thrown
+
+        # if no error is thrown we should not need to check anything technically
         try:
             self.driver.send_command()
         except:
+            # if we are in here, we definity have to check
             pass
 
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
         input_err = self.driver.input_flags
-        for i in range(13):
+        for i in range(self.driver.NUMIN):
             self.update_interlock(map[0], input_err[-i + 1] =="1")
 
         # Schedule next update
