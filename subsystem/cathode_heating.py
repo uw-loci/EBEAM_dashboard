@@ -163,11 +163,15 @@ class CathodeHeatingSubsystem:
             set_button.grid(row=0, column=1, sticky='e')
 
             ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
-            voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
+            voltage_label = ttk.Label(main_tab, style='Bold.TLabel')
             voltage_label.grid(row=1, column=1, sticky='w')
             voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
-            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
+            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, 
+                    voltage_var=self.predicted_heater_current_vars[i], 
+                    current_var=self.heater_voltage_vars[i])
+            
             self.voltage_labels.append(voltage_label)
+            self.update_voltage_label(i)
 
             pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
             pred_emission_label.grid(row=2, column=0, sticky='e')
@@ -658,11 +662,13 @@ class CathodeHeatingSubsystem:
                     # Update heater voltage display
                     if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
                         last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
+                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
+                        self.update_voltage_label(i)
                     elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                        self.heater_voltage_vars[i].set(f"{voltage:.2f}")
                     else:
-                        self.heater_voltage_vars[i].set("-- V")
+                        self.heater_voltage_vars[i].set("--")
+                        self.update_voltage_label(i)
 
                     # Update mode display
                     if mode in ["CV Mode", "CC Mode"]:
@@ -963,6 +969,11 @@ class CathodeHeatingSubsystem:
         self.heater_voltage_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
 
+    def update_voltage_label(self, index):
+        voltage_value = self.heater_voltage_vars[index].get()
+        voltage_text = f"{voltage_value} V" if voltage_value != '--' else '-- V'
+        self.voltage_labels[index].config(text=voltage_text)
+
     def on_voltage_label_click(self, index):
         """ Handle clicks on heater voltage label to manually set heater voltage """
         if self.toggle_states[index]:
@@ -975,7 +986,8 @@ class CathodeHeatingSubsystem:
 
         # Create an Entry widget
         voltage_entry = ttk.Entry(voltage_label.master, width=7)
-        voltage_entry.insert(0, self.heater_voltage_vars[index].get())
+        current_voltage_str = self.heater_voltage_vars[index].get()
+        voltage_entry.insert(0, current_voltage_str)
         voltage_entry.grid(row=grid_info['row'], column=grid_info['column'], sticky=grid_info['sticky'])
         voltage_entry.focus_set()
 
@@ -995,6 +1007,7 @@ class CathodeHeatingSubsystem:
             success = self.update_predictions_from_voltage(index, new_voltage)
             if success:
                 self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+                self.update_voltage_label(index)
                 setattr(self, f'last_set_voltage_{index}', new_voltage)
                 self.voltage_set[index] = True
                 self.entry_fields[index].delete(0, tk.END)
