@@ -44,9 +44,14 @@ class InterlocksSubsystem:
             self.driver = g9_driv.G9Driver(com_port)
 
     def setup_gui(self):
-        def create_indicator(frame, color):
+        def create_indicator_circle(frame, color):
             canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
             canvas.create_oval(2, 2, 18, 18, fill=color, outline="")
+            return canvas
+        
+        def create_indicator_square(frame, color):
+            canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
+            canvas.create_rectangle(2, 2, 18, 18, fill=color, outline="")
             return canvas
         
         self.interlocks_frame = tk.Frame(self.parent)
@@ -73,18 +78,18 @@ class InterlocksSubsystem:
             if k == "VACUUM":
                 tk.Label(curr_frame, text="Power").grid(row=1, column=0)
                 tk.Label(curr_frame, text="Pressure").grid(row=1, column=1)
-                for _ in range(2):
-                    indicators[k].append(create_indicator(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=_)
+                for col in range(2):
+                    indicators[k].append(create_indicator_square(curr_frame, 'green'))
+                    indicators[k][-1].grid(row=2, column=col)
             elif k == "OIL":
                 tk.Label(curr_frame, text="Low").grid(row=1, column=0)
                 tk.Label(curr_frame, text="High").grid(row=1, column=1)
-                for _ in range(2):
-                    indicators[k].append(create_indicator(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=_)
+                for col in range(2):
+                    indicators[k].append(create_indicator_square(curr_frame, 'green'))
+                    indicators[k][-1].grid(row=2, column=col)
             else:
                 tk.Label(curr_frame, text=" ").grid(row=1, column=0)
-                indicators[k].append(create_indicator(curr_frame, 'green'))
+                indicators[k].append(create_indicator_circle(curr_frame, 'green'))
                 indicators[k][-1].grid(row=2, column=0, columnspan=2, sticky="ew")
 
         # TODO: need to finish adding all this to the dictionary
@@ -98,8 +103,8 @@ class InterlocksSubsystem:
         tk.Label(hv_frame, text="G9 OUTPUT ON").grid(row=1, column=0)
         tk.Label(hv_frame, text="HVOLT ON").grid(row=1, column=1)
 
-        create_indicator(hv_frame, 'red').grid(row=2, column=0, padx=10, pady=10)
-        create_indicator(hv_frame, 'green').grid(row=2, column=1, padx=10, pady=10)
+        create_indicator_circle(hv_frame, 'red').grid(row=2, column=0, padx=10, pady=10)
+        create_indicator_circle(hv_frame, 'green').grid(row=2, column=1, padx=10, pady=10)
 
         # interlock_labels = [
         #     "Door", "Water", "Vacuum Power", "Vacuum Pressure", "Oil High",
