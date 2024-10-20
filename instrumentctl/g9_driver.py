@@ -34,9 +34,12 @@ usStatus = {
 NUMIN = 13
 
 SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
-SNDFOOTER = b'\x2A\x0D'
 SNDDATA = b'\x00\x00\x00\x00'
 SNDRES = b'\x00\x00'
+
+RECHEADER = b'\x40\x00\x00'
+
+FOOTER = b'\x2A\x0D'
 
 class G9Driver:
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
@@ -53,7 +56,7 @@ class G9Driver:
 
         checksum = self.calculate_checksum(SNDHEADER + SNDDATA + SNDRES, 0 , len(SNDHEADER + SNDDATA))
 
-        self.ser.write(SNDHEADER + SNDDATA + SNDRES + checksum + SNDFOOTER)
+        self.ser.write(SNDHEADER + SNDDATA + SNDRES + checksum + FOOTER)
 
         self.response()
 
@@ -98,7 +101,7 @@ class G9Driver:
             if data[3:4] == b'\xc3':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
-                if alwaysHeader != b'\x40\x00\x00' or alwaysFooter != b'\x2A\x0D':
+                if alwaysHeader != RECHEADER or alwaysFooter != FOOTER:
                     raise ValueError("Always bits are incorrect")
                 
                 # Unit status
@@ -128,7 +131,7 @@ class G9Driver:
                 if not self.check_flags13(SOTDF):
                     err = []
                     gates = self.bytes_to_binary(SOTDF[-2:])
-                    for i in range(13):
+                    for i in range(NUMIN):
                         if gates[-i + 1] == "0":
                             err.append(i)
                     raise ValueError(f"There is output(s) off: {err}")
@@ -161,7 +164,7 @@ class G9Driver:
     """
     # checks all the SITSFs, throws error is one is found
     def safety_in_terminal_error(self, data):
-        if len(data) != 24:
+        if len(data) != 10:
             raise ValueError(f"Expected 24 bytes, but received {len(data)}.")
 
         last_bytes = data[-NUMIN:]
@@ -192,7 +195,7 @@ class G9Driver:
 
     # checks all the SOTSFs, throws error is one is found 
     def safety_out_terminal_error(self, data):
-        if len(data) != 16:
+        if len(data) != 10:
             raise ValueError(f"Expected 16 bytes, but received {len(data)}.")
 
         # only keep needs bytes
