@@ -45,13 +45,13 @@ class InterlocksSubsystem:
 
     def setup_gui(self):
         def create_indicator_circle(frame, color):
-            canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
-            canvas.create_oval(2, 2, 18, 18, fill=color, outline="")
+            canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
+            canvas.create_oval(2, 2, 28, 28, fill=color, outline="black")
             return canvas
         
         def create_indicator_square(frame, color):
-            canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
-            canvas.create_rectangle(2, 2, 18, 18, fill=color, outline="")
+            canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
+            canvas.create_rectangle(2, 2, 28, 28, fill=color, outline="black")
             return canvas
         
         self.interlocks_frame = tk.Frame(self.parent)
@@ -60,7 +60,7 @@ class InterlocksSubsystem:
         self.interlocks_frame.grid_columnconfigure(0, weight=1)
         self.interlocks_frame.grid_columnconfigure(1, weight=1)
 
-        interlocks_frame = tk.Frame(self.interlocks_frame)
+        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
         interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
 
         indicators = {'DOOR': [], 
@@ -80,21 +80,20 @@ class InterlocksSubsystem:
                 tk.Label(curr_frame, text="Pressure").grid(row=1, column=1)
                 for col in range(2):
                     indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=col)
+                    indicators[k][-1].grid(row=2, column=col, padx=10, pady=10)
             elif k == "OIL":
                 tk.Label(curr_frame, text="Low").grid(row=1, column=0)
                 tk.Label(curr_frame, text="High").grid(row=1, column=1)
                 for col in range(2):
                     indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=col)
+                    indicators[k][-1].grid(row=2, column=col, padx=10, pady=10)
             else:
                 tk.Label(curr_frame, text=" ").grid(row=1, column=0)
                 indicators[k].append(create_indicator_circle(curr_frame, 'green'))
-                indicators[k][-1].grid(row=2, column=0, columnspan=2, sticky="ew")
+                indicators[k][-1].grid(row=2, column=0, columnspan=2, padx=10, pady=10)
 
-        # TODO: need to finish adding all this to the dictionary
         # HV Status Section
-        hv_frame = tk.Frame(self.interlocks_frame)
+        hv_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
         hv_frame.grid(row=0, column=1, padx=10, pady=10)
 
         tk.Label(hv_frame, text="HV STATUS", font=("Arial", 10, "bold")).grid(row=0, column=0, columnspan=2)
@@ -108,15 +107,6 @@ class InterlocksSubsystem:
 
         indicators["HVOLT ON"] = [create_indicator_circle(hv_frame, 'red')]
         indicators["HVOLT ON"][-1].grid(row=2, column=1, padx=10, pady=10)
-
-        # interlock_labels = [
-        #     "Door", "Water", "Vacuum Power", "Vacuum Pressure", "Oil High",
-        #     "Oil Low", "Chassis Estop", "Chassis Estop", "G9SP Active", "HVOLT ON"
-        # ]
-        # self.indicators = {
-        #     'active': tk.PhotoImage(file=resource_path("media/on.png")),
-        #     'inactive': tk.PhotoImage(file=resource_path("media/redOff.png"))
-        # }
 
         # for label in interlock_labels:
         #     frame = tk.Frame(self.interlocks_frame)
