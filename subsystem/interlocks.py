@@ -103,11 +103,11 @@ class InterlocksSubsystem:
         hv_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
         hv_frame.grid(row=0, column=1, padx=0, pady=0)
 
-        tk.Label(hv_frame, text="HV STATUS", font=("Arial", 10, "bold")).grid(row=0, column=0, columnspan=2)
+        # tk.Label(hv_frame, text="HV STATUS", font=("Arial", 10, "bold")).grid(row=0, column=0, columnspan=2)
 
         # HV Output On and HVOLT On indicators
-        tk.Label(hv_frame, text="G9 OUTPUT ON").grid(row=1, column=0)
-        tk.Label(hv_frame, text="HVOLT ON").grid(row=1, column=1)
+        tk.Label(hv_frame, text="G9 OUTPUT ON").grid(row=1, column=0, padx=(0,12))
+        tk.Label(hv_frame, text="HVOLT ON").grid(row=1, column=1, padx=(12,0))
 
         indicators["G9 OUTPUT ON"] = [create_indicator_circle(hv_frame, 'red')]
         indicators["G9 OUTPUT ON"][-1].grid(row=2, column=0, padx=0, pady=0, sticky = 'nsew')
