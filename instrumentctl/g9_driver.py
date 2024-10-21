@@ -22,6 +22,9 @@ class G9Driver:
     SITSF_OFFSET = 21  
     SOTSF_OFFSET = 27 
 
+    CHECKSUM_HIGH = 195
+    CHECKSUM_LOW = 196
+
     IN_STATUS = {  
         0: "No error",  
         1: "Invalid configuration",  
@@ -106,13 +109,19 @@ class G9Driver:
         data = self.ser.read_until(self.FOOTER)
         self.lastResponse = data
 
+
+
         # Indexing such that we don't return an integer
         if data[0:1] == b'\x40':
+            # Response length byte
             if data[3:4] == b'\xc3':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
                 if alwaysHeader != self.RECHEADER or alwaysFooter != self.FOOTER:
                     raise ValueError("Always bits are incorrect")
+                
+                if data[self.CHECKSUM_HIGH: self.CHECKSUM_LOW + 1] != self.calculate_checksum(data, 0, 194):
+                     raise ValueError("Incorrect checksum response")
                 
                 # Save all the msg data so backend can access before checking for errors
                 self.US = data[self.US_OFFSET:self.US_OFFSET + 2]          # Unit Status
@@ -146,7 +155,7 @@ class G9Driver:
                 if not self.check_flags13(self.SOTDF):
                     err = []
                     gates = self.bytes_to_binary(self.SOTDF[-3:])
-                    for i in range(NUMIN):
+                    for i in range(self.NUMIN):
                         if gates[-i + 1] == "0":
                             err.append(i)
                     raise ValueError(f"There is output(s) off: {err}")
