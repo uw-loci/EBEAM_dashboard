@@ -16,12 +16,26 @@ class G9Driver:
 
     FOOTER = b'\x2A\x0D'
 
+
+    # Optional Communications Transmission Data
+    OCTD_OFFSET = 7
+
+    # Unit Status
     US_OFFSET = 73  
+
+    # Safety Input/Output Terminal Data Flags
     SITDF_OFFSET = 11  
     SOTDF_OFFSET = 17  
+
+    # Safety Input/Output Terminal Status Flags
     SITSF_OFFSET = 21  
     SOTSF_OFFSET = 27 
 
+    # Safety Input/Output Terminal Error Causes
+    SOTEC_OFFSET = 55
+    SITEC_OFFSET = 31
+
+    # G9 Response Checksum 
     CHECKSUM_HIGH = 195
     CHECKSUM_LOW = 196
 
@@ -119,7 +133,7 @@ class G9Driver:
                 alwaysFooter = data[-2:]
                 if alwaysHeader != self.RECHEADER or alwaysFooter != self.FOOTER:
                     raise ValueError("Always bits are incorrect")
-                
+            
                 if data[self.CHECKSUM_HIGH: self.CHECKSUM_LOW + 1] != self.calculate_checksum(data, 0, 194):
                      raise ValueError("Incorrect checksum response")
                 
@@ -148,7 +162,7 @@ class G9Driver:
                 # Input Terminal Status Flags (1 - OK 0 - OFF/ERR)
                 if not self.check_flags13(self.SITSF):
                     # if error dected checkout terminal error cause
-                    if self.safety_in_terminal_error(data[31:55][-10:]):
+                    if self.safety_in_terminal_error(data[self.SITEC_OFFSET : self.SITEC_OFFSET + 24][-10:]):
                         raise ValueError("Error was detected in inputs but was not found")
                        
                 # Output Terminal Data Flags (1 - ON 0 - OFF)
@@ -162,11 +176,11 @@ class G9Driver:
                 
                 # Output Terminal Status Flags (1 - OK 0 - OFF/ERR)
                 if not self.check_flags13(self.SOTSF):
-                    if self.safety_out_terminal_error(data[55:71][-10:]):
+                    if self.safety_out_terminal_error(data[self.SOTEC_OFFSET : self.SOTEC_OFFSET + 16][-10:]):
                         raise ValueError("Error was detected in outputs but was not found")
                     
                 # Optional Communication data 
-                OCTD = data[7:11]
+                OCTD = data[self.OCTD_OFFSET: self.OCTD_OFFSET + 4]
                 if OCTD != self.SNDDATA:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
                 
@@ -190,7 +204,7 @@ class G9Driver:
     # checks all the SITSFs, throws error is one is found
     def safety_in_terminal_error(self, data):
         if len(data) != 10:
-            raise ValueError(f"Expected 24 bytes, but received {len(data)}.")
+            raise ValueError(f"Expected 10 bytes, but received {len(data)}.")
 
         last_bytes = data[-self.NUMIN:]
         last_bytes = last_bytes[::-1]
@@ -221,7 +235,7 @@ class G9Driver:
     # checks all the SOTSFs, throws error is one is found 
     def safety_out_terminal_error(self, data):
         if len(data) != 10:
-            raise ValueError(f"Expected 16 bytes, but received {len(data)}.")
+            raise ValueError(f"Expected 10 bytes, but received {len(data)}.")
 
         # only keep needs bytes
         last_bytes = data[-self.NUMIN:]
@@ -272,7 +286,7 @@ class G9Driver:
 
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
-        return self.ser is not None and self.ser.is_open
+        return self.ser.is_open
         
 
     #TODO: Figure out how to handle all the errors (end task)
