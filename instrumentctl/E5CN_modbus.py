@@ -36,7 +36,7 @@ class E5CNModbus:
                 return True
 
             if self.client.connect():
-                self.log(f"E5CN Connected to port {self.client.port}.", LogLevel.INFO)
+                self.log(f"E5CN Connected to port {self.client.comm_params.port}.", LogLevel.INFO)
                 return True
             else:
                 self.log("Failed to connect to the E5CN Modbus device.", LogLevel.ERROR)
