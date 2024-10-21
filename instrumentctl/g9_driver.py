@@ -272,7 +272,7 @@ class G9Driver:
 
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
-        return self.ser.is_open
+        return self.ser is not None and self.ser.is_open
         
 
     #TODO: Figure out how to handle all the errors (end task)
