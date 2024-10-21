@@ -5,16 +5,33 @@ import time
 import os
 # from subsystem import interlocks
 
-inStatus = {
-    0: "No error",
-    1: "Invalid configuration",
-    2: 'External test signal failure',
-    3: 'Internal circuit error',
-    4: 'Discrepancy error',
-    5: 'Failure of the associated dual-channel input'
-}
+class G9Driver:
+    NUMIN = 13
 
-outStatus = {
+    SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
+    SNDDATA = b'\x00\x00\x00\x00'
+    SNDRES = b'\x00\x00'
+
+    RECHEADER = b'\x40\x00\x00'
+
+    FOOTER = b'\x2A\x0D'
+
+    US_OFFSET = 73  
+    SITDF_OFFSET = 11  
+    SOTDF_OFFSET = 17  
+    SITSF_OFFSET = 21  
+    SOTSF_OFFSET = 27 
+
+    IN_STATUS = {  
+        0: "No error",  
+        1: "Invalid configuration",  
+        2: 'External test signal failure',  
+        3: 'Internal circuit error',  
+        4: 'Discrepancy error',  
+        5: 'Failure of the associated dual-channel input'  
+    }  
+
+    OUT_STATUS = {
     0: 'No error',
     1: 'Invalid configuration',
     2: 'Overcurrent detection',
@@ -25,42 +42,40 @@ outStatus = {
     8: 'Dual channel violation'
 }
 
-usStatus = {
+    US_STATUS = {
     9: "Output Power Supply Error Flag",
     10: "Safety I/O Terminal Error Flag",
     13: "Function Block Error Flag"
-}
+    }  
 
-NUMIN = 13
-
-SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
-SNDDATA = b'\x00\x00\x00\x00'
-SNDRES = b'\x00\x00'
-
-RECHEADER = b'\x40\x00\x00'
-
-FOOTER = b'\x2A\x0D'
-
-class G9Driver:
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         # not sure if we will need all of these but just adding them now in case
         self.US, self.SITDF, self.SITSF, self.SOTDF, self.SOTSF, self.lastResponse = None, None, None, None, None, None
-        if port:
-            self.ser = serial.Serial(port, baudrate, parity=serial.PARITY_EVEN,
-                                      stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS,
-                                        timeout=timeout)
+
+        if port:  
+            self.ser = serial.Serial(  
+            port=port,  
+            baudrate=baudrate,  
+            parity=serial.PARITY_EVEN,  
+            stopbits=serial.STOPBITS_ONE,  
+            bytesize=serial.EIGHTBITS,  
+            timeout=timeout  
+            )  
+        else:  
+            self.ser = None
+
         self.debug_mode = debug_mode
         self.logger = logger
-        self.NUMIN = NUMIN
+        self.NUMIN = self.NUMIN
         self.input_flags = []
 
     def send_command(self):
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
 
-        checksum = self.calculate_checksum(SNDHEADER + SNDDATA + SNDRES, 0 , len(SNDHEADER + SNDDATA))
+        checksum = self.calculate_checksum(self.SNDHEADER + self.SNDDATA + self.SNDRES, 0 , len(self.SNDHEADER + self.SNDDATA))
 
-        self.ser.write(SNDHEADER + SNDDATA + SNDRES + checksum + FOOTER)
+        self.ser.write(self.SNDHEADER + self.SNDDATA + self.SNDRES + checksum + self.FOOTER)
 
         self.response()
 
@@ -80,15 +95,15 @@ class G9Driver:
     # of a byte string
     def check_flags13(self, byteString, norm = '1'):
         assert isinstance(byteString, bytes)
-        binary_string = self.bytes_to_binary(byteString)[-NUMIN:]
-        string_of_ones = norm * NUMIN
+        binary_string = self.bytes_to_binary(byteString)[-self.NUMIN:]
+        string_of_ones = norm * self.NUMIN
         return binary_string == string_of_ones
     
     def response(self):
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open.")
         
-        data = self.ser.read_until(b'\r')
+        data = self.ser.read_until(self.FOOTER)
         self.lastResponse = data
 
         # Indexing such that we don't return an integer
@@ -96,15 +111,15 @@ class G9Driver:
             if data[3:4] == b'\xc3':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
-                if alwaysHeader != RECHEADER or alwaysFooter != FOOTER:
+                if alwaysHeader != self.RECHEADER or alwaysFooter != self.FOOTER:
                     raise ValueError("Always bits are incorrect")
                 
                 # Save all the msg data so backend can access before checking for errors
-                self.US = data[73:75]
-                self.SITDF = data[11:17]
-                self.SITSF = data[21:27]
-                self.SOTDF = data[17:21]
-                self.SOTSF = data[27:31]
+                self.US = data[self.US_OFFSET:self.US_OFFSET + 2]          # Unit Status
+                self.SITDF = data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6] # Input Terminal Data Flags
+                self.SITSF = data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6] # Input Terminal Status Flags
+                self.SOTDF = data[self.SOTDF_OFFSET:self.SOTDF_OFFSET + 4] # Output Terminal Data Flags
+                self.SOTSF = data[self.SOTSF_OFFSET:self.SOTSF_OFFSET + 4] # Output Terminal Status Flags
 
                 # Unit status
                 if self.US != b'\x00\x01':
@@ -143,7 +158,7 @@ class G9Driver:
                     
                 # Optional Communication data 
                 OCTD = data[7:11]
-                if OCTD != SNDDATA:
+                if OCTD != self.SNDDATA:
                     raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
                 
                 # # TODO: Need to add error log
@@ -168,7 +183,7 @@ class G9Driver:
         if len(data) != 10:
             raise ValueError(f"Expected 24 bytes, but received {len(data)}.")
 
-        last_bytes = data[-NUMIN:]
+        last_bytes = data[-self.NUMIN:]
         last_bytes = last_bytes[::-1]
 
         for i, byte in enumerate(last_bytes):
@@ -176,11 +191,11 @@ class G9Driver:
             lsb = byte & 0x0F  # least sig bits
 
             # check high bits for errors
-            if msb in inStatus and msb != 0:
-                raise ValueError(f"Error at byte {i}H, MSB: {inStatus[msb]} (code {msb})")
+            if msb in self.IN_STATUS and msb != 0:
+                raise ValueError(f"Error at byte {i}H, MSB: {self.IN_STATUS[msb]} (code {msb})")
             # check low bits for errors
-            if lsb in inStatus and lsb != 0:
-                raise ValueError(f"Error at byte {i}L, LSB: {inStatus[lsb]} (code {lsb})")
+            if lsb in self.IN_STATUS and lsb != 0:
+                raise ValueError(f"Error at byte {i}L, LSB: {self.IN_STATUS[lsb]} (code {lsb})")
         return True
         
     """
@@ -200,7 +215,7 @@ class G9Driver:
             raise ValueError(f"Expected 16 bytes, but received {len(data)}.")
 
         # only keep needs bytes
-        last_bytes = data[-NUMIN:]
+        last_bytes = data[-self.NUMIN:]
         # flip direction so enumerate can if us the byte number in the error
         last_bytes = last_bytes[::-1]
 
@@ -209,11 +224,11 @@ class G9Driver:
             lsb = byte & 0x0F  # least sig bits
 
             # check high bits for errors
-            if msb in outStatus and msb != 0:
-                raise ValueError(f"Error at byte {i}H, MSB: {outStatus[msb]} (code {msb})")
+            if msb in self.OUT_STATUS and msb != 0:
+                raise ValueError(f"Error at byte {i}H, MSB: {self.OUT_STATUS[msb]} (code {msb})")
             # check low bits for errors
-            if lsb in outStatus and lsb != 0:
-                raise ValueError(f"Error at byte {i}L, LSB: {outStatus[lsb]} (code {lsb})")
+            if lsb in self.OUT_STATUS and lsb != 0:
+                raise ValueError(f"Error at byte {i}L, LSB: {self.OUT_STATUS[lsb]} (code {lsb})")
         return True
     
     """
@@ -231,9 +246,9 @@ class G9Driver:
         
         bits = self.bytes_to_binary(data)
 
-        for k in usStatus.keys():
+        for k in self.US_STATUS.keys():
             if bits[-(k + 1)] == "1":
-                raise ValueError(f"Unit State Error: {usStatus[k]} (bit {k})")
+                raise ValueError(f"Unit State Error: {self.US_STATUS[k]} (bit {k})")
             
         if bits[-1] == "0":
             raise ValueError(f"Unit State Error: Normal Operation Error Flag (bit 0)")
