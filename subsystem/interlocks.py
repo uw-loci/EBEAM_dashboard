@@ -64,11 +64,11 @@ class InterlocksSubsystem:
         self.interlocks_frame.grid_columnconfigure(0, weight=1)
         self.interlocks_frame.grid_columnconfigure(1, weight=1)
 
-        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
-        interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
+        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=0.75, highlightbackground="black")
+        interlocks_frame.grid(row=0, column=0, padx=0, pady=0)
 
-        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
-        interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
+        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=0.75, highlightbackground="black")
+        interlocks_frame.grid(row=0, column=0, padx=0, pady=0)
 
         indicators = {'DOOR': [], 
                       'WATER': [], 
@@ -87,7 +87,7 @@ class InterlocksSubsystem:
                 tk.Label(curr_frame, text="Pressure").grid(row=1, column=1, sticky = 'ew')
                 for col in range(2):
                     indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=col, padx=0, pady=0, sticky = 'nsew')
+                    indicators[k][-1].grid(row=2, column=col, padx=10, pady=10)
             elif k == "OIL":
                 tk.Label(curr_frame, text="Low").grid(row=1, column=0, sticky='ew')
                 tk.Label(curr_frame, text="High").grid(row=1, column=1, sticky='ew')
