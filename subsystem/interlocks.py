@@ -44,12 +44,14 @@ class InterlocksSubsystem:
     def setup_gui(self):
         def create_indicator_circle(frame, color):
             canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
-            canvas.create_oval(2, 2, 18, 18, fill=color, outline="black")
+            canvas.grid(sticky='nsew')
+            canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
             return canvas
         
         def create_indicator_square(frame, color):
             canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
-            canvas.create_rectangle(2, 2, 18, 18, fill=color, outline="black")
+            canvas.grid(sticky='nsew')
+            canvas.create_rectangle(5, 5, 25, 25, fill=color, outline="black")
             return canvas
         
         # self.interlocks_frame = tk.Frame(self.parent)
@@ -64,56 +66,81 @@ class InterlocksSubsystem:
         self.interlocks_frame.grid_columnconfigure(0, weight=1)
         self.interlocks_frame.grid_columnconfigure(1, weight=1)
 
+        # Single definition of interlocks_frame
         interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
         interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
 
-        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
-        interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
-
+        # Indicators definition
         indicators = {'DOOR': [], 
-                      'WATER': [], 
-                      'VACUUM': [], 
-                      'OIL': [], 
-                      'E-STOP': [], 
-                      'ALL INTERLOCKS': []
-                      }
-        
+                    'WATER': [], 
+                    'VACUUM': [], 
+                    'OIL': [], 
+                    'E-STOP': [], 
+                    'ALL INTERLOCKS': []
+                    }
+
+        # Grid column weight configuration for proper layout
+        for i in range(len(indicators)):
+            interlocks_frame.grid_columnconfigure(i, weight=1)
+
+        # Loop through indicators to create labels and images
         for i, k in enumerate(indicators.keys()):
-            tk.Label(interlocks_frame, text=k, font=("Arial", 10, "bold")).grid(row=0, column=i)
+            # Create label for each key
+           # tk.Label(interlocks_frame, text=k, font=("Arial", 10, "bold"), anchor="center").grid(row=0, column=i, sticky='ew')
+
             curr_frame = tk.Frame(interlocks_frame)
-            curr_frame.grid(row=1, column=i, padx = 0, pady = 0)
+            curr_frame.grid(row=1, column=i, padx=0, pady=0)
+
             if k == "VACUUM":
-                tk.Label(curr_frame, text="Power").grid(row=1, column=0, sticky='ew')
-                tk.Label(curr_frame, text="Pressure").grid(row=1, column=1, sticky = 'ew')
+                # For VACUUM, add two labels and two indicators
+                tk.Label(curr_frame, text="Vac Power", anchor="center").grid(row=0, column=0, sticky='ew')
+                tk.Label(curr_frame, text="Vac Pressure", anchor="center").grid(row=0, column=1, sticky='ew')
                 for col in range(2):
                     indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=col, padx=0, pady=0, sticky = 'nsew')
+                    indicators[k][-1].grid(row=1, column=col, padx=20, pady=0, sticky='nsew')
+
             elif k == "OIL":
-                tk.Label(curr_frame, text="Low").grid(row=1, column=0, sticky='ew')
-                tk.Label(curr_frame, text="High").grid(row=1, column=1, sticky='ew')
+                # For OIL, add two labels and two indicators
+                tk.Label(curr_frame, text="Oil Low", anchor="center").grid(row=0, column=0, sticky='ew')
+                tk.Label(curr_frame, text="Oil High", anchor="center").grid(row=0, column=1, sticky='ew')
                 for col in range(2):
                     indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=2, column=col, padx=10, pady=10)
-            else:
-                tk.Label(curr_frame, text=" ").grid(row=1, column=0, sticky='ew')
+                    indicators[k][-1].grid(row=1, column=col, padx=20, pady=0, sticky='nsew')
+
+            elif k == "E-STOP":
+                # For E-STOP, add two labels and two indicators
+                tk.Label(curr_frame, text="E-STOP Int", anchor="center").grid(row=0, column=0, sticky='ew')
+                tk.Label(curr_frame, text="E-STOP Ext", anchor="center").grid(row=0, column=1, sticky='ew')
+                for col in range(2):
+                    indicators[k].append(create_indicator_square(curr_frame, 'green'))
+                    indicators[k][-1].grid(row=1, column=col, padx=20, pady=0, sticky='nsew')
+
+            elif k == "ALL INTERLOCKS":
+                # For ALL INTERLOCKS, add one label and one indicator
+                tk.Label(curr_frame, text="ALL\nINTERLOCKS", anchor="center").grid(row=0, column=0, sticky='ew')
                 indicators[k].append(create_indicator_circle(curr_frame, 'green'))
-                indicators[k][-1].grid(row=2, column=0, columnspan=2, padx=0, pady=0, sticky = 'nsew')
+                indicators[k][-1].grid(row=1, column=0, padx=20, pady=0, sticky='nsew')
+
+            else:
+                # For other keys, add a single label and one indicator
+                tk.Label(curr_frame, text=k, anchor="center").grid(row=0, column=0, sticky='ew')
+                indicators[k].append(create_indicator_circle(curr_frame, 'green'))
+                indicators[k][-1].grid(row=1, column=0, padx=20, pady=0, sticky='nsew')
 
         # HV Status Section
         hv_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
-        hv_frame.grid(row=0, column=1, padx=0, pady=0)
+        hv_frame.grid(row=0, column=1, padx=10, pady=10)
 
-        tk.Label(hv_frame, text="HV STATUS", font=("Arial", 10, "bold")).grid(row=0, column=0, columnspan=2)
 
         # HV Output On and HVOLT On indicators
-        tk.Label(hv_frame, text="G9 OUTPUT ON").grid(row=1, column=0)
-        tk.Label(hv_frame, text="HVOLT ON").grid(row=1, column=1)
+        tk.Label(hv_frame, text="G9 OUTPUT\nON", anchor="center").grid(row=1, column=0, sticky='ew')
+        tk.Label(hv_frame, text="HVOLT\nON", anchor="center").grid(row=1, column=1, sticky='ew')
 
         indicators["G9 OUTPUT ON"] = [create_indicator_circle(hv_frame, 'red')]
-        indicators["G9 OUTPUT ON"][-1].grid(row=2, column=0, padx=0, pady=0, sticky = 'nsew')
+        indicators["G9 OUTPUT ON"][-1].grid(row=2, column=0, padx=20, pady=0, sticky='nsew')
 
         indicators["HVOLT ON"] = [create_indicator_circle(hv_frame, 'red')]
-        indicators["HVOLT ON"][-1].grid(row=2, column=1, padx=0, pady=0, sticky = 'nsew')
+        indicators["HVOLT ON"][-1].grid(row=2, column=1, padx=20, pady=0, sticky='nsew')
 
         # for label in interlock_labels:
         #     frame = tk.Frame(self.interlocks_frame)
