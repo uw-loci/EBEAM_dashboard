@@ -123,12 +123,17 @@ class G9Driver:
         self.lastResponse = data
 
         # Indexing such that we don't return an integer
-        if data[0] == b'\x40':
-            if data[3] == b'\xc3':
+        if data[0:1] == b'\x40':
+            # Response length byte
+            if data[3:4] == b'\xc3':
                 alwaysHeader = data[0:3]
                 alwaysFooter = data[-2:]
+
                 if alwaysHeader != self.RECHEADER or alwaysFooter != self.FOOTER:
                     raise ValueError("Always bits are incorrect")
+                
+                if data[self.CHECKSUM_HIGH: self.CHECKSUM_LOW + 1] != self.calculate_checksum(data, 0, 194):
+                     raise ValueError("Incorrect checksum response")
                 
                 # Save all the msg data so backend can access before checking for errors
                 self.US = data[self.US_OFFSET:self.US_OFFSET + 2]          # Unit Status
