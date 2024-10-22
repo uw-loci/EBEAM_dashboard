@@ -1,10 +1,4 @@
-import logging
 from pymodbus.client import ModbusSerialClient as ModbusClient
-from pymodbus.constants import Endian
-# from pymodbus.diag_message import ReturnQueryDataRequest
-from pymodbus.pdu import ModbusRequest
-from serial.rs485 import RS485Settings
-import time
 from utils import LogLevel  # Ensure this module is correctly implemented
 
 class E5CNModbus:
