@@ -4,7 +4,6 @@ from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
-import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -573,6 +572,8 @@ class CathodeHeatingSubsystem:
                     self.temperature_controller = tc
                     self.temp_controllers_connected = True
                     self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
+                
+                    self.temperature_controller.start_reading_temperatures()
                 else:
                     self.log(f"Failed to connect to temperature controllers at {port}", LogLevel.ERROR)
                     self.temperature_controllers_connected = False
@@ -589,13 +590,13 @@ class CathodeHeatingSubsystem:
         if self.temperature_controller and self.temp_controllers_connected:
             try:
                 # Attempt to read temperature from the connected temperature controller
-                temperature = self.temperature_controller.read_temperature(unit=index + 1)
+                temperature = self.temperature_controller.temperatures[index]
                 if temperature is not None:
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} °C")
                     self.set_plot_alert(index, alert_status=False)
                     return temperature
                 else:
-                    raise Exception("No temperature data received")
+                    self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
             except Exception as e:
                 self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
                 self.set_plot_alert(index, alert_status=True)  # Set plot border to red
