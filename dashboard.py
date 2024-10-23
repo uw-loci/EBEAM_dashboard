@@ -23,9 +23,9 @@ from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 
 # title, row, width, height
 frames_config = [
-    ("Interlocks", 0, None, 10),  # Moved to the top row
+    ("Interlocks", 0, None, 2),  # Moved to the top row
     ("Oil System", 0, 50, 150),
-    ("Visualization Gas Control", 0, 50, 150),
+    ("Visualization Gas Control", 1, 50, 150),
     ("System Checks", 0, None, None),
     ("Beam Extraction", 0, None, None),
     ("Vacuum System", 1, 150, 300),
