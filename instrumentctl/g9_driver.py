@@ -84,18 +84,25 @@ class G9Driver:
         if not self.is_connected():
             raise ConnectionError("Seiral Port is Not Open.")
 
-        checksum = self.calculate_checksum(self.SNDHEADER + self.SNDDATA + self.SNDRES, 0 , len(self.SNDHEADER + self.SNDDATA))
+        message = self.SNDHEADER + self.SNDDATA + self.SNDRES
+        checksum = self.calculate_checksum(message)
+        full_message = message + checksum + self.FOOTER
 
-        self.ser.write(self.SNDHEADER + self.SNDDATA + self.SNDRES + checksum + self.FOOTER)
+        try:
+            self.ser.write(full_message)
+            self.read_response()
+        except serial.SerialException as e:
+            if self.logger:
+                self.logger.error(f"Serial communication error ")
 
-        self.response()
 
     # used mainly for the check sum but can also be used to check for error flags
     # needs an input of a byte string and the range of bytes that need to be sum
     # will return the sum of the bytes in the a byte string in the form of b'\x12'
-    def calculate_checksum(self, byteString, startByte, endByte):
-        assert isinstance(byteString, bytes)
-        return sum(byteString[startByte:endByte + 1]).to_bytes(2, "big") 
+    def calculate_checksum(self, byte_string):
+        assert isinstance(byte_string, bytes)
+        checksum_value = sum(byte_string, bytes)
+        return checksum_value.to_bytes(2, "big")
 
     # helper function to convert bytes to bits for checking flags
     # not currently being used but many be helpful in the future for getting errors
@@ -110,7 +117,7 @@ class G9Driver:
         string_of_ones = norm * self.NUMIN
         return binary_string == string_of_ones
     
-    def response(self):
+    def read_response(self):
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open.")
         
