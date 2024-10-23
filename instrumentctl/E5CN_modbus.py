@@ -1,3 +1,5 @@
+import threading
+import time
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
@@ -8,6 +10,9 @@ class E5CNModbus:
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
         self.logger = logger
         self.debug_mode = debug_mode
+        self.stop_event = threading.Event() # to stop the thread
+        self.threads = [] # for each unit
+        self.temperatures = [None, None, None] # latest temp values
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -22,6 +27,35 @@ class E5CNModbus:
 
         if self.debug_mode:
             self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
+
+    def start_reading_temperatures(self):
+        """Start threads for continuously reading temperature for each unit."""
+        for unit in self.UNIT_NUMBERS:
+            thread = threading.Thread(target=self._read_temperature_continuously, args=(unit,), daemon=True)
+            thread.start()
+            self.threads.append(thread)
+
+    def _read_temperature_continuously(self, unit):
+        """Read temperature continuously in a loop for the given unit."""
+        while not self.stop_event.is_set():
+            try:
+                temperature = self.read_temperature(unit)
+                if temperature is not None:
+                    self.temperatures[unit - 1] = temperature  # Store the latest temperature
+                    self.log(f"Unit {unit} Temperature: {temperature} °C", LogLevel.INFO)
+            except Exception as e:
+                self.log(f"Error reading temperature for unit {unit}: {str(e)}", LogLevel.ERROR)
+
+            # Sleep for 500 ms before the next reading
+            time.sleep(0.5)
+
+    def stop_reading(self):
+        """Stop all temperature reading threads."""
+        self.stop_event.set()
+        for thread in self.threads:
+            thread.join()  # Wait for the thread to finish
+        self.threads.clear()
+        self.log("Stopped all temperature reading threads", LogLevel.INFO)
 
     def connect(self):
         try:
