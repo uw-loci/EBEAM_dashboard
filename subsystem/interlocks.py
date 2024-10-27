@@ -30,11 +30,6 @@ class InterlocksSubsystem:
         self.parent = parent
         self.logger = logger
         self.frames = frames
-        self.interlock_status = {
-            "Door":  1, "Water": 0, "Vacuum Power": 0, "Vacuum Pressure": 1,
-            "Oil High": 0, "Oil Low": 0, "Chassis Estop": 1,
-            "Chassis Estop": 1, "All Interlocks" : 0, "G9SP Active": 1, "HVOLT ON" : 0 
-        }
         self.setup_gui()
 
     def update_com_port(self, com_port):
@@ -120,46 +115,34 @@ class InterlocksSubsystem:
         indicators['HVOLT ON'].append(create_indicator_circle(interlocks_frame, 'green'))
         indicators['HVOLT ON'][-1].grid(row=0, column=21, sticky='nsew')
 
-
-
-        # for label in interlock_labels:
-        #     frame = tk.Frame(self.interlocks_frame)
-        #     frame.pack(side=tk.LEFT, expand=True, padx=5)
-
-        #     lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
-        #     lbl.pack(side=tk.LEFT)
-        #     status = self.interlock_status[label]
-        #     #  for later to add frames being highlighted with red
-        #     # # TODO: this currently does not work make because of frame keys not matching the interlock_status keys
-        #     # # also flashing method only turns red, make flash
-        #     # if status == 0:
-        #     #     self.highlight_frame('Vacuum System', flashes=5, interval=500)
-        #     # # else:
-        #     # #     self.reset_frame_highlights()
-
-        #     indicator = tk.Label(frame, image=self.indicators['active'] if status == 1 else self.indicators['inactive'])
-        #     indicator.pack(side=tk.RIGHT, pady=1)
-        #     frame.indicator = indicator  # Store reference to the indicator for future updates
-
     # logging the history of updates
-    def update_interlock(self, name, status):
-        if name in self.parent.children:
-            frame = self.parent.children[name]
-            indicator = frame.indicator
-            new_image = self.indicators['active'] if status == 1 else self.indicators['inactive']
-            indicator.config(image=new_image)
-            indicator.image = new_image  # Keep a reference
+    def update_interlock(self, name, safety, data):
+        # means good
+        if safety & data == 1:
+            # TODO: need to make sure the interlock is green
+            pass
+        # not good 
+        else:
+            # TODO: need to make the interlock red
+            pass
 
-            # logging the update
-            old_status = self.interlock_status.get(name, None)
-            if old_status is not None and old_status != status:
-                log_message = f"Interlock status of {name} changed from {old_status} to {status}"
-                self.logger.info(log_message)
-                self.interlock_status[name] = status # log the previous state, and update it to the new state
+        # if name in self.parent.children:
+        #     frame = self.parent.children[name]
+        #     indicator = frame.indicator
+        #     new_image = self.indicators['active'] if status == 1 else self.indicators['inactive']
+        #     indicator.config(image=new_image)
+        #     indicator.image = new_image  # Keep a reference
+
+        #     # logging the update
+        #     old_status = self.interlock_status.get(name, None)
+        #     if old_status is not None and old_status != status:
+        #         log_message = f"Interlock status of {name} changed from {old_status} to {status}"
+        #         self.logger.info(log_message)
+        #         self.interlock_status[name] = status # log the previous state, and update it to the new state
 
 
     # the bit poistion for each interlock
-    inputs = {
+    INPUTS = {
         0 : "Chassis Estop",
         1 : "Chassis Estop",
         2 : "Peripheral Estop",
@@ -192,34 +175,16 @@ class InterlocksSubsystem:
 
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
-        input_err = self.driver.input_flags
+        sitsf = self.driver.SITSF[-3:]
+        sitdf = self.driver.SITDF[-3:]
+        
         for i in range(self.driver.NUMIN):
-            self.update_interlock(map[0], input_err[-i + 1] =="1")
+            self.update_interlock(INPUTS[i], sitsf[-i], sitdf[-i])
 
         # Schedule next update
         self.parent.after(500, self.update_data)
 
 
-    def update_pressure_dependent_locks(self, pressure):
-        # Disable the Vacuum lock if pressure is below 2 mbar
-        self.update_interlock("Vacuum", pressure >= 2)
-
-
-    # first trying to get the highlight method to work first
-    # def reset_frame_highlights(self):
-    #     for frame in self.frame.values:
-    #         print(self.frame.values)
-    #         frame.config(bg=self.parent.cget('bg'))
-
-
-    # # this method right now only sets the frame boarder to be red TODO: make it flash
-    # def highlight_frame(self, label, flashes=5, interval=500):
-    #     if label in self.frames:
-    #         frame = self.frames[label]
-    #         reg = frame.cget('highlightbackground')
-    #         new_color = 'red'
-
-    #         frame.config(highlightbackground=new_color, highlightthickness=5, relief='solid')
 
 
 
