@@ -49,20 +49,20 @@ class G9Driver:
     }  
 
     OUT_STATUS = {
-    0: 'No error',
-    1: 'Invalid configuration',
-    2: 'Overcurrent detection',
-    3: 'Short circuit detection',
-    4: 'Stuck-at-high detection',
-    5: 'Failure of the associated dual-channel output',
-    6: 'Internal circuit error',
-    8: 'Dual channel violation'
-}
+        0: 'No error',
+        1: 'Invalid configuration',
+        2: 'Overcurrent detection',
+        3: 'Short circuit detection',
+        4: 'Stuck-at-high detection',
+        5: 'Failure of the associated dual-channel output',
+        6: 'Internal circuit error',
+        8: 'Dual channel violation'
+    }
 
     US_STATUS = {
-    9: "Output Power Supply Error Flag",
-    10: "Safety I/O Terminal Error Flag",
-    13: "Function Block Error Flag"
+        9: "Output Power Supply Error Flag",
+        10: "Safety I/O Terminal Error Flag",
+        13: "Function Block Error Flag"
     }  
 
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
@@ -286,6 +286,5 @@ class G9Driver:
     def is_connected(self):
         return self.ser.is_open
         
-
     #TODO: Figure out how to handle all the errors (end task)
     #TODO: add a function to keep track of the driver uptime\
