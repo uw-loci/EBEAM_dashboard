@@ -1,7 +1,17 @@
-from ..Instrumentctl import g9_driver
+import os 
+import sys
+# os.chdir("../../instrumentctl")
+# os.chdir("")
+print(os.getcwd())  # Check if it’s the expected directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+
+
+from instrumentctl.g9_driver import G9Driver
 import time
 
-g9 = g9_driver.G9Driver(port='COM11')
+g9 = G9Driver.G9Driver(port='COM11')
 
 responses = []
 

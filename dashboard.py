@@ -21,21 +21,40 @@ from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 # ]
 
 
+# # title, row, width, height
+# frames_config = [
+#     ("Interlocks", 0, None, 2),  # Moved to the top row
+#     ("Oil System", 0, 50, 150),
+#     ("Visualization Gas Control", 1, 50, 150),
+#     ("System Checks", 0, None, None),
+#     ("Beam Extraction", 0, None, None),
+#     ("Vacuum System", 1, 150, 300),
+#     ("Deflection Monitor", 1, None, None),
+#     ("Beam Pulse", 1, None, None),
+#     ("Main Control", 1, 50, 300),
+#     ("Setup Script", 2, None, 25),
+#     ("High Voltage Warning", 2, None, 25),
+#     ("Environmental", 3, 150, 450),
+#     ("Cathode Heating", 3, 960, 450),
+# ]
+
+
+# Only have the interlocks at the top of the display
 # title, row, width, height
 frames_config = [
     ("Interlocks", 0, None, 2),  # Moved to the top row
-    ("Oil System", 0, 50, 150),
-    ("Visualization Gas Control", 1, 50, 150),
-    ("System Checks", 0, None, None),
-    ("Beam Extraction", 0, None, None),
-    ("Vacuum System", 1, 150, 300),
-    ("Deflection Monitor", 1, None, None),
-    ("Beam Pulse", 1, None, None),
-    ("Main Control", 1, 50, 300),
-    ("Setup Script", 2, None, 25),
-    ("High Voltage Warning", 2, None, 25),
-    ("Environmental", 3, 150, 450),
-    ("Cathode Heating", 3, 960, 450),
+    ("Oil System", 1, 50, 150),
+    ("Visualization Gas Control", 2, 50, 150),
+    ("System Checks", 1, None, None),
+    ("Beam Extraction", 1, None, None),
+    ("Vacuum System", 2, 150, 300),
+    ("Deflection Monitor", 2, None, None),
+    ("Beam Pulse", 2, None, None),
+    ("Main Control", 2, 50, 300),
+    ("Setup Script", 3, None, 25),
+    ("High Voltage Warning", 3, None, 25),
+    ("Environmental", 4, 150, 450),
+    ("Cathode Heating", 4, 960, 450),
 ]
 
 import serial.tools.list_ports
@@ -89,7 +108,8 @@ class EBEAMSystemDashboard:
                 # frame.pack_propagate(False)
 
             self.rows[row].add(frame, stretch='always')
-            self.add_title(frame, title)
+            if title != "Interlocks":
+                self.add_title(frame, title)
             self.frames[title] = frame
             if title == "Setup Script":
                 SetupScripts(frame)
@@ -183,8 +203,8 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a frame for displaying messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3])
-        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        self.messages_frame = MessagesFrame(self.rows[4])
+        self.rows[4].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
 
     def create_com_port_frame(self, parent_frame):

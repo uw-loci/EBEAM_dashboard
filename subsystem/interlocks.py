@@ -5,6 +5,23 @@ import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
 
+# the bit poistion for each interlock
+INPUTS = {
+    0 : "E-STOP Int", # Chassis Estop
+    1 : "E-STOP Int", # Chassis Estop
+    2 : "E-STOP Ext", # Peripheral Estop
+    3 : "E-STOP Ext", # Peripheral Estop
+    4 : "Door", # Door 
+    5 : "Door", # Door Lock
+    6 : "Vacuum Power", # Vacuum Power
+    7 : "Vacuum Pressure", # Vacuum Pressure
+    8 : "High Oil", # Oil High
+    9 : "Low Oil", # Oil Low
+    10 : "Water", # Water
+    11 : "HVolt ON", # HVolt ON
+    12 : "G9SP Active" # G9SP Active
+    }
+
 def handle_errors(self, data):
     try:
         response = g9_driv.response()
@@ -30,11 +47,7 @@ class InterlocksSubsystem:
         self.parent = parent
         self.logger = logger
         self.frames = frames
-        self.interlock_status = {
-            "Door":  1, "Water": 0, "Vacuum Power": 0, "Vacuum Pressure": 1,
-            "Oil High": 0, "Oil Low": 0, "Chassis Estop": 1,
-            "Chassis Estop": 1, "All Interlocks" : 0, "G9SP Active": 1, "HVOLT ON" : 0 
-        }
+        self.indicators = None
         self.setup_gui()
 
     def update_com_port(self, com_port):
@@ -45,201 +58,92 @@ class InterlocksSubsystem:
         def create_indicator_circle(frame, color):
             canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
             canvas.grid(sticky='nsew')
-            canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
-            return canvas
-        
-        def create_indicator_square(frame, color):
-            canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
-            canvas.grid(sticky='nsew')
-            canvas.create_rectangle(5, 5, 25, 25, fill=color, outline="black")
-            return canvas
-        
-        # self.interlocks_frame = tk.Frame(self.parent)
-        # self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
-        # self.interlocks_frame.grid_rowconfigure(0, weight=1)
-        # self.interlocks_frame.grid_columnconfigure(0, weight=1)
-        # self.interlocks_frame.grid_columnconfigure(1, weight=1)
+            oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
+            return canvas, oval_id
 
         self.interlocks_frame = tk.Frame(self.parent)
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.parent.grid_rowconfigure(0, weight=1)
+        self.parent.grid_columnconfigure(0, weight=1)
+
         self.interlocks_frame.grid_rowconfigure(0, weight=1)
         self.interlocks_frame.grid_columnconfigure(0, weight=1)
-        self.interlocks_frame.grid_columnconfigure(1, weight=1)
+        self.interlocks_frame.grid(row=0, column=0, sticky='nsew')
 
-        # Single definition of interlocks_frame
-        interlocks_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
-        interlocks_frame.grid(row=0, column=0, padx=10, pady=10)
+        interlocks_frame = tk.Frame(self.interlocks_frame, highlightbackground="black")
+        interlocks_frame.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
 
-        # Indicators definition
-        indicators = {'DOOR': [], 
-                    'WATER': [], 
-                    'VACUUM': [], 
-                    'OIL': [], 
-                    'E-STOP': [], 
-                    'ALL INTERLOCKS': []
-                    }
-
-        # Grid column weight configuration for proper layout
-        for i in range(len(indicators)):
+        num_columns = 22  
+        for i in range(num_columns):
             interlocks_frame.grid_columnconfigure(i, weight=1)
 
-        # Loop through indicators to create labels and images
-        for i, k in enumerate(indicators.keys()):
-            # Create label for each key
-           # tk.Label(interlocks_frame, text=k, font=("Arial", 10, "bold"), anchor="center").grid(row=0, column=i, sticky='ew')
-
-            curr_frame = tk.Frame(interlocks_frame)
-            curr_frame.grid(row=1, column=i, padx=0, pady=0)
-
-            if k == "VACUUM":
-                # For VACUUM, add two labels and two indicators
-                tk.Label(curr_frame, text="Vac Power", anchor="center").grid(row=0, column=0, sticky='ew')
-                tk.Label(curr_frame, text="Vac Pressure", anchor="center").grid(row=0, column=1, sticky='ew')
-                for col in range(2):
-                    indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=1, column=col, padx=20, pady=0, sticky='nsew')
-
-            elif k == "OIL":
-                # For OIL, add two labels and two indicators
-                tk.Label(curr_frame, text="Oil Low", anchor="center").grid(row=0, column=0, sticky='ew')
-                tk.Label(curr_frame, text="Oil High", anchor="center").grid(row=0, column=1, sticky='ew')
-                for col in range(2):
-                    indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=1, column=col, padx=20, pady=0, sticky='nsew')
-
-            elif k == "E-STOP":
-                # For E-STOP, add two labels and two indicators
-                tk.Label(curr_frame, text="E-STOP Int", anchor="center").grid(row=0, column=0, sticky='ew')
-                tk.Label(curr_frame, text="E-STOP Ext", anchor="center").grid(row=0, column=1, sticky='ew')
-                for col in range(2):
-                    indicators[k].append(create_indicator_square(curr_frame, 'green'))
-                    indicators[k][-1].grid(row=1, column=col, padx=20, pady=0, sticky='nsew')
-
-            elif k == "ALL INTERLOCKS":
-                # For ALL INTERLOCKS, add one label and one indicator
-                tk.Label(curr_frame, text="ALL\nINTERLOCKS", anchor="center").grid(row=0, column=0, sticky='ew')
-                indicators[k].append(create_indicator_circle(curr_frame, 'green'))
-                indicators[k][-1].grid(row=1, column=0, padx=20, pady=0, sticky='nsew')
-
-            else:
-                # For other keys, add a single label and one indicator
-                tk.Label(curr_frame, text=k, anchor="center").grid(row=0, column=0, sticky='ew')
-                indicators[k].append(create_indicator_circle(curr_frame, 'green'))
-                indicators[k][-1].grid(row=1, column=0, padx=20, pady=0, sticky='nsew')
-
-        # HV Status Section
-        hv_frame = tk.Frame(self.interlocks_frame, highlightthickness=2, highlightbackground="black")
-        hv_frame.grid(row=0, column=1, padx=10, pady=10)
-
-
-        # HV Output On and HVOLT On indicators
-        tk.Label(hv_frame, text="G9 OUTPUT\nON", anchor="center").grid(row=1, column=0, sticky='ew')
-        tk.Label(hv_frame, text="HVOLT\nON", anchor="center").grid(row=1, column=1, sticky='ew')
-
-        indicators["G9 OUTPUT ON"] = [create_indicator_circle(hv_frame, 'red')]
-        indicators["G9 OUTPUT ON"][-1].grid(row=2, column=0, padx=20, pady=0, sticky='nsew')
-
-        indicators["HVOLT ON"] = [create_indicator_circle(hv_frame, 'red')]
-        indicators["HVOLT ON"][-1].grid(row=2, column=1, padx=20, pady=0, sticky='nsew')
-
-        # for label in interlock_labels:
-        #     frame = tk.Frame(self.interlocks_frame)
-        #     frame.pack(side=tk.LEFT, expand=True, padx=5)
-
-        #     lbl = tk.Label(frame, text=label, font=("Helvetica", 8))
-        #     lbl.pack(side=tk.LEFT)
-        #     status = self.interlock_status[label]
-        #     #  for later to add frames being highlighted with red
-        #     # # TODO: this currently does not work make because of frame keys not matching the interlock_status keys
-        #     # # also flashing method only turns red, make flash
-        #     # if status == 0:
-        #     #     self.highlight_frame('Vacuum System', flashes=5, interval=500)
-        #     # # else:
-        #     # #     self.reset_frame_highlights()
-
-        #     indicator = tk.Label(frame, image=self.indicators['active'] if status == 1 else self.indicators['inactive'])
-        #     indicator.pack(side=tk.RIGHT, pady=1)
-        #     frame.indicator = indicator  # Store reference to the indicator for future updates
+        self.indicators = {
+            'Door': None, 'Water': None, 'Vac Power': None, 
+            'Vac Pressure': None, 'Low Oil': None, 'High Oil': None, 
+            'E-STOP Int': None, 'E-STOP Ext' : None, 'All Interlocks': None, 
+            'G9 Output': None, 'HVOLT ON': None
+                      }
+        
+        # Makes all the inticators and labels
+        for i, (k,v) in enumerate(self.indicators.items()):
+            tk.Label(interlocks_frame, text=f"{k}", anchor="center").grid(row=0, column=i*2, sticky='ew')
+            canvas, oval_id = create_indicator_circle(interlocks_frame, 'red')
+            canvas.grid(row=0, column=i*2+1, sticky='nsew')
+            self.indicators[k] = (canvas, oval_id)
 
     # logging the history of updates
-    def update_interlock(self, name, status):
-        if name in self.parent.children:
-            frame = self.parent.children[name]
-            indicator = frame.indicator
-            new_image = self.indicators['active'] if status == 1 else self.indicators['inactive']
-            indicator.config(image=new_image)
-            indicator.image = new_image  # Keep a reference
+    def update_interlock(self, name, safety, data):
+        # means good
+        if safety & data == 1:
+            color = 'green'
+        # Not good 
+        else:
+            color = 'red'
 
-            # logging the update
-            old_status = self.interlock_status.get(name, None)
-            if old_status is not None and old_status != status:
-                log_message = f"Interlock status of {name} changed from {old_status} to {status}"
-                self.logger.info(log_message)
-                self.interlock_status[name] = status # log the previous state, and update it to the new state
+        if name in self.indicators:
+            canvas, oval_id = self.indicators[name]
+            canvas.itemconfig(oval_id, fill=color)
 
+        # if name in self.parent.children:
+        #     frame = self.parent.children[name]
+        #     indicator = frame.indicator
+        #     new_image = self.indicators['active'] if status == 1 else self.indicators['inactive']
+        #     indicator.config(image=new_image)
+        #     indicator.image = new_image  # Keep a reference
 
-    # the bit poistion for each interlock
-    inputs = {
-        0 : "Chassis Estop",
-        1 : "Chassis Estop",
-        2 : "Peripheral Estop",
-        3 : "Peripheral Estop",
-        4 : "Door",
-        5 : "Door Lock",
-        6 : "Vacuum Power",
-        7 : "Vacuum Pressure",
-        8 : "Oil High",
-        9 : "Oil Low",
-        10 : "Water",
-        11 : "HVolt ON",
-        12 : "G9SP Active"
-    }
+        #     # logging the update
+        #     old_status = self.interlock_status.get(name, None)
+        #     if old_status is not None and old_status != status:
+        #         log_message = f"Interlock status of {name} changed from {old_status} to {status}"
+        #         self.logger.info(log_message)
+        #         self.interlock_status[name] = status # log the previous state, and update it to the new state
+
 
     def update_data(self):
-        # this is a point of dicussion, should be always be checking or only when we have an error
-        # one point of view is that we check very throughly in the driver file so if nothing is being thrown everything must be working
-        # the other end would be it is the safety controller it should always be checked
-
-        # i think it should be the second, not only becuase this hardware is for safety but the interlocks on the screen will need to be updated,
-        # when an error is no longer being thrown
-
-        # if no error is thrown we should not need to check anything technically
         try:
             self.driver.send_command()
         except:
+            # TODO: what to do here
             # if we are in here, we definity have to check
             pass
 
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
-        input_err = self.driver.input_flags
-        for i in range(self.driver.NUMIN):
-            self.update_interlock(map[0], input_err[-i + 1] =="1")
+        sitsf = self.driver.SITSF[-self.driver.NUMIN:]
+        sitdf = self.driver.SITDF[-self.driver.NUMIN:]
+
+        # this loop is for the 3 interlocks that have 2 inputs
+        for i in range(3):
+            self.update_interlock(self.indicators[INPUTS[i*2]], sitsf[-i*2] & sitsf[-i*2 + 1], sitdf[-i*2] & sitdf[-i*2 + 1])
+        # this is for the rest of the interlocks with only one input
+        for i in range(6, 13):
+            self.update_interlock(self.indicators[INPUTS[i*2]], sitsf[-i], sitdf[-i])
 
         # Schedule next update
         self.parent.after(500, self.update_data)
 
 
-    def update_pressure_dependent_locks(self, pressure):
-        # Disable the Vacuum lock if pressure is below 2 mbar
-        self.update_interlock("Vacuum", pressure >= 2)
-
-
-    # first trying to get the highlight method to work first
-    # def reset_frame_highlights(self):
-    #     for frame in self.frame.values:
-    #         print(self.frame.values)
-    #         frame.config(bg=self.parent.cget('bg'))
-
-
-    # # this method right now only sets the frame boarder to be red TODO: make it flash
-    # def highlight_frame(self, label, flashes=5, interval=500):
-    #     if label in self.frames:
-    #         frame = self.frames[label]
-    #         reg = frame.cget('highlightbackground')
-    #         new_color = 'red'
-
-    #         frame.config(highlightbackground=new_color, highlightthickness=5, relief='solid')
 
 
 
