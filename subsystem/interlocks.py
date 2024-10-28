@@ -68,9 +68,10 @@ class InterlocksSubsystem:
             'G9 Output': None, 'HVOLT ON': None
                       }
         
+        # Makes all the inticators and labels
         for i, (k,v) in enumerate(self.indicators.items()):
             tk.Label(interlocks_frame, text=f"{k}", anchor="center").grid(row=0, column=i*2, sticky='ew')
-            canvas, oval_id = create_indicator_circle(interlocks_frame, 'green')
+            canvas, oval_id = create_indicator_circle(interlocks_frame, 'red')
             canvas.grid(row=0, column=i*2+1, sticky='nsew')
             self.indicators[k] = (canvas, oval_id)
 
@@ -123,6 +124,7 @@ class InterlocksSubsystem:
         try:
             self.driver.send_command()
         except:
+            # TODO: what to do here
             # if we are in here, we definity have to check
             pass
 
@@ -135,7 +137,7 @@ class InterlocksSubsystem:
         for i in range(3):
             self.update_interlock(self.interlocks_frame[i*2], sitsf[-i*2] & sitsf[-i*2 + 1], sitdf[-i*2] & sitdf[-i*2 + 1])
         # this is for the rest of the interlocks with only one input
-        for i in range(6, 12):
+        for i in range(6, 13):
             self.update_interlock(self.interlocks_frame[i], sitsf[-i], sitdf[-i])
 
         # Schedule next update
