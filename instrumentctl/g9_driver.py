@@ -139,7 +139,9 @@ class G9Driver:
                 # Save all the msg data so backend can access before checking for errors
                 self.US = data[self.US_OFFSET:self.US_OFFSET + 2]          # Unit Status
                 self.SITDF = data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6] # Input Terminal Data Flags
+                self.binSITDF = self.bytes_to_binary(data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6])
                 self.SITSF = data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6] # Input Terminal Status Flags
+                self.binSITSF = self.bytes_to_binary(data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6])
                 self.SOTDF = data[self.SOTDF_OFFSET:self.SOTDF_OFFSET + 4] # Output Terminal Data Flags
                 self.SOTSF = data[self.SOTSF_OFFSET:self.SOTSF_OFFSET + 4] # Output Terminal Status Flags
 

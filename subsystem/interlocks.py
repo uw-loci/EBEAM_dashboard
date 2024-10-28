@@ -5,6 +5,23 @@ import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
 
+# the bit poistion for each interlock
+INPUTS = {
+    0 : "E-STOP Int", # Chassis Estop
+    1 : "E-STOP Int", # Chassis Estop
+    2 : "E-STOP Ext", # Peripheral Estop
+    3 : "E-STOP Ext", # Peripheral Estop
+    4 : "Door", # Door 
+    5 : "Door", # Door Lock
+    6 : "Vacuum Power", # Vacuum Power
+    7 : "Vacuum Pressure", # Vacuum Pressure
+    8 : "High Oil", # Oil High
+    9 : "Low Oil", # Oil Low
+    10 : "Water", # Water
+    11 : "HVolt ON", # HVolt ON
+    12 : "G9SP Active" # G9SP Active
+    }
+
 def handle_errors(self, data):
     try:
         response = g9_driv.response()
@@ -103,23 +120,6 @@ class InterlocksSubsystem:
         #         self.interlock_status[name] = status # log the previous state, and update it to the new state
 
 
-    # the bit poistion for each interlock
-    INPUTS = {
-        0 : "E-STOP Int", # Chassis Estop
-        1 : "E-STOP Int", # Chassis Estop
-        2 : "E-STOP Ext", # Peripheral Estop
-        3 : "E-STOP Ext", # Peripheral Estop
-        4 : "Door", # Door 
-        5 : "Door", # Door Lock
-        6 : "Vacuum Power", # Vacuum Power
-        7 : "Vacuum Pressure", # Vacuum Pressure
-        8 : "High Oil", # Oil High
-        9 : "Low Oil", # Oil Low
-        10 : "Water", # Water
-        11 : "HVolt ON", # HVolt ON
-        12 : "G9SP Active" # G9SP Active
-    }
-
     def update_data(self):
         try:
             self.driver.send_command()
@@ -130,15 +130,15 @@ class InterlocksSubsystem:
 
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
-        sitsf = self.driver.SITSF[-3:]
-        sitdf = self.driver.SITDF[-3:]
+        sitsf = self.driver.SITSF[-self.driver.NUMIN:]
+        sitdf = self.driver.SITDF[-self.driver.NUMIN:]
 
         # this loop is for the 3 interlocks that have 2 inputs
         for i in range(3):
-            self.update_interlock(self.interlocks_frame[i*2], sitsf[-i*2] & sitsf[-i*2 + 1], sitdf[-i*2] & sitdf[-i*2 + 1])
+            self.update_interlock(self.indicators[INPUTS[i*2]], sitsf[-i*2] & sitsf[-i*2 + 1], sitdf[-i*2] & sitdf[-i*2 + 1])
         # this is for the rest of the interlocks with only one input
         for i in range(6, 13):
-            self.update_interlock(self.interlocks_frame[i], sitsf[-i], sitdf[-i])
+            self.update_interlock(self.indicators[INPUTS[i*2]], sitsf[-i], sitdf[-i])
 
         # Schedule next update
         self.parent.after(500, self.update_data)
