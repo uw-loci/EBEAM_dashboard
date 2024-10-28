@@ -30,6 +30,7 @@ class InterlocksSubsystem:
         self.parent = parent
         self.logger = logger
         self.frames = frames
+        self.indicators = None
         self.setup_gui()
 
     def update_com_port(self, com_port):
@@ -40,8 +41,8 @@ class InterlocksSubsystem:
         def create_indicator_circle(frame, color):
             canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
             canvas.grid(sticky='nsew')
-            canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
-            return canvas
+            oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
+            return canvas, oval_id
 
         self.interlocks_frame = tk.Frame(self.parent)
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
@@ -60,71 +61,31 @@ class InterlocksSubsystem:
         for i in range(num_columns):
             interlocks_frame.grid_columnconfigure(i, weight=1)
 
-        indicators = {'DOOR': [], 'WATER': [], 'VACUUM': [], 'OIL': [], 'E-STOP': [], 
-                    'ALL INTERLOCKS': [], 'G9 OUTPUT ON': [], 'HVOLT ON': []}
-
-        # Door
-        tk.Label(interlocks_frame, text="Door", anchor="center").grid(row=0, column=0, sticky='ew')
-        indicators['DOOR'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['DOOR'][-1].grid(row=0, column=1, sticky='nsew')
-
-        # Water
-        tk.Label(interlocks_frame, text="Water", anchor="center").grid(row=0, column=2, sticky='ew')
-        indicators['WATER'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['WATER'][-1].grid(row=0, column=3, sticky='nsew')
-
-        # Vacuum Power
-        tk.Label(interlocks_frame, text="Vac Power", anchor="center").grid(row=0, column=4, sticky='ew')
-        indicators['VACUUM'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['VACUUM'][-1].grid(row=0, column=5, sticky='nsew')
-
-        tk.Label(interlocks_frame, text="Vac Pressure", anchor="center").grid(row=0, column=6, sticky='ew')
-        indicators['VACUUM'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['VACUUM'][-1].grid(row=0, column=7, sticky='nsew')
-
-        # Oil
-        tk.Label(interlocks_frame, text="Low Oil", anchor="center").grid(row=0, column=8, sticky='ew')
-        indicators['OIL'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['OIL'][-1].grid(row=0, column=9, sticky='nsew')
-
-        tk.Label(interlocks_frame, text="High Oil", anchor="center").grid(row=0, column=10, sticky='ew')
-        indicators['OIL'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['OIL'][-1].grid(row=0, column=11, sticky='nsew')
-
-        # E-STOP
-        tk.Label(interlocks_frame, text="E-STOP Int", anchor="center").grid(row=0, column=12, sticky='ew')
-        indicators['E-STOP'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['E-STOP'][-1].grid(row=0, column=13, sticky='nsew')
-
-        tk.Label(interlocks_frame, text="E-STOP Ext", anchor="center").grid(row=0, column=14, sticky='ew')
-        indicators['E-STOP'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['E-STOP'][-1].grid(row=0, column=15, sticky='nsew')
-
-        # All Interlocks
-        tk.Label(interlocks_frame, text="All Interlocks", anchor="center").grid(row=0, column=16, sticky='ew')
-        indicators['ALL INTERLOCKS'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['ALL INTERLOCKS'][-1].grid(row=0, column=17, sticky='nsew')
-
-        # G9 Output
-        tk.Label(interlocks_frame, text="G9 Output", anchor="center").grid(row=0, column=18, sticky='ew')
-        indicators['G9 OUTPUT ON'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['G9 OUTPUT ON'][-1].grid(row=0, column=19, sticky='nsew')
-
-        # HVOLT ON
-        tk.Label(interlocks_frame, text="HVOLT ON", anchor="center").grid(row=0, column=20, sticky='ew')
-        indicators['HVOLT ON'].append(create_indicator_circle(interlocks_frame, 'green'))
-        indicators['HVOLT ON'][-1].grid(row=0, column=21, sticky='nsew')
+        self.indicators = {
+            'Door': None, 'Water': None, 'Vac Power': None, 
+            'Vac Pressure': None, 'Low Oil': None, 'High Oil': None, 
+            'E-STOP Int': None, 'E-STOP Ext' : None, 'All Interlocks': None, 
+            'G9 Output': None, 'HVOLT ON': None
+                      }
+        
+        for i, (k,v) in enumerate(self.indicators.items()):
+            tk.Label(interlocks_frame, text=f"{k}", anchor="center").grid(row=0, column=i*2, sticky='ew')
+            canvas, oval_id = create_indicator_circle(interlocks_frame, 'green')
+            canvas.grid(row=0, column=i*2+1, sticky='nsew')
+            self.indicators[k] = (canvas, oval_id)
 
     # logging the history of updates
     def update_interlock(self, name, safety, data):
         # means good
         if safety & data == 1:
-            # TODO: need to make sure the interlock is green
-            pass
-        # not good 
+            color = 'green'
+        # Not good 
         else:
-            # TODO: need to make the interlock red
-            pass
+            color = 'red'
+
+        if name in self.indicators:
+            canvas, oval_id = self.indicators[name]
+            canvas.itemconfig(oval_id, fill=color)
 
         # if name in self.parent.children:
         #     frame = self.parent.children[name]
@@ -143,30 +104,22 @@ class InterlocksSubsystem:
 
     # the bit poistion for each interlock
     INPUTS = {
-        0 : "Chassis Estop",
-        1 : "Chassis Estop",
-        2 : "Peripheral Estop",
-        3 : "Peripheral Estop",
-        4 : "Door",
-        5 : "Door Lock",
-        6 : "Vacuum Power",
-        7 : "Vacuum Pressure",
-        8 : "Oil High",
-        9 : "Oil Low",
-        10 : "Water",
-        11 : "HVolt ON",
-        12 : "G9SP Active"
+        0 : "E-STOP Int", # Chassis Estop
+        1 : "E-STOP Int", # Chassis Estop
+        2 : "E-STOP Ext", # Peripheral Estop
+        3 : "E-STOP Ext", # Peripheral Estop
+        4 : "Door", # Door 
+        5 : "Door", # Door Lock
+        6 : "Vacuum Power", # Vacuum Power
+        7 : "Vacuum Pressure", # Vacuum Pressure
+        8 : "High Oil", # Oil High
+        9 : "Low Oil", # Oil Low
+        10 : "Water", # Water
+        11 : "HVolt ON", # HVolt ON
+        12 : "G9SP Active" # G9SP Active
     }
 
     def update_data(self):
-        # this is a point of dicussion, should be always be checking or only when we have an error
-        # one point of view is that we check very throughly in the driver file so if nothing is being thrown everything must be working
-        # the other end would be it is the safety controller it should always be checked
-
-        # i think it should be the second, not only becuase this hardware is for safety but the interlocks on the screen will need to be updated,
-        # when an error is no longer being thrown
-
-        # if no error is thrown we should not need to check anything technically
         try:
             self.driver.send_command()
         except:
@@ -177,9 +130,13 @@ class InterlocksSubsystem:
         # this could be more optimal if we only update the ones that change
         sitsf = self.driver.SITSF[-3:]
         sitdf = self.driver.SITDF[-3:]
-        
-        for i in range(self.driver.NUMIN):
-            self.update_interlock(INPUTS[i], sitsf[-i], sitdf[-i])
+
+        # this loop is for the 3 interlocks that have 2 inputs
+        for i in range(3):
+            self.update_interlock(self.interlocks_frame[i*2], sitsf[-i*2] & sitsf[-i*2 + 1], sitdf[-i*2] & sitdf[-i*2 + 1])
+        # this is for the rest of the interlocks with only one input
+        for i in range(6, 12):
+            self.update_interlock(self.interlocks_frame[i], sitsf[-i], sitdf[-i])
 
         # Schedule next update
         self.parent.after(500, self.update_data)
