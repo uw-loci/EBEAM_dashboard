@@ -24,7 +24,7 @@ INPUTS = {
 
 def handle_errors(self, data):
     try:
-        response = g9_driv.response()
+        response = g9_driv.read_response()
         return {"status":"passes", "message":"No errors thrown at this time."}
 
     except ValueError as e:

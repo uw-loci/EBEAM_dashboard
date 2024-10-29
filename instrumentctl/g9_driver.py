@@ -1,4 +1,5 @@
 import serial
+from utils import LogLevel
 
 class G9Driver:
     NUMIN = 13
@@ -6,11 +7,11 @@ class G9Driver:
     SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
     SNDDATA = b'\x00\x00\x00\x00'
     SNDRES = b'\x00\x00'
-
     RECHEADER = b'\x40\x00\x00'
-
     FOOTER = b'\x2A\x0D'
-
+    ALWAYS_START_BYTE = b'\x40'
+    EXPECTED_RESPONSE_LENGTH = b'\xC3'
+    EXPECTED_DATA_LENGTH = 199 # bytes
 
     # Optional Communications Transmission Data
     OCTD_OFFSET = 7
@@ -96,13 +97,44 @@ class G9Driver:
                 self.logger.error(f"Serial communication error ")
 
 
-    # used mainly for the check sum but can also be used to check for error flags
-    # needs an input of a byte string and the range of bytes that need to be sum
-    # will return the sum of the bytes in the a byte string in the form of b'\x12'
-    def calculate_checksum(self, byte_string):
-        assert isinstance(byte_string, bytes)
-        checksum_value = sum(byte_string, bytes)
-        return checksum_value.to_bytes(2, "big")
+    def calculate_checksum(self, data, start=0, end=194):
+        """
+        Args:
+            data (bytes): The complete message bytes
+            start (int): Starting index for checksum calculation (default 0)
+            end (int): Ending index for checksum calculation (default 194) pg. 115
+            
+        Returns:
+            bytes: Two-byte checksum value
+        """
+        checksum = sum(data[start:end]) & 0xFFFF  # Mask to 16 bits
+        return checksum.to_bytes(2, 'big')
+    
+    def validate_checksum(self, data):
+        """
+        Args:
+            data (bytes): Complete response including checksum and footer
+            
+        Returns:
+            bool: True if checksum is valid
+        """
+        if len(data) < 198:  # Minimum length needed for checksum validation
+            raise ValueError("Response too short for checksum validation")
+            
+        # Extract the received checksum (bytes 195-196)
+        received_checksum = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1]
+        
+        # Calculate expected checksum (sum of bytes 0-194)
+        expected_checksum = self.calculate_checksum(data)
+        
+        if received_checksum != expected_checksum:
+            raise ValueError(
+                f"Checksum validation failed. "
+                f"Expected: {expected_checksum.hex()}, "
+                f"Received: {received_checksum.hex()}"
+            )
+        
+        return True
 
     # helper function to convert bytes to bits for checking flags
     # not currently being used but many be helpful in the future for getting errors
@@ -118,83 +150,120 @@ class G9Driver:
         return binary_string == string_of_ones
     
     def read_response(self):
+        """
+        Read and validate response from G9SP device.
+        Raises:
+            ConnectionError: If serial port is not open
+            ValueError: For various validation failures
+        """
         if not self.is_connected():
+            self.log("G9SP Serial port is not open", LogLevel.ERROR)
             raise ConnectionError("Serial Port is Not Open.")
         
         data = self.ser.read_until(self.FOOTER)
         self.lastResponse = data
+        self.log(f"Raw response received: {data.hex()}", LogLevel.DEBUG)
 
-        # Indexing such that we don't return an integer
-        if data[0:1] == b'\x40':
-            # Response length byte
-            if data[3:4] == b'\xc3':
-                alwaysHeader = data[0:3]
-                alwaysFooter = data[-2:]
+        if len(data) != self.EXPECTED_DATA_LENGTH:
+            length_error_msg = f"Invalid response length: got: {len(data)}, expected 199 bytes"
+            self.log(length_error_msg, LogLevel.ERROR)
+            raise ValueError(length_error_msg)
+        
+        if data[0:1] != self.ALWAYS_START_BYTE:
+            self.log(f"Invalid start byte: got {data[0:1].hex()}", LogLevel.ERROR)
+            raise ValueError("Invalid start byte")
+        
+        if data[1:3] != b'\x00\x00':
+            self.log(f"Invalid response length bytes 1-2: got {data[1:3].hex()}", LogLevel.ERROR)
+            raise ValueError("Invalid response length bytes 1-2")
+        
+        if data[3:4] != self.EXPECTED_RESPONSE_LENGTH:
+            self.log(f"Response length mismatch: got {data[3:4].hex()}, expected {self.EXPECTED_RESPONSE_LENGTH.hex()}", LogLevel.ERROR)
+            raise ValueError(f"Response length was not 0xC3, got {data[3:4].hex()}")
+        
+        if data[-2:] != self.FOOTER:
+            self.log(f"Invalid footer: got {data[-2:].hex()}", LogLevel.ERROR)
+            raise ValueError(f"Invalid footer, got {data[-2:].hex()}")
+        
+        try:
+            self.validate_checksum(data)
+            self.log("Checksum validation passed", LogLevel.DEBUG)
+        except ValueError as e:
+            self.log(f"Checksum validation failed: {str(e)}", LogLevel.ERROR)
+            raise
 
-                if alwaysHeader != self.RECHEADER or alwaysFooter != self.FOOTER:
-                    raise ValueError("Always bits are incorrect")
-                
-                # this method makes all the tests fail ... 
-                # if data[self.CHECKSUM_HIGH: self.CHECKSUM_LOW + 1] != self.calculate_checksum(data, 0, 194):
-                #      raise ValueError("Incorrect checksum response")
-                
-                # Save all the msg data so backend can access before checking for errors
-                self.US = data[self.US_OFFSET:self.US_OFFSET + 2]          # Unit Status
-                self.SITDF = data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6] # Input Terminal Data Flags
-                self.binSITDF = self.bytes_to_binary(data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6])
-                self.SITSF = data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6] # Input Terminal Status Flags
-                self.binSITSF = self.bytes_to_binary(data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6])
-                self.SOTDF = data[self.SOTDF_OFFSET:self.SOTDF_OFFSET + 4] # Output Terminal Data Flags
-                self.SOTSF = data[self.SOTSF_OFFSET:self.SOTSF_OFFSET + 4] # Output Terminal Status Flags
+        # 3. Extract and save message components
+        try:
+            self.US = data[self.US_OFFSET:self.US_OFFSET + 2]
+            self.SITDF = data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6]
+            self.SITSF = data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6]
+            self.SOTDF = data[self.SOTDF_OFFSET:self.SOTDF_OFFSET + 4]
+            self.SOTSF = data[self.SOTSF_OFFSET:self.SOTSF_OFFSET + 4]
+            
+            self.binSITDF = self.bytes_to_binary(self.SITDF)
+            self.binSITSF = self.bytes_to_binary(self.SITSF)
+            
+            self.log(f"Extracted US: {self.US.hex()}", LogLevel.DEBUG)
+            self.log(f"Extracted SITDF: {self.SITDF.hex()}", LogLevel.DEBUG)
+            self.log(f"Extracted SITSF: {self.SITSF.hex()}", LogLevel.DEBUG)
+            self.log(f"Extracted SOTDF: {self.SOTDF.hex()}", LogLevel.DEBUG)
+            self.log(f"Extracted SOTSF: {self.SOTSF.hex()}", LogLevel.DEBUG)
 
-                # Unit status
-                if self.US != b'\x00\x01':
-                    if self.unit_state_error(self.US):
-                        raise ValueError("Error was detected in Unit State but was not identified. Could be more than one")
+        except IndexError as e:
+            self.log(f"Failed to extract message components: {str(e)}", LogLevel.ERROR)
+            raise ValueError(f"Failed to extract message components: {str(e)}")
 
-                # Input Terminal Data Flags (1 - ON 0 - OFF)
-                if not self.check_flags13(self.SITDF):
-                    err = []
-                    gates = self.bytes_to_binary(self.SITDF[-3:])
-                    for i in range(20):
-                        if gates[-i + 1] == "0":
-                            err.append(i)
-                    self.input_flags = gates
-                    raise ValueError(f"An input is either off or throwing an error: {err}")
+        # 4. Check Unit Status
+        if self.US != b'\x00\x01':
+            try:
+                self.unit_state_error(self.US)
+            except ValueError as e:
+                self.log(f"Unit state error: {str(e)}", LogLevel.ERROR)
+                raise
 
-                # Input Terminal Status Flags (1 - OK 0 - OFF/ERR)
-                if not self.check_flags13(self.SITSF):
-                    # if error dected checkout terminal error cause
-                    if self.safety_in_terminal_error(data[self.SITEC_OFFSET : self.SITEC_OFFSET + 24][-10:]):
-                        raise ValueError("Error was detected in inputs but was not found")
-                       
-                # Output Terminal Data Flags (1 - ON 0 - OFF)
-                if not self.check_flags13(self.SOTDF):
-                    err = []
-                    gates = self.bytes_to_binary(self.SOTDF[-3:])
-                    for i in range(self.NUMIN):
-                        if gates[-i + 1] == "0":
-                            err.append(i)
-                    raise ValueError(f"There is output(s) off: {err}")
-                
-                # Output Terminal Status Flags (1 - OK 0 - OFF/ERR)
-                if not self.check_flags13(self.SOTSF):
-                    if self.safety_out_terminal_error(data[self.SOTEC_OFFSET : self.SOTEC_OFFSET + 16][-10:]):
-                        raise ValueError("Error was detected in outputs but was not found")
-                    
-                # Optional Communication data 
-                OCTD = data[self.OCTD_OFFSET: self.OCTD_OFFSET + 4]
-                if OCTD != self.SNDDATA:
-                    raise ValueError("Optional Transmission data doesn't match data sent to the G9SP")
-                
-                # # TODO: Need to add error log
-                # errorLog = data[108:149]
+        # 5. Check Input Terminal Status
+        if not self.check_flags13(self.SITDF):
+            err = []
+            gates = self.bytes_to_binary(self.SITDF[-3:])
+            for i in range(self.NUMIN):
+                if gates[-i - 1] == "0":
+                    err.append(i)
+            self.input_flags = gates
+            self.log(f"Input terminal flags error - Inputs off or in error state: {err}", LogLevel.ERROR)
+            raise ValueError(f"Inputs off or in error state: {err}")
 
-                # # TODO: Need to add operation log
-                # operationLog = data[148:199]
-                    
-            else:
-                raise ValueError("Response length was not OxC3, either an error or command formate invalid.")
+        if not self.check_flags13(self.SITSF):
+            try:
+                self.safety_in_terminal_error(data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:])
+            except ValueError as e:
+                self.log(f"Input terminal safety error: {str(e)}", LogLevel.ERROR)
+                raise
+
+        # 6. Check Output Terminal Status
+        if not self.check_flags13(self.SOTDF):
+            err = []
+            gates = self.bytes_to_binary(self.SOTDF[-3:])
+            for i in range(self.NUMIN):
+                if gates[-i - 1] == "0":
+                    err.append(i)
+            self.log(f"Output terminal flags error - Outputs in off state: {err}", LogLevel.ERROR)
+            raise ValueError(f"Outputs in off state: {err}")
+
+        if not self.check_flags13(self.SOTSF):
+            try:
+                self.safety_out_terminal_error(data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:])
+            except ValueError as e:
+                self.log(f"Output terminal safety error: {str(e)}", LogLevel.ERROR)
+                raise
+
+        # 7. Validate Optional Communication Data
+        OCTD = data[self.OCTD_OFFSET:self.OCTD_OFFSET + 4]
+        if OCTD != self.SNDDATA:
+            self.log(f"Optional transmission data mismatch - Expected: {self.SNDDATA.hex()}, Got: {OCTD.hex()}", LogLevel.ERROR)
+            raise ValueError(f"Optional transmission data mismatch. Expected: {self.SNDDATA.hex()}, Got: {OCTD.hex()}")
+
+        self.log("Response validation completed successfully", LogLevel.DEBUG)
+        return True
 
     """
     0: No error
@@ -291,5 +360,12 @@ class G9Driver:
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
         
+    def log(self, message, level=LogLevel.INFO):
+        """Log a message with the specified level if a logger is configured."""
+        if self.logger:
+            self.logger.log(message, level)
+        elif self.debug_mode:
+            print(f"{level.name}: {message}")
+
     #TODO: Figure out how to handle all the errors (end task)
     #TODO: add a function to keep track of the driver uptime\
