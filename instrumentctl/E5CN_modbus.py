@@ -8,6 +8,19 @@ class E5CNModbus:
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
+        """
+        Initialize the E5CNModbus instance with serial communication parameters and optional logging.
+        
+        Parameters:
+            port (str): Serial port to connect.
+            baudrate (int): Communication baud rate (default: 9600).
+            timeout (int): Timeout duration for Modbus communication (default: 1 second).
+            parity (str): Parity setting for serial communication (default: 'E' for Even).
+            stopbits (int): Number of stop bits (default: 2).
+            bytesize (int): Data bits size (default: 8).
+            logger (optional): Logger instance for output messages.
+            debug_mode (bool): If True, enables debug logging.
+        """
         self.logger = logger
         self.debug_mode = debug_mode
         self.stop_event = threading.Event() # to stop the thread
@@ -36,7 +49,12 @@ class E5CNModbus:
             self.threads.append(thread)
 
     def _read_temperature_continuously(self, unit):
-        """Read temperature continuously in a loop for the given unit."""
+        """
+        Continuously read temperature data in a loop for the specified unit.
+
+        Parameters:
+            unit (int): The unit number to read temperature from.
+        """
         while not self.stop_event.is_set():
             try:
                 temperature = self.read_temperature(unit)
@@ -50,7 +68,7 @@ class E5CNModbus:
             time.sleep(0.5)
 
     def stop_reading(self):
-        """Stop all temperature reading threads."""
+        """Stop all active temperature reading threads and clear them from the thread list."""
         self.stop_event.set()
         for thread in self.threads:
             thread.join()  # Wait for the thread to finish
@@ -58,6 +76,12 @@ class E5CNModbus:
         self.log("Stopped all temperature reading threads", LogLevel.INFO)
 
     def connect(self):
+        """
+        Connect to the Modbus device. Opens the serial connection if not already open.
+        
+        Returns:
+            bool: True if connected successfully, False otherwise.
+        """
         try:
             if self.client.is_socket_open():
                 self.log("Modbus client already connected.", LogLevel.DEBUG)
@@ -78,6 +102,15 @@ class E5CNModbus:
         self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
 
     def read_temperature(self, unit):
+        """
+        Read the temperature value from the specified unit.
+        
+        Parameters:
+            unit (int): Unit number to read from.
+
+        Returns:
+            float or None: The temperature in Celsius if successful, None if all attempts fail.
+        """
         attempts = 3
         while attempts > 0:
             try:
