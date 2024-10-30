@@ -105,6 +105,7 @@ class InterlocksSubsystem:
 
         if name in self.indicators:
             canvas, oval_id = self.indicators[name]
+            print(color)
             canvas.itemconfig(oval_id, fill=color)
             self.indicators[name] = canvas, oval_id
 
@@ -124,18 +125,6 @@ class InterlocksSubsystem:
 
 
     def update_data(self):
-        # Mock data for testing
-        def mock_data():
-            # Flip the bits for testing
-            # This will alternate the state of each bit between 0 and 1 each cycle
-            for i in range(len(self.driver.SITDF)):
-                self.driver.SITDF[i] ^= 1  # XOR with 1 to flip between 0 and 1
-                self.driver.SITSF[i] ^= 1
-
-
-        # Use mock data
-        mock_data()  # Simulate changing data values
-
 
         try:
             self.driver.send_command()
@@ -148,6 +137,7 @@ class InterlocksSubsystem:
         # this could be more optimal if we only update the ones that change
         sitsf = self.driver.SITSF[-self.driver.NUMIN:]
         sitdf = self.driver.SITDF[-self.driver.NUMIN:]
+
 
         # this loop is for the 3 interlocks that have 2 inputs
         for i in range(3):
