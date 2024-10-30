@@ -48,8 +48,9 @@ class InterlocksSubsystem:
         self.logger = logger
         self.frames = frames
         self.indicators = None
-        self.cycle_counter = 0  # Counter for adding delay in mock data flipping
         self.setup_gui()
+
+        self.parent.after(5000, self.update_data)
 
     def update_com_port(self, com_port):
         if com_port:
@@ -105,6 +106,7 @@ class InterlocksSubsystem:
         if name in self.indicators:
             canvas, oval_id = self.indicators[name]
             canvas.itemconfig(oval_id, fill=color)
+            self.indicators[name] = canvas, oval_id
 
         # if name in self.parent.children:
         #     frame = self.parent.children[name]
@@ -126,15 +128,13 @@ class InterlocksSubsystem:
         def mock_data():
             # Flip the bits for testing
             # This will alternate the state of each bit between 0 and 1 each cycle
-            if self.cycle_counter % 10 == 0:
-                for i in range(len(self.driver.SITDF)):
-                    self.driver.SITDF[i] ^= 1  # XOR with 1 to flip between 0 and 1
-                    self.driver.SITSF[i] ^= 1
+            for i in range(len(self.driver.SITDF)):
+                self.driver.SITDF[i] ^= 1  # XOR with 1 to flip between 0 and 1
+                self.driver.SITSF[i] ^= 1
 
 
         # Use mock data
         mock_data()  # Simulate changing data values
-        self.cycle_counter += 1
 
 
         try:
