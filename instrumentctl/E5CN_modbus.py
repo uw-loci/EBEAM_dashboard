@@ -23,9 +23,10 @@ class E5CNModbus:
         """
         self.logger = logger
         self.debug_mode = debug_mode
-        self.stop_event = threading.Event() # to stop the thread
+        self.stop_event = threading.Event()
         self.threads = [] # for each unit
-        self.temperatures = [None, None, None] # latest temp values
+        self.temperatures = [None, None, None] 
+        self.temperatures_lock = threading.Lock()
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -59,8 +60,11 @@ class E5CNModbus:
             try:
                 temperature = self.read_temperature(unit)
                 if temperature is not None:
-                    self.temperatures[unit - 1] = temperature  # Store the latest temperature
-                    self.log(f"Unit {unit} Temperature: {temperature} °C", LogLevel.INFO)
+                    with self.temperatures_lock:
+                        
+                        self.temperatures[unit - 1] = temperature  # Store the latest temperature
+                        self.log(f"Unit {unit} Temperature: {temperature} °C", LogLevel.INFO)
+
             except Exception as e:
                 self.log(f"Error reading temperature for unit {unit}: {str(e)}", LogLevel.ERROR)
 
