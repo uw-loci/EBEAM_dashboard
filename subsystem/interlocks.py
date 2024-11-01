@@ -140,13 +140,16 @@ class InterlocksSubsystem:
         sitsf = self.driver.binSITSF[-self.driver.NUMIN:]
         sitdf = self.driver.binSITDF[-self.driver.NUMIN:]
 
-
+        # for all interlocks to make sure that all are on and not containing erros
+        allGood = (sitsf == sitdf) == "1111111111111"
         # this loop is for the 3 interlocks that have 2 inputs
         for i in range(3):
             self.update_interlock(INPUTS[i*2], int(sitsf[-i*2], 2) & int(sitsf[-i*2 + 1], 2), int(sitdf[-i*2], 2) & int(sitdf[-i*2 + 1], 2))
         # this is for the rest of the interlocks with only one input
         for i in range(6, 13):
             self.update_interlock(INPUTS[i], int(sitsf[-i], 2), int(sitdf[-i], 2))
+        # for all interlocks
+        self.update_interlock("All Interlocks", True, allGood)
 
         # Schedule next update
         self.parent.after(500, self.update_data)
