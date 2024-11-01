@@ -22,25 +22,6 @@ INPUTS = {
     12 : "G9SP Active" # G9SP Active
     }
 
-# def handle_errors(self, data):
-#     try:
-#         response = g9_driv.read_response()
-#         return {"status":"passes", "message":"No errors thrown at this time."}
-
-#     except ValueError as e:
-#         return {"status":"error", "message":str(e)}
-    
-# def resource_path(relative_path):
-#     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
-#     try:
-#         # PyInstaller creates a temp folder and stores path in _MEIPASS
-#         base_path = sys._MEIPASS
-        
-#     except AttributeError:
-#         base_path = os.path.abspath(".")
-
-#     return os.path.join(base_path, relative_path)
-
 class InterlocksSubsystem:
     def __init__(self, parent, com_ports, logger=None, frames=None):
         self.driver = g9_driv.G9Driver(None)
@@ -130,10 +111,8 @@ class InterlocksSubsystem:
 
         try:
             self.driver.send_command()
-        except:
-            # TODO: what to do here
-            # if we are in here, we definity have to check
-            pass
+        except Exception as e:
+            print(e)
 
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
@@ -141,7 +120,7 @@ class InterlocksSubsystem:
         sitdf = self.driver.binSITDF[-self.driver.NUMIN:]
 
         # for all interlocks to make sure that all are on and not containing erros
-        allGood = (sitsf == sitdf) == "1111111111111"
+        allGood = sitsf == sitdf == "1111111111111"
         # this loop is for the 3 interlocks that have 2 inputs
         for i in range(3):
             self.update_interlock(INPUTS[i*2], int(sitsf[-i*2], 2) & int(sitsf[-i*2 + 1], 2), int(sitdf[-i*2], 2) & int(sitdf[-i*2 + 1], 2))
