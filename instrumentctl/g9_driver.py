@@ -63,7 +63,7 @@ class G9Driver:
 
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         # not sure if we will need all of these but just adding them now in case
-        self.US, self.SITDF, self.SITSF, self.SOTDF, self.SOTSF, self.lastResponse = None, None, None, None, None, None
+        self.US, self.SITDF, self.SITSF, self.SOTDF, self.SOTSF, self.lastResponse, self.binSITDF, self.binSITSF = None, None, None, None, None, None, None, None
 
         if port:  
             self.ser = serial.Serial(  
