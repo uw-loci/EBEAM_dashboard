@@ -85,30 +85,14 @@ class InterlocksSubsystem:
             color = 'red'
 
         if name in self.indicators:
+            canvas, oval_id = self.indicators[name]
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
-                canvas, oval_id = self.indicators[name]
                 canvas.itemconfig(oval_id, fill=color)
                 self.indicators[name] = canvas, oval_id
                 self.logger.info(f"Interlock status of {name} changed from {current_color} to {color}")
-                
-        # if name in self.parent.children:
-        #     frame = self.parent.children[name]
-        #     indicator = frame.indicator
-        #     new_image = self.indicators['active'] if status == 1 else self.indicators['inactive']
-        #     indicator.config(image=new_image)
-        #     indicator.image = new_image  # Keep a reference
-
-        #     # logging the update
-        #     old_status = self.interlock_status.get(name, None)
-        #     if old_status is not None and old_status != status:
-        #         log_message = f"Interlock status of {name} changed from {old_status} to {status}"
-        #         self.logger.info(log_message)
-        #         self.interlock_status[name] = status # log the previous state, and update it to the new state
-
 
     def update_data(self):
-
         try:
             self.driver.send_command()
         except Exception as e:
@@ -132,12 +116,3 @@ class InterlocksSubsystem:
 
         # Schedule next update
         self.parent.after(500, self.update_data)
-
-
-
-
-
-
-
-
-
