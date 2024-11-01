@@ -4,41 +4,6 @@ from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 
-# frames_config = [
-#     ("Oil System", 0, 50, 150),
-#     ("Visualization Gas Control", 0, 50, 150),
-#     ("System Checks", 0, None, None),
-#     ("Beam Extraction", 0, None, None),
-#     ("Vacuum System", 1, 150, 300),
-#     ("Deflection Monitor", 1, None, None),
-#     ("Beam Pulse", 1, None, None),
-#     ("Main Control", 1, 50, 300),
-#     ("Setup Script", 2, None, 25),
-#     ("Interlocks", 2, None, 25),
-#     ("High Voltage Warning", 2, None, 25),
-#     ("Environmental", 3, 150, 450),
-#     ("Cathode Heating", 3, 960, 450),
-# ]
-
-
-# # title, row, width, height
-# frames_config = [
-#     ("Interlocks", 0, None, 2),  # Moved to the top row
-#     ("Oil System", 0, 50, 150),
-#     ("Visualization Gas Control", 1, 50, 150),
-#     ("System Checks", 0, None, None),
-#     ("Beam Extraction", 0, None, None),
-#     ("Vacuum System", 1, 150, 300),
-#     ("Deflection Monitor", 1, None, None),
-#     ("Beam Pulse", 1, None, None),
-#     ("Main Control", 1, 50, 300),
-#     ("Setup Script", 2, None, 25),
-#     ("High Voltage Warning", 2, None, 25),
-#     ("Environmental", 3, 150, 450),
-#     ("Cathode Heating", 3, 960, 450),
-# ]
-
-
 # Only have the interlocks at the top of the display
 # title, row, width, height
 frames_config = [
@@ -64,7 +29,6 @@ class EBEAMSystemDashboard:
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
-
 
         # if save file exists call it and open it
         if saveFileExists():
