@@ -84,14 +84,14 @@ class InterlocksSubsystem:
         else:
             color = 'red'
 
-        print(name)
         if name in self.indicators:
-            canvas, oval_id = self.indicators[name]
-            print(color)
-            print("printed color")
-            canvas.itemconfig(oval_id, fill=color)
-            self.indicators[name] = canvas, oval_id
-
+            current_color = canvas.itemcget(oval_id, 'fill')
+            if current_color != color:
+                canvas, oval_id = self.indicators[name]
+                canvas.itemconfig(oval_id, fill=color)
+                self.indicators[name] = canvas, oval_id
+                self.logger.info(f"Interlock status of {name} changed from {current_color} to {color}")
+                
         # if name in self.parent.children:
         #     frame = self.parent.children[name]
         #     indicator = frame.indicator
