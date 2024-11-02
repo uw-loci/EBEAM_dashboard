@@ -21,8 +21,8 @@ class G9Driver:
     SOTDF_OFFSET = 17   # Safety Output Terminal Data Flags
     SITSF_OFFSET = 21   # Safety Input Terminal Status Flags
     SOTSF_OFFSET = 27   # Safety Output Terminal Status Flags
-    SOTEC_OFFSET = 55   # Safety Input Terminal Error Causes
-    SITEC_OFFSET = 31   # Safety Output Terminal Error Causes
+    SOTEC_OFFSET = 55   # Safety Output Terminal Error Causes
+    SITEC_OFFSET = 31   # Safety Input Terminal Error Causes
     CHECKSUM_HIGH = 195 # G9 Response Checksum 
     CHECKSUM_LOW = 196  # G9 Response Checksum
 
