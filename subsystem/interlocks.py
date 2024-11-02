@@ -28,7 +28,12 @@ class InterlocksSubsystem:
         self.logger = logger
         self.frames = frames
         self.indicators = None
+        self.last_error_time = 0  # Track last error time
+        self.error_count = 0      # Track consecutive errors
+        self.update_interval = 500  # Default update interval (ms)
+        self.max_interval = 5000   # Maximum update interval (ms)
         self.setup_gui()
+
         try:
             if com_ports is not None:  # Better comparison
                 self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
@@ -45,7 +50,7 @@ class InterlocksSubsystem:
                 self.logger.error(f"Failed to initialize G9 driver: {str(e)}")
             self._set_all_indicators('red')
         
-        self.parent.after(100, self.update_data)
+        self.parent.after(self.update_interval, self.update_data)
 
     def update_com_port(self, com_port):
         """Update the COM port and reinitialize the driver"""
@@ -61,6 +66,24 @@ class InterlocksSubsystem:
                 if self.logger:
                     self.logger.error(f"Failed to update G9 driver: {str(e)}")
                 self._set_all_indicators('red')
+
+    def _adjust_update_interval(self, success=True):
+        """Adjust the polling interval based on connection success/failure"""
+        if success:
+            # On success, return to normal update rate
+            self.error_count = 0
+            self.update_interval = max(500, self.update_interval // 2)
+        else:
+            # On communication failure, increase interval up to max_interval
+            self.error_count += 1
+
+            new_interval = self.update_interval * (1.5 if self.error_count < 5 else 1)
+            self.update_interval = min(self.max_interval, int(new_interval))
+
+            if self.logger and self.error_count % 5 == 0:  # Log every 5th error
+                self.logger.warning(
+                    f"G9 Connection issue. Update interval: {self.update_interval}ms"
+                )
 
     def setup_gui(self):
         def create_indicator_circle(frame, color):
@@ -127,11 +150,16 @@ class InterlocksSubsystem:
 
     def update_data(self):
         """Update interlock status"""
+        current_time = time.time()
         try:
             if not self.driver or not self.driver.is_connected():
-                self._set_all_indicators('red')
-                if self.logger:
-                    self.logger.warning("G9 driver not connected")
+                if current_time - self.last_error_time > (self.update_interval / 1000):
+                    self._set_all_indicators('red')
+                    if self.logger:
+                        self.logger.warning("G9 driver not connected")
+                    self.last_error_time = current_time
+                    self._adjust_update_interval(success=False)
+
                 self.parent.after(500, self.update_data)
                 return
 
@@ -157,15 +185,21 @@ class InterlocksSubsystem:
             self.update_interlock("All Interlocks", True, all_good)
 
         except (ConnectionError, ValueError) as e:
-            if self.logger:
-                self.logger.error(f"G9 communication error: {str(e)}")
-            self._set_all_indicators('red')
+            if current_time - self.last_error_time > (self.update_interval / 1000):
+                if self.logger:
+                    self.logger.error(f"G9 communication error: {str(e)}")
+                self._set_all_indicators('red')
+                self.last_error_time = current_time
+                self._adjust_update_interval(success=False)
             
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Unexpected error: {str(e)}")
-            self._set_all_indicators('red')
+            if current_time - self.last_error_time > (self.update_interval / 1000):
+                if self.logger:
+                    self.logger.error(f"Unexpected error: {str(e)}")
+                self._set_all_indicators('red')
+                self.last_error_time = current_time
+                self._adjust_update_interval(success=False)
             
         finally:
             # Schedule next update
-            self.parent.after(500, self.update_data)
+            self.parent.after(self.update_interval, self.update_data)
