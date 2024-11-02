@@ -24,7 +24,10 @@ INPUTS = {
 
 class InterlocksSubsystem:
     def __init__(self, parent, com_ports, logger=None, frames=None):
-        self.driver = g9_driv.G9Driver(None)
+        if com_ports != None:
+            self.driver = g9_driv.G9Driver(com_ports)
+        else:
+            self.driver = None
         self.parent = parent
         self.logger = logger
         self.frames = frames
@@ -100,19 +103,21 @@ class InterlocksSubsystem:
 
         # Updates all the the interlocks at each iteration
         # this could be more optimal if we only update the ones that change
-        sitsf = self.driver.binSITSF[-self.driver.NUMIN:]
-        sitdf = self.driver.binSITDF[-self.driver.NUMIN:]
+        if self.driver.ser:
+            print(self.driver.ser)
+            sitsf = self.driver.binSITSF[-self.driver.NUMIN:]
+            sitdf = self.driver.binSITDF[-self.driver.NUMIN:]
 
-        # for all interlocks to make sure that all are on and not containing erros
-        allGood = sitsf == sitdf == "1111111111111"
-        # this loop is for the 3 interlocks that have 2 inputs
-        for i in range(3):
-            self.update_interlock(INPUTS[i*2], int(sitsf[-i*2], 2) & int(sitsf[-i*2 + 1], 2), int(sitdf[-i*2], 2) & int(sitdf[-i*2 + 1], 2))
-        # this is for the rest of the interlocks with only one input
-        for i in range(6, 13):
-            self.update_interlock(INPUTS[i], int(sitsf[-i], 2), int(sitdf[-i], 2))
-        # for all interlocks
-        self.update_interlock("All Interlocks", True, allGood)
+            # for all interlocks to make sure that all are on and not containing erros
+            allGood = sitsf == sitdf == "1111111111111"
+            # this loop is for the 3 interlocks that have 2 inputs
+            for i in range(3):
+                self.update_interlock(INPUTS[i*2], int(sitsf[-i*2], 2) & int(sitsf[-i*2 + 1], 2), int(sitdf[-i*2], 2) & int(sitdf[-i*2 + 1], 2))
+            # this is for the rest of the interlocks with only one input
+            for i in range(6, 13):
+                self.update_interlock(INPUTS[i], int(sitsf[-i], 2), int(sitdf[-i], 2))
+            # for all interlocks
+            self.update_interlock("All Interlocks", True, allGood)
 
         # Schedule next update
         self.parent.after(500, self.update_data)
