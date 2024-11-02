@@ -24,21 +24,43 @@ INPUTS = {
 
 class InterlocksSubsystem:
     def __init__(self, parent, com_ports, logger=None, frames=None):
-        if com_ports != None:
-            self.driver = g9_driv.G9Driver(com_ports)
-        else:
-            self.driver = None
         self.parent = parent
         self.logger = logger
         self.frames = frames
         self.indicators = None
         self.setup_gui()
-
-        self.update_data()
+        try:
+            if com_ports is not None:  # Better comparison
+                self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
+                if self.logger:
+                    self.logger.info("G9 driver initialized")
+            else:
+                self.driver = None
+                if self.logger:
+                    self.logger.warning("No COM port provided for G9 driver")
+                self._set_all_indicators('red')
+        except Exception as e:
+            self.driver = None
+            if self.logger:
+                self.logger.error(f"Failed to initialize G9 driver: {str(e)}")
+            self._set_all_indicators('red')
+        
+        self.parent.after(100, self.update_data)
 
     def update_com_port(self, com_port):
+        """Update the COM port and reinitialize the driver"""
         if com_port:
-            self.driver = g9_driv.G9Driver(com_port)
+            try:
+                new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
+                # Test connection by getting status
+                new_driver.get_interlock_status()
+                self.driver = new_driver
+                if self.logger:
+                    self.logger.info(f"G9 driver updated to port {com_port}")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Failed to update G9 driver: {str(e)}")
+                self._set_all_indicators('red')
 
     def setup_gui(self):
         def create_indicator_circle(frame, color):
@@ -80,44 +102,70 @@ class InterlocksSubsystem:
 
     # logging the history of updates
     def update_interlock(self, name, safety, data):
+        """Update individual interlock indicator"""
         # means good
-        if (safety & data) == 1:
-            color = 'green'
-        # Not good 
-        else:
-            color = 'red'
+        color = 'green' if (safety & data) == 1 else 'red'
 
         if name in self.indicators:
             canvas, oval_id = self.indicators[name]
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
                 canvas.itemconfig(oval_id, fill=color)
-                self.indicators[name] = canvas, oval_id
-                self.logger.info(f"Interlock status of {name} changed from {current_color} to {color}")
+                if self.logger:
+                    self.logger.info(f"Interlock {name}: {current_color} -> {color}")
+
+    def _set_all_indicators(self, color):
+        """Set all indicators to specified color"""
+        if self.indicators:
+            for name in self.indicators:
+                canvas, oval_id = self.indicators[name]
+                current_color = canvas.itemcget(oval_id, 'fill')
+                if current_color != color:
+                    canvas.itemconfig(oval_id, fill=color)
+                    if self.logger:
+                        self.logger.info(f"Interlock {name}: {current_color} -> {color}")
 
     def update_data(self):
+        """Update interlock status"""
         try:
-            self.driver.send_command()
-        except Exception as e:
-            print(e)
+            if not self.driver or not self.driver.is_connected():
+                self._set_all_indicators('red')
+                if self.logger:
+                    self.logger.warning("G9 driver not connected")
+                self.parent.after(500, self.update_data)
+                return
 
-        # Updates all the the interlocks at each iteration
-        # this could be more optimal if we only update the ones that change
-        if self.driver.ser:
-            print(self.driver.ser)
-            sitsf = self.driver.binSITSF[-self.driver.NUMIN:]
-            sitdf = self.driver.binSITDF[-self.driver.NUMIN:]
-
-            # for all interlocks to make sure that all are on and not containing erros
-            allGood = sitsf == sitdf == "1111111111111"
-            # this loop is for the 3 interlocks that have 2 inputs
+            # Get interlock status from driver
+            sitsf_bits, sitdf_bits = self.driver.get_interlock_status()
+            
+            # Process dual-input interlocks (first 3 pairs)
             for i in range(3):
-                self.update_interlock(INPUTS[i*2], int(sitsf[-i*2], 2) & int(sitsf[-i*2 + 1], 2), int(sitdf[-i*2], 2) & int(sitdf[-i*2 + 1], 2))
-            # this is for the rest of the interlocks with only one input
+                safety = (int(sitsf_bits[-i*2-1], 2) & 
+                         int(sitsf_bits[-i*2-2], 2))
+                data = (int(sitdf_bits[-i*2-1], 2) & 
+                       int(sitdf_bits[-i*2-2], 2))
+                self.update_interlock(INPUTS[i*2], safety, data)
+            
+            # Process single-input interlocks
             for i in range(6, 13):
-                self.update_interlock(INPUTS[i], int(sitsf[-i], 2), int(sitdf[-i], 2))
-            # for all interlocks
-            self.update_interlock("All Interlocks", True, allGood)
+                safety = int(sitsf_bits[-i-1], 2)
+                data = int(sitdf_bits[-i-1], 2)
+                self.update_interlock(INPUTS[i], safety, data)
+            
+            # Update overall status
+            all_good = sitsf_bits == sitdf_bits == "1" * 13
+            self.update_interlock("All Interlocks", True, all_good)
 
-        # Schedule next update
-        self.parent.after(500, self.update_data)
+        except (ConnectionError, ValueError) as e:
+            if self.logger:
+                self.logger.error(f"G9 communication error: {str(e)}")
+            self._set_all_indicators('red')
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Unexpected error: {str(e)}")
+            self._set_all_indicators('red')
+            
+        finally:
+            # Schedule next update
+            self.parent.after(500, self.update_data)
