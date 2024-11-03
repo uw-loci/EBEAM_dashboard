@@ -1,3 +1,66 @@
+# 9104 Power Supply Initialization
+```mermaid
+flowchart TD
+    Start([Start]) --> InitArrays[Initialize power_supplies and status arrays]
+    InitArrays --> LoopStart{For each cathode PS}
+    
+    LoopStart --> HasPort{Port exists?}
+    HasPort -- No --> SetNull[Set PS to null & status false]
+    HasPort -- Yes --> TryInit[Try initialization]
+    
+    TryInit --> PSExists{PS exists?}
+    PSExists -- No --> CreatePS[Create new PowerSupply9104]
+    PSExists -- Yes --> CheckConnection{Is connected?}
+    
+    CheckConnection -- No --> UpdatePort[Update COM port]
+    CheckConnection -- Yes --> SetPreset[Set preset mode to 3]
+    CreatePS --> SetPreset
+    UpdatePort --> SetPreset
+    
+    SetPreset --> ConfirmPreset{Preset = 3?}
+    ConfirmPreset -- No --> LogPresetWarning[Log preset warning]
+    ConfirmPreset -- Yes --> SetOVP[Set overvoltage protection]
+    LogPresetWarning --> SetOVP
+    
+    SetOVP --> OVPSuccess{OVP set?}
+    OVPSuccess -- No --> LogOVPFail[Log OVP failure]
+    OVPSuccess -- Yes --> ConfirmOVP{OVP matches?}
+    
+    ConfirmOVP -- No --> LogOVPMismatch[Log OVP mismatch]
+    ConfirmOVP -- Yes --> SetOCP[Set overcurrent protection]
+    LogOVPMismatch --> SetOCP
+    LogOVPFail --> SetOCP
+    
+    SetOCP --> OCPSuccess{OCP set?}
+    OCPSuccess -- No --> LogOCPFail[Log OCP failure]
+    OCPSuccess -- Yes --> ConfirmOCP{OCP matches?}
+    
+    ConfirmOCP -- No --> LogOCPMismatch[Log OCP mismatch]
+    ConfirmOCP -- Yes --> SetSuccess[Set PS status true]
+    LogOCPMismatch --> SetSuccess
+    LogOCPFail --> SetSuccess
+    
+    SetSuccess --> NextPS{More PS?}
+    SetNull --> NextPS
+    
+    NextPS -- Yes --> LoopStart
+    NextPS -- No --> UpdateButtons[Update button states
+    enabled/disabled]
+    
+    UpdateButtons --> CheckAnyInit{Any PS initialized?}
+    CheckAnyInit -- Yes --> SetInitTrue[Set initialized flag true]
+    CheckAnyInit -- No --> LogNoInit[Log no PS initialized]
+    
+    SetInitTrue --> UpdateSettings[Update query settings]
+    LogNoInit --> UpdateSettings
+    
+    UpdateSettings --> End([to idle state])
+    
+    Error[Handle Exception] --> SetErrorState[Set PS null & status false]
+    SetErrorState --> NextPS
+    
+    TryInit -- Exception --> Error
+```
 
 # Idle State Monitoring
 Parallel operations for each Cathode (A, B, C)
