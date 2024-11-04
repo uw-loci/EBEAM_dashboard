@@ -62,7 +62,7 @@ python -m PyInstaller EBEAM_DASHBOARD.spec
 ```
 
 ### 3. Architecture
-
+![GUI layout diagram](https://github.com/uw-loci/EBEAM_dashboard/blob/main/media/GUI_layout.png)
 - **Language & Libraries**: Python, using the [Tkinter](https://docs.python.org/3/library/tkinter.html) interface for the GUI, [matplotlib](https://matplotlib.org/) for plotting, and [Pyserial](https://pythonhosted.org/pyserial/) for communication with external systems through virtual COM ports.
 - **High-level Design**: The application is divided into several modules:
   - **main.py**: Manages the main application startup and configuration.

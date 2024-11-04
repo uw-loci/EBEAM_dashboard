@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
+import serial.tools.list_ports
 
 # Only have the interlocks at the top of the display
 # title, row, width, height
@@ -22,13 +23,17 @@ frames_config = [
     ("Cathode Heating", 4, 960, 450),
 ]
 
-import serial.tools.list_ports
 
 class EBEAMSystemDashboard:
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
+
+
+        # if save file exists call it and open it
+        if saveFileExists():
+             self.load_saved_pane_state()
 
         # if save file exists call it and open it
         if saveFileExists():
@@ -62,15 +67,14 @@ class EBEAMSystemDashboard:
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
         global frames_config
+        global frames_config
 
         for title, row, width, height in frames_config:
             if width and height and title:
-                frame = tk.Frame( borderwidth=1,highlightbackground="red", relief="solid", width=width, height=height)
+                frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
-                # frame.pack_propagate(False)
-
             self.rows[row].add(frame, stretch='always')
             if title != "Interlocks":
                 self.add_title(frame, title)
@@ -104,11 +108,19 @@ class EBEAMSystemDashboard:
         label.pack(pady=0, fill=tk.X)
 
     # saves data to file when button is pressed
+    # saves data to file when button is pressed
     def save_current_pane_state(self):
+        save_pane_states(frames_config, self.frames, self.main_pane)
         save_pane_states(frames_config, self.frames, self.main_pane)
 
     # gets data in save config file (as dict) and updates the global var of frames_config
+    # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
+        savedData = load_pane_states()
+
+        for i in range(len(frames_config)):
+            if frames_config[i][0] in savedData:
+                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
         savedData = load_pane_states()
 
         for i in range(len(frames_config)):
@@ -226,9 +238,13 @@ class EBEAMSystemDashboard:
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
         # TODO: update the COM ports for each subsystem
-        # reinitializing componnents
 
         for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'update_com_port'):
-                subsystem.update_com_port(new_com_ports.get(subsystem_name))
+                if subsystem_name == 'Vacuum System':
+                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
+                elif subsystem_name == 'Cathode Heating':
+                    subsystem.update_com_ports(new_com_ports)
+            else:
+                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")

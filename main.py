@@ -1,19 +1,20 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import serial.tools.list_ports
 from dashboard import EBEAMSystemDashboard
-from utils import LogLevel
-import cProfile
-import pstats
 import sys
+from usr.com_port_config import save_com_ports, load_com_ports
+
+def create_dummy_ports(subsystems): # For development purpose only
+    return {subsystem: f'DUMMY_COM{i+1}' for i, subsystem in enumerate(subsystems)}
 
 def start_main_app(com_ports):
     root = tk.Tk()
+    root.title("EBEAM System Dashboard")
     app = EBEAMSystemDashboard(root, com_ports)
-    # app.messages_frame.set_log_level(LogLevel.DEBUG)
     root.mainloop()
 
-def config_com_ports():
+def config_com_ports(saved_com_ports):
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
             import pyi_splash
@@ -21,37 +22,70 @@ def config_com_ports():
         except ImportError:
             pass
 
+    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']
+    available_ports = [port.device for port in serial.tools.list_ports.comports()]
+
+    if not available_ports:
+        # No COM ports found, create dummy ports
+        dummy_ports = create_dummy_ports(subsystems)
+        save_com_ports(dummy_ports)
+        print(f"No COM ports found. Using dummy ports: {dummy_ports}")  # Debug info
+        start_main_app(dummy_ports)
+        return
+
     config_root = tk.Tk()
     config_root.title("Configure COM Ports")
-    config_root.geometry('600x400')
+    # config_root.geometry('600x400')
     
     com_ports = serial.tools.list_ports.comports()
     available_ports = [port.device for port in com_ports]
-    
-    # Store port selections
+
     selections = {}
+
+    main_frame = ttk.Frame(config_root, padding="20 20 20 20")
+    main_frame.pack(side=tk.TOP, fill=tk.X)
 
     # Create a dropdown for each subsystem
     subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']
     for subsystem in subsystems:
-        tk.Label(config_root, text=f"{subsystem} COM Port:").pack()
-        selected_port = tk.StringVar()
-        ttk.Combobox(config_root, values=available_ports, textvariable=selected_port).pack()
+        frame = ttk.Frame(main_frame)
+        frame.pack(pady=5, anchor='center')
+        label = tk.Label(frame, text=f"{subsystem} COM Port:", width=25, anchor='e')
+        label.pack(side=tk.LEFT, padx=(0, 10))
+
+        selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
+        combobox = ttk.Combobox(frame, values=available_ports, textvariable=selected_port, state='readonly', width=15)
+        combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
 
     def on_submit():
         selected_ports = {key: value.get() for key, value in selections.items()}
+        
+        # check that all COM ports are selected
+        if not all(selected_ports.values()):
+            response = messagebox.askquestion("No Ports Selected", 
+                "No COM ports selected. Would you like to use dummy ports?",
+                icon='warning')
+            
+            if response == 'yes':
+                selected_ports = create_dummy_ports(subsystems)
+            else:
+                return  # Stay on the configuration window
+        
+        save_com_ports(selected_ports)
         config_root.destroy()
+        
+        # Start the main application
         start_main_app(selected_ports)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
-    submit_button.pack()
+    submit_button.pack(pady=20)
     
     config_root.mainloop()
 
 if __name__ == "__main__":
+    
+    saved_com_ports = load_com_ports()
 
-    profiler = cProfile.Profile()
-    profiler.enable()
-    config_com_ports()
-    profiler.disable()
+    # Prompt the user to confirm or change COM ports
+    config_com_ports(saved_com_ports)
