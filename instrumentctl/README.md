@@ -1,23 +1,34 @@
 # G9 Driver Documentation:
 
+
 ## Purpose and functionality:
 
-The AMON G9SP is the safetly controller being used to for the safety system to analyize the input from the mahcine along with controlling the High voltage(HVOLT) for the printer. 
-This driver is made to be able to communicate through a serial connection to the G9SP to pull and update the GUI on the current status of the interlocks, along will handle and present the user with any current errors that the G9SP is experiencing. 
+
+The AMON G9SP is the safety controller being used for the safety system to analyze the input from the machine along with controlling the High voltage(HVOLT) for the printer.
+This driver is made to be able to communicate through a serial connection to the G9SP to pull and update the GUI on the current status of the interlocks, along will handle and present the user with any current errors that the G9SP is experiencing.
+
 
 Libraries / Imports:
 
-PySerial (serial) - allows us to be able to send and recieve data through the serial port on the G9 and the driver
 
-LogLevel from utils - allows the ability for the driver to send error or important inforation to the log for the user to see
+PySerial (serial) - allows us to be able to send and receive data through the serial port on the G9 and the driver
+
+
+LogLevel from utils - allows the ability for the driver to send errors or important information to the log for the user to see
+
 
 ## Communications:
 
+
 ### Serial Port:
 
-The OMRON G9SP uses a propritary pin lay out for serial communications:
+
+The OMRON G9SP uses a proprietary pin lay out for serial communications:
+
 
 **OMRON Standard**
+
+
 
 
 | Pin | Abbr.   | Signal                | Signal Direction |
@@ -33,23 +44,29 @@ The OMRON G9SP uses a propritary pin lay out for serial communications:
 | 9   | SG (0 V)| Signal ground         | ---             |
 | Connector hood | FG | Frame ground    | ---             |
 
-Compared to the Standard 
+
+Compared to the Standard
+
 
 **RS232 Standard**
 
-| Pin | Signal Name | Abbreviation | Direction | 
+
+| Pin | Signal Name | Abbreviation | Direction |
 |-----|-------------|--------------|-----------|
-| 1   | Carrier Detect | CD       | Input     | 
-| 2   | Receive Data   | RD (RXD) | Input     | 
-| 3   | Transmit Data  | TD (TXD) | Output    | 
-| 4   | Data Terminal Ready | DTR | Output    | 
-| 5   | Signal Ground  | SG       | ---       | 
-| 6   | Data Set Ready | DSR      | Input     | 
-| 7   | Request to Send | RTS     | Output    | 
-| 8   | Clear to Send  | CTS      | Input     | 
-| 9   | Ring Indicator | RI       | Input     | 
+| 1   | Carrier Detect | CD       | Input     |
+| 2   | Receive Data   | RD (RXD) | Input     |
+| 3   | Transmit Data  | TD (TXD) | Output    |
+| 4   | Data Terminal Ready | DTR | Output    |
+| 5   | Signal Ground  | SG       | ---       |
+| 6   | Data Set Ready | DSR      | Input     |
+| 7   | Request to Send | RTS     | Output    |
+| 8   | Clear to Send  | CTS      | Input     |
+| 9   | Ring Indicator | RI       | Input     |
+
 
 So the needed cable requires these connections to translate the OMRON Standard -> R232 Standard
+
+
 
 
 | OMRON Pin | RS-232 Pin | Description                                                             |
@@ -61,9 +78,12 @@ So the needed cable requires these connections to translate the OMRON Standard -
 | ---       | 7 -> 8     | Jumps RS-232's Request to Send (RTS) to Clear to Send (CTS) (optional) |
 | 9         | 9          | Signal Ground to Signal Ground                                         |
 
+
 **Pyserial Configuration**
 
+
 For the Pyserial port to effectively communicate with the safety controller, the following arguments are required when defining the serial object:
+
 
 | Argument  | Value                                                                                 |
 |-----------|---------------------------------------------------------------------------------------|
@@ -74,19 +94,27 @@ For the Pyserial port to effectively communicate with the safety controller, the
 | Byte Size | 8 bits                                                                               |
 | Timeout   | 300 ms (the G9SP controller is expected to respond within 300 ms)                    |
 
-With this configuration the commands write and read are used for communitaions:
+
+With this configuration the commands write and read are used for communications:
+
 
 ```python
 serial_connection.write(data: bytes) -> int
 
+
 serial_connection.read(size: int) -> bytes
+
 
 serial_connection.read_until(data: bytes) -> bytes
 ```
 
+
 ### Packages:
 
+
 #### From Driver to G9SP:
+
+
 
 
 | Byte Offset | Value          | Size  | Description                       |
@@ -106,11 +134,16 @@ serial_connection.read_until(data: bytes) -> bytes
 | +17         |  `0x2A`   | 1 byte | Fixed value                           |
 | +18         |  `0x0D`   | 1 byte | Fixed value                           |
 
-For our driver the implementation for the Data section of the safety controller was not needed. To be able to request the Optional Comunication data, when programmed in the controller, this functinoality will need to be added.
 
-The checksum require the summation of byes from byte 0 to 14 (inclusive), storing the most significant values in Checksum (H) and the least Significant bytes in Checksum (L). Thus without the use of the data section the checksum should always be python ``` b"\x00\xEB" ```.
+For our driver the implementation for the Data section of the safety controller was not needed. To be able to request the Optional Communication data, when programmed in the controller, this functionality will need to be added.
+
+
+The checksum requires the summation of bytes from byte 0 to 14 (inclusive), storing the most significant values in Checksum (H) and the least Significant bytes in Checksum (L). Thus without the use of the data section the checksum should always be python ``` b"\x00\xEB" ```.
+
 
 #### From G9SP to Driver:
+
+
 
 
 | Byte Offset | Value           | Size   | Description                          |
@@ -128,7 +161,9 @@ The checksum require the summation of byes from byte 0 to 14 (inclusive), storin
 | +197        | `0x2A`                       | 1 byte  | Fixed value                          |
 | +198        | `0x0D`                       | 1 byte  | Fixed value                          |
 
+
 ---
+
 
 | Response Length (LL)         | Description               | Rest of Message                                                                                  |
 |------------------------------|---------------------------|--------------------------------------------------------------------------------------------------|
@@ -137,11 +172,16 @@ The checksum require the summation of byes from byte 0 to 14 (inclusive), storin
 | Incorrect command format     | `0x06`                    | End Code: `0x0000` <br> Service Code: Not included in response <br> Data Section: Not included in response |
 
 
+
+
 Checksum same as above, summation of bytes 0 to 194 (inclusive).
 
-### Parsing response Pacakge:
+
+### Parsing response Package:
+
 
 **Data Section**
+
 
 | Offset | Name                                  | Size    | Description                                |
 |--------|---------------------------------------|---------|--------------------------------------------|
@@ -164,24 +204,32 @@ Checksum same as above, summation of bytes 0 to 194 (inclusive).
 | +148   | Operation Log                         | 40 bytes | Detailed log of recent operations.         |
 
 
+
+
 ### Inputs / Outputs:
-The OMROM G9SP controller is able to be configure to have a total of 20 inputs and 16 outputs. This is important to consider when parsing the responce data becuase not considering these constrains given the data would lead to parsing the reserve sections which would led to undefined behavior.
+The OMRON G9SP controller is able to be configured to have a total of 20 inputs and 16 outputs. This is important to consider when parsing the response data because not considering these constraints given the data would lead to parsing the reserve sections which would lead to undefined behavior.
+
 
 #### Data Flags:
 Each Input or output get one bit:<br>
 0 : Terminal OFF (or error(errors are only possible for inputs)).<br>
 1 : Terminal ON.<br>
 
+
 #### Status Flags: <br>
 0 : Error <br>
 1 : Normal operation (no error).<br>
 
-And error is this section is cause by disconnected lines, ground fault, or short-circuit.
+
+An error is this section is caused by disconnected lines, ground fault, or short-circuit.
+
 
 The cause of the error can be found in the Error Causes sections
 
+
 #### Error Causes sections:
-Each input is given a nibble to indicate which cause set the status flag off below are the decimal repersentation of the nibble value and there corresponding error meaning.
+Each input is given a nibble to indicate which cause set the status flag off below are the decimal representation of the nibble value and their corresponding error meaning.
+
 
 Inputs:<br>
 0 : No error<br>
@@ -190,6 +238,7 @@ Inputs:<br>
 3 : Internal circuit error<br>
 4 : Discrepancy error<br>
 5 : Failure of the associated dual-channel input<br>
+
 
 Outputs:<br>
 0 : No error<br>
@@ -200,6 +249,16 @@ Outputs:<br>
 5 : Failure of the associated dual-channel output<br>
 6 : Internal circuit error<br>
 8 : Dual channel violation<br>
+
+
+
+
+
+
+
+
+
+
 
 
 
