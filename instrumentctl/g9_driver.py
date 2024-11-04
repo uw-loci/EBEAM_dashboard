@@ -64,7 +64,7 @@ class G9Driver:
         """
         Attempts to make a serial connection
 
-        Catches:
+        Catch:
             SerialException: If initizlization of serial port fails
         """
         if port:
@@ -111,10 +111,10 @@ class G9Driver:
         """
         Creates message for G9, sends it through serial connection
 
-        Catches:
+        Catch:
             SerialException: If sending messages throws an error
 
-        Raises:
+        Raisw:
             ConnectionError: Throws when sending message throws error
         """
         message = self.SNDHEADER + self.SNDDATA + self.SNDRES
@@ -131,10 +131,10 @@ class G9Driver:
         """
         Read and validate response from G9SP device.
 
-        Catches:
+        Catch:
             SerialException: If reading messages throws an error
         
-        Raises:
+        Raise:
             ConnectionError: If serial port is not open
             ValueError: For various validation failures
         """
@@ -159,9 +159,11 @@ class G9Driver:
             """
             Process validated response and extract interlock data
 
-            Returns:
+            Return:
                 Bit representation of the I/O Data flags
             """
+            if data == None:
+                raise ValueError("Invalid inputs to _process_response: Data is None")
             # Extract status data
             status_data = {
                 'unit_status': data[self.US_OFFSET:self.US_OFFSET + 2],
@@ -188,9 +190,11 @@ class G9Driver:
         """
         Validate basic response format
 
-        Raises:
+        Raise:
             ValueError: if formate is not as expected
         """
+        if data == None:
+            raise ValueError("Invalid inputs to _validate_response_format: Data is None")
         if data[0:1] != self.ALWAYS_START_BYTE:
             raise ValueError(f"Invalid start byte: {data[0:1].hex()}")
         if data[1:3] != b'\x00\x00':
@@ -207,9 +211,11 @@ class G9Driver:
             start (int): Starting index for checksum calculation (default 0)
             end (int): Ending index for checksum calculation (default 194) pg. 115
             
-        Returns:
+        Return:
             bytes: Two-byte checksum value
         """
+        if data == None:
+            raise ValueError("Invalid inputs to _calculate_checksum: Data is None")
         checksum = sum(data[0:194]) & 0xFFFF
         return checksum.to_bytes(2, 'big')
 
@@ -220,6 +226,8 @@ class G9Driver:
         Raise:
             ValueError: Calculated check sum does not match
         """
+        if data == None:
+            raise ValueError("Invalid inputs to _validate_checksum: Data is None")
 
         # Extract the received checksum (bytes 195-196)
         received = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1]
@@ -236,10 +244,12 @@ class G9Driver:
     def _check_unit_status(self, status):
         """
         Check unit status and raise error if issues found
-        
+
         Raise:
             ValueError: When Error Flag is found in unit status
         """
+        if status == None:
+            raise ValueError("Invalid inputs to _check_unit_status: status is None")
         if status != b'\x00\x01':
             bits = self._bytes_to_binary(status)
             for k in self.US_STATUS.keys():
@@ -250,6 +260,8 @@ class G9Driver:
 
     def _check_safety_inputs(self, data):
         """Check safety input status"""
+        if data == None:
+            raise ValueError("Invalid inputs to _check_safety_inputs: Data is None")
         self._check_terminal_status(
             data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],
             self.IN_STATUS,
@@ -258,6 +270,8 @@ class G9Driver:
 
     def _check_safety_outputs(self, data):
         """Check safety output status"""
+        if data == None:
+            raise ValueError("Invalid inputs to _check_safety_outputs: Data is None")
         self._check_terminal_status(
             data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:],
             self.OUT_STATUS,
@@ -269,8 +283,11 @@ class G9Driver:
         Generic terminal status checker
         
         Raise:
-            ValueError: If an error is found in the Error Cause Data
+            ValueError: If an error is found in the Error Cause Data or with invalid inputs
         """
+        if data == None or status_dict == None or terminal_type == None or terminal_type == "":
+            raise ValueError(f"_check_terminal_status is being called with invalid inputs {data} {status_dict} {terminal_type}")
+        
         for i, byte in enumerate(reversed(data[:self.NUMIN])):
             msb = byte >> 4
             lsb = byte & 0x0F
