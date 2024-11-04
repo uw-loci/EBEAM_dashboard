@@ -23,7 +23,6 @@ frames_config = [
     ("Cathode Heating", 4, 960, 450),
 ]
 
-
 class EBEAMSystemDashboard:
     def __init__(self, root, com_ports):
         self.root = root

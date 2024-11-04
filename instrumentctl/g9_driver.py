@@ -61,6 +61,12 @@ class G9Driver:
         self.input_flags = []
 
     def _setup_serial(self, port, baudrate, timeout):
+        """
+        Attempts to make a serial connection
+
+        Catches:
+            SerialException: If initizlization of serial port fails
+        """
         if port:
             try:
                 self.ser = serial.Serial(  
@@ -80,6 +86,14 @@ class G9Driver:
             self.log("No port specified", LogLevel.WARNING)
 
     def get_interlock_status(self):
+        """
+        Starts the process to get the data from the G9
+
+        Catch:
+            Exception: Anything that the other functions throw
+        Raise:
+            The exception that was catch
+        """
         if not self.is_connected():
             raise ConnectionError("Serial Port is Not Open")
 
@@ -87,12 +101,22 @@ class G9Driver:
             self._send_command()
             response_data = self._read_response()
             return self._process_response(response_data)
+        #TODO: Should be catching the specific exceptions that were being thrown
+        #TODO: Should we be just catching an exception just to throw it???
         except Exception as e:
             self.log(f"Error getting interlock status: {str(e)}", LogLevel.ERROR)
             raise
 
     def _send_command(self):
+        """
+        Creates message for G9, sends it through serial connection
 
+        Catches:
+            SerialException: If sending messages throws an error
+
+        Raises:
+            ConnectionError: Throws when sending message throws error
+        """
         message = self.SNDHEADER + self.SNDDATA + self.SNDRES
         checksum = self._calculate_checksum(message)
         full_message = message + checksum + self.FOOTER
@@ -106,6 +130,10 @@ class G9Driver:
     def _read_response(self):
         """
         Read and validate response from G9SP device.
+
+        Catches:
+            SerialException: If reading messages throws an error
+        
         Raises:
             ConnectionError: If serial port is not open
             ValueError: For various validation failures
@@ -128,7 +156,12 @@ class G9Driver:
             raise ConnectionError(f"Error reading response: {str(e)}")
 
     def _process_response(self, data):
-            """Process validated response and extract interlock data"""
+            """
+            Process validated response and extract interlock data
+
+            Returns:
+                Bit representation of the I/O Data flags
+            """
             # Extract status data
             status_data = {
                 'unit_status': data[self.US_OFFSET:self.US_OFFSET + 2],
@@ -152,7 +185,12 @@ class G9Driver:
             return binary_data['sitsf'], binary_data['sitdf']
 
     def _validate_response_format(self, data):
-        """Validate basic response format"""
+        """
+        Validate basic response format
+
+        Raises:
+            ValueError: if formate is not as expected
+        """
         if data[0:1] != self.ALWAYS_START_BYTE:
             raise ValueError(f"Invalid start byte: {data[0:1].hex()}")
         if data[1:3] != b'\x00\x00':
@@ -176,7 +214,12 @@ class G9Driver:
         return checksum.to_bytes(2, 'big')
 
     def _validate_checksum(self, data):
-        """Validate checksum of received data"""
+        """
+        Validate checksum of received data
+        
+        Raise:
+            ValueError: Calculated check sum does not match
+        """
 
         # Extract the received checksum (bytes 195-196)
         received = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1]
@@ -191,7 +234,12 @@ class G9Driver:
             )
 
     def _check_unit_status(self, status):
-        """Check unit status and raise error if issues found"""
+        """
+        Check unit status and raise error if issues found
+        
+        Raise:
+            ValueError: When Error Flag is found in unit status
+        """
         if status != b'\x00\x01':
             bits = self._bytes_to_binary(status)
             for k in self.US_STATUS.keys():
@@ -217,7 +265,12 @@ class G9Driver:
         )
 
     def _check_terminal_status(self, data, status_dict, terminal_type):
-        """Generic terminal status checker"""
+        """
+        Generic terminal status checker
+        
+        Raise:
+            ValueError: If an error is found in the Error Cause Data
+        """
         for i, byte in enumerate(reversed(data[:self.NUMIN])):
             msb = byte >> 4
             lsb = byte & 0x0F
