@@ -5,24 +5,24 @@ import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
 
-# the bit poistion for each interlock
-INPUTS = {
-    0 : "E-STOP Int", # Chassis Estop
-    1 : "E-STOP Int", # Chassis Estop
-    2 : "E-STOP Ext", # Peripheral Estop
-    3 : "E-STOP Ext", # Peripheral Estop
-    4 : "Door", # Door 
-    5 : "Door", # Door Lock
-    6 : "Vacuum Power", # Vacuum Power
-    7 : "Vacuum Pressure", # Vacuum Pressure
-    8 : "High Oil", # Oil High
-    9 : "Low Oil", # Oil Low
-    10 : "Water", # Water
-    11 : "HVolt ON", # HVolt ON
-    12 : "G9SP Active" # G9SP Active
-    }
-
 class InterlocksSubsystem:
+    # the bit poistion for each interlock
+    INPUTS = {
+        0 : "E-STOP Int", # Chassis Estop
+        1 : "E-STOP Int", # Chassis Estop
+        2 : "E-STOP Ext", # Peripheral Estop
+        3 : "E-STOP Ext", # Peripheral Estop
+        4 : "Door", # Door 
+        5 : "Door", # Door Lock
+        6 : "Vacuum Power", # Vacuum Power
+        7 : "Vacuum Pressure", # Vacuum Pressure
+        8 : "High Oil", # Oil High
+        9 : "Low Oil", # Oil Low
+        10 : "Water", # Water
+        11 : "HVolt ON", # HVolt ON
+        12 : "G9SP Active" # G9SP Active
+        }
+    
     def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
         self.logger = logger
@@ -53,7 +53,12 @@ class InterlocksSubsystem:
         self.parent.after(self.update_interval, self.update_data)
 
     def update_com_port(self, com_port):
-        """Update the COM port and reinitialize the driver"""
+        """
+        Update the COM port and reinitialize the driver
+        
+        Catch:
+            Expection: If inilizition throws an error
+        """
         if com_port:
             try:
                 new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
@@ -66,6 +71,11 @@ class InterlocksSubsystem:
                 if self.logger:
                     self.logger.error(f"Failed to update G9 driver: {str(e)}")
                 self._set_all_indicators('red')
+        else:
+            self._set_all_indicators('red')
+            if self.logger:
+                self.logger.error("update_com_port is being called without a com port")
+
 
     def _adjust_update_interval(self, success=True):
         """Adjust the polling interval based on connection success/failure"""
@@ -117,16 +127,19 @@ class InterlocksSubsystem:
                       }
         
         # Makes all the inticators and labels
-        for i, (k,v) in enumerate(self.indicators.items()):
+        for i, k in enumerate(self.indicators.keys()):
             tk.Label(interlocks_frame, text=f"{k}", anchor="center").grid(row=0, column=i*2, sticky='ew')
             canvas, oval_id = create_indicator_circle(interlocks_frame, 'red')
             canvas.grid(row=0, column=i*2+1, sticky='nsew')
             self.indicators[k] = (canvas, oval_id)
 
-    # logging the history of updates
+    # updates indicator and logs updates
     def update_interlock(self, name, safety, data):
         """Update individual interlock indicator"""
-        # means good
+        if name not in self.indicators or safety == None or data == None:
+            if self.logger:
+                self.logger.error("Invalid inputs to update_interlock")
+
         color = 'green' if (safety & data) == 1 else 'red'
 
         if name in self.indicators:
@@ -139,6 +152,10 @@ class InterlocksSubsystem:
 
     def _set_all_indicators(self, color):
         """Set all indicators to specified color"""
+        if color == None or color == "":
+            if self.logger:
+                self.logger.error("Invalid inputs to _set_all_indicators")
+
         if self.indicators:
             for name in self.indicators:
                 canvas, oval_id = self.indicators[name]
@@ -149,7 +166,18 @@ class InterlocksSubsystem:
                         self.logger.info(f"Interlock {name}: {current_color} -> {color}")
 
     def update_data(self):
-        """Update interlock status"""
+        """
+        Update interlock status
+
+        Finally: Will always schedule the next time to refresh data
+
+        Catch:
+            ConnectionError: Thrown from G9Driver when serial connection throws error
+            ValueError: Thrown from G9Driver when unexpected responce is recieved
+
+            Exception: If anything else in message process throws an error
+
+        """
         current_time = time.time()
         try:
             if not self.driver or not self.driver.is_connected():
@@ -172,13 +200,13 @@ class InterlocksSubsystem:
                          int(sitsf_bits[-i*2-2], 2))
                 data = (int(sitdf_bits[-i*2-1], 2) & 
                        int(sitdf_bits[-i*2-2], 2))
-                self.update_interlock(INPUTS[i*2], safety, data)
+                self.update_interlock(self.INPUTS[i*2], safety, data)
             
             # Process single-input interlocks
             for i in range(6, 13):
                 safety = int(sitsf_bits[-i-1], 2)
                 data = int(sitdf_bits[-i-1], 2)
-                self.update_interlock(INPUTS[i], safety, data)
+                self.update_interlock(self.INPUTS[i], safety, data)
             
             # Update overall status
             all_good = sitsf_bits == sitdf_bits == "1" * 13
