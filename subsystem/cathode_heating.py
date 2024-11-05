@@ -4,7 +4,6 @@ from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
-import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -79,7 +78,7 @@ class CathodeHeatingSubsystem:
         self.toggle_buttons = []
         self.entry_fields = []
         self.power_supplies = []
-        self.temperature_controllers = []
+        self.temperature_controller = None
         self.time_data = [[] for _ in range(3)]
         self.temperature_data = [[] for _ in range(3)]
         self.logger = logger
@@ -272,8 +271,6 @@ class CathodeHeatingSubsystem:
 
             voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
             voltage_label.grid(row=7, column=0, sticky='w')
-            # current_label = ttk.Label(config_tab, textvariable=current_display_var, style='Bold.TLabel')
-            # current_label.grid(row=6, column=1, sticky='w')
             mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
             mode_label.grid(row=7, column=1, sticky='w')
 
@@ -299,40 +296,172 @@ class CathodeHeatingSubsystem:
         self.init_time = datetime.datetime.now()
 
     def update_com_ports(self, new_com_ports):
-            self.log("Updating COM ports for Cathode Heating Subsystem", LogLevel.INFO)
+        """
+        Update COM port assignments for power supplies and temperature controllers.
+        
+        Args:
+            new_com_ports (dict): Dictionary containing new COM port assignments
             
-            # Update power supply COM ports
-            cathode_ports = {
-                'CathodeA PS': new_com_ports.get('CathodeA PS'),
-                'CathodeB PS': new_com_ports.get('CathodeB PS'),
-                'CathodeC PS': new_com_ports.get('CathodeC PS')
-            }
+        Returns:
+            bool: True if all updates were successful, False otherwise
+        """
+        self.log("Beginning COM port update procedure", LogLevel.INFO)
+        
+        # Validate input
+        required_ports = {'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers'}
+        if not all(port in new_com_ports for port in required_ports):
+            self.log("Missing required COM port assignments", LogLevel.ERROR)
+            return False
 
-            for idx, (cathode, new_port) in enumerate(cathode_ports.items()):
-                if new_port and new_port != self.com_ports.get(cathode):
-                    if idx < len(self.power_supplies):
-                        try:
-                            if self.power_supplies[idx] is not None:
-                                self.power_supplies[idx].update_com_port(new_port)
-                            else:
-                                self.power_supplies[idx] = PowerSupply9104(port=new_port, logger=self.logger)
-                            self.com_ports[cathode] = new_port
-                            self.log(f"Updated {cathode} to port {new_port}", LogLevel.INFO)
-                        except Exception as e:
-                            self.log(f"Failed to update {cathode} to port {new_port}: {str(e)}", LogLevel.ERROR)
-                            self.power_supplies[idx] = None
-                    else:
-                        self.log(f"Cannot update {cathode}. Power supply index out of range.", LogLevel.WARNING)
+        update_success = True
+        
+        self._disconnect_existing_connections()
+        
+        try:
+            # Update power supply ports
+            ps_update_success = self._update_power_supply_ports(new_com_ports)
+            if not ps_update_success:
+                self.log("Some power supply port updates failed", LogLevel.WARNING)
+                update_success = False
+            
+            # Update temperature controller port
+            tc_update_success = self._update_temperature_controller_port(new_com_ports)
+            if not tc_update_success:
+                self.log("Temperature controller port update failed", LogLevel.WARNING)
+                update_success = False
+                
+            # Update internal COM ports dictionary
+            self._update_com_ports_dictionary(new_com_ports)
+            
+            # Reinitialize connections with new ports
+            if update_success:
+                self.initialize_power_supplies()
+                if self.power_supplies_initialized:
+                    self.log("Power supplies reinitialized successfully", LogLevel.INFO)
+                else:
+                    self.log("Power supplies reinitialization failed", LogLevel.ERROR)
+                    update_success = False
+            
+            return update_success
+            
+        except Exception as e:
+            self.log(f"Unexpected error during COM port update: {str(e)}", LogLevel.ERROR)
+            return False
+            
+    def _disconnect_existing_connections(self):
+        # Disconnect power supplies
+        for idx, ps in enumerate(self.power_supplies):
+            if ps is not None:
+                try:
+                    ps.disconnect()
+                    self.log(f"Disconnected power supply {idx + 1}", LogLevel.DEBUG)
+                except Exception as e:
+                    self.log(f"Error disconnecting power supply {idx + 1}: {str(e)}", LogLevel.WARNING)
+        
+        # Disconnect temperature controller
+        if self.temperature_controller:
+            try:
+                self.temperature_controller.stop_reading()
+                self.temperature_controller.disconnect()
+                self.log("Disconnected temperature controller", LogLevel.DEBUG)
+            except Exception as e:
+                self.log(f"Error disconnecting temperature controller: {str(e)}", LogLevel.WARNING)
 
-            # Update temperature controller COM port
-            new_temp_controller_port = new_com_ports.get('TempControllers')
-            if new_temp_controller_port and new_temp_controller_port != self.com_ports.get('TempControllers'):
-                self.com_ports['TempControllers'] = new_temp_controller_port
-                self.initialize_temperature_controllers()
-                self.log(f"Updated temperature controllers to port {new_temp_controller_port}", LogLevel.INFO)
+    def _update_power_supply_ports(self, new_com_ports):
+        """
+        Update power supply COM ports.
+        
+        Returns:
+            bool: True if all critical updates succeeded
+        """
+        success = True
+        cathode_ports = {
+            'CathodeA PS': new_com_ports.get('CathodeA PS'),
+            'CathodeB PS': new_com_ports.get('CathodeB PS'),
+            'CathodeC PS': new_com_ports.get('CathodeC PS')
+        }
+        
+        for idx, (cathode, new_port) in enumerate(cathode_ports.items()):
+            if not new_port:
+                self.log(f"No port specified for {cathode}", LogLevel.WARNING)
+                continue
+                
+            if idx >= len(self.power_supplies):
+                self.log(f"Cannot update {cathode}. Power supply index out of range.", LogLevel.ERROR)
+                success = False
+                continue
+                
+            try:
+                # Verify port exists and is available
+                if not self._verify_port_available(new_port):
+                    self.log(f"Port {new_port} for {cathode} is not available", LogLevel.ERROR)
+                    success = False
+                    continue
+                    
+                # Update or create power supply instance
+                if self.power_supplies[idx] is not None:
+                    self.power_supplies[idx].update_com_port(new_port)
+                else:
+                    self.power_supplies[idx] = PowerSupply9104(port=new_port, logger=self.logger)
+                    
+                self.log(f"Successfully updated {cathode} to port {new_port}", LogLevel.INFO)
+                
+            except Exception as e:
+                self.log(f"Failed to update {cathode} to port {new_port}: {str(e)}", LogLevel.ERROR)
+                self.power_supplies[idx] = None
+                success = False
+        
+        return success
 
-            # Reinitialize power supplies to ensure all settings are applied
-            self.initialize_power_supplies()
+    def _update_temperature_controller_port(self, new_com_ports):
+        """
+        Update temperature controller COM port.
+        
+        Returns:
+            bool: True if update succeeded
+        """
+        new_port = new_com_ports.get('TempControllers')
+        if not new_port:
+            self.log("No port specified for temperature controllers", LogLevel.ERROR)
+            return False
+            
+        try:
+            if not self._verify_port_available(new_port):
+                self.log(f"Port {new_port} for temperature controllers is not available", LogLevel.ERROR)
+                return False
+                
+            self.initialize_temperature_controllers()
+            if not self.temp_controllers_connected:
+                self.log("Failed to initialize temperature controllers with new port", LogLevel.ERROR)
+                return False
+                
+            self.log(f"Successfully updated temperature controllers to port {new_port}", LogLevel.INFO)
+            return True
+            
+        except Exception as e:
+            self.log(f"Error updating temperature controller port: {str(e)}", LogLevel.ERROR)
+            return False
+
+    def _update_com_ports_dictionary(self, new_com_ports):
+        """Update internal COM ports dictionary with new assignments."""
+        for port_name, port_value in new_com_ports.items():
+            if port_value:  # Only update if port is specified
+                self.com_ports[port_name] = port_value
+
+    def _verify_port_available(self, port):
+        """
+        Verify if a COM port exists and is available.
+        
+        Returns:
+            bool: True if port is available
+        """
+        try:
+            import serial.tools.list_ports
+            available_ports = [p.device for p in serial.tools.list_ports.comports()]
+            return port in available_ports
+        except Exception as e:
+            self.log(f"Error verifying port availability: {str(e)}", LogLevel.ERROR)
+            return False
 
     def initialize_power_supplies(self):
         if not self.power_supplies:
@@ -586,9 +715,11 @@ class CathodeHeatingSubsystem:
                 # Assuming only one Modbus controller object for all units
                 tc = E5CNModbus(port=port, logger=self.logger)
                 if tc.connect():
-                    self.temperature_controllers = [tc]  # Store it in a list for compatibility with existing code structure
+                    self.temperature_controller = tc
                     self.temp_controllers_connected = True
                     self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
+                
+                    self.temperature_controller.start_reading_temperatures()
                 else:
                     self.log(f"Failed to connect to temperature controllers at {port}", LogLevel.ERROR)
                     self.temperature_controllers_connected = False
@@ -602,16 +733,16 @@ class CathodeHeatingSubsystem:
         Index corresponds to the cathode index (0-based).
         """
         current_time = datetime.datetime.now()
-        if self.temperature_controllers and self.temp_controllers_connected:
+        if self.temperature_controller and self.temp_controllers_connected:
             try:
                 # Attempt to read temperature from the connected temperature controller
-                temperature = self.temperature_controllers[index].read_temperature(index + 1)
+                temperature = self.temperature_controller.temperatures[index]
                 if temperature is not None:
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} °C")
                     self.set_plot_alert(index, alert_status=False)
                     return temperature
                 else:
-                    raise Exception("No temperature data received")
+                    self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
             except Exception as e:
                 self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
                 self.set_plot_alert(index, alert_status=True)  # Set plot border to red
@@ -741,6 +872,9 @@ class CathodeHeatingSubsystem:
         ax.figure.canvas.draw()
 
     def update_plot(self, index):
+        if len(self.time_data[index]) == 0: # skip if there's no new data
+            return
+        
         time_data = self.time_data[index]
         temperature_data = self.temperature_data[index][0].get_data()[1]
 
@@ -749,7 +883,7 @@ class CathodeHeatingSubsystem:
         ax = self.temperature_data[index][0].axes
 
         # Adjust color based on temperature status
-        if self.overtemp_status_vars[index].get() == "OVERTEMP!":
+        if self.overtemp_status_vars[index].get() == "OVERTEMP!" or not self.temp_controllers_connected:
             for spine in ax.spines.values():
                 spine.set_color('red')
             ax.xaxis.label.set_color('red')
@@ -1083,12 +1217,11 @@ class CathodeHeatingSubsystem:
         """
         try:
             # Ensure that the unit index is within the range of connected controllers
-            if unit - 1 >= len(self.temperature_controllers):
-                raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
+            if not self.temperature_controller:
+                raise ValueError(f"Temperature Controller is not connected or initialized.")
 
             # Perform the echoback test
-            controller = self.temperature_controllers[unit - 1]
-            result = controller.perform_echoback_test()
+            result = self.temperature_controller.perform_echoback_test(unit=unit)
             self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.ERROR)
         except Exception as e:
             self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
@@ -1100,11 +1233,10 @@ class CathodeHeatingSubsystem:
         Ensures the unit is connected before attempting to read.
         """
         try:
-            if unit - 1 >= len(self.temperature_controllers):
-                raise ValueError(f"Temperature Controller Unit {unit} is not connected or initialized.")
+            if not self.temperature_controller:
+                raise ValueError(f"Temperature Controller is not connected or initialized.")
 
-            controller = self.temperature_controllers[unit - 1]
-            temperature = controller.read_temperature()
+            temperature = self.temperature_controller.read_temperature(unit=unit)
             if temperature is not None:
                 message = f"Temperature from Unit {unit}: {temperature:.2f} °C"
                 self.log(message, LogLevel.VERBOSE)
