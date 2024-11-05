@@ -210,48 +210,170 @@ Checksum same as above, summation of bytes 0 to 194 (inclusive).
 The OMRON G9SP controller is able to be configured to have a total of 20 inputs and 16 outputs. This is important to consider when parsing the response data because not considering these constraints given the data would lead to parsing the reserve sections which would lead to undefined behavior.
 
 
-#### Data Flags:
-Each Input or output get one bit:<br>
-| Value (Binary) | Meaning |
-| ----| -----| 
-| 0 | Terminal OFF (or error(errors are only possible for inputs)). |
-| 1 | Terminal ON|
+### Data Flags
+Each input or output receives one bit:
+
+| Value (Binary) | Meaning                                     |
+|----------------|---------------------------------------------| 
+| 0b0            | Terminal OFF (or error for inputs)          |
+| 0b1            | Terminal ON                                 |
+
+### Status Flags
+Each input or output receives one bit:
+
+| Value (Binary) | Meaning                          |
+|----------------|----------------------------------| 
+| 0b0            | Error                            |
+| 0b1            | Normal operation (no error)      |
+
+Errors in this section are caused by disconnected lines, ground faults, or short circuits. The specific cause of the error is detailed in the **Error Causes** sections below.
+
+### Error Causes
+
+#### Inputs
+
+Each input is assigned a nibble (4 bits) to indicate the cause of an error. The table below lists the hexadecimal representation of the nibble and the corresponding error meaning.
+
+| Value (Hex) | Meaning                             |
+|-------------|-------------------------------------| 
+| 0x0         | No error                            |
+| 0x1         | Invalid configuration               |
+| 0x2         | External test signal failure        |
+| 0x3         | Internal circuit error              |
+| 0x4         | Discrepancy error                   |
+| 0x5         | Failure of the associated dual-channel input |
+
+#### Outputs
+
+Each output is assigned a nibble (4 bits) to indicate the cause of an error. The table below lists the hexadecimal representation of the nibble and the corresponding error meaning.
+
+| Value (Hex) | Meaning                                |
+|-------------|----------------------------------------| 
+| 0x0         | No error                               |
+| 0x1         | Invalid configuration                  |
+| 0x2         | Overcurrent detection                  |
+| 0x3         | Short circuit detection                |
+| 0x4         | Stuck-at-high detection                |
+| 0x5         | Failure of the associated dual-channel output |
+| 0x6         | Internal circuit error                 |
+| 0x8         | Dual channel violation                 |
+
+### Unit Status
+
+The Unit Status section of the package has 2 bytes, of which contain 4 flags that indicate the overall status of the controller. The rest of the bits are reserved.
+
+| Bit Position | Description                    | Meaning                                                                                  |
+|--------------|--------------------------------|------------------------------------------------------------------------------------------|
+| 0            | Unit Normal Operation Flag     | 0 : Error occurred or program stopped <br> 1 : Normal status                             |
+| 9            | Output Power Supply Error Flag | 0 : Output power supply voltage normal <br> 1 : Output power supply voltage error or OFF |
+| 10           | Safety I/O Terminal Error Flag | 0 : No error in Safety I/O terminals <br> 1 : Error in Safety I/O terminals              |
+| 13           | Function Block Error Flag      | 0 : No error in any function block <br> 1 : Error in a function block                    |
 
 
-#### Status Flags: <br>
-Each Input or output get one bit:<br>
-| Value (Binary) | Meaning |
-| ----| -----| 
-| 0 | Error |
-| 1 | Normal operation (no error)|
+### Code Flow Diagram for `g9_driver.py`
+
+```plaintext
++-------------------------+
+|       G9Driver          |
+|       (Class)           |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|       __init__          |
+|   Initializes serial    |
+|   connection and logger |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|     _setup_serial       |
+|   Sets up the serial    |
+|   connection with G9SP  |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+| get_interlock_status    |
+| Main process to get     |
+| data from the G9SP      |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|     _send_command       |
+|  Builds and sends a     |
+|  message to G9SP        |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|     _read_response      |
+| Reads and validates     |
+| response from G9SP      |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|   _process_response     |
+| Processes response data |
+| and extracts interlock  |
+| status flags            |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|   _check_unit_status    |
+| Checks unit status and  |
+| logs any detected errors|
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+| _check_safety_inputs    |
+| Verifies input terminal |
+| status flags            |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+| _check_safety_outputs   |
+| Verifies output terminal|
+| status flags            |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+| _validate_response_fmt  |
+| Ensures response format |
+| is as expected          |
++-------------------------+
+           |
+           |
+           v
++-------------------------+
+|   _validate_checksum    |
+| Confirms checksum       |
+| matches the expected    |
+| value                   |
++-------------------------+
 
 
-An error is this section is caused by disconnected lines, ground fault, or short-circuit.
-The cause of the error can be found in the Error Causes sections
 
 
-#### Error Causes sections:
-Each input is given a nibble to indicate which cause set the status flag off below are the decimal representation of the nibble value and their corresponding error meaning.
 
 
-Inputs:<br>
-0 : No error<br>
-1 : Invalid configuration<br>
-2 : External test signal failure<br>
-3 : Internal circuit error<br>
-4 : Discrepancy error<br>
-5 : Failure of the associated dual-channel input<br>
 
-
-Outputs:<br>
-0 : No error<br>
-1 : Invalid configuration<br>
-2 : Overcurrent detection<br>
-3 : Short circuit detection<br>
-4 : Stuck-at-high detection<br>
-5 : Failure of the associated dual-channel output<br>
-6 : Internal circuit error<br>
-8 : Dual channel violation<br>
 
 
 
