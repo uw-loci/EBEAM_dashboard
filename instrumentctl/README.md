@@ -212,18 +212,21 @@ The OMRON G9SP controller is able to be configured to have a total of 20 inputs 
 
 #### Data Flags:
 Each Input or output get one bit:<br>
-0 : Terminal OFF (or error(errors are only possible for inputs)).<br>
-1 : Terminal ON.<br>
+| Value (Binary) | Meaning |
+| ----| -----| 
+| 0 | Terminal OFF (or error(errors are only possible for inputs)). |
+| 1 | Terminal ON|
 
 
 #### Status Flags: <br>
-0 : Error <br>
-1 : Normal operation (no error).<br>
+Each Input or output get one bit:<br>
+| Value (Binary) | Meaning |
+| ----| -----| 
+| 0 | Error |
+| 1 | Normal operation (no error)|
 
 
 An error is this section is caused by disconnected lines, ground fault, or short-circuit.
-
-
 The cause of the error can be found in the Error Causes sections
 
 
