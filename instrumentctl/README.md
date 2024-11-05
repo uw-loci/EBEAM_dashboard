@@ -4,7 +4,7 @@
 ## Purpose and functionality:
 
 
-The AMON G9SP is the safety controller being used for the safety system to analyze the input from the machine along with controlling the High voltage(HVOLT) for the printer.
+The AMORN G9SP is the safety controller being used for the safety system to analyze the input from the machine along with controlling the High voltage(HVOLT) for the printer.
 This driver is made to be able to communicate through a serial connection to the G9SP to pull and update the GUI on the current status of the interlocks, along will handle and present the user with any current errors that the G9SP is experiencing.
 
 

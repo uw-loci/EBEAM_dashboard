@@ -1,8 +1,5 @@
 __pycache__/
-*.pyc
 usr/
 venv/
-.venv/
 build/
 dist/
-EBEAM-Dashboard-Logs/

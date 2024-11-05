@@ -42,12 +42,15 @@ class CathodeHeatingSubsystem:
         self.voltage_check_interval = 5
         self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
         self.user_set_voltages = [None, None, None]  # Store user-set voltages
+        self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.query_settings_buttons = []
         self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
+        
         self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
+
         self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]
@@ -125,6 +128,7 @@ class CathodeHeatingSubsystem:
 
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
+        self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
@@ -248,6 +252,7 @@ class CathodeHeatingSubsystem:
             slew_rate_entry.grid(row=4, column=1, sticky='w')
             set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
+            self.slew_rate_vars.append(slew_rate_var) # store user variable
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
@@ -293,9 +298,46 @@ class CathodeHeatingSubsystem:
 
         self.init_time = datetime.datetime.now()
 
+    def update_com_ports(self, new_com_ports):
+            self.log("Updating COM ports for Cathode Heating Subsystem", LogLevel.INFO)
+            
+            # Update power supply COM ports
+            cathode_ports = {
+                'CathodeA PS': new_com_ports.get('CathodeA PS'),
+                'CathodeB PS': new_com_ports.get('CathodeB PS'),
+                'CathodeC PS': new_com_ports.get('CathodeC PS')
+            }
+
+            for idx, (cathode, new_port) in enumerate(cathode_ports.items()):
+                if new_port and new_port != self.com_ports.get(cathode):
+                    if idx < len(self.power_supplies):
+                        try:
+                            if self.power_supplies[idx] is not None:
+                                self.power_supplies[idx].update_com_port(new_port)
+                            else:
+                                self.power_supplies[idx] = PowerSupply9104(port=new_port, logger=self.logger)
+                            self.com_ports[cathode] = new_port
+                            self.log(f"Updated {cathode} to port {new_port}", LogLevel.INFO)
+                        except Exception as e:
+                            self.log(f"Failed to update {cathode} to port {new_port}: {str(e)}", LogLevel.ERROR)
+                            self.power_supplies[idx] = None
+                    else:
+                        self.log(f"Cannot update {cathode}. Power supply index out of range.", LogLevel.WARNING)
+
+            # Update temperature controller COM port
+            new_temp_controller_port = new_com_ports.get('TempControllers')
+            if new_temp_controller_port and new_temp_controller_port != self.com_ports.get('TempControllers'):
+                self.com_ports['TempControllers'] = new_temp_controller_port
+                self.initialize_temperature_controllers()
+                self.log(f"Updated temperature controllers to port {new_temp_controller_port}", LogLevel.INFO)
+
+            # Reinitialize power supplies to ensure all settings are applied
+            self.initialize_power_supplies()
+
     def initialize_power_supplies(self):
-        self.power_supplies = []
-        self.power_supply_status = []
+        if not self.power_supplies:
+            self.power_supplies = [None, None, None]
+        self.power_supply_status = [False, False, False]
 
         cathode_ports = {
             'CathodeA PS': self.com_ports.get('CathodeA PS'),
@@ -306,8 +348,13 @@ class CathodeHeatingSubsystem:
         for idx, (cathode, port) in enumerate(cathode_ports.items()):
             if port:
                 try:
-                    ps = PowerSupply9104(port=port, logger=self.logger)
-                    
+                    if self.power_supplies[idx] is None:
+                        self.power_supplies[idx] = PowerSupply9104(port=port, logger=self.logger)
+                    elif not self.power_supplies[idx].is_connected():
+                        self.power_supplies[idx].update_com_port(port)
+
+                    ps = self.power_supplies[idx]
+
                     # Set preset mode to 3
                     set_preset_response = ps.set_preset_selection(3)
                     if set_preset_response:
@@ -360,33 +407,28 @@ class CathodeHeatingSubsystem:
                     else:
                         self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.WARNING)
 
-                    self.power_supplies.append(ps)
-                    self.power_supply_status.append(True)
+                    self.power_supply_status[idx] = True
                     self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
                 except Exception as e:
-                    self.power_supplies.append(None)
-                    self.power_supply_status.append(False)
+                    self.power_supplies[idx] = None
+                    self.power_supply_status[idx] = False  
                     self.log(f"Failed to initialize {cathode} on port {port}: {str(e)}", LogLevel.ERROR)
             else:
-                self.power_supplies.append(None)
-                self.power_supply_status.append(False)
+                self.power_supplies[idx] = None
+                self.power_supply_status[idx] = False
                 self.log(f"No COM port specified for {cathode}", LogLevel.ERROR)
 
         # Update button states based on individual power supply status
         for idx, status in enumerate(self.power_supply_status):
-            if idx < len(self.toggle_buttons): # Check if index is valid    
-                if status:
-                    self.toggle_buttons[idx]['state'] = 'normal'
-                else:
-                    self.toggle_buttons[idx]['state'] = 'disabled'
+            if idx < len(self.toggle_buttons):
+                self.toggle_buttons[idx]['state'] = 'normal' if status else 'disabled'
+                if not status:
                     self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
             else:
                 self.log(f"Toggle button {idx+1} has not been initialized yet.", LogLevel.VERBOSE)
 
-        if any(self.power_supply_status):
-            self.power_supplies_initialized = True
-        else:
-            self.power_supplies_initialized = False
+        self.power_supplies_initialized = any(self.power_supply_status)
+        if not self.power_supplies_initialized:
             self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
         
         self.update_query_settings_button_states()
@@ -409,6 +451,17 @@ class CathodeHeatingSubsystem:
         self.log(f"Failed to reconnect after {max_retries} attempts", LogLevel.ERROR)
         return False
     
+    def set_slew_rate(self, index, var):
+        try:
+            new_slew_rate = float(var.get())
+            if new_slew_rate <= 0:
+                raise ValueError("Slew rate must be positive.")
+            self.slew_rates[index] = new_slew_rate
+            self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} V/s", LogLevel.INFO)
+        except ValueError as e:
+            self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
+
     def set_overvoltage_limit(self, index):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OVP.", LogLevel.ERROR)
@@ -576,7 +629,7 @@ class CathodeHeatingSubsystem:
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
         for i in range(3):
-            self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.DEBUG)
+            self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
 
             voltage = None
             current = None
@@ -734,38 +787,58 @@ class CathodeHeatingSubsystem:
                 
                 voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
                 current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
-                
-                if voltage_mismatch or current_mismatch:
-                    mismatch_message = f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:\n"
-                    if voltage_mismatch:
-                        mismatch_message += f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n"
-                    if current_mismatch:
-                        mismatch_message += f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n"
-                    mismatch_message += "Do you want to proceed with turning on the output?"
-                    
-                    if not msgbox.askyesno("Value Mismatch", mismatch_message):
-                        self.log(f"Output activation cancelled due to set value mismatch for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
-                        return
+            
+                if voltage_mismatch:
+                    self.log(f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n", LogLevel.WARNING)
+                elif current_mismatch:
+                    self.log(f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n", LogLevel.WARNING)
                 else:
                     self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
             else:
                 self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received.", LogLevel.ERROR)
                 return
         
-        # If we've made it here, either we're turning off, or the user has confirmed they want to proceed
+            # zero out voltage before enabling output
+            self.power_supplies[index].set_voltage(3, 0.0)
+
+            # enable output 
+            self.power_supplies[index].set_output("1")
+
+            # Start ramping voltage to target voltage
+            target_voltage = self.user_set_voltages[index]
+            if target_voltage is not None:
+                slew_rate = self.slew_rates[index] # V/s
+                if slew_rate <= 0:
+                    self.log(f"Slew rate must be positive for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    return
+                step_delay = 0.5 # seconds
+                step_size = slew_rate * step_delay # V
+                if step_size < 0.01:
+                    step_size = 0.01 # minimum step size
+                elif step_size > 1.0:
+                    step_size = 1.0 # max step size
+
+                # recalculate step_delay based on adjusted step_size
+                step_delay = step_size / slew_rate
+                self.log(f"Starting voltage ramp for Cathode {['A', 'B', 'C'][index]} with step size {step_size:.3f} V and step delay {step_delay:.3f} s (Slew rate {slew_rate} V/s)", LogLevel.INFO)
+
+                self.power_supplies[index].ramp_voltage(
+                    target_voltage,
+                    step_size=step_size,
+                    step_delay=step_delay,
+                    preset=3
+                )
+            else:
+                self.log(f"No target voltage set for cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+                return
+        else:
+            # turning off the output
+            self.power_supplies[index].set_output("0")
+
+        # Update the toggle state and button image
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
-        self.toggle_buttons[index].config(image=current_image)  # Update the correct toggle button's image
-        
-        if self.toggle_states[index]:
-            response = self.power_supplies[index].set_output("1") # ON
-        else:
-            response = self.power_supplies[index].set_output("0") # OFF
-        
-        if response == "OK":
-            self.log(f"Heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.INFO)
-        else:
-            self.log(f"Unexpected response: toggling heater {['A', 'B', 'C'][index]} output {'ON' if self.toggle_states[index] else 'OFF'}", LogLevel.CRITICAL)
+        self.toggle_buttons[index].config(image=current_image)
     
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
@@ -781,6 +854,9 @@ class CathodeHeatingSubsystem:
         try:
             target_current_mA = float(entry_field.get())
             ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
+            if ideal_emission_current < 0:
+                raise ValueError("Target current must be positive")
+            
             log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
             self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
             
@@ -804,6 +880,16 @@ class CathodeHeatingSubsystem:
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
+
+                current_ovp = self.get_ovp(index)
+                if current_ovp is None:
+                    self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                    return
+
+                if heater_voltage > current_ovp:
+                    self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                    msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                    return
 
                 # Set Upper Voltage Limit and Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
@@ -848,8 +934,10 @@ class CathodeHeatingSubsystem:
                         self.reset_related_variables(index)
                         self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
-        except ValueError:
+        except ValueError as e:
             self.log("Invalid input for target current", LogLevel.ERROR)
+            msgbox.showerror("Invalid Input", str(e))
+            return
 
     def reset_related_variables(self, index):
         """ Resets display variables when setting voltage/current fails. """
@@ -893,6 +981,16 @@ class CathodeHeatingSubsystem:
         """Update predictions based on manually entered voltage."""
 
         try:
+            current_ovp = self.get_ovp(index)
+            if current_ovp is None:
+                self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                return False
+
+            if voltage > current_ovp:
+                self.log(f"Requested voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                msgbox.showwarning("Voltage Exceeds OVP", f"The requested voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower voltage.")
+                return False
+
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
                                         [data[0] for data in ES440_cathode.heater_voltage_current_data], 
@@ -951,6 +1049,18 @@ class CathodeHeatingSubsystem:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             self.reset_related_variables(index)
             return False
+
+    def get_ovp(self, index):
+        try:
+            ovp = self.power_supplies[index].get_over_voltage_protection()
+            if ovp is not None:
+                return ovp
+            else:
+                self.log(f"Failed to get OVP for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return None
+        except Exception as e:
+            self.log(f"Error getting OVP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            return None
 
     def set_overtemp_limit(self, index, temp_var):
         try:

@@ -5,24 +5,24 @@ import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
 
-# the bit poistion for each interlock
-INPUTS = {
-    0 : "E-STOP Int", # Chassis Estop
-    1 : "E-STOP Int", # Chassis Estop
-    2 : "E-STOP Ext", # Peripheral Estop
-    3 : "E-STOP Ext", # Peripheral Estop
-    4 : "Door", # Door 
-    5 : "Door", # Door Lock
-    6 : "Vacuum Power", # Vacuum Power
-    7 : "Vacuum Pressure", # Vacuum Pressure
-    8 : "High Oil", # Oil High
-    9 : "Low Oil", # Oil Low
-    10 : "Water", # Water
-    11 : "HVolt ON", # HVolt ON
-    12 : "G9SP Active" # G9SP Active
-    }
-
 class InterlocksSubsystem:
+    # the bit poistion for each interlock
+    INPUTS = {
+        0 : "E-STOP Int", # Chassis Estop
+        1 : "E-STOP Int", # Chassis Estop
+        2 : "E-STOP Ext", # Peripheral Estop
+        3 : "E-STOP Ext", # Peripheral Estop
+        4 : "Door", # Door 
+        5 : "Door", # Door Lock
+        6 : "Vacuum Power", # Vacuum Power
+        7 : "Vacuum Pressure", # Vacuum Pressure
+        8 : "High Oil", # Oil High
+        9 : "Low Oil", # Oil Low
+        10 : "Water", # Water
+        11 : "HVolt ON", # HVolt ON
+        12 : "G9SP Active" # G9SP Active
+        }
+    
     def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
         self.logger = logger
@@ -37,35 +37,38 @@ class InterlocksSubsystem:
         try:
             if com_ports is not None:  # Better comparison
                 self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
-                if self.logger:
-                    self.logger.info("G9 driver initialized")
+                self.log("G9 driver initialized", LogLevel.INFO)
             else:
                 self.driver = None
-                if self.logger:
-                    self.logger.warning("No COM port provided for G9 driver")
+                self.log("No COM port provided for G9 driver", LogLevel.WARNING)
                 self._set_all_indicators('red')
         except Exception as e:
             self.driver = None
-            if self.logger:
-                self.logger.error(f"Failed to initialize G9 driver: {str(e)}")
+            self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
             self._set_all_indicators('red')
         
         self.parent.after(self.update_interval, self.update_data)
 
     def update_com_port(self, com_port):
-        """Update the COM port and reinitialize the driver"""
+        """
+        Update the COM port and reinitialize the driver
+        
+        Catch:
+            Expection: If inilizition throws an error
+        """
         if com_port:
             try:
                 new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
                 # Test connection by getting status
                 new_driver.get_interlock_status()
                 self.driver = new_driver
-                if self.logger:
-                    self.logger.info(f"G9 driver updated to port {com_port}")
+                self.log(f"G9 driver updated to port {com_port}", LogLevel.INFO)
             except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Failed to update G9 driver: {str(e)}")
+                self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
+        else:
+            self._set_all_indicators('red')
+            self.log("update_com_port is being called without a com port", LogLevel.ERROR)
 
     def _adjust_update_interval(self, success=True):
         """Adjust the polling interval based on connection success/failure"""
@@ -80,10 +83,9 @@ class InterlocksSubsystem:
             new_interval = self.update_interval * (1.5 if self.error_count < 5 else 1)
             self.update_interval = min(self.max_interval, int(new_interval))
 
-            if self.logger and self.error_count % 5 == 0:  # Log every 5th error
-                self.logger.warning(
-                    f"G9 Connection issue. Update interval: {self.update_interval}ms"
-                )
+            if self.error_count % 5 == 0:  # Log every 5th error
+                self.log(f"G9 Connection issue. Update interval: {self.update_interval}ms", LogLevel.WARNING)
+
 
     def setup_gui(self):
         def create_indicator_circle(frame, color):
@@ -117,16 +119,18 @@ class InterlocksSubsystem:
                       }
         
         # Makes all the inticators and labels
-        for i, (k,v) in enumerate(self.indicators.items()):
+        for i, k in enumerate(self.indicators.keys()):
             tk.Label(interlocks_frame, text=f"{k}", anchor="center").grid(row=0, column=i*2, sticky='ew')
             canvas, oval_id = create_indicator_circle(interlocks_frame, 'red')
             canvas.grid(row=0, column=i*2+1, sticky='nsew')
             self.indicators[k] = (canvas, oval_id)
 
-    # logging the history of updates
+    # updates indicator and logs updates
     def update_interlock(self, name, safety, data):
         """Update individual interlock indicator"""
-        # means good
+        if name not in self.indicators or safety == None or data == None:
+            self.log("Invalid inputs to update_interlock", LogLevel.ERROR)
+
         color = 'green' if (safety & data) == 1 else 'red'
 
         if name in self.indicators:
@@ -134,29 +138,40 @@ class InterlocksSubsystem:
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
                 canvas.itemconfig(oval_id, fill=color)
-                if self.logger:
-                    self.logger.info(f"Interlock {name}: {current_color} -> {color}")
+                self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
 
     def _set_all_indicators(self, color):
         """Set all indicators to specified color"""
+        if color == None or color == "":
+            self.log("Invalid inputs to _set_all_indicators", LogLevel.ERROR)
+
         if self.indicators:
             for name in self.indicators:
                 canvas, oval_id = self.indicators[name]
                 current_color = canvas.itemcget(oval_id, 'fill')
                 if current_color != color:
                     canvas.itemconfig(oval_id, fill=color)
-                    if self.logger:
-                        self.logger.info(f"Interlock {name}: {current_color} -> {color}")
+                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
 
     def update_data(self):
-        """Update interlock status"""
+        """
+        Update interlock status
+
+        Finally: Will always schedule the next time to refresh data
+
+        Catch:
+            ConnectionError: Thrown from G9Driver when serial connection throws error
+            ValueError: Thrown from G9Driver when unexpected responce is recieved
+
+            Exception: If anything else in message process throws an error
+
+        """
         current_time = time.time()
         try:
             if not self.driver or not self.driver.is_connected():
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_indicators('red')
-                    if self.logger:
-                        self.logger.warning("G9 driver not connected")
+                    self.log("G9 driver not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
                     self._adjust_update_interval(success=False)
 
@@ -172,13 +187,13 @@ class InterlocksSubsystem:
                          int(sitsf_bits[-i*2-2], 2))
                 data = (int(sitdf_bits[-i*2-1], 2) & 
                        int(sitdf_bits[-i*2-2], 2))
-                self.update_interlock(INPUTS[i*2], safety, data)
+                self.update_interlock(self.INPUTS[i*2], safety, data)
             
             # Process single-input interlocks
             for i in range(6, 13):
                 safety = int(sitsf_bits[-i-1], 2)
                 data = int(sitdf_bits[-i-1], 2)
-                self.update_interlock(INPUTS[i], safety, data)
+                self.update_interlock(self.INPUTS[i], safety, data)
             
             # Update overall status
             all_good = sitsf_bits == sitdf_bits == "1" * 13
@@ -186,16 +201,14 @@ class InterlocksSubsystem:
 
         except (ConnectionError, ValueError) as e:
             if current_time - self.last_error_time > (self.update_interval / 1000):
-                if self.logger:
-                    self.logger.error(f"G9 communication error: {str(e)}")
+                self.log(f"G9 communication error: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
                 self.last_error_time = current_time
                 self._adjust_update_interval(success=False)
             
         except Exception as e:
             if current_time - self.last_error_time > (self.update_interval / 1000):
-                if self.logger:
-                    self.logger.error(f"Unexpected error: {str(e)}")
+                self.log(f"Unexpected error: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
                 self.last_error_time = current_time
                 self._adjust_update_interval(success=False)
@@ -203,3 +216,11 @@ class InterlocksSubsystem:
         finally:
             # Schedule next update
             self.parent.after(self.update_interval, self.update_data)
+
+    def log(self, message, level=LogLevel.INFO):
+        """Log a message with the specified level if a logger is configured."""
+        if self.logger:
+            self.logger.log(message, level)
+        elif self.debug_mode:
+            print(f"{level.name}: {message}")
+

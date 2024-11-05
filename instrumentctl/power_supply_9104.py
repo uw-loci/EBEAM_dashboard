@@ -8,22 +8,39 @@ class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
-        self.ser = serial.Serial(port, baudrate, timeout=timeout)
-        self.debug_mode = debug_mode
+        self.port = port
+        self.baudrate = baudrate
+        self.timeout = timeout
         self.logger = logger
+        self.debug_mode = debug_mode
+        self.setup_serial()
+
+    def setup_serial(self):
+        try:
+            self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+            self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
+        except serial.SerialException as e:
+            self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
+            self.ser = None
+
+    def update_com_port(self, new_port):
+        self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
         
-        # Baud rate refers to speed of transmission 
+        # Close existing serial connection if it exists
+        if self.ser is not None:
+            self.ser.close()
+            self.ser = None
+
+        self.port = new_port
+        self.setup_serial()
+
+        if self.ser is not None:
+            self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
+        else:
+            self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
 
     def is_connected(self):
-        """Check if the serial connection is still active."""
-        try:
-            # Attempt to write a simple command to the device
-            self.ser.write(b'\r')  # Send a carriage return
-            # Try to read a response (there might not be one)
-            self.ser.read(1)
-            return True
-        except serial.SerialException:
-            return False
+        return self.ser is not None and self.ser.is_open
 
     def flush_serial(self):
         self.ser.reset_input_buffer()    # flushes the input buffer to rid of unwanted bits
@@ -96,7 +113,7 @@ class PowerSupply9104:
             self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
             return False
 
-    def ramp_voltage(self, target_voltage, ramp_rate=0.01, callback=None):
+    def ramp_voltage(self, target_voltage, step_size=0.02, step_delay=2.0, preset=3, callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
         Runs in a separate thread to avoid blocking the GUI
@@ -106,18 +123,18 @@ class PowerSupply9104:
             ramp_rate (float): The rate at which to change the voltage in volts per second.
             callback (function): Optional function to call when ramping is complete.
         """        
-        thread = threading.Thread(target=self._ramp_voltage_thread,
-                                  args=(target_voltage, ramp_rate, callback))
+        thread = threading.Thread(
+            target=self._ramp_voltage_thread,
+            args=(target_voltage, step_size, step_delay, preset, callback),
+            daemon=True # daemon thread should exit when main program exits
+        )
         thread.start()
 
-    def _ramp_voltage_thread(self, target_voltage, ramp_rate, callback):
+    def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         current_voltage = 0.0  # Starting voltage, adjust if you can fetch from the PSU.
-        step_size = 0.1  # Voltage step in volts.
-        step_delay = step_size / ramp_rate  # Delay in seconds.
-
         while current_voltage < target_voltage:
             next_voltage = min(current_voltage + step_size, target_voltage)
-            if not self.set_voltage(1, next_voltage):  # Assume preset 1
+            if not self.set_voltage(preset, next_voltage):  # Assume preset 1
                 self.log(f"Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
                 if callback:
                     callback(False)
