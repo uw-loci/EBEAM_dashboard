@@ -904,7 +904,7 @@ class CathodeHeatingSubsystem:
         ax.autoscale_view()
 
         ax.figure.canvas.draw()
-
+    
     def toggle_output(self, index):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
@@ -913,58 +913,37 @@ class CathodeHeatingSubsystem:
         new_state = not self.toggle_states[index]
         
         if new_state:  # If we're trying to turn the output ON
-            # Check the current settings
-            set_voltage, set_current = self.power_supplies[index].get_settings(3)
-            if set_voltage is not None and set_current is not None:
-                expected_voltage = self.user_set_voltages[index]
-                expected_current = float(self.predicted_heater_current_vars[index].get().split()[0])  # Extract the numeric part
-                
-                voltage_mismatch = abs(set_voltage - expected_voltage) > 0.02  # Voltage precision limit
-                current_mismatch = abs(set_current - expected_current) > 0.01  # Current precision limit
-            
-                if voltage_mismatch:
-                    self.log(f"UVL Preset Expected: {expected_voltage:.2f}V, Actual: {set_voltage:.2f}V\n", LogLevel.WARNING)
-                elif current_mismatch:
-                    self.log(f"UCL Preset Expected: {expected_current:.2f}A, Actual: {set_current:.2f}A\n", LogLevel.WARNING)
-                else:
-                    self.log(f"Set values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A")
-            else:
-                self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received.", LogLevel.ERROR)
+            # Zero voltage first and wait for confirmation
+            if not self.power_supplies[index].set_voltage(3, 0.0):
+                self.log(f"Failed to zero voltage for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-        
-            # zero out voltage before enabling output
-            self.power_supplies[index].set_voltage(3, 0.0)
+                
+            # Verify voltage is zeroed
+            voltage, _, _ = self.power_supplies[index].get_voltage_current_mode()
+            if voltage is None or voltage > 0.07:
+                self.log(f"Failed to confirm zero voltage for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return
 
-            # enable output 
-            self.power_supplies[index].set_output("1")
+            # enable output
+            if not self.power_supplies[index].set_output("1"):
+                self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return
 
-            # Start ramping voltage to target voltage
+            # Start ramping from 0V to target
             target_voltage = self.user_set_voltages[index]
             if target_voltage is not None:
-                slew_rate = self.slew_rates[index] # V/s
-                if slew_rate <= 0:
-                    self.log(f"Slew rate must be positive for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                    return
-                step_delay = 0.5 # seconds
-                step_size = slew_rate * step_delay # V
-                if step_size < 0.01:
-                    step_size = 0.01 # minimum step size
-                elif step_size > 1.0:
-                    step_size = 1.0 # max step size
-
-                # recalculate step_delay based on adjusted step_size
-                step_delay = step_size / slew_rate
-                self.log(f"Starting voltage ramp for Cathode {['A', 'B', 'C'][index]} with step size {step_size:.3f} V and step delay {step_delay:.3f} s (Slew rate {slew_rate} V/s)", LogLevel.INFO)
-
+                slew_rate = self.slew_rates[index]
+                step_delay = 1.0  # seconds
+                step_size = slew_rate * step_delay
+                
+                self.log(f"Starting voltage ramp for Cathode {['A', 'B', 'C'][index]} with step size {step_size:.3f} V and step delay {step_delay:.3f} s", LogLevel.INFO)
+                
                 self.power_supplies[index].ramp_voltage(
                     target_voltage,
                     step_size=step_size,
                     step_delay=step_delay,
                     preset=3
                 )
-            else:
-                self.log(f"No target voltage set for cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
-                return
         else:
             # turning off the output
             self.power_supplies[index].set_output("0")
@@ -973,7 +952,7 @@ class CathodeHeatingSubsystem:
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)
-    
+        
     def set_target_current(self, index, entry_field):
         if self.toggle_states[index]:
             # if the output toggle is enabled, show a warning message
