@@ -22,12 +22,25 @@ class InterlocksSubsystem:
         11 : "HVolt ON", # HVolt ON
         12 : "G9SP Active" # G9SP Active
         }
-    
+
+    INDICATORS = {
+                'Door': None,
+                'Water': None,
+                'Vacuum Power': None,
+                'Vacuum Pressure': None,
+                'Low Oil': None,
+                'High Oil': None,
+                'E-STOP Int': None,
+                'E-STOP Ext': None,
+                'All Interlocks': None,
+                'G9SP Active': None,
+                'HVolt ON': None
+            }
+
     def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
         self.logger = logger
         self.frames = frames
-        self.indicators = None
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
         self.update_interval = 500  # Default update interval (ms)
@@ -88,53 +101,65 @@ class InterlocksSubsystem:
 
 
     def setup_gui(self):
-        def create_indicator_circle(frame, color):
-            canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
-            canvas.grid(sticky='nsew')
-            oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
-            return canvas, oval_id
+        """Setup the GUI for the interlocks subsystem"""
+        self._create_main_frame()
+        interlocks_frame = self._create_interlocks_frame()
+        self._create_indicators(interlocks_frame)
 
+    def _create_main_frame(self):
+        """Create and configure the main container frame"""
         self.interlocks_frame = tk.Frame(self.parent)
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
-
+        
+        # Configure grid weights for responsive layout
         self.parent.grid_rowconfigure(0, weight=1)
         self.parent.grid_columnconfigure(0, weight=1)
-
         self.interlocks_frame.grid_rowconfigure(0, weight=1)
         self.interlocks_frame.grid_columnconfigure(0, weight=1)
         self.interlocks_frame.grid(row=0, column=0, sticky='nsew')
 
+    def _create_interlocks_frame(self):
+        """Create the frame that will contain the interlock indicators"""
         interlocks_frame = tk.Frame(self.interlocks_frame, highlightbackground="black")
         interlocks_frame.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
-
-        num_columns = 22  
+        
+        # Configure columns for indicator pairs (label + light)
+        num_columns = 22
         for i in range(num_columns):
             interlocks_frame.grid_columnconfigure(i, weight=1)
-
-        self.indicators = {
-            'Door': None, 'Water': None, 'Vacuum Power': None, 
-            'Vacuum Pressure': None, 'Low Oil': None, 'High Oil': None, 
-            'E-STOP Int': None, 'E-STOP Ext' : None, 'All Interlocks': None, 
-            'G9SP Active': None, 'HVolt ON': None
-                      }
         
-        # Makes all the inticators and labels
-        for i, k in enumerate(self.indicators.keys()):
-            tk.Label(interlocks_frame, text=f"{k}", anchor="center").grid(row=0, column=i*2, sticky='ew')
-            canvas, oval_id = create_indicator_circle(interlocks_frame, 'red')
+        return interlocks_frame
+
+    def _create_indicator_circle(self, frame, color):
+        """Create a circular indicator light"""
+        canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
+        canvas.grid(sticky='nsew')
+        oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
+        return canvas, oval_id
+
+    def _create_indicators(self, frame):
+        """Create all indicator lights and their labels"""
+        for i, (name, _) in enumerate(self.INDICATORS.items()):
+            # Create label
+            tk.Label(frame, text=name, anchor="center").grid(
+                row=0, column=i*2, sticky='ew'
+            )
+            
+            # Create indicator light
+            canvas, oval_id = self._create_indicator_circle(frame, 'red')
             canvas.grid(row=0, column=i*2+1, sticky='nsew')
-            self.indicators[k] = (canvas, oval_id)
+            self.INDICATORS[name] = (canvas, oval_id)
 
     # updates indicator and logs updates
     def update_interlock(self, name, safety, data):
         """Update individual interlock indicator"""
-        if name not in self.indicators or safety == None or data == None:
+        if name not in self.INDICATORS or safety == None or data == None:
             self.log("Invalid inputs to update_interlock", LogLevel.ERROR)
 
         color = 'green' if (safety & data) == 1 else 'red'
 
-        if name in self.indicators:
-            canvas, oval_id = self.indicators[name]
+        if name in self.INDICATORS:
+            canvas, oval_id = self.INDICATORS[name]
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
                 canvas.itemconfig(oval_id, fill=color)
@@ -145,9 +170,9 @@ class InterlocksSubsystem:
         if color == None or color == "":
             self.log("Invalid inputs to _set_all_indicators", LogLevel.ERROR)
 
-        if self.indicators:
-            for name in self.indicators:
-                canvas, oval_id = self.indicators[name]
+        if self.INDICATORS:
+            for name in self.INDICATORS:
+                canvas, oval_id = self.INDICATORS[name]
                 current_color = canvas.itemcget(oval_id, 'fill')
                 if current_color != color:
                     canvas.itemconfig(oval_id, fill=color)
