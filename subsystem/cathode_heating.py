@@ -20,7 +20,7 @@ def resource_path(relative_path):
     """ Magic needed for paths to work for development and when running as bundled executable"""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
+        base_path = sys._MEIPASS # type: ignore
     except AttributeError:
         base_path = os.path.abspath(".")
 
@@ -29,6 +29,11 @@ def resource_path(relative_path):
 class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in °C
+    PLOT_COLORS = {
+        'normal': 'blue',          # Normal operation
+        'overtemp': 'red',        # Overtemperature condition
+        'communication': 'orange'  # Communication error
+    }
     
     def __init__(self, parent, com_ports, logger=None):
         self.parent = parent
@@ -727,6 +732,28 @@ class CathodeHeatingSubsystem:
                 self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
 
+    def set_plot_color(self, index, error_type=None):
+        """
+        Update the plot color based on error state.
+        
+        Args:
+            index (int): Index of the cathode/plot
+            error_type (str, optional): Type of error - 'communication', 'overtemp', or None for normal operation
+        """
+        ax = self.temperature_data[index][0].axes
+        line = self.temperature_data[index][0]
+        
+        color = self.PLOT_COLORS.get(error_type if error_type else 'normal')
+        
+        # Update plot elements
+        for spine in ax.spines.values():
+            spine.set_color(color)
+        ax.xaxis.label.set_color(color)
+        ax.yaxis.label.set_color(color)
+        ax.tick_params(axis='both', colors=color)
+        line.set_color(color)
+        ax.figure.canvas.draw()
+
     def read_temperature(self, index):
         """
         Read temperature from the temperature controller or set to zero if the controller is not initialized or fails.
@@ -739,18 +766,25 @@ class CathodeHeatingSubsystem:
                 temperature = self.temperature_controller.temperatures[index]
                 if temperature is not None:
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} °C")
-                    self.set_plot_alert(index, alert_status=False)
+
+                    # Check for overtemperature condition
+                    if temperature > self.overtemp_limit_vars[index].get():
+                        self.set_plot_color(index, 'overtemp') # set plot to red for overtemp
+                    else:
+                        self.set_plot_color(index, None) # set plot to blue for normal
+
                     return temperature
                 else:
                     self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
             except Exception as e:
                 self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
-                self.set_plot_alert(index, alert_status=True)  # Set plot border to red
+                self.set_plot_color(index, 'communication')  # Set plot to orange for no data
         else:
             if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
                 self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
                 self.last_no_conn_log_time[index] = current_time
-            self.set_plot_alert(index, alert_status=True)
+            self.set_plot_color(index, 'communication')
+
         # Set temperature to zero as default
         self.clamp_temperature_vars[index].set("-- °C")
         return None
@@ -855,22 +889,6 @@ class CathodeHeatingSubsystem:
         # Schedule next update
         self.parent.after(500, self.update_data)
 
-    def set_plot_alert(self, index, alert_status):
-        """
-        Change the plot border color to red if there is a communication error, else reset to default.
-        """
-        ax = self.temperature_data[index][0].axes
-        line = self.temperature_data[index][0]
-        color = 'red' if alert_status else 'blue'  # Red for error, blue for normal operation
-
-        for spine in ax.spines.values():
-            spine.set_color(color)
-        ax.xaxis.label.set_color(color)
-        ax.yaxis.label.set_color(color)
-        ax.tick_params(axis='both', colors=color)
-        line.set_color(color)
-        ax.figure.canvas.draw()
-
     def update_plot(self, index):
         if len(self.time_data[index]) == 0: # skip if there's no new data
             return
@@ -881,23 +899,6 @@ class CathodeHeatingSubsystem:
         # Update the data points for the plot
         self.temperature_data[index][0].set_data(time_data, temperature_data)
         ax = self.temperature_data[index][0].axes
-
-        # Adjust color based on temperature status
-        if self.overtemp_status_vars[index].get() == "OVERTEMP!" or not self.temp_controllers_connected:
-            for spine in ax.spines.values():
-                spine.set_color('red')
-            ax.xaxis.label.set_color('red')
-            ax.yaxis.label.set_color('red')
-            ax.tick_params(axis='both', colors='red')
-            self.temperature_data[index][0].set_color('red')
-        else:
-            color = 'blue'  # Default color
-            for spine in ax.spines.values():
-                spine.set_color(color)
-            ax.xaxis.label.set_color(color)
-            ax.yaxis.label.set_color(color)
-            ax.tick_params(axis='both', colors=color)
-            self.temperature_data[index][0].set_color(color)
 
         # Adjust plot to new data
         ax.relim()
