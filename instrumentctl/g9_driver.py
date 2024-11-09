@@ -321,6 +321,30 @@ class G9Driver:
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
+    
+    def _extract_safety_input_flags(byte_string, num_bits):
+        """
+        Extracts num_bits from the data
+        the bytes are order in big-endian meaning the first 8 are on top 
+        but the bits in the bye are ordered in little-endian 7 MSB and 0 LSB
+        
+        Raise:
+            ValueError: When called requesting more bits than in the bytes
+        Return:
+            num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit
+        """
+        num_bytes = (num_bits + 7)
+        
+        if len(byte_string) < num_bytes:
+            raise ValueError(f"Input must contain at least {num_bytes} bytes")
+
+        extracted_bits = []
+        for byte_index in range(num_bytes):
+            byte = byte_string[byte_index]
+            bits_to_extract = min(8, num_bits - (byte_index * 8))
+            extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
+
+        return extracted_bits[:num_bits]
         
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
@@ -328,6 +352,7 @@ class G9Driver:
             self.logger.log(message, level)
         elif self.debug_mode:
             print(f"{level.name}: {message}")
+
 
     #TODO: Figure out how to handle all the errors (end task)
     #TODO: add a function to keep track of the driver uptime\
