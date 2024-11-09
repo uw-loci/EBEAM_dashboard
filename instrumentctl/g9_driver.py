@@ -176,8 +176,8 @@ class G9Driver:
 
             # Convert to binary strings
             binary_data = {
-                'sitdf': self._bytes_to_binary(status_data['sitdf'])[:self.NUMIN],
-                'sitsf': self._bytes_to_binary(status_data['sitsf'])[:self.NUMIN]
+                'sitdf': self._extract_flags(status_data['sitdf'], self.NUMIN),
+                'sitsf': self._extract_flags(status_data['sitsf'], self.NUMIN)
             }
 
             # Check for errors
@@ -185,7 +185,7 @@ class G9Driver:
             self._check_safety_inputs(data)
             self._check_safety_outputs(data)
 
-            return binary_data['sitsf'][4:8] + binary_data['sitsf'][0:4] + binary_data['sitsf'][12:16] + binary_data['sitsf'][8], binary_data['sitdf'][4:8] + binary_data['sitdf'][0:4] + binary_data['sitdf'][12:16] + binary_data['sitdf'][8]
+            return binary_data['sitsf'], binary_data['sitdf']
 
     def _validate_response_format(self, data):
         """
@@ -251,18 +251,19 @@ class G9Driver:
         """
         if status == None:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
+        print(status)
         if status != b'\x00\x01':
-            bits = self._bytes_to_binary(status)
+            bits = self._extract_flags(status, 16)
             for k in self.US_STATUS.keys():
                 if k != 9:
-                    if bits[-(k + 1)] == "1":
+                    if bits[k] == "1":
                         self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
                         # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
                 else:
-                    if bits[-(k + 1)] == "0":
+                    if bits[k] == "0":
                         self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
                         # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
-            if bits[-1] == "0":
+            if bits[0] == "0":
                 self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
                 # raise ValueError("Unit State Error: Normal Operation Error Flag")
 
@@ -322,7 +323,7 @@ class G9Driver:
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
     
-    def _extract_safety_input_flags(byte_string, num_bits):
+    def _extract_flags(self, byte_string, num_bits):
         """
         Extracts num_bits from the data
         the bytes are order in big-endian meaning the first 8 are on top 
@@ -333,10 +334,10 @@ class G9Driver:
         Return:
             num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit
         """
-        num_bytes = (num_bits + 7)
+        num_bytes = (num_bits + 7) // 8
         
         if len(byte_string) < num_bytes:
-            raise ValueError(f"Input must contain at least {num_bytes} bytes")
+            raise ValueError(f"Input must contain at least {num_bytes} bytes; recieved {len(byte_string)}")
 
         extracted_bits = []
         for byte_index in range(num_bytes):
