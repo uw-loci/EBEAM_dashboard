@@ -18,47 +18,69 @@ def parse_arguments():
     return parser.parse_args()
 
 def get_patterns(data_types):
+    """
+    Regex patterns for different equipment types and their measurements.
+    Structure:
+    {
+        'equipment_type': {
+            'pattern': regex_pattern,
+            'display_name': 'Equipment Display Name',
+            'measurements': ['measurement1', 'measurement2']
+        }
+    }
+    """
     patterns = {}
+    
     if 'voltage' in data_types or 'current' in data_types:
-        patterns['power_supply'] = r'\[(\d{2}:\d{2}:\d{2})\] - DEBUG: Power supply (\d) readings - Voltage: ([\d.]+)V, Current: ([\d.]+)A, Mode: (.+)'
+        patterns['power_supply'] = {
+            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - DEBUG: Power supply (\d) readings - Voltage: ([\d.]+)V, Current: ([\d.]+)A, Mode: (.+)',
+            'display_name': 'Power Supply',
+            'measurements': ['voltage', 'current']
+        }
+    
     if 'temperature' in data_types:
-        patterns['temp'] = r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Unit (\d) Temperature: ([\d.]+) °C'
+        patterns['cathode_temp'] = {
+            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Unit (\d) Temperature: ([\d.]+) °C',
+            'display_name': 'Cathode',
+            'measurements': ['temperature']
+        }
+    
     return patterns
 
 def parse_log_file(filename, patterns):
-    data = { 'power_supply': [], 'temp': [] }
+    data = {key: [] for key in patterns.keys()}
     try:
         with open(filename, 'r') as file:
             for line in file:
-                for key, pattern in patterns.items():
-                    match = re.search(pattern, line)
+                for equip_type, equip_info in patterns.items():
+                    match = re.search(equip_info['pattern'], line)
                     if match:
-                        if key == 'power_supply':
-                            time_str = match.group(1)
-                            timestamp = datetime.strptime(time_str, '%H:%M:%S')
+                        time_str = match.group(1)
+                        
+                        if equip_type == 'power_supply':
                             ps_number = int(match.group(2))
                             voltage = float(match.group(3))
                             current = float(match.group(4))
                             mode = match.group(5)
-                            data['power_supply'].append({
-                                'timestamp': timestamp,
+                            data[equip_type].append({
+                                'timestamp': time_str,
                                 'ps_number': ps_number,
                                 'voltage': voltage,
                                 'current': current,
                                 'mode': mode
                             })
-                        elif key == 'temp':
-                            time_str = match.group(1)
-                            timestamp = datetime.strptime(time_str, '%H:%M:%S')
+                        elif equip_type == 'cathode_temp':
                             sensor = int(match.group(2))
                             temperature = float(match.group(3))
-                            data['temp'].append({
-                                'timestamp': timestamp,
+                            data[equip_type].append({
+                                'timestamp': time_str,
                                 'sensor': sensor,
-                                'temperature': temperature
+                                'temperature': temperature,
+                                'equipment': 'cathode'  # Tag the equipment type
                             })
-            print(f"Found {len(data['power_supply'])} power supply readings")
-            print(f"Found {len(data['temp'])} temperature readings")
+                            
+            for equip_type, readings in data.items():
+                print(f"Found {len(readings)} {patterns[equip_type]['display_name']} readings")
         return data
     except FileNotFoundError:
         print(f"Error: File {filename} not found.")
@@ -66,7 +88,17 @@ def parse_log_file(filename, patterns):
     except Exception as e:
         print(f"An error occurred while parsing {filename}: {e}")
         return None
-    
+
+def get_output_dir(filename):
+    """Create output directory name based on log file date prefix."""
+    base_name = os.path.basename(filename)
+    # Look for date pattern in filename (assuming format: log_YYYY-MM-DD_*)
+    match = re.search(r'log_(\d{4}-\d{2}-\d{2})', base_name)
+    if match:
+        date_str = match.group(1)
+        return f"log_{date_str}_output"
+    return "output"  # Default if no date found
+
 def ensure_output_dir(base_dir, subdir):
     """Create output directory structure if it doesn't exist."""
     output_path = os.path.join(base_dir, subdir)
@@ -125,6 +157,7 @@ def process_files(file_list, data_types, output_formats, output_dir):
         if not parsed_data:
             continue
 
+        output_dir = get_output_dir(file)
         base_filename = os.path.splitext(os.path.basename(file))[0]
         
         # Create subdirectories for each type of output
@@ -134,22 +167,20 @@ def process_files(file_list, data_types, output_formats, output_dir):
         stats_dir = ensure_output_dir(output_dir, 'statistics')
             
         for data_type in data_types:
-            if data_type in ['voltage', 'current']:
-                if parsed_data['power_supply']:
-                    df = pd.DataFrame(parsed_data['power_supply'])
-                    df_sorted = df.sort_values('timestamp')
-                    base_filename = os.path.splitext(os.path.basename(file))[0]
+            if data_type in ['voltage', 'current'] and parsed_data['power_supply']:
+                df = pd.DataFrame(parsed_data['power_supply'])
+                df_sorted = df.sort_values('timestamp')
+                
+                if csv_dir:
+                    save_to_csv(df_sorted, os.path.join(csv_dir, f"{base_filename}_{data_type}.csv"))
+                if excel_dir:
+                    save_to_excel(df_sorted, os.path.join(excel_dir, f"{base_filename}_{data_type}.xlsx"))
+                if plot_dir:
+                    plot_data(df_sorted, data_type, os.path.join(plot_dir, f"{base_filename}_{data_type}.png"))
+                save_statistics(df_sorted, data_type, os.path.join(stats_dir, f"{base_filename}_{data_type}_stats.txt"))
                     
-                    if csv_dir:
-                        save_to_csv(df_sorted, os.path.join(csv_dir, f"{base_filename}_{data_type}.csv"))
-                    if excel_dir:
-                        save_to_excel(df_sorted, os.path.join(excel_dir, f"{base_filename}_{data_type}.xlsx"))
-                    if plot_dir:
-                        plot_data(df_sorted, data_type, os.path.join(plot_dir, f"{base_filename}_{data_type}.png"))
-                    save_statistics(df_sorted, data_type, os.path.join(stats_dir, f"{base_filename}_{data_type}_stats.txt"))
-                        
-            elif data_type == 'temperature' and parsed_data['temp']:
-                df = pd.DataFrame(parsed_data['temp'])
+            elif data_type == 'temperature' and parsed_data['cathode_temp']:
+                df = pd.DataFrame(parsed_data['cathode_temp'])
                 df_sorted = df.sort_values('timestamp')
                 
                 if csv_dir:
