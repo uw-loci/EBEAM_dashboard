@@ -44,6 +44,13 @@ def get_patterns(data_types):
             'display_name': 'Cathode',
             'measurements': ['temperature']
         }
+
+    if 'pressure' in data_types:
+        patterns['vacuum_pressure'] = {
+            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Chamber pressure: ([\d.]+(?:E[+-]\d+)?)\s*mbar\s*\(([\d.]+(?:E[+-]\d+)?)\)',
+            'display_name': 'Vacuum Chamber',
+            'measurements': ['pressure']
+        }
     
     return patterns
 
@@ -78,7 +85,15 @@ def parse_log_file(filename, patterns):
                                 'temperature': temperature,
                                 'equipment': 'cathode'  # Tag the equipment type
                             })
-                            
+                        elif equip_type == 'vacuum_pressure':
+                            pressure = float(match.group(2))
+                            raw_pressure = float(match.group(3))
+                            data[equip_type].append({
+                                'timestamp': time_str,
+                                'pressure': pressure,
+                                'raw_pressure': raw_pressure
+                            })
+
             for equip_type, readings in data.items():
                 print(f"Found {len(readings)} {patterns[equip_type]['display_name']} readings")
         return data
@@ -124,6 +139,10 @@ def plot_data(df, data_type, output_path):
         for sensor, group in df.groupby('sensor'):
             plt.plot(group['timestamp'], group['temperature'], label=f'Sensor {sensor}', marker='x')
         plt.ylabel('Temperature (°C)')
+    elif data_type == 'pressure':
+        plt.plot(df['timestamp'], df['pressure'], label='Chamber Pressure', marker='.')
+        plt.yscale('log')
+        plt.ylabel('Pressure (mbar)') 
     
     plt.title(f'{data_type.capitalize()} Over Time')
     plt.xlabel('Time')
@@ -134,19 +153,6 @@ def plot_data(df, data_type, output_path):
     plt.savefig(output_path)
     plt.close()
     print(f"Plot saved to {output_path}")
-
-def save_statistics(df, data_type, output_path):
-    with open(output_path, 'w') as f:
-        f.write(f"{data_type.capitalize()} Summary Statistics\n")
-        group_by = 'ps_number' if data_type in ['voltage', 'current'] else 'sensor'
-        value_col = data_type if data_type in ['voltage', 'current'] else 'temperature'
-        
-        for group, group_df in df.groupby(group_by):
-            f.write(f"\n{data_type.capitalize()} {group_by.replace('_', ' ').title()} {group}:\n")
-            stats = group_df[value_col].describe()
-            f.write(str(stats))
-            f.write('\n')
-    print(f"Statistics saved to {output_path}")
 
 def process_files(file_list, data_types, output_formats, output_dir):
     for file in file_list:
@@ -190,6 +196,32 @@ def process_files(file_list, data_types, output_formats, output_dir):
                 if plot_dir:
                     plot_data(df_sorted, 'temperature', os.path.join(plot_dir, f"{base_filename}_temperature.png"))
                 save_statistics(df_sorted, 'temperature', os.path.join(stats_dir, f"{base_filename}_temperature_stats.txt"))
+
+            elif data_type == 'pressure' and parsed_data['vacuum_pressure']:
+                df = pd.DataFrame(parsed_data['vacuum_pressure'])
+                df_sorted = df.sort_values('timestamp')
+                
+                if csv_dir:
+                    save_to_csv(df_sorted, os.path.join(csv_dir, f"{base_filename}_pressure.csv"))
+                if excel_dir:
+                    save_to_excel(df_sorted, os.path.join(excel_dir, f"{base_filename}_pressure.xlsx"))
+                if plot_dir:
+                    plot_data(df_sorted, 'pressure', os.path.join(plot_dir, f"{base_filename}_pressure.png"))
+                save_statistics(df_sorted, 'pressure', os.path.join(stats_dir, f"{base_filename}_pressure_stats.txt"))
+
+def save_statistics(df, data_type, output_path):
+    with open(output_path, 'w') as f:
+        f.write(f"{data_type.capitalize()} Summary Statistics\n")
+        group_by = 'ps_number' if data_type in ['voltage', 'current'] else 'sensor'
+        value_col = data_type if data_type in ['voltage', 'current'] else 'temperature'
+        
+        for group, group_df in df.groupby(group_by):
+            f.write(f"\n{data_type.capitalize()} {group_by.replace('_', ' ').title()} {group}:\n")
+            stats = group_df[value_col].describe()
+            f.write(str(stats))
+            f.write('\n')
+    print(f"Statistics saved to {output_path}")
+
 
 def main():
     args = parse_arguments()
