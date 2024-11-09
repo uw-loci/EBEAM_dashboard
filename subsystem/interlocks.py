@@ -210,7 +210,6 @@ class InterlocksSubsystem:
             # Get interlock status from driver
             sitsf_bits, sitdf_bits = self.driver.get_interlock_status()
 
-            print(sitsf_bits, sitdf_bits)
             
             # Process dual-input interlocks (first 3 pairs)
             for i in range(3):
@@ -229,7 +228,7 @@ class InterlocksSubsystem:
                 
             
             # Update overall status
-            all_good = sitsf_bits == sitdf_bits == "1" * 13
+            all_good = sitsf_bits[:12] == sitdf_bits[:12] == [1] * 12
             self.update_interlock("All Interlocks", True, all_good)
 
         except (ConnectionError, ValueError) as e:
