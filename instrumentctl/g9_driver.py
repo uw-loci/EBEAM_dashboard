@@ -251,7 +251,6 @@ class G9Driver:
         """
         if status == None:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
-        print(status)
         if status != b'\x00\x01':
             bits = self._extract_flags(status, 16)
             for k in self.US_STATUS.keys():

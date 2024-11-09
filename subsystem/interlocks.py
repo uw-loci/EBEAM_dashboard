@@ -209,21 +209,22 @@ class InterlocksSubsystem:
 
             # Get interlock status from driver
             sitsf_bits, sitdf_bits = self.driver.get_interlock_status()
+
             print(sitsf_bits, sitdf_bits)
             
             # Process dual-input interlocks (first 3 pairs)
             for i in range(3):
-                safety = (int(sitsf_bits[i*2], 2) & 
-                         int(sitsf_bits[i*2+1], 2))
-                data = (int(sitdf_bits[i*2], 2) & 
-                       int(sitdf_bits[i*2+1], 2))
-                print(data, safety)
+                safety = (sitsf_bits[i*2] & 
+                         sitsf_bits[i*2+1])
+                data = (sitdf_bits[i*2] & 
+                       sitdf_bits[i*2+1])
+                
                 self.update_interlock(self.INPUTS[i*2], safety, data)
             
             # Process single-input interlocks
             for i in range(6, 13):
-                safety = int(sitsf_bits[i], 2)
-                data = int(sitdf_bits[i], 2)
+                safety = sitsf_bits[i]
+                data = sitdf_bits[i]
                 self.update_interlock(self.INPUTS[i], safety, data)
                 
             
