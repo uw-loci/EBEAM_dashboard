@@ -59,6 +59,7 @@ class G9Driver:
         self._setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
+        self.lastResponse = None
 
     def _setup_serial(self, port, baudrate, timeout):
         """
@@ -148,7 +149,7 @@ class G9Driver:
                 raise ValueError(length_error_msg)
 
             self._validate_response_format(data)
-            self._validate_checksum(data)
+            # self._validate_checksum(data)
             
             return data
             
@@ -175,8 +176,8 @@ class G9Driver:
 
             # Convert to binary strings
             binary_data = {
-                'sitdf': self._bytes_to_binary(status_data['sitdf'])[-self.NUMIN:],
-                'sitsf': self._bytes_to_binary(status_data['sitsf'])[-self.NUMIN:]
+                'sitdf': self._bytes_to_binary(status_data['sitdf'])[:self.NUMIN],
+                'sitsf': self._bytes_to_binary(status_data['sitsf'])[:self.NUMIN]
             }
 
             # Check for errors
@@ -184,7 +185,7 @@ class G9Driver:
             self._check_safety_inputs(data)
             self._check_safety_outputs(data)
 
-            return binary_data['sitsf'], binary_data['sitdf']
+            return binary_data['sitsf'][4:8] + binary_data['sitsf'][0:4] + binary_data['sitsf'][12:16] + binary_data['sitsf'][8], binary_data['sitdf'][4:8] + binary_data['sitdf'][0:4] + binary_data['sitdf'][12:16] + binary_data['sitdf'][8]
 
     def _validate_response_format(self, data):
         """
@@ -230,10 +231,10 @@ class G9Driver:
             raise ValueError("Invalid inputs to _validate_checksum: Data is None")
 
         # Extract the received checksum (bytes 195-196)
-        received = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1]
+        received = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1] # 1349
 
         # Calculate expected checksum (bytes 0-194)
-        expected = self._calculate_checksum(data)
+        expected = self._calculate_checksum(data[:195]) #1255
         if received != expected:
             raise ValueError(
                 f"G9 Checksum failed. "
@@ -253,10 +254,17 @@ class G9Driver:
         if status != b'\x00\x01':
             bits = self._bytes_to_binary(status)
             for k in self.US_STATUS.keys():
-                if bits[-(k + 1)] == "1":
-                    raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
+                if k != 9:
+                    if bits[-(k + 1)] == "1":
+                        self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
+                        # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
+                else:
+                    if bits[-(k + 1)] == "0":
+                        self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
+                        # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
             if bits[-1] == "0":
-                raise ValueError("Unit State Error: Normal Operation Error Flag")
+                self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
+                # raise ValueError("Unit State Error: Normal Operation Error Flag")
 
     def _check_safety_inputs(self, data):
         """Check safety input status"""

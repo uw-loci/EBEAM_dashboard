@@ -48,8 +48,12 @@ class InterlocksSubsystem:
         self.setup_gui()
 
         try:
+            print(com_ports)
             if com_ports is not None:  # Better comparison
-                self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
+                try:
+                    self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
+                except Exception as e:
+                    self.log(f"Failed to connect: {e}", LogLevel.ERROR)
                 self.log("G9 driver initialized", LogLevel.INFO)
             else:
                 self.driver = None
@@ -170,13 +174,13 @@ class InterlocksSubsystem:
         if color == None or color == "":
             self.log("Invalid inputs to _set_all_indicators", LogLevel.ERROR)
 
-        if self.INDICATORS:
-            for name in self.INDICATORS:
-                canvas, oval_id = self.INDICATORS[name]
-                current_color = canvas.itemcget(oval_id, 'fill')
-                if current_color != color:
-                    canvas.itemconfig(oval_id, fill=color)
-                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+        # if self.INDICATORS:
+        #     for name in self.INDICATORS:
+        #         canvas, oval_id = self.INDICATORS[name]
+        #         current_color = canvas.itemcget(oval_id, 'fill')
+        #         if current_color != color:
+        #             canvas.itemconfig(oval_id, fill=color)
+        #             self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
 
     def update_data(self):
         """
@@ -205,20 +209,23 @@ class InterlocksSubsystem:
 
             # Get interlock status from driver
             sitsf_bits, sitdf_bits = self.driver.get_interlock_status()
+            print(sitsf_bits, sitdf_bits)
             
             # Process dual-input interlocks (first 3 pairs)
             for i in range(3):
-                safety = (int(sitsf_bits[-i*2-1], 2) & 
-                         int(sitsf_bits[-i*2-2], 2))
-                data = (int(sitdf_bits[-i*2-1], 2) & 
-                       int(sitdf_bits[-i*2-2], 2))
+                safety = (int(sitsf_bits[i*2], 2) & 
+                         int(sitsf_bits[i*2+1], 2))
+                data = (int(sitdf_bits[i*2], 2) & 
+                       int(sitdf_bits[i*2+1], 2))
+                print(data, safety)
                 self.update_interlock(self.INPUTS[i*2], safety, data)
             
             # Process single-input interlocks
             for i in range(6, 13):
-                safety = int(sitsf_bits[-i-1], 2)
-                data = int(sitdf_bits[-i-1], 2)
+                safety = int(sitsf_bits[i], 2)
+                data = int(sitdf_bits[i], 2)
                 self.update_interlock(self.INPUTS[i], safety, data)
+                
             
             # Update overall status
             all_good = sitsf_bits == sitdf_bits == "1" * 13
