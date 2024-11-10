@@ -119,7 +119,7 @@ class G9Driver:
             ConnectionError: Throws when sending message throws error
         """
         message = self.SNDHEADER + self.SNDDATA + self.SNDRES
-        checksum = self._calculate_checksum(message)
+        checksum = self._calculate_checksum(message, 14)
         full_message = message + checksum + self.FOOTER
 
         try:
@@ -205,7 +205,7 @@ class G9Driver:
         if data[-2:] != self.FOOTER:
             raise ValueError(f"Invalid footer: {data[-2:].hex()}")
 
-    def _calculate_checksum(self, data):
+    def _calculate_checksum(self, data, bytes):
         """
         Args:
             data (bytes): The complete message bytes
@@ -217,7 +217,7 @@ class G9Driver:
         """
         if data == None:
             raise ValueError("Invalid inputs to _calculate_checksum: Data is None")
-        checksum = sum(data[0:194]) & 0xFFFF
+        checksum = sum(data[0:bytes + 1]) & 0xFFFF
         return checksum.to_bytes(2, 'big')
 
     def _validate_checksum(self, data):
@@ -234,7 +234,7 @@ class G9Driver:
         received = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1] # 1349
 
         # Calculate expected checksum (bytes 0-194)
-        expected = self._calculate_checksum(data[:195]) #1255
+        expected = self._calculate_checksum(data, 194) #1255
         if received != expected:
             raise ValueError(
                 f"G9 Checksum failed. "
@@ -251,18 +251,18 @@ class G9Driver:
         """
         if status == None:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
-        if status != b'\x00\x01':
+        if status != b'\x01\x00':
             bits = self._extract_flags(status, 16)
             for k in self.US_STATUS.keys():
                 if k != 9:
-                    if bits[k] == "1":
+                    if bits[k] == 1:
                         self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
                         # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
                 else:
-                    if bits[k] == "0":
+                    if bits[k] == 0:
                         self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
                         # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
-            if bits[0] == "0":
+            if bits[0] == 0:
                 self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
                 # raise ValueError("Unit State Error: Normal Operation Error Flag")
 
@@ -331,7 +331,7 @@ class G9Driver:
         Raise:
             ValueError: When called requesting more bits than in the bytes
         Return:
-            num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit
+            num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit (aka little endian)
         """
         num_bytes = (num_bits + 7) // 8
         
