@@ -21,21 +21,21 @@ class InterlocksSubsystem:
         10 : "Water", # Water
         11 : "HVolt ON", # HVolt ON
         12 : "G9SP Active" # G9SP Active
-        }
+    }
 
     INDICATORS = {
-                'Door': None,
-                'Water': None,
-                'Vacuum Power': None,
-                'Vacuum Pressure': None,
-                'Low Oil': None,
-                'High Oil': None,
-                'E-STOP Int': None,
-                'E-STOP Ext': None,
-                'All Interlocks': None,
-                'G9SP Active': None,
-                'HVolt ON': None
-            }
+        'Door': None,
+        'Water': None,
+        'Vacuum Power': None,
+        'Vacuum Pressure': None,
+        'Low Oil': None,
+        'High Oil': None,
+        'E-STOP Int': None,
+        'E-STOP Ext': None,
+        'All Interlocks': None,
+        'G9SP Active': None,
+        'HVolt ON': None
+    }
 
     def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
@@ -174,13 +174,13 @@ class InterlocksSubsystem:
         if color == None or color == "":
             self.log("Invalid inputs to _set_all_indicators", LogLevel.ERROR)
 
-        # if self.INDICATORS:
-        #     for name in self.INDICATORS:
-        #         canvas, oval_id = self.INDICATORS[name]
-        #         current_color = canvas.itemcget(oval_id, 'fill')
-        #         if current_color != color:
-        #             canvas.itemconfig(oval_id, fill=color)
-        #             self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+        if self.INDICATORS:
+            for name in self.INDICATORS:
+                canvas, oval_id = self.INDICATORS[name]
+                current_color = canvas.itemcget(oval_id, 'fill')
+                if current_color != color:
+                    canvas.itemconfig(oval_id, fill=color)
+                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
 
     def update_data(self):
         """
@@ -208,8 +208,7 @@ class InterlocksSubsystem:
                 return
 
             # Get interlock status from driver
-            sitsf_bits, sitdf_bits = self.driver.get_interlock_status()
-
+            sitsf_bits, sitdf_bits, g9_active = self.driver.get_interlock_status()
             
             # Process dual-input interlocks (first 3 pairs)
             for i in range(3):
@@ -226,10 +225,13 @@ class InterlocksSubsystem:
                 data = sitdf_bits[i]
                 self.update_interlock(self.INPUTS[i], safety, data)
                 
-            
             # Update overall status
             all_good = sitsf_bits[:12] == sitdf_bits[:12] == [1] * 12
             self.update_interlock("All Interlocks", True, all_good)
+
+            # make sure that the data output indicates button and been pressed and the input is not off/error
+            if g9_active == sitsf_bits[12]:
+                self.update_interlock("G9SP Active", True, all_good)
 
         except (ConnectionError, ValueError) as e:
             if current_time - self.last_error_time > (self.update_interval / 1000):

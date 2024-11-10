@@ -149,7 +149,7 @@ class G9Driver:
                 raise ValueError(length_error_msg)
 
             self._validate_response_format(data)
-            # self._validate_checksum(data)
+            self._validate_checksum(data)
             
             return data
             
@@ -177,15 +177,18 @@ class G9Driver:
             # Convert to binary strings
             binary_data = {
                 'sitdf': self._extract_flags(status_data['sitdf'], self.NUMIN),
-                'sitsf': self._extract_flags(status_data['sitsf'], self.NUMIN)
+                'sitsf': self._extract_flags(status_data['sitsf'], self.NUMIN),
+                'sotdf': self._extract_flags(status_data['sotdf'], 7),
+                'sotsf': self._extract_flags(status_data['sotsf'], 7)
             }
+            print(binary_data['sotdf'])
 
             # Check for errors
             self._check_unit_status(status_data['unit_status'])
             self._check_safety_inputs(data)
             self._check_safety_outputs(data)
 
-            return binary_data['sitsf'], binary_data['sitdf']
+            return binary_data['sitsf'], binary_data['sitdf'], binary_data['sotsf'][4] & binary_data['sotdf'][4]
 
     def _validate_response_format(self, data):
         """
@@ -242,6 +245,7 @@ class G9Driver:
                 f" Received: {received.hex()}"
             )
 
+    #TODO: make sure this is accurate, currently just reporting Power Supply Errors
     def _check_unit_status(self, status):
         """
         Check unit status and raise error if issues found
@@ -253,6 +257,7 @@ class G9Driver:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
         if status != b'\x01\x00':
             bits = self._extract_flags(status, 16)
+            print(bits)
             for k in self.US_STATUS.keys():
                 if k != 9:
                     if bits[k] == 1:
