@@ -1,6 +1,5 @@
 import re
 import argparse
-from datetime import datetime
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
