@@ -1,6 +1,7 @@
 import re
 import argparse
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pandas as pd
 import os
 
@@ -128,20 +129,47 @@ def save_to_excel(df, output_path):
     print(f"Excel file saved to {output_path}")
 
 def plot_data(df, data_type, output_path):
+    """
+    Create plots with improved time handling and consistent styling.
+    
+    Args:
+        df (pd.DataFrame): DataFrame with timestamp column and data
+        data_type (str): Type of data to plot ('voltage', 'current', 'temperature', 'pressure')
+        output_path (str): Path to save the plot
+    """
+    # Convert string timestamps to datetime objects
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='%H:%M:%S')
+
     plt.figure(figsize=(12, 6))
+
     if data_type in ['voltage', 'current']:
         for ps_number, group in df.groupby('ps_number'):
             plt.plot(group['timestamp'], group[data_type], label=f'Power Supply {ps_number}', marker='o')
         ylabel = 'Voltage (V)' if data_type == 'voltage' else 'Current (A)'
         plt.ylabel(ylabel)
+    
     elif data_type == 'temperature':
         for sensor, group in df.groupby('sensor'):
-            plt.plot(group['timestamp'], group['temperature'], label=f'Sensor {sensor}', marker='x')
+            plt.plot(group['timestamp'], group['temperature'], label=f'Sensor {sensor}', marker='o')
         plt.ylabel('Temperature (°C)')
+    
     elif data_type == 'pressure':
-        plt.plot(df['timestamp'], df['pressure'], label='Chamber Pressure', marker='.')
+        plt.plot(df['timestamp'], df['pressure'], label='Chamber Pressure', marker='o')
         plt.yscale('log')
-        plt.ylabel('Pressure (mbar)') 
+        plt.ylabel('Pressure (mbar)')
+
+    # Improve x-axis formatting
+    plt.gcf().autofmt_xdate()  # Rotate and align the tick labels
+    
+    # Format time axis with appropriate intervals
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.DateFormatter('%H:%M:%S')
+    plt.gca().xaxis.set_major_locator(locator)
+    plt.gca().xaxis.set_major_formatter(formatter)
+
+    # Ensure reasonable number of ticks
+    if len(df) > 20:
+        plt.gca().xaxis.set_major_locator(mdates.MinuteLocator(interval=1))
     
     plt.title(f'{data_type.capitalize()} Over Time')
     plt.xlabel('Time')
@@ -149,7 +177,7 @@ def plot_data(df, data_type, output_path):
     plt.grid(True)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=300)
     plt.close()
     print(f"Plot saved to {output_path}")
 
@@ -167,7 +195,6 @@ def process_files(file_list, data_types, output_formats, output_dir):
         
         # Create subdirectories for each type of output
         csv_dir = ensure_output_dir(output_dir, 'csv') if 'csv' in output_formats else None
-        excel_dir = ensure_output_dir(output_dir, 'excel') if 'xlsx' in output_formats else None
         plot_dir = ensure_output_dir(output_dir, 'plots') if 'plot' in output_formats else None
         stats_dir = ensure_output_dir(output_dir, 'statistics')
             
@@ -178,8 +205,6 @@ def process_files(file_list, data_types, output_formats, output_dir):
                 
                 if csv_dir:
                     save_to_csv(df_sorted, os.path.join(csv_dir, f"{base_filename}_{data_type}.csv"))
-                if excel_dir:
-                    save_to_excel(df_sorted, os.path.join(excel_dir, f"{base_filename}_{data_type}.xlsx"))
                 if plot_dir:
                     plot_data(df_sorted, data_type, os.path.join(plot_dir, f"{base_filename}_{data_type}.png"))
                 save_statistics(df_sorted, data_type, os.path.join(stats_dir, f"{base_filename}_{data_type}_stats.txt"))
@@ -190,8 +215,6 @@ def process_files(file_list, data_types, output_formats, output_dir):
                 
                 if csv_dir:
                     save_to_csv(df_sorted, os.path.join(csv_dir, f"{base_filename}_temperature.csv"))
-                if excel_dir:
-                    save_to_excel(df_sorted, os.path.join(excel_dir, f"{base_filename}_temperature.xlsx"))
                 if plot_dir:
                     plot_data(df_sorted, 'temperature', os.path.join(plot_dir, f"{base_filename}_temperature.png"))
                 save_statistics(df_sorted, 'temperature', os.path.join(stats_dir, f"{base_filename}_temperature_stats.txt"))
@@ -202,8 +225,6 @@ def process_files(file_list, data_types, output_formats, output_dir):
                 
                 if csv_dir:
                     save_to_csv(df_sorted, os.path.join(csv_dir, f"{base_filename}_pressure.csv"))
-                if excel_dir:
-                    save_to_excel(df_sorted, os.path.join(excel_dir, f"{base_filename}_pressure.xlsx"))
                 if plot_dir:
                     plot_data(df_sorted, 'pressure', os.path.join(plot_dir, f"{base_filename}_pressure.png"))
                 save_statistics(df_sorted, 'pressure', os.path.join(stats_dir, f"{base_filename}_pressure_stats.txt"))
