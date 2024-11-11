@@ -11,7 +11,7 @@ class LogProcessorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("EBEAM Log Post-Processor")
-        self.root.geometry("600x300")
+        self.root.geometry("600x390")
         
         # State variables
         self.current_step = 1
@@ -24,7 +24,6 @@ class LogProcessorApp:
         }
         self.output_vars = {
             'csv': tk.BooleanVar(value=True),
-            'xlsx': tk.BooleanVar(value=False),
             'plot': tk.BooleanVar(value=True)
         }
         self.output_dir = tk.StringVar(value=os.path.join(os.getcwd(), "output"))
