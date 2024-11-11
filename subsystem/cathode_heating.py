@@ -912,32 +912,18 @@ class CathodeHeatingSubsystem:
         
         new_state = not self.toggle_states[index]
         
-        if new_state:  # If we're trying to turn the output ON
-            # Zero voltage first and wait for confirmation
-            if not self.power_supplies[index].set_voltage(3, 0.0):
-                self.log(f"Failed to zero voltage for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                return
-                
-            # Verify voltage is zeroed
-            voltage, _, _ = self.power_supplies[index].get_voltage_current_mode()
-            if voltage is None or voltage > 0.07:
-                self.log(f"Failed to confirm zero voltage for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                return
-
-            # enable output
+        if new_state:  # If turning output ON
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-
-            # Start ramping from 0V to target
+                
             target_voltage = self.user_set_voltages[index]
             if target_voltage is not None:
                 slew_rate = self.slew_rates[index]
                 step_delay = 1.0  # seconds
                 step_size = slew_rate * step_delay
                 
-                self.log(f"Starting voltage ramp for Cathode {['A', 'B', 'C'][index]} with step size {step_size:.3f} V and step delay {step_delay:.3f} s", LogLevel.INFO)
-                
+                self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
                 self.power_supplies[index].ramp_voltage(
                     target_voltage,
                     step_size=step_size,
