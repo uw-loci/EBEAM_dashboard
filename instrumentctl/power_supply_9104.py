@@ -131,20 +131,36 @@ class PowerSupply9104:
         thread.start()
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
-        current_voltage = 0.0  # Starting voltage, adjust if you can fetch from the PSU.
-        while current_voltage < target_voltage:
-            next_voltage = min(current_voltage + step_size, target_voltage)
-            if not self.set_voltage(preset, next_voltage):  # Assume preset 1
-                self.log(f"Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
-                if callback:
-                    callback(False)
-                return
-            time.sleep(step_delay)
-            current_voltage = next_voltage
+        """Main voltage ramping implementation."""
+        try:
+            # Calculate number of steps needed
+            current_voltage = 0.0  # Always start from 0
+            num_steps = int(target_voltage / step_size) + 1
+            
+            self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V in {num_steps} steps", LogLevel.INFO)
+            
+            for step in range(num_steps):
+                # Check if output still enabled
+                output_status = self.get_output_status()
+                if not output_status or '0' in output_status:
+                    self.log("Output disabled, stopping ramp", LogLevel.INFO)
+                    return
+                    
+                next_voltage = min((step + 1) * step_size, target_voltage)
+                if not self.set_voltage(preset, next_voltage):
+                    self.log(f"Failed to set voltage to {next_voltage:.2f}V", LogLevel.ERROR)
+                    return
+                    
+                time.sleep(step_delay)  # Fixed delay between steps
 
-        self.log("Target voltage reached.", LogLevel.INFO)
-        if callback:
-            callback(True)
+            self.log(f"Ramp complete. Target voltage: {target_voltage:.2f}V", LogLevel.INFO)
+            if callback:
+                callback(True)
+
+        except Exception as e:
+            self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
+            if callback:
+                callback(False)
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
