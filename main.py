@@ -53,7 +53,7 @@ def config_com_ports(saved_com_ports):
         label = tk.Label(frame, text=f"{subsystem} COM Port:", width=25, anchor='e')
         label.pack(side=tk.LEFT, padx=(0, 10))
 
-        selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
+        selected_port = tk.StringVar(value=saved_com_ports[subsystem]['com_port'])
         combobox = ttk.Combobox(frame, values=available_ports, textvariable=selected_port, state='readonly', width=15)
         combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
@@ -76,8 +76,26 @@ def config_com_ports(saved_com_ports):
                     selected_ports[subsystem] = dummy_ports[subsystem]
             else:
                 return  # Stay on the configuration window
+            
+        port_details = {}
+        for subsystem, port in selected_ports.items():
+            for com_port in serial.tools.list_ports.comports():
+                if com_port.device == port:
+                    port_details[subsystem] = {
+                        'com_port': port,
+                        'vid': com_port.vid,
+                        'pid': com_port.pid,
+                        'serial_number': com_port.serial_number,
+                        'manufacturer': com_port.manufacturer,
+                        'description': com_port.description
+                    }
+                    break
+            else:
+                port_details[subsystem] = {
+                    'com_port': port,
+                }
         
-        save_com_ports(selected_ports)
+        save_com_ports(port_details)
         config_root.destroy()
         
         # Start the main application
