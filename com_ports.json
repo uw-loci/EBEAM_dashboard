@@ -1,0 +1,25 @@
+{
+    "VTRXSubsystem": {
+        "com_port": "DUMMY_COM1"
+    },
+    "CathodeA PS": {
+        "com_port": "DUMMY_COM2"
+    },
+    "CathodeB PS": {
+        "com_port": "DUMMY_COM3"
+    },
+    "CathodeC PS": {
+        "com_port": "DUMMY_COM4"
+    },
+    "TempControllers": {
+        "com_port": "DUMMY_COM5"
+    },
+    "Interlocks": {
+        "com_port": "COM11",
+        "vid": 1027,
+        "pid": 24577,
+        "serial_number": "AD0K0ZIEA",
+        "manufacturer": "FTDI",
+        "description": "USB Serial Port (COM11)"
+    }
+}

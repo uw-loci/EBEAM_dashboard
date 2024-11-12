@@ -52,8 +52,9 @@ def config_com_ports(saved_com_ports):
         frame.pack(pady=5, anchor='center')
         label = tk.Label(frame, text=f"{subsystem} COM Port:", width=25, anchor='e')
         label.pack(side=tk.LEFT, padx=(0, 10))
-
-        selected_port = tk.StringVar(value=saved_com_ports[subsystem]['com_port'])
+        selected_port = tk.StringVar(value=None)
+        if subsystem in saved_com_ports:
+            selected_port = tk.StringVar(value=saved_com_ports[subsystem]['com_port'])
         combobox = ttk.Combobox(frame, values=available_ports, textvariable=selected_port, state='readonly', width=15)
         combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
