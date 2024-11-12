@@ -43,12 +43,12 @@ class PowerSupply9104:
         return self.ser is not None and self.ser.is_open
 
     def flush_serial(self):
-        self.ser.reset_input_buffer()    # flushes the input buffer to rid of unwanted bits
+        self.ser.reset_input_buffer()    
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
         try:
-            self.ser.write(f"{command}\r\n".encode()) #\r\n indicates end of command for the serial reader
+            self.ser.write(f"{command}\r\n".encode())
             
             response = self.ser.read_until(b'\r').decode()
 
@@ -69,7 +69,7 @@ class PowerSupply9104:
             self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
 
-    def set_output(self, state):   
+    def set_output(self, state):
         """Set the output on/off."""
         """ Expected return value: OK[CR] """
         command = f"SOUT{state}"
@@ -83,10 +83,10 @@ class PowerSupply9104:
         command = "GOUT"
         return self.send_command(command)
 
-    def set_voltage(self, preset, voltage): #What does the preset do? 
+    def set_voltage(self, preset, voltage):
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
-        formatted_voltage = int(voltage * 100) # Why are we multiplying a 100??
+        formatted_voltage = int(voltage * 100)
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
@@ -131,20 +131,60 @@ class PowerSupply9104:
         thread.start()
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
-        current_voltage = 0.0  # Starting voltage, adjust if you can fetch from the PSU.
-        while current_voltage < target_voltage:
-            next_voltage = min(current_voltage + step_size, target_voltage)
-            if not self.set_voltage(preset, next_voltage):  # Assume preset 1
-                self.log(f"Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
-                if callback:
-                    callback(False)
-                return
-            time.sleep(step_delay)
-            current_voltage = next_voltage
-
-        self.log("Target voltage reached.", LogLevel.INFO)
-        if callback:
-            callback(True)
+        """Main voltage ramping implementation."""
+        try:
+            # Get initial voltage
+            voltage, _, _ = self.get_voltage_current_mode()
+            if voltage is None:
+                self.log("Could not get initial voltage reading, using 0V", LogLevel.WARNING)
+                voltage = 0.0
+                
+            current_voltage = voltage
+            self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
+            
+            # Calculate steps
+            voltage_difference = target_voltage - current_voltage
+            num_steps = max(1, int(abs(voltage_difference) / step_size))
+            voltage_step = voltage_difference / num_steps
+            
+            # Simple ramping loop
+            for step in range(num_steps):
+                next_voltage = current_voltage + voltage_step
+                if voltage_step > 0:
+                    next_voltage = min(next_voltage, target_voltage)
+                else:
+                    next_voltage = max(next_voltage, target_voltage)
+                
+                # Set new voltage
+                if not self.set_voltage(preset, next_voltage):
+                    self.log(f"Failed to set voltage to {next_voltage:.2f}V", LogLevel.WARNING)
+                    
+                # Update tracking voltage without querying device
+                current_voltage = next_voltage
+                
+                # Only log every few steps
+                if step % 5 == 0:
+                    self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
+                    
+                # Longer delay between steps
+                time.sleep(step_delay)
+            
+            # Final verification after settling
+            time.sleep(1.0)  # Extra settling time
+            final_voltage, _, _ = self.get_voltage_current_mode()
+            
+            if final_voltage is not None:
+                self.log(f"Ramp complete. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V", LogLevel.INFO)
+            else:
+                self.log(f"Ramp complete but could not verify final voltage", LogLevel.WARNING)
+                
+            if callback:
+                callback(True)
+                
+        except Exception as e:
+            self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
+            if callback:
+                callback(False)
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
