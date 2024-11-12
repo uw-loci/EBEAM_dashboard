@@ -245,7 +245,6 @@ class G9Driver:
                 f" Received: {received.hex()}"
             )
 
-    #TODO: make sure this is accurate, currently just reporting Power Supply Errors
     def _check_unit_status(self, status):
         """
         Check unit status and raise error if issues found
@@ -257,19 +256,11 @@ class G9Driver:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
         if status != b'\x01\x00':
             bits = self._extract_flags(status, 16)
-            print(bits)
             for k in self.US_STATUS.keys():
-                if k != 9:
-                    if bits[k] == 1:
-                        self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
-                        # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
-                else:
-                    if bits[k] == 0:
-                        self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
-                        # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
+                if bits[k] == 1:
+                    self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
             if bits[0] == 0:
                 self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
-                # raise ValueError("Unit State Error: Normal Operation Error Flag")
 
     def _check_safety_inputs(self, data):
         """Check safety input status"""
