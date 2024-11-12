@@ -24,9 +24,15 @@ frames_config = [
 ]
 
 class EBEAMSystemDashboard:
+    PORT_INFO = {
+        "AD0K0ZIEA" : "Interlocks"
+    }
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
+        self.num_ports = len(serial.tools.list_ports.comports())
+        self.set_com_ports = set(serial.tools.list_ports.comports())
+
         self.root.title("EBEAM Control System Dashboard")
 
 
@@ -52,6 +58,9 @@ class EBEAMSystemDashboard:
 
         # Set up different subsystems within their respective frames
         self.create_subsystems()
+
+        # starts the constant check for the avavilbe com ports
+        self._check_for_port_changes()
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows."""
@@ -107,12 +116,9 @@ class EBEAMSystemDashboard:
         label.pack(pady=0, fill=tk.X)
 
     # saves data to file when button is pressed
-    # saves data to file when button is pressed
     def save_current_pane_state(self):
         save_pane_states(frames_config, self.frames, self.main_pane)
-        save_pane_states(frames_config, self.frames, self.main_pane)
 
-    # gets data in save config file (as dict) and updates the global var of frames_config
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
         savedData = load_pane_states()
@@ -247,3 +253,34 @@ class EBEAMSystemDashboard:
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
+
+    def _check_for_port_changes(self):
+        nowPorts = set(serial.tools.list_ports.comports())
+        if self.num_ports != len(nowPorts):
+            # should be a list of ListPortIO objects
+            dif = self.set_com_ports - nowPorts
+
+            for port in dif:
+                if port.serial_number in self.PORT_INFO:
+                    if port in nowPorts:
+                        self._check_for_port_changes(self.PORT_INFO[port.serial_number], port)
+                    else:
+                        self._check_for_port_changes(self.PORT_INFO[port.serial_number])
+                        
+        self.root.after(5000, self._check_for_port_changes)
+
+    def _update_com_ports(self, subsystem, port=None):
+
+        if subsystem in self.subsystems.keys():
+            if hasattr(subsystem, 'update_com_port'):
+                if subsystem == 'Vacuum System':
+                    self.subsystems[subsystem].update_com_port(subsystem.get('VTRXSubsystem'))
+                elif subsystem == 'Cathode Heating':
+                    self.subsystems[subsystem].update_com_ports(subsystem)
+                elif subsystem == "Interlocks":
+                    self.subsystems[subsystem].update_com_ports(subsystem)
+            
+            else:
+                self.logger.warning(f"Subsystem {subsystem} does not have an update_com_port method")
+        self.logger.info(f"COM ports updated: {self.com_ports}")
+
