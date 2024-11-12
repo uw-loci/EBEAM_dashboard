@@ -68,7 +68,12 @@ def config_com_ports(saved_com_ports):
                 icon='warning')
             
             if response == 'yes':
-                selected_ports = create_dummy_ports(subsystems)
+                unselected_subsystems = [subsystem for subsystem, port in selected_ports.items() if not port]
+                dummy_ports = create_dummy_ports(unselected_subsystems)
+                
+                # Update only unselected ports with dummy values
+                for subsystem in unselected_subsystems:
+                    selected_ports[subsystem] = dummy_ports[subsystem]
             else:
                 return  # Stay on the configuration window
         
