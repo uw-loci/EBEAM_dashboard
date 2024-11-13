@@ -5,6 +5,9 @@ from dashboard import EBEAMSystemDashboard
 import sys
 from usr.com_port_config import save_com_ports, load_com_ports
 
+def create_dummy_ports(subsystems): # For development purpose only
+    return {subsystem: f'DUMMY_COM{i+1}' for i, subsystem in enumerate(subsystems)}
+
 def start_main_app(com_ports):
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
@@ -19,6 +22,17 @@ def config_com_ports(saved_com_ports):
         except ImportError:
             pass
 
+    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']
+    available_ports = [port.device for port in serial.tools.list_ports.comports()]
+
+    if not available_ports:
+        # No COM ports found, create dummy ports
+        dummy_ports = create_dummy_ports(subsystems)
+        save_com_ports(dummy_ports)
+        print(f"No COM ports found. Using dummy ports: {dummy_ports}")  # Debug info
+        start_main_app(dummy_ports)
+        return
+
     config_root = tk.Tk()
     config_root.title("Configure COM Ports")
     # config_root.geometry('600x400')
@@ -32,7 +46,6 @@ def config_com_ports(saved_com_ports):
     main_frame.pack(side=tk.TOP, fill=tk.X)
 
     # Create a dropdown for each subsystem
-    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']
     for subsystem in subsystems:
         frame = ttk.Frame(main_frame)
         frame.pack(pady=5, anchor='center')
@@ -49,8 +62,14 @@ def config_com_ports(saved_com_ports):
         
         # check that all COM ports are selected
         if not all(selected_ports.values()):
-            messagebox.showerror("Error", "Please select all COM ports.")
-            return
+            response = messagebox.askquestion("No Ports Selected", 
+                "No COM ports selected. Would you like to use dummy ports?",
+                icon='warning')
+            
+            if response == 'yes':
+                selected_ports = create_dummy_ports(subsystems)
+            else:
+                return  # Stay on the configuration window
         
         save_com_ports(selected_ports)
         config_root.destroy()
