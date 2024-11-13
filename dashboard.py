@@ -256,26 +256,27 @@ class EBEAMSystemDashboard:
 
     def _check_for_port_changes(self):
         nowPorts = set(serial.tools.list_ports.comports())
+        
+        dif = self.set_com_ports - nowPorts
+        added_ports = nowPorts - self.set_com_ports
 
-        if self.num_ports != len(nowPorts):
+        self.set_com_ports = nowPorts
+        self.num_ports = len(nowPorts)
+        
+        # Process removed ports
+        for port in dif:
+            if port.serial_number in self.PORT_INFO:
+                self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+                
+        # Process added ports
+        for port in added_ports:
+            if port.serial_number in self.PORT_INFO:
+                self._update_com_ports(self.PORT_INFO[port.serial_number], port)
 
-            self.num_ports = len(nowPorts)
-            # should be a list of ListPortIO objects
-            dif = self.set_com_ports - nowPorts
-            print(self.set_com_ports, nowPorts)
+        self.root.after(5000, self._check_for_port_changes)
 
-            for port in dif:
-                print("HERER")
-                if port.serial_number in self.PORT_INFO:
-                    if port in nowPorts:
-                        self._check_for_port_changes(self.PORT_INFO[port.serial_number], port)
-                    else:
-                        self._check_for_port_changes(self.PORT_INFO[port.serial_number])
-                        
-        self.root.after(500, self._check_for_port_changes)
 
     def _update_com_ports(self, subsystem, port=None):
-        print(subsystem)
 
         if subsystem in self.subsystems.keys():
             if hasattr(subsystem, 'update_com_port'):
@@ -284,8 +285,7 @@ class EBEAMSystemDashboard:
                 elif subsystem == 'Cathode Heating':
                     self.subsystems[subsystem].update_com_ports(subsystem)
                 elif subsystem == "Interlocks":
-                    print("123")
-                    self.subsystems["Interlocks"].update_com_port(subsystem, port)
+                    self.subsystems[subsystem].update_com_ports(subsystem)
             
             else:
                 self.logger.warning(f"Subsystem {subsystem} does not have an update_com_port method")

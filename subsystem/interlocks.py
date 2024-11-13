@@ -75,7 +75,6 @@ class InterlocksSubsystem:
         """
         if com_port:
             try:
-                print("here")
                 new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
                 # Test connection by getting status
                 new_driver.get_interlock_status()
@@ -86,6 +85,7 @@ class InterlocksSubsystem:
                 self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
         else:
+            self.driver = None
             self._set_all_indicators('red')
             self.log("update_com_port is being called without a com port", LogLevel.ERROR)
 
