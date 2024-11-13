@@ -256,20 +256,26 @@ class EBEAMSystemDashboard:
 
     def _check_for_port_changes(self):
         nowPorts = set(serial.tools.list_ports.comports())
+
         if self.num_ports != len(nowPorts):
+
+            self.num_ports = len(nowPorts)
             # should be a list of ListPortIO objects
             dif = self.set_com_ports - nowPorts
+            print(self.set_com_ports, nowPorts)
 
             for port in dif:
+                print("HERER")
                 if port.serial_number in self.PORT_INFO:
                     if port in nowPorts:
                         self._check_for_port_changes(self.PORT_INFO[port.serial_number], port)
                     else:
                         self._check_for_port_changes(self.PORT_INFO[port.serial_number])
                         
-        self.root.after(5000, self._check_for_port_changes)
+        self.root.after(500, self._check_for_port_changes)
 
     def _update_com_ports(self, subsystem, port=None):
+        print(subsystem)
 
         if subsystem in self.subsystems.keys():
             if hasattr(subsystem, 'update_com_port'):
@@ -278,7 +284,8 @@ class EBEAMSystemDashboard:
                 elif subsystem == 'Cathode Heating':
                     self.subsystems[subsystem].update_com_ports(subsystem)
                 elif subsystem == "Interlocks":
-                    self.subsystems[subsystem].update_com_ports(subsystem)
+                    print("123")
+                    self.subsystems["Interlocks"].update_com_port(subsystem, port)
             
             else:
                 self.logger.warning(f"Subsystem {subsystem} does not have an update_com_port method")

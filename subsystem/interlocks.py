@@ -75,10 +75,12 @@ class InterlocksSubsystem:
         """
         if com_port:
             try:
+                print("here")
                 new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
                 # Test connection by getting status
                 new_driver.get_interlock_status()
                 self.driver = new_driver
+                self.parent.after(self.update_interval, self.update_data)
                 self.log(f"G9 driver updated to port {com_port}", LogLevel.INFO)
             except Exception as e:
                 self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
