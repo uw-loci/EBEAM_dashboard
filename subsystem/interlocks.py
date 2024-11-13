@@ -49,12 +49,13 @@ class InterlocksSubsystem:
 
         try:
             print(com_ports)
-            if com_ports is not None:  # Better comparison
+            if com_ports is not None:
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
+                    self.log("G9 driver initialized", LogLevel.INFO)
                 except Exception as e:
                     self.log(f"Failed to connect: {e}", LogLevel.ERROR)
-                self.log("G9 driver initialized", LogLevel.INFO)
+                    self._set_all_indicators('red')
             else:
                 self.driver = None
                 self.log("No COM port provided for G9 driver", LogLevel.WARNING)
