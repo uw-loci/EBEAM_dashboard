@@ -256,6 +256,6 @@ class InterlocksSubsystem:
         """Log a message with the specified level if a logger is configured."""
         if self.logger:
             self.logger.log(message, level)
-        elif self.debug_mode:
+        else:
             print(f"{level.name}: {message}")
 
