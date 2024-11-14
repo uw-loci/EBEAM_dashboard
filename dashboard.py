@@ -94,10 +94,8 @@ class EBEAMSystemDashboard:
 
         # Add Config tab elements
         self.create_com_port_frame(config_tab)
-        self.create_log_level_dropdown(config_tab)
-
-        # Add Post-processor launch button
         self.create_post_processor_button(config_tab)
+        self.create_log_level_dropdown(config_tab)
 
         save_layout_button = tk.Button(config_tab, text="Save Layout", command=self.save_current_pane_state)
         save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=5)
