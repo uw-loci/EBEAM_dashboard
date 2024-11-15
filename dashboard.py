@@ -282,7 +282,6 @@ class EBEAMSystemDashboard:
         strPort = port.device if port != None else None
         if subsystem in self.subsystems.keys():
             if subsystem == "Interlocks":
-                # print(port.port)
                 self.subsystems[subsystem].update_com_port(strPort)
             
         self.logger.info(f"COM ports updated: {self.com_ports}")
