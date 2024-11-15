@@ -261,7 +261,6 @@ class EBEAMSystemDashboard:
         added_ports = nowPorts - self.set_com_ports
 
         self.set_com_ports = nowPorts
-        self.num_ports = len(nowPorts)
         
         # Process removed ports
         for port in dif:
@@ -275,7 +274,8 @@ class EBEAMSystemDashboard:
                 self.logger.info(f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
                 self._update_com_ports(self.PORT_INFO[port.serial_number], port)
 
-        self.root.after(5000, self._check_for_port_changes)
+        self.root.after(500, self._check_for_port_changes)
+
 
 
     def _update_com_ports(self, subsystem, port=None):
