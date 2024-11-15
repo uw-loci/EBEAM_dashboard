@@ -73,6 +73,7 @@ class InterlocksSubsystem:
         Catch:
             Expection: If inilizition throws an error
         """
+        print("here")
         if com_port:
             try:
                 new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
@@ -251,7 +252,8 @@ class InterlocksSubsystem:
             
         finally:
             # Schedule next update
-            self.parent.after(self.update_interval, self.update_data)
+            if self.driver:
+                self.parent.after(self.update_interval, self.update_data)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""

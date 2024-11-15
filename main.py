@@ -6,7 +6,7 @@ import sys
 from usr.com_port_config import save_com_ports, load_com_ports
 
 def create_dummy_ports(subsystems): # For development purpose only
-    return {subsystem: f'DUMMY_COM{i+1}' for i, subsystem in enumerate(subsystems)}
+    return {subsystem: None for i, subsystem in enumerate(subsystems)}
 
 def start_main_app(com_ports):
     root = tk.Tk()

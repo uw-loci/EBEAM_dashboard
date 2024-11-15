@@ -192,8 +192,8 @@ class EBEAMSystemDashboard:
         self.com_port_frame = ttk.Frame(parent_frame)
         self.com_port_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
-        self.com_port_button = ttk.Button(self.com_port_frame, text="Configure COM Ports", command=self.toggle_com_port_menu)
-        self.com_port_button.pack(side=tk.TOP, anchor='w')
+        # self.com_port_button = ttk.Button(self.com_port_frame, text="Configure COM Ports", command=self.toggle_com_port_menu)
+        # self.com_port_button.pack(side=tk.TOP, anchor='w')
 
         self.com_port_menu = ttk.Frame(self.com_port_frame)
         self.com_port_menu.pack(side=tk.TOP, fill=tk.X, expand=True)
@@ -212,47 +212,47 @@ class EBEAMSystemDashboard:
             dropdown.pack(side=tk.RIGHT)
             self.port_dropdowns[subsystem] = dropdown
 
-        ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
+        # ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
 
-    def toggle_com_port_menu(self):
-        if self.com_port_menu.winfo_viewable():
-            self.com_port_menu.pack_forget()
-            self.com_port_button.config(text="Configure COM Ports")
-        else:
-            self.update_available_ports() 
-            self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
-            self.com_port_button.config(text="Hide COM Port Configuration")
+    # def toggle_com_port_menu(self):
+    #     if self.com_port_menu.winfo_viewable():
+    #         self.com_port_menu.pack_forget()
+    #         self.com_port_button.config(text="Configure COM Ports")
+    #     else:
+    #         self.update_available_ports() 
+    #         self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
+    #         self.com_port_button.config(text="Hide COM Port Configuration")
 
-    def update_available_ports(self):
-        available_ports = [port.device for port in serial.tools.list_ports.comports()]
-        for dropdown in self.port_dropdowns.values():
-            current_value = dropdown.get()
-            dropdown['values'] = available_ports
-            if current_value in available_ports:
-                dropdown.set(current_value)
-            elif available_ports:
-                dropdown.set(available_ports[0])
-            else:
-                dropdown.set('')
+    # def update_available_ports(self):
+    #     available_ports = [port.device for port in serial.tools.list_ports.comports()]
+    #     for dropdown in self.port_dropdowns.values():
+    #         current_value = dropdown.get()
+    #         dropdown['values'] = available_ports
+    #         if current_value in available_ports:
+    #             dropdown.set(current_value)
+    #         elif available_ports:
+    #             dropdown.set(available_ports[0])
+    #         else:
+    #             dropdown.set('')
 
-    def apply_com_port_changes(self):
-        new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
-        self.update_com_ports(new_com_ports)
-        self.toggle_com_port_menu()
+    # def apply_com_port_changes(self):
+    #     new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
+    #     self.update_com_ports(new_com_ports)
+    #     self.toggle_com_port_menu()
 
-    def update_com_ports(self, new_com_ports):
-        self.com_ports = new_com_ports
-        # TODO: update the COM ports for each subsystem
+    # def update_com_ports(self, new_com_ports):
+    #     self.com_ports = new_com_ports
+    #     # TODO: update the COM ports for each subsystem
 
-        for subsystem_name, subsystem in self.subsystems.items():
-            if hasattr(subsystem, 'update_com_port'):
-                if subsystem_name == 'Vacuum System':
-                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
-                elif subsystem_name == 'Cathode Heating':
-                    subsystem.update_com_ports(new_com_ports)
-            else:
-                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
-        self.logger.info(f"COM ports updated: {self.com_ports}")
+    #     for subsystem_name, subsystem in self.subsystems.items():
+    #         if hasattr(subsystem, 'update_com_port'):
+    #             if subsystem_name == 'Vacuum System':
+    #                 subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
+    #             elif subsystem_name == 'Cathode Heating':
+    #                 subsystem.update_com_ports(new_com_ports)
+    #         else:
+    #             self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+    #     self.logger.info(f"COM ports updated: {self.com_ports}")
 
     def _check_for_port_changes(self):
         nowPorts = set(serial.tools.list_ports.comports())
@@ -266,28 +266,24 @@ class EBEAMSystemDashboard:
         # Process removed ports
         for port in dif:
             if port.serial_number in self.PORT_INFO:
+                self.logger.warning(f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
                 self._update_com_ports(self.PORT_INFO[port.serial_number], None)
                 
         # Process added ports
         for port in added_ports:
             if port.serial_number in self.PORT_INFO:
+                self.logger.info(f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
                 self._update_com_ports(self.PORT_INFO[port.serial_number], port)
 
         self.root.after(5000, self._check_for_port_changes)
 
 
     def _update_com_ports(self, subsystem, port=None):
-
+        strPort = port.device if port != None else None
         if subsystem in self.subsystems.keys():
-            if hasattr(subsystem, 'update_com_port'):
-                if subsystem == 'Vacuum System':
-                    self.subsystems[subsystem].update_com_port(subsystem.get('VTRXSubsystem'))
-                elif subsystem == 'Cathode Heating':
-                    self.subsystems[subsystem].update_com_ports(subsystem)
-                elif subsystem == "Interlocks":
-                    self.subsystems[subsystem].update_com_ports(subsystem)
+            if subsystem == "Interlocks":
+                # print(port.port)
+                self.subsystems[subsystem].update_com_port(strPort)
             
-            else:
-                self.logger.warning(f"Subsystem {subsystem} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
 
