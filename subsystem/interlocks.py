@@ -45,15 +45,17 @@ class InterlocksSubsystem:
         self.error_count = 0      # Track consecutive errors
         self.update_interval = 500  # Default update interval (ms)
         self.max_interval = 5000   # Maximum update interval (ms)
+        self._last_status = None
         self.setup_gui()
 
         try:
             if com_ports is not None:  # Better comparison
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
+                    self.log("G9 driver initialized", LogLevel.INFO)
                 except Exception as e:
                     self.log(f"Failed to connect: {e}", LogLevel.ERROR)
-                self.log("G9 driver initialized", LogLevel.INFO)
+                    self._set_all_indicators('red')
             else:
                 self.driver = None
                 self.log("No COM port provided for G9 driver", LogLevel.WARNING)
@@ -91,17 +93,11 @@ class InterlocksSubsystem:
         if success:
             # On success, return to normal update rate
             self.error_count = 0
-            self.update_interval = max(500, self.update_interval // 2)
+            self.update_interval = 500  # Reset to default interval
         else:
-            # On communication failure, increase interval up to max_interval
-            self.error_count += 1
-
-            new_interval = self.update_interval * (1.5 if self.error_count < 5 else 1)
-            self.update_interval = min(self.max_interval, int(new_interval))
-
-            if self.error_count % 5 == 0:  # Log every 5th error
-                self.log(f"G9 Connection issue. Update interval: {self.update_interval}ms", LogLevel.WARNING)
-
+            # On communication failure, use exponential backoff with a cap
+            self.error_count = min(self.error_count + 1, 5)  # Cap error count
+            self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
 
     def setup_gui(self):
         """Setup the GUI for the interlocks subsystem"""
@@ -201,49 +197,53 @@ class InterlocksSubsystem:
                     self._set_all_indicators('red')
                     self.log("G9 driver not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
+                    self.last_error_time = time.time()
                     self._adjust_update_interval(success=False)
-
-                self.parent.after(500, self.update_data)
-                return
-
-            # Get interlock status from driver
-            sitsf_bits, sitdf_bits, g9_active = self.driver.get_interlock_status()
-            
-            # Process dual-input interlocks (first 3 pairs)
-            for i in range(3):
-                safety = (sitsf_bits[i*2] & 
-                         sitsf_bits[i*2+1])
-                data = (sitdf_bits[i*2] & 
-                       sitdf_bits[i*2+1])
+            else:
+                # Get interlock status from driver
+                status = self.driver.get_interlock_status()
                 
-                self.update_interlock(self.INPUTS[i*2], safety, data)
-            
-            # Process single-input interlocks
-            for i in range(6, 13):
-                safety = sitsf_bits[i]
-                data = sitdf_bits[i]
-                self.update_interlock(self.INPUTS[i], safety, data)
+                if status is None:
+                    self._set_all_indicators('red')
+                    if current_time - self.last_error_time > (self.update_interval / 1000):
+                        self.log("No data available from G9", LogLevel.CRITICAL)
+                        self.last_error_time = current_time
+                        self._adjust_update_interval(success=False)
+                        self.parent.after(self.update_interval, self.update_data)
+                        return
+                    
+                sitsf_bits, sitdf_bits, g9_active = status
+
+                # Process dual-input interlocks (first 3 pairs)
+                for i in range(3):
+                    safety = (sitsf_bits[i*2] & 
+                            sitsf_bits[i*2+1])
+                    data = (sitdf_bits[i*2] & 
+                        sitdf_bits[i*2+1])
+                    
+                    self.update_interlock(self.INPUTS[i*2], safety, data)
                 
-            # Update overall status
-            all_good = sitsf_bits[:12] == sitdf_bits[:12] == [1] * 12
-            self.update_interlock("All Interlocks", True, all_good)
+                # Process single-input interlocks
+                for i in range(6, 13):
+                    safety = sitsf_bits[i]
+                    data = sitdf_bits[i]
+                    self.update_interlock(self.INPUTS[i], safety, data)
+                    
+                # Update overall status
+                all_good = sitsf_bits[:12] == sitdf_bits[:12] == [1] * 12
+                self.update_interlock("All Interlocks", True, all_good)
 
-            # make sure that the data output indicates button and been pressed and the input is not off/error
-            if g9_active == sitsf_bits[12]:
-                self.update_interlock("G9SP Active", True, all_good)
+                # make sure that the data output indicates button and been pressed and the input is not off/error
+                if g9_active == sitsf_bits[12]:
+                    self.update_interlock("G9SP Active", True, all_good)
 
-        except (ConnectionError, ValueError) as e:
-            if current_time - self.last_error_time > (self.update_interval / 1000):
-                self.log(f"G9 communication error: {str(e)}", LogLevel.ERROR)
-                self._set_all_indicators('red')
-                self.last_error_time = current_time
-                self._adjust_update_interval(success=False)
-            
+                self._adjust_update_interval(success=True)
+
         except Exception as e:
-            if current_time - self.last_error_time > (self.update_interval / 1000):
+            if time.time() - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
-                self.last_error_time = current_time
+                self.last_error_time = time.time()
                 self._adjust_update_interval(success=False)
             
         finally:
@@ -254,6 +254,6 @@ class InterlocksSubsystem:
         """Log a message with the specified level if a logger is configured."""
         if self.logger:
             self.logger.log(message, level)
-        elif self.debug_mode:
+        else:
             print(f"{level.name}: {message}")
 

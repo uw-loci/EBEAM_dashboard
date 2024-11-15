@@ -1,4 +1,8 @@
+# g9_driver.py
 import serial
+import threading
+import queue
+import time
 from utils import LogLevel
 
 class G9Driver:
@@ -60,6 +64,11 @@ class G9Driver:
         self.last_data = None
         self.input_flags = []
         self.lastResponse = None
+        self._lock = threading.Lock()
+        self._response_queue = queue.Queue()
+        self._running = True
+        self._thread = threading.Thread(target=self._communication_thread, daemon=True)
+        self._thread.start()
 
     def _setup_serial(self, port, baudrate, timeout):
         """
@@ -86,27 +95,37 @@ class G9Driver:
             self.ser = None
             self.log("No port specified", LogLevel.WARNING)
 
+    def _communication_thread(self):
+        """Background thread for handling serial communication"""
+        while self._running:
+            try:
+                with self._lock:
+                    if not self.is_connected():
+                        time.sleep(0.1)
+                        continue
+                    
+                    self._send_command()
+                    response_data = self._read_response()
+                    if response_data:
+                        result = self._process_response(response_data)
+                        self._response_queue.put(result)
+                    else:
+                        self._response_queue.put(None)
+            except Exception as e:
+                self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
+                self._response_queue.put(None)
+            time.sleep(0.1)  # Prevent tight loop
+
+
     def get_interlock_status(self):
         """
-        Starts the process to get the data from the G9
-
-        Catch:
-            Exception: Anything that the other functions throw
-        Raise:
-            The exception that was catch
+        Non-blocking method to get the latest interlock status
+        Returns None if no data is available or on error
         """
-        if not self.is_connected():
-            raise ConnectionError("Serial Port is Not Open")
-
         try:
-            self._send_command()
-            response_data = self._read_response()
-            return self._process_response(response_data)
-        #TODO: Should be catching the specific exceptions that were being thrown
-        #TODO: Should we be just catching an exception just to throw it???
-        except Exception as e:
-            self.log(f"Error getting interlock status: {str(e)}", LogLevel.ERROR)
-            raise
+            return self._response_queue.get_nowait()
+        except queue.Empty:
+            return None
 
     def _send_command(self):
         """
