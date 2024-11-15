@@ -88,8 +88,8 @@ class E5CNModbus:
         """
         try:
             if self.client.is_socket_open():
-                self.log("Modbus client already connected.", LogLevel.DEBUG)
-                return True
+                self.client.close()
+                time.sleep(0.1) # for socket cleanup
 
             if self.client.connect():
                 self.log(f"E5CN Connected to port {self.client.comm_params.port}.", LogLevel.INFO)
