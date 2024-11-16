@@ -204,7 +204,7 @@ class G9Driver:
                 'sotdf': self._extract_flags(status_data['sotdf'], 7),
                 'sotsf': self._extract_flags(status_data['sotsf'], 7)
             }
-            print(binary_data['sotdf'])
+            self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
 
             # Check for errors
             self._check_unit_status(status_data['unit_status'])
@@ -280,7 +280,7 @@ class G9Driver:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
         if status != b'\x01\x00':
             bits = self._extract_flags(status, 16)
-            print(bits)
+            self.log(f"Unit status bits: {bits}", LogLevel.VERBOSE)
             for k in self.US_STATUS.keys():
                 if k != 9:
                     if bits[k] == 1:
