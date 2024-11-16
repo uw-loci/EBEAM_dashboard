@@ -63,9 +63,8 @@ class G9Driver:
         self._setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
-        self.lastResponse = None
         self._lock = threading.Lock()
-        self._response_queue = queue.Queue()
+        self._response_queue = queue.Queue(maxsize=1)
         self._running = True
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
         self._thread.start()
@@ -105,12 +104,18 @@ class G9Driver:
                         continue
                     
                     self._send_command()
-                    response_data = self._read_response()
+                    response_data = self._read_response() # blocking until complete or timeout
                     if response_data:
+                        
                         result = self._process_response(response_data)
+                        
+                        # clear queue if it has a old response
+                        try:
+                            self._response_queue.get_nowait()
+                        except queue.Empty:
+                            break                    
                         self._response_queue.put(result)
-                    else:
-                        self._response_queue.put(None)
+
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
                 self._response_queue.put(None)
@@ -160,7 +165,6 @@ class G9Driver:
         """
         try:
             data = self.ser.read_until(self.FOOTER)
-            self.lastResponse = data
 
             if len(data) != self.EXPECTED_DATA_LENGTH:
                 length_error_msg = f"Invalid response length: got: {len(data)}, expected 199 bytes"
