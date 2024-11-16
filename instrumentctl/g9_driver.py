@@ -118,8 +118,9 @@ class G9Driver:
 
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
-                self._response_queue.put(None)
-            time.sleep(0.1)  # Prevent tight loop
+                time.sleep(0.5) # back off on errors
+                
+            time.sleep(0.1)  # minimum sleep between successful reads
 
 
     def get_interlock_status(self):
