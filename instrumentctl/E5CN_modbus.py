@@ -104,8 +104,9 @@ class E5CNModbus:
                 return False
 
     def disconnect(self):
-        self.client.close()
-        self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+        with self.client_lock:
+            self.client.close()
+            self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
 
     def read_temperature(self, unit):
         """
