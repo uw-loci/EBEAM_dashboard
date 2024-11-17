@@ -1,9 +1,14 @@
+import subprocess
+import sys
+import os
 import subsystem
 import tkinter as tk
 from tkinter import ttk
+from tkinter import messagebox
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
+
 
 frames_config = [
     ("Oil System", 0, 50, 150),
@@ -87,11 +92,53 @@ class EBEAMSystemDashboard:
 
         # TODO: add main control buttons to main tab here
 
-        # Add stuff to Config tab
+        # Add Config tab elements
         self.create_com_port_frame(config_tab)
+        self.create_post_processor_button(config_tab)
         self.create_log_level_dropdown(config_tab)
+
         save_layout_button = tk.Button(config_tab, text="Save Layout", command=self.save_current_pane_state)
         save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=5)
+
+    def create_post_processor_button(self, parent_frame):
+        """Create a button to launch the standalone post-processor application"""
+        post_processor_frame = ttk.Frame(parent_frame)
+        post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        
+        ttk.Button(
+            post_processor_frame,
+            text="Launch Log Post-processor",
+            command=self.launch_post_processor
+        ).pack(side=tk.LEFT, padx=5)
+
+    def launch_post_processor(self):
+        """Launch the post-processor as a separate process"""
+        try:
+            # Get the directory where the current script is located
+            if getattr(sys, 'frozen', False):
+                # If running as a bundled executable
+                base_path = sys._MEIPASS # type: ignore
+            else:
+                # If running as a script
+                base_path = os.path.dirname(os.path.abspath(__file__))
+
+            # Path to the post processor script
+            post_processor_path = os.path.join(base_path, 'scripts/post-process/post_process_gui.py')
+
+            # Launch the post-processor script
+            if sys.platform.startswith('win'):
+                # On Windows, use pythonw to avoid console window
+                subprocess.Popen([sys.executable, post_processor_path], 
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                # On other platforms
+                subprocess.Popen([sys.executable, post_processor_path])
+                
+            self.logger.info("Log post-processor launched successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to launch log post-processor: {str(e)}")
+            messagebox.showerror("Error", 
+                            f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
         """Add a title label to a frame."""
