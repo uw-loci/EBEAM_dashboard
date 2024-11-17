@@ -87,20 +87,21 @@ class E5CNModbus:
         Returns:
             bool: True if connected successfully, False otherwise.
         """
-        try:
-            if self.client.is_socket_open():
-                self.log("Modbus client already connected.", LogLevel.DEBUG)
-                return True
+        with self.client_lock:
+            try:
+                if self.client.is_socket_open():
+                    self.log("Modbus client already connected.", LogLevel.DEBUG)
+                    return True
 
-            if self.client.connect():
-                self.log(f"E5CN Connected to port {self.client.comm_params.port}.", LogLevel.INFO)
-                return True
-            else:
-                self.log("Failed to connect to the E5CN Modbus device.", LogLevel.ERROR)
+                if self.client.connect():
+                    self.log(f"E5CN Connected to port {self.client.comm_params.port}.", LogLevel.INFO)
+                    return True
+                else:
+                    self.log("Failed to connect to the E5CN Modbus device.", LogLevel.ERROR)
+                    return False
+            except Exception as e:
+                self.log(f"Error in connect: {str(e)}", LogLevel.ERROR)
                 return False
-        except Exception as e:
-            self.log(f"Error in connect: {str(e)}", LogLevel.ERROR)
-            return False
 
     def disconnect(self):
         self.client.close()
