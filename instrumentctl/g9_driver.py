@@ -113,7 +113,8 @@ class G9Driver:
                         try:
                             self._response_queue.get_nowait()
                         except queue.Empty:
-                            break                    
+                            pass
+                        print("here")                    
                         self._response_queue.put(result)
 
             except Exception as e:
@@ -131,6 +132,7 @@ class G9Driver:
         try:
             return self._response_queue.get_nowait()
         except queue.Empty:
+            self.log(f"No interlock information is here; Queue is Empty", LogLevel.WARNING)
             return None
 
     def _send_command(self):
