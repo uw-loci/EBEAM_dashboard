@@ -100,7 +100,7 @@ class G9Driver:
             try:
                 with self._lock:
                     if not self.is_connected():
-                        time.sleep(0.1)
+                        time.sleep(0.3)
                         continue
                     
                     self._send_command()
@@ -114,14 +114,14 @@ class G9Driver:
                             self._response_queue.get_nowait()
                         except queue.Empty:
                             pass
-                        print("here")                    
+                                       
                         self._response_queue.put(result)
 
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
                 time.sleep(0.5) # back off on errors
                 
-            time.sleep(0.1)  # minimum sleep between successful reads
+            time.sleep(0.3)  # minimum sleep between successful reads
 
 
     def get_interlock_status(self):
@@ -130,7 +130,7 @@ class G9Driver:
         Returns None if no data is available or on error
         """
         try:
-            return self._response_queue.get_nowait()
+            return self._response_queue.queue[0]
         except queue.Empty:
             self.log(f"No interlock information is here; Queue is Empty", LogLevel.WARNING)
             return None
