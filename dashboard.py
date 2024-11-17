@@ -242,7 +242,7 @@ class EBEAMSystemDashboard:
         """
         Calls to update subsystems with change in comport
         """
-        if subsystem == None or port == None:
+        if subsystem == None:
             raise ValueError("_update_com_ports was called with invalid args")
         strPort = port.device if port != None else None
         if subsystem in self.subsystems.keys():

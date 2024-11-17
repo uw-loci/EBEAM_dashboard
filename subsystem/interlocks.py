@@ -48,7 +48,6 @@ class InterlocksSubsystem:
         self.setup_gui()
 
         try:
-            print(com_ports)
             if com_ports is not None:  # Better comparison
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
