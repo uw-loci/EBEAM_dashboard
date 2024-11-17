@@ -100,7 +100,7 @@ class G9Driver:
             try:
                 with self._lock:
                     if not self.is_connected():
-                        time.sleep(0.3)
+                        time.sleep(0.1)
                         continue
                     
                     self._send_command()
@@ -121,7 +121,7 @@ class G9Driver:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
                 time.sleep(0.5) # back off on errors
                 
-            time.sleep(0.3)  # minimum sleep between successful reads
+            time.sleep(0.1)  # minimum sleep between successful reads
 
 
     def get_interlock_status(self):
