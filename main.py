@@ -17,7 +17,7 @@ def start_main_app(com_ports):
 def config_com_ports(saved_com_ports):
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
-            import pyi_splash
+            import pyi_splash # type: ignore
             pyi_splash.close()
         except ImportError:
             pass
