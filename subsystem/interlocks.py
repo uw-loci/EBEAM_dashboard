@@ -74,7 +74,6 @@ class InterlocksSubsystem:
         Catch:
             Expection: If inilizition throws an error
         """
-        print("here")
         if com_port:
             try:
                 new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
