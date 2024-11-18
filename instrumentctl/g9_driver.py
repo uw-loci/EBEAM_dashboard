@@ -119,6 +119,7 @@ class G9Driver:
 
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
+                #TODO: this might be solved with the comport detection, but if not might what to define this somewhere else
                 self._response_queue.queue[0] = ([0] * 13, [0] * 13, 0)
                 time.sleep(0.5) # back off on errors
                 
@@ -214,8 +215,6 @@ class G9Driver:
             self._check_unit_status(status_data['unit_status'])
             self._check_safety_inputs(data)
             self._check_safety_outputs(data)
-
-            print(len(binary_data['sitsf']), len(binary_data['sitdf']))
 
             return binary_data['sitsf'], binary_data['sitdf'], binary_data['sotsf'][4] & binary_data['sotdf'][4]
 
@@ -338,11 +337,6 @@ class G9Driver:
     # not currently being used but many be helpful in the future for getting errors
     def _bytes_to_binary(self, byte_string):
         return ''.join(format(byte, '08b') for byte in byte_string)
-    
-    #TODO: Check to see if the G9 switch is allowing high Voltage or not
-    # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
-    def checkStatus():
-        pass
 
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
