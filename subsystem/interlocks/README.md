@@ -6,7 +6,9 @@ The interlocks.py script primarily focuses on implementing the GUI for the Safet
 ### Dependencies: 
 
 Tkinter: For the GUI development
+
 instrumentctl.g9_driver: Driver file for establishing communication with the Safety Interlock Controller.
+
 utils.LogLevel: For logging all the error responses.
 
 ### Code Structure:
