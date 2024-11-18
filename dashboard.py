@@ -11,19 +11,19 @@ import serial.tools.list_ports
 
 
 frames_config = [
-    ("Oil System", 0, 50, 150),
-    ("Visualization Gas Control", 0, 50, 150),
-    ("System Checks", 0, None, None),
-    ("Beam Extraction", 0, None, None),
-    ("Vacuum System", 1, 150, 300),
-    ("Deflection Monitor", 1, None, None),
-    ("Beam Pulse", 1, None, None),
-    ("Main Control", 1, 50, 300),
-    ("Setup Script", 2, None, 25),
-    ("Interlocks", 2, None, 25),
-    ("High Voltage Warning", 2, None, 25),
-    ("Environmental", 3, 150, 450),
-    ("Cathode Heating", 3, 960, 450),
+    ("Interlocks", 0, None, 2),  # Moved to the top row
+    ("Oil System", 1, 50, 150),
+    ("Visualization Gas Control", 2, 50, 150),
+    ("System Checks", 1, None, None),
+    ("Beam Extraction", 1, None, None),
+    ("Vacuum System", 2, 150, 300),
+    ("Deflection Monitor", 2, None, None),
+    ("Beam Pulse", 2, None, None),
+    ("Main Control", 2, 50, 300),
+    ("Setup Script", 3, None, 25),
+    ("High Voltage Warning", 3, None, 25),
+    ("Environmental", 4, 150, 450),
+    ("Cathode Heating", 4, 960, 450),
 ]
 
 class EBEAMSystemDashboard:
@@ -32,6 +32,10 @@ class EBEAMSystemDashboard:
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
 
+
+        # if save file exists call it and open it
+        if saveFileExists():
+             self.load_saved_pane_state()
 
         # if save file exists call it and open it
         if saveFileExists():
@@ -65,6 +69,7 @@ class EBEAMSystemDashboard:
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
         global frames_config
+        global frames_config
 
         for title, row, width, height in frames_config:
             if width and height and title:
@@ -73,7 +78,8 @@ class EBEAMSystemDashboard:
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
             self.rows[row].add(frame, stretch='always')
-            self.add_title(frame, title)
+            if title != "Interlocks":
+                self.add_title(frame, title)
             self.frames[title] = frame
             if title == "Setup Script":
                 SetupScripts(frame)
@@ -146,11 +152,19 @@ class EBEAMSystemDashboard:
         label.pack(pady=0, fill=tk.X)
 
     # saves data to file when button is pressed
+    # saves data to file when button is pressed
     def save_current_pane_state(self):
+        save_pane_states(frames_config, self.frames, self.main_pane)
         save_pane_states(frames_config, self.frames, self.main_pane)
 
     # gets data in save config file (as dict) and updates the global var of frames_config
+    # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
+        savedData = load_pane_states()
+
+        for i in range(len(frames_config)):
+            if frames_config[i][0] in savedData:
+                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
         savedData = load_pane_states()
 
         for i in range(len(frames_config)):
@@ -191,11 +205,13 @@ class EBEAMSystemDashboard:
                 logger=self.logger
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
-                self.frames['Interlocks'], 
-                logger=self.logger
+                self.frames['Interlocks'],
+                com_ports = self.com_ports['Interlocks'],
+                logger=self.logger,
+                frames = self.frames
             ),
             'Oil System': subsystem.OilSubsystem(
-                self.frames['Oil System'], 
+                self.frames['Oil System'],
                 logger=self.logger
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
@@ -207,8 +223,8 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a frame for displaying messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3])
-        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        self.messages_frame = MessagesFrame(self.rows[4])
+        self.rows[4].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
 
     def create_com_port_frame(self, parent_frame):
@@ -225,7 +241,7 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']:
+        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
