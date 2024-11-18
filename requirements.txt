@@ -5,3 +5,4 @@ pymodbus==3.7.3
 pyserial==3.5
 scipy==1.14.1
 tkdial==0.0.7
+pandas==2.1.3
