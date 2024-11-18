@@ -119,6 +119,7 @@ class G9Driver:
 
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
+                self._response_queue.queue[0] = ([0] * 13, [0] * 13, 0)
                 time.sleep(0.5) # back off on errors
                 
             time.sleep(0.1)  # minimum sleep between successful reads
@@ -213,6 +214,8 @@ class G9Driver:
             self._check_unit_status(status_data['unit_status'])
             self._check_safety_inputs(data)
             self._check_safety_outputs(data)
+
+            print(len(binary_data['sitsf']), len(binary_data['sitdf']))
 
             return binary_data['sitsf'], binary_data['sitdf'], binary_data['sotsf'][4] & binary_data['sotdf'][4]
 
