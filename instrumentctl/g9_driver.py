@@ -60,12 +60,16 @@ class G9Driver:
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.logger = logger
         self.debug_mode = debug_mode
-        self._setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
+        self._lock = threading.Lock()
+        self._response_queue = queue.Queue(maxsize=1)  # Initialize queue here
+        self._thread = None
+        self._running = False
+        self.setup_serial(port, baudrate, timeout)
 
 
-    def _setup_serial(self, port, baudrate, timeout):
+    def setup_serial(self, port, baudrate, timeout):
         """
         Attempts to make a serial connection
 
@@ -83,8 +87,6 @@ class G9Driver:
                     timeout=timeout  
                     ) 
                 
-                self._lock = threading.Lock()
-                self._response_queue = queue.Queue(maxsize=1)
                 self._running = True
                 self._thread = threading.Thread(target=self._communication_thread, daemon=True)
                 self._thread.start()
@@ -92,11 +94,13 @@ class G9Driver:
             except serial.SerialException as e:
                 self.ser = None
                 self.log(f"Failed to open serial port {port}: {str(e)}", LogLevel.ERROR)
-        else:  
+        else:
             self.ser = None
-            self._running = False
-            self._thread.join()
-            self.log("No port specified", LogLevel.WARNING)
+            if self._running:
+                self._running = False
+                self.log("Disconnected", LogLevel.WARNING)
+            else:
+                self.log("No port specified", LogLevel.WARNING)
 
     def _communication_thread(self):
         """Background thread for handling serial communication"""
@@ -124,7 +128,7 @@ class G9Driver:
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
                 #TODO: this might be solved with the comport detection, but if not might what to define this somewhere else
-                self._response_queue.queue[0] = ([0] * 13, [0] * 13, 0)
+                self._response_queue.put(([0] * 13, [0] * 13, 0))
                 time.sleep(0.5) # back off on errors
                 
             time.sleep(0.1)  # minimum sleep between successful reads
