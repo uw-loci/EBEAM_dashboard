@@ -63,11 +63,7 @@ class G9Driver:
         self._setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
-        self._lock = threading.Lock()
-        self._response_queue = queue.Queue(maxsize=1)
-        self._running = True
-        self._thread = threading.Thread(target=self._communication_thread, daemon=True)
-        self._thread.start()
+
 
     def _setup_serial(self, port, baudrate, timeout):
         """
@@ -86,12 +82,20 @@ class G9Driver:
                     bytesize=serial.EIGHTBITS,  
                     timeout=timeout  
                     ) 
+                
+                self._lock = threading.Lock()
+                self._response_queue = queue.Queue(maxsize=1)
+                self._running = True
+                self._thread = threading.Thread(target=self._communication_thread, daemon=True)
+                self._thread.start()
                 self.log(f"Serial connection established on {port}", LogLevel.INFO)
             except serial.SerialException as e:
                 self.ser = None
                 self.log(f"Failed to open serial port {port}: {str(e)}", LogLevel.ERROR)
         else:  
             self.ser = None
+            self._running = False
+            self._thread.join()
             self.log("No port specified", LogLevel.WARNING)
 
     def _communication_thread(self):
