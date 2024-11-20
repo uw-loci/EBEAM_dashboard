@@ -9,7 +9,7 @@ from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
-
+# title, row, width, height
 frames_config = [
     ("Interlocks", 0, None, 2),  # Moved to the top row
     ("Oil System", 1, 50, 150),
@@ -27,11 +27,15 @@ frames_config = [
 ]
 
 class EBEAMSystemDashboard:
+    PORT_INFO = {
+        "AD0K0ZIEA" : "Interlocks"
+    }
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
+        self.set_com_ports = set(serial.tools.list_ports.comports())
+        
         self.root.title("EBEAM Control System Dashboard")
-
 
         # if save file exists call it and open it
         if saveFileExists():
@@ -56,6 +60,9 @@ class EBEAMSystemDashboard:
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
+        # start constant check for available COM ports
+        self._check_for_port_changes()
+
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
@@ -68,7 +75,6 @@ class EBEAMSystemDashboard:
 
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
-        global frames_config
         global frames_config
 
         for title, row, width, height in frames_config:
@@ -152,12 +158,9 @@ class EBEAMSystemDashboard:
         label.pack(pady=0, fill=tk.X)
 
     # saves data to file when button is pressed
-    # saves data to file when button is pressed
     def save_current_pane_state(self):
         save_pane_states(frames_config, self.frames, self.main_pane)
-        save_pane_states(frames_config, self.frames, self.main_pane)
 
-    # gets data in save config file (as dict) and updates the global var of frames_config
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
         savedData = load_pane_states()
@@ -231,9 +234,6 @@ class EBEAMSystemDashboard:
         self.com_port_frame = ttk.Frame(parent_frame)
         self.com_port_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
-        self.com_port_button = ttk.Button(self.com_port_frame, text="Configure COM Ports", command=self.toggle_com_port_menu)
-        self.com_port_button.pack(side=tk.TOP, anchor='w')
-
         self.com_port_menu = ttk.Frame(self.com_port_frame)
         self.com_port_menu.pack(side=tk.TOP, fill=tk.X, expand=True)
         self.com_port_menu.pack_forget()  # Initially hidden
@@ -251,44 +251,47 @@ class EBEAMSystemDashboard:
             dropdown.pack(side=tk.RIGHT)
             self.port_dropdowns[subsystem] = dropdown
 
-        ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
+    def _check_for_port_changes(self):
+        """
+        Compares the current available comports to the last set
 
-    def toggle_com_port_menu(self):
-        if self.com_port_menu.winfo_viewable():
-            self.com_port_menu.pack_forget()
-            self.com_port_button.config(text="Configure COM Ports")
-        else:
-            self.update_available_ports() 
-            self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
-            self.com_port_button.config(text="Hide COM Port Configuration")
+        Finally:
+            Calls itself to be cheack again
+        """
+        nowPorts = set(serial.tools.list_ports.comports())
+        
+        dif = self.set_com_ports - nowPorts
+        added_ports = nowPorts - self.set_com_ports
 
-    def update_available_ports(self):
-        available_ports = [port.device for port in serial.tools.list_ports.comports()]
-        for dropdown in self.port_dropdowns.values():
-            current_value = dropdown.get()
-            dropdown['values'] = available_ports
-            if current_value in available_ports:
-                dropdown.set(current_value)
-            elif available_ports:
-                dropdown.set(available_ports[0])
-            else:
-                dropdown.set('')
+        try:
+            # Process removed ports
+            for port in dif:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.warning(f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+                    
+            # Process added ports
+            for port in added_ports:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.info(f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], port)
+        except Exception as e:
+            self.logger.warning(f"Error was thrown when either removing or adding a comport: {e}")
 
-    def apply_com_port_changes(self):
-        new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
-        self.update_com_ports(new_com_ports)
-        self.toggle_com_port_menu()
+        finally:
+            self.set_com_ports = nowPorts
+            self.root.after(500, self._check_for_port_changes)
 
-    def update_com_ports(self, new_com_ports):
-        self.com_ports = new_com_ports
-        # TODO: update the COM ports for each subsystem
-
-        for subsystem_name, subsystem in self.subsystems.items():
-            if hasattr(subsystem, 'update_com_port'):
-                if subsystem_name == 'Vacuum System':
-                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
-                elif subsystem_name == 'Cathode Heating':
-                    subsystem.update_com_ports(new_com_ports)
-            else:
-                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+    def _update_com_ports(self, subsystem, port):
+        """
+        Calls to update subsystems with change in comport
+        """
+        if subsystem == None:
+            raise ValueError("_update_com_ports was called with invalid args")
+        strPort = port.device if port != None else None
+        if subsystem in self.subsystems.keys():
+            if subsystem == "Interlocks" or subsystem == "Vacuum System":
+                self.subsystems[subsystem].update_com_port(strPort)
+            #TODO: Need to add Vacuum system and Cathode Heating
+            
         self.logger.info(f"COM ports updated: {self.com_ports}")
