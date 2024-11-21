@@ -111,60 +111,68 @@ class PressureGauge(tk.Canvas):
         self.current_value = 0
         
         self.draw_gauge()
-        self.create_text(self.center_x, self.height - 10, 
+        self.create_text(self.center_x, self.height - 45, 
                         text="Oil Press", font=('Helvetica', 10, 'bold'))
-        
+
     def draw_gauge(self):
         """Draw the basic gauge elements"""
         self.delete("gauge")
         
         outer_radius = self.radius
         inner_radius = self.radius * 0.85
-
-        # First draw white background arc
-        self.create_arc(self.center_x - outer_radius, 
-                       self.center_y - outer_radius,
-                       self.center_x + outer_radius, 
-                       self.center_y + outer_radius,
-                       start=self.start_angle, extent=-120,
-                       fill='white', tags="gauge",
-                       style="pieslice")
-
-        # Draw mask for inner part
-        self.create_arc(self.center_x - inner_radius, 
-                       self.center_y - inner_radius,
-                       self.center_x + inner_radius, 
-                       self.center_y + inner_radius,
-                       start=self.start_angle, extent=-120,
-                       fill=self.cget('bg'), tags="gauge",
-                       style="pieslice")
-
-        # Draw color gradient arc segments
-        num_segments = 10
-        for i in range(num_segments):
-            intensity = i / (num_segments - 1)  # Changed to num_segments - 1 for full range
+        bg_color = self.cget('bg')
+        
+        # Draw the background arc (white/light gray)
+        arc_width = (outer_radius - inner_radius)
+        mid_radius = (outer_radius + inner_radius) / 2
+        
+        # Draw colored ranges - 10 equal segments
+        segment_count = 10
+        for i in range(segment_count):
+            intensity = i / (segment_count - 1)  # 0 to 1
+            start = self.start_angle - (i * 120 / segment_count)
+            extent = -120 / segment_count
             color = self.get_gradient_color(intensity)
             
-            start = self.start_angle - (i * 120 / num_segments)
-            extent = -120 / num_segments
-            
-            # Draw outer color segment
-            self.create_arc(self.center_x - outer_radius, 
-                          self.center_y - outer_radius,
-                          self.center_x + outer_radius, 
-                          self.center_y + outer_radius,
-                          start=start, extent=extent,
-                          fill=color, tags="gauge",
-                          style="pieslice")
-            
-            # Mask inner part for this segment
-            self.create_arc(self.center_x - inner_radius, 
-                          self.center_y - inner_radius,
-                          self.center_x + inner_radius, 
-                          self.center_y + inner_radius,
-                          start=start, extent=extent,
-                          fill=self.cget('bg'), tags="gauge",
-                          style="pieslice")
+            self.create_arc(
+                self.center_x - mid_radius,
+                self.center_y - mid_radius,
+                self.center_x + mid_radius,
+                self.center_y + mid_radius,
+                start=start,
+                extent=extent,
+                style="arc",
+                width=arc_width,
+                outline=color,
+                tags="gauge"
+            )
+        
+        # Draw outer and inner border arcs
+        self.create_arc(
+            self.center_x - outer_radius,
+            self.center_y - outer_radius,
+            self.center_x + outer_radius,
+            self.center_y + outer_radius,
+            start=self.start_angle,
+            extent=-120,
+            style="arc",
+            width=1,
+            outline='black',
+            tags="gauge"
+        )
+        
+        self.create_arc(
+            self.center_x - inner_radius,
+            self.center_y - inner_radius,
+            self.center_x + inner_radius,
+            self.center_y + inner_radius,
+            start=self.start_angle,
+            extent=-120,
+            style="arc",
+            width=1,
+            outline='black',
+            tags="gauge"
+        )
         
         # Draw tick marks and labels
         for i in range(self.major_ticks):
@@ -174,36 +182,22 @@ class PressureGauge(tk.Canvas):
             # Calculate points for tick marks
             outer_x = self.center_x + outer_radius * math.cos(angle)
             outer_y = self.center_y - outer_radius * math.sin(angle)
-            inner_x = self.center_x + inner_radius * math.cos(angle)
-            inner_y = self.center_y - inner_radius * math.sin(angle)
+            inner_x = self.center_x + (inner_radius * 0.95) * math.cos(angle)
+            inner_y = self.center_y - (inner_radius * 0.95) * math.sin(angle)
             
             # Draw tick mark
             self.create_line(outer_x, outer_y, inner_x, inner_y, 
                            width=1, tags="gauge", fill='black')
             
             # Add label
-            label_radius = outer_radius + 20
+            label_radius = outer_radius + 15
             label_x = self.center_x + label_radius * math.cos(angle)
             label_y = self.center_y - label_radius * math.sin(angle)
             self.create_text(label_x, label_y, text=str(int(value)), 
                            font=('Helvetica', 8), tags="gauge")
-
-        # Draw border arcs
-        self.create_arc(self.center_x - outer_radius, 
-                       self.center_y - outer_radius,
-                       self.center_x + outer_radius, 
-                       self.center_y + outer_radius,
-                       start=self.start_angle, extent=-120,
-                       style='arc', width=2, tags="gauge")
-        
-        self.create_arc(self.center_x - inner_radius, 
-                       self.center_y - inner_radius,
-                       self.center_x + inner_radius, 
-                       self.center_y + inner_radius,
-                       start=self.start_angle, extent=-120,
-                       style='arc', width=2, tags="gauge")
         
         self.draw_needle(self.current_value)
+
 
     def get_gradient_color(self, intensity):
         """Get color for gradient from green to red"""
