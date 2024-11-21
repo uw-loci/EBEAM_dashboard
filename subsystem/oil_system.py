@@ -15,7 +15,7 @@ class TemperatureBar(tk.Canvas):
         # Create title
         self.create_text(
             width//2, 
-            20, 
+            8, 
             text=name, 
             font=('Arial', 8, 'bold'), 
             anchor='center'
@@ -27,7 +27,7 @@ class TemperatureBar(tk.Canvas):
     def create_scale(self):
         # Scale line
         scale_x = self.width - 20
-        top_y = 35
+        top_y = 23
         bottom_y = self.height - 25
         scale_height = bottom_y - top_y
         
@@ -37,9 +37,15 @@ class TemperatureBar(tk.Canvas):
         for i in range(0, 101, 20):
             y = bottom_y - (i/100) * scale_height
             self.create_line(scale_x-2, y, scale_x+2, y)
+            
+            # Add offset for "0" label
+            label_y = y
+            if i == 0:  # For the "0" label only
+                label_y = y - 4  # Move it up by 4 pixels
+            
             self.create_text(
                 scale_x-6, 
-                y, 
+                label_y, 
                 text=str(i), 
                 anchor='e', 
                 font=('Arial', 7),
@@ -186,8 +192,8 @@ class PressureGauge(tk.Canvas):
             # Calculate points for tick marks
             outer_x = self.center_x + outer_radius * math.cos(angle)
             outer_y = self.center_y - outer_radius * math.sin(angle)
-            inner_x = self.center_x + (inner_radius * 0.99) * math.cos(angle)
-            inner_y = self.center_y - (inner_radius * 0.99) * math.sin(angle)
+            inner_x = self.center_x + (inner_radius) * math.cos(angle)
+            inner_y = self.center_y - (inner_radius) * math.sin(angle)
             
             # Draw tick mark
             self.create_line(outer_x, outer_y, inner_x, inner_y, 
