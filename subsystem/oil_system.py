@@ -4,12 +4,12 @@ from tkinter import font as tkFont
 import math
 
 class TemperatureBar(tk.Canvas):
-    def __init__(self, parent, name: str, height: int = 200, width: int = 40):
+    def __init__(self, parent, name: str, height: int = 200, width: int = 45):
         super().__init__(parent, height=height, width=width)
         self.name = name
         self.height = height
         self.width = width
-        self.bar_width = 15
+        self.bar_width = 20
         self.value = 0
         
         # Create title
@@ -18,7 +18,7 @@ class TemperatureBar(tk.Canvas):
             20, 
             text=name, 
             font=('Arial', 8, 'bold'), 
-            anchor='n'
+            anchor='center'
         )
         
         # Create scale
@@ -28,7 +28,7 @@ class TemperatureBar(tk.Canvas):
         # Scale line
         scale_x = self.width - 20
         top_y = 35
-        bottom_y = self.height - 20
+        bottom_y = self.height - 25
         scale_height = bottom_y - top_y
         
         self.create_line(scale_x, top_y, scale_x, bottom_y)
@@ -42,7 +42,8 @@ class TemperatureBar(tk.Canvas):
                 y, 
                 text=str(i), 
                 anchor='e', 
-                font=('Arial', 7)
+                font=('Arial', 7),
+                tags='scale_labels'
             )
             
         self.scale_top = top_y
@@ -68,13 +69,16 @@ class TemperatureBar(tk.Canvas):
             tags='bar'
         )
         
+        # Ensure labels stay on top of the bar
+        self.tag_raise('scale_labels')
+
         # Update value label
         self.delete('value')
         self.create_text(
             self.width//2,
-            self.height-5,
+            self.height-1,
             text=f'{value:.1f}°C',
-            font=('Arial', 8),
+            font=('Arial', 8, 'bold'),
             tags='value'
         )
         
@@ -105,21 +109,21 @@ class PressureGauge(tk.Canvas):
         
         # Gauge parameters
         self.center_x = self.width // 2
-        self.center_y = self.height // 2 + 20
+        self.center_y = self.height // 2 + 10
         self.start_angle = 150   # Start from 30 degrees after horizontal
         self.end_angle = 30    # End at 150 degrees
         self.current_value = 0
         
         self.draw_gauge()
-        self.create_text(self.center_x, self.height - 45, 
-                        text="Oil Press", font=('Helvetica', 10, 'bold'))
+        self.create_text(self.center_x, self.height - 35, 
+                        text="Oil Pressure", font=('Helvetica', 10, 'bold'))
 
     def draw_gauge(self):
         """Draw the basic gauge elements"""
         self.delete("gauge")
         
         outer_radius = self.radius
-        inner_radius = self.radius * 0.85
+        inner_radius = self.radius * 0.80
         bg_color = self.cget('bg')
         
         # Draw the background arc (white/light gray)
@@ -156,7 +160,7 @@ class PressureGauge(tk.Canvas):
             start=self.start_angle,
             extent=-120,
             style="arc",
-            width=1,
+            width=2,
             outline='black',
             tags="gauge"
         )
@@ -169,7 +173,7 @@ class PressureGauge(tk.Canvas):
             start=self.start_angle,
             extent=-120,
             style="arc",
-            width=1,
+            width=2,
             outline='black',
             tags="gauge"
         )
@@ -182,12 +186,12 @@ class PressureGauge(tk.Canvas):
             # Calculate points for tick marks
             outer_x = self.center_x + outer_radius * math.cos(angle)
             outer_y = self.center_y - outer_radius * math.sin(angle)
-            inner_x = self.center_x + (inner_radius * 0.95) * math.cos(angle)
-            inner_y = self.center_y - (inner_radius * 0.95) * math.sin(angle)
+            inner_x = self.center_x + (inner_radius * 0.99) * math.cos(angle)
+            inner_y = self.center_y - (inner_radius * 0.99) * math.sin(angle)
             
             # Draw tick mark
             self.create_line(outer_x, outer_y, inner_x, inner_y, 
-                           width=1, tags="gauge", fill='black')
+                           width=2, tags="gauge", fill='black')
             
             # Add label
             label_radius = outer_radius + 15
@@ -251,7 +255,7 @@ class OilSubsystem:
     def __init__(self, parent, logger=None):
         self.parent = parent
         self.logger = logger
-        self._pressure = 5.0 # TODO: Remove this. mock only
+        self._pressure = 3.5 # TODO: Remove this. mock only
         self._temperature = 70.0 # remove this. mock only
         self.setup_gui()
         self.read_sensor_data()
@@ -262,14 +266,14 @@ class OilSubsystem:
 
         # Frame for the temperature gauge
         temp_frame = tk.Frame(self.frame, width=90)
-        temp_frame.pack(side=tk.LEFT, fill=tk.Y, expand=False)
+        temp_frame.pack(side=tk.LEFT, fill=tk.Y, expand=False, padx=(15, 0))
 
-        self.temp_gauge = TemperatureBar(temp_frame, "Oil Temp")
-        self.temp_gauge.pack(side=tk.TOP, padx=15, fill=tk.BOTH, expand=True)
+        self.temp_gauge = TemperatureBar(temp_frame, "Temp   ")
+        self.temp_gauge.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0,0))
 
         # Frame for the oil pressure gauge
         dial_frame = tk.Frame(self.frame)
-        dial_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        dial_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=0)
 
         # Create and configure the dial
         self.oil_gauge = PressureGauge(
@@ -277,11 +281,11 @@ class OilSubsystem:
             min_value=0,
             max_value=10,
             major_ticks=11,
-            width=300,
+            width=175,
             height=200,
             radius=80
         )
-        self.oil_gauge.pack(padx=1, pady=5)
+        self.oil_gauge.pack(padx=0, pady=5)
 
     def update_oil_pressure(self, new_pressure):
         """Update the dial to reflect new oil pressure readings."""
