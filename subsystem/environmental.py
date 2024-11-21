@@ -126,16 +126,6 @@ class EnvironmentalSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
-        for i, name in enumerate(self.thermometers):
-            offset = 30 if 'Solenoid' in name else 0
-            new_temp = random.uniform(30 + offset, 33 + offset)
-            self.temperatures[name] = new_temp
-            self.bars[i][0].set_height(new_temp)
-
-            # Update the color of the bar based on the temperature
-            self.bars[i][0].set_color(self.get_color(new_temp))
-
-    def update_temperatures(self):
         """Update temperature values periodically."""
         for name in self.thermometers:
             offset = 30 if 'Solenoid' in name else 0
