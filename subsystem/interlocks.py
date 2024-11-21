@@ -275,10 +275,10 @@ class InterlocksSubsystem:
                 self._adjust_update_interval(success=True)
 
         except Exception as e:
-            if time.time() - self.last_error_time > (self.update_interval / 1000):
+            if current_time - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
-                self.last_error_time = time.time()
+                self.last_error_time = current_time
                 self._adjust_update_interval(success=False)
             
         finally:
