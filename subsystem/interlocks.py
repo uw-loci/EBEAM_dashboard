@@ -72,9 +72,12 @@ class InterlocksSubsystem:
     def update_com_port(self, com_port):
         """
         Update the COM port and reinitialize the driver
+
+        Args:
+            com_port: New port to use
         
-        Catch:
-            Expection: If inilizition throws an error
+        Raises:
+            Exception: If initialization fails
         """
         if com_port:
             try:
@@ -88,10 +91,18 @@ class InterlocksSubsystem:
                 self._set_all_indicators('red')
         else:
             self._set_all_indicators('red')
-            self.log("update_com_port is being called without a com port", LogLevel.ERROR)
+            self.log(
+                "update_com_port is being called without a com port", 
+                LogLevel.ERROR
+            )
 
     def _adjust_update_interval(self, success=True):
-        """Adjust the polling interval based on connection success/failure"""
+        """
+        Adjust the polling interval based on connection success/failure
+        
+        Args:
+            success: Boolean indicating if the last update was successful
+        """
         if success:
             # On success, return to normal update rate
             self.error_count = 0
@@ -99,7 +110,10 @@ class InterlocksSubsystem:
         else:
             # On communication failure, use exponential backoff with a cap
             self.error_count = min(self.error_count + 1, 5)  # Cap error count
-            self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
+            self.update_interval = min(
+                500 * (2 ** self.error_count), 
+                self.max_interval
+            )
 
     def setup_gui(self):
         """Setup the GUI for the interlocks subsystem"""
@@ -132,7 +146,16 @@ class InterlocksSubsystem:
         return interlocks_frame
 
     def _create_indicator_circle(self, frame, color):
-        """Create a circular indicator light"""
+        """
+        Create a circular indicator light
+        
+        Args:
+            frame: Parent frame for the indicator
+            color: Initial color of the indicator
+
+        Returns:
+            tuple: (canvas, oval_id) for the created indicator
+        """
         canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
         canvas.grid(sticky='nsew')
         oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
@@ -153,8 +176,15 @@ class InterlocksSubsystem:
 
     # updates indicator and logs updates
     def update_interlock(self, name, safety, data):
-        """Update individual interlock indicator"""
-        if name not in self.INDICATORS or safety == None or data == None:
+        """
+        Update individual interlock indicator
+        
+        Args:
+            name: interlock to update
+            safety: Safety status bit
+            data: Data status bit
+        """
+        if name not in self.INDICATORS or safety is None or data is None:
             self.log("Invalid inputs to update_interlock", LogLevel.ERROR)
 
         color = 'green' if (safety & data) == 1 else 'red'
@@ -164,11 +194,14 @@ class InterlocksSubsystem:
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
                 canvas.itemconfig(oval_id, fill=color)
-                self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+                self.log(
+                    f"Interlock {name}: {current_color} -> {color}", 
+                    LogLevel.INFO
+                )
 
     def _set_all_indicators(self, color):
         """Set all indicators to specified color"""
-        if color == None or color == "":
+        if color is None or color == "":
             self.log("Invalid inputs to _set_all_indicators", LogLevel.ERROR)
 
         if self.INDICATORS:
@@ -185,11 +218,10 @@ class InterlocksSubsystem:
 
         Finally: Will always schedule the next time to refresh data
 
-        Catch:
-            ConnectionError: Thrown from G9Driver when serial connection throws error
-            ValueError: Thrown from G9Driver when unexpected responce is recieved
-
-            Exception: If anything else in message process throws an error
+        Catches:
+            ConnectionError: From G9Driver when serial connection fails
+            ValueError: From G9Driver when unexpected response is received
+            Exception: For any other unexpected errors 
 
         """
         current_time = time.time()
