@@ -249,11 +249,14 @@ class InterlocksSubsystem:
 
                 # Process dual-input interlocks (first 3 pairs)
                 for i in range(3):
-                    safety = (sitsf_bits[i*2] & 
-                            sitsf_bits[i*2+1])
-                    data = (sitdf_bits[i*2] & 
-                        sitdf_bits[i*2+1])
-                    
+                    safety = (
+                        sitsf_bits[i*2] & 
+                        sitsf_bits[i*2+1]
+                    )
+                    data = (
+                        sitdf_bits[i*2] & 
+                        sitdf_bits[i*2+1]
+                    )
                     self.update_interlock(self.INPUTS[i*2], safety, data)
                 
                 # Process single-input interlocks
