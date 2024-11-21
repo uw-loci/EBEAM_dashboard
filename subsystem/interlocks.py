@@ -231,7 +231,6 @@ class InterlocksSubsystem:
                     self._set_all_indicators('red')
                     self.log("G9 driver not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
-                    self.last_error_time = time.time()
                     self._adjust_update_interval(success=False)
             else:
                 # Get interlock status from driver
