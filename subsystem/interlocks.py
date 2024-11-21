@@ -5,21 +5,23 @@ from utils import LogLevel
 import time
 
 class InterlocksSubsystem:
-    # the bit poistion for each interlock
+    """ Manages the interlock subsystem interface and status monitoring """
+
+    # Bit position mappings for each interlock
     INPUTS = {
-        0 : "E-STOP Int", # Chassis Estop
-        1 : "E-STOP Int", # Chassis Estop
-        2 : "E-STOP Ext", # Peripheral Estop
-        3 : "E-STOP Ext", # Peripheral Estop
-        4 : "Door", # Door 
-        5 : "Door", # Door Lock
-        6 : "Vacuum Power", # Vacuum Power
+        0 : "E-STOP Int",      # Chassis Estop
+        1 : "E-STOP Int",      # Chassis Estop
+        2 : "E-STOP Ext",      # Peripheral Estop
+        3 : "E-STOP Ext",      # Peripheral Estop
+        4 : "Door",            # Door 
+        5 : "Door",            # Door Lock
+        6 : "Vacuum Power",    # Vacuum Power
         7 : "Vacuum Pressure", # Vacuum Pressure
-        8 : "High Oil", # Oil High
-        9 : "Low Oil", # Oil Low
-        10 : "Water", # Water
-        11 : "HVolt ON", # HVolt ON
-        12 : "G9SP Active" # G9SP Active
+        8 : "High Oil",        # Oil High
+        9 : "Low Oil",         # Oil Low
+        10 : "Water",          # Water
+        11 : "HVolt ON",       # HVolt ON
+        12 : "G9SP Active"     # G9SP Active
     }
 
     INDICATORS = {
@@ -40,13 +42,16 @@ class InterlocksSubsystem:
         self.parent = parent
         self.logger = logger
         self.frames = frames
-        self.last_error_time = 0  # Track last error time
-        self.error_count = 0      # Track consecutive errors
+        self.last_error_time = 0    # Track last error time
+        self.error_count = 0        # Track consecutive errors
         self.update_interval = 500  # Default update interval (ms)
-        self.max_interval = 5000   # Maximum update interval (ms)
+        self.max_interval = 5000    # Maximum update interval (ms)
         self._last_status = None
         self.setup_gui()
+        self._initialize_driver(com_ports)
+        self.parent.after(self.update_interval, self.update_data)
 
+    def _initialize_driver(self, com_ports):
         try:
             if com_ports is not None:  # Better comparison
                 try:
@@ -63,8 +68,6 @@ class InterlocksSubsystem:
             self.driver = None
             self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
             self._set_all_indicators('red')
-        
-        self.parent.after(self.update_interval, self.update_data)
 
     def update_com_port(self, com_port):
         """
