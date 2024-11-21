@@ -19,7 +19,7 @@ class TemperatureBar(tk.Canvas):
         # Create title
         self.create_text(
             width//2, 
-            55, 
+            75, 
             text=name, 
             font=('Arial', 8, 'bold'), 
             anchor='n',
@@ -105,7 +105,7 @@ class EnvironmentalSubsystem:
     def __init__(self, parent, logger=None):
         self.parent = parent
         self.logger = logger
-        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chmbr Bot', 'Chmbr Top', 'Air temp']
+        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Bot', 'Chamber Top', 'Air temp']
         self.temperatures = {
             name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
             for name in self.thermometers
