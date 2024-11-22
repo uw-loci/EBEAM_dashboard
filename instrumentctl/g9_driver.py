@@ -30,7 +30,7 @@ class G9Driver:
     CHECKSUM_HIGH = 195 # G9 Response Checksum 
     CHECKSUM_LOW = 196  # G9 Response Checksum
 
-    # Status dictionaries
+    # the bit poistion for each interlock
     IN_STATUS = {  
         0: "No error",  
         1: "Invalid configuration",  
@@ -58,6 +58,7 @@ class G9Driver:
     }  
 
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+        
         self.logger = logger
         self.debug_mode = debug_mode
         self._setup_serial(port, baudrate, timeout)
@@ -223,7 +224,7 @@ class G9Driver:
         Validate basic response format
 
         Raise:
-            ValueError: if formate is not as expected
+            ValueError: if format is not as expected
         """
         if data == None:
             raise ValueError("Invalid inputs to _validate_response_format: Data is None")
@@ -258,6 +259,7 @@ class G9Driver:
         Raise:
             ValueError: Calculated check sum does not match
         """
+
         if data == None:
             raise ValueError("Invalid inputs to _validate_checksum: Data is None")
 
