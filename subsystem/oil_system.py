@@ -14,11 +14,21 @@ class TemperatureBar(tk.Canvas):
         
         # Create title
         self.create_text(
-            width//2, 
+            4, 
             8, 
             text=name, 
             font=('Arial', 8, 'bold'), 
-            anchor='center'
+            anchor='w'
+        )
+
+        # Create initial value display
+        self.create_text(
+            width + 30, 
+            8, 
+            text="--°C",
+            font=('Arial', 8, 'bold'),
+            anchor='e',  # Left-align the value
+            tags='value'
         )
         
         # Create scale
@@ -81,10 +91,11 @@ class TemperatureBar(tk.Canvas):
         # Update value label
         self.delete('value')
         self.create_text(
-            self.width//2,
-            self.height-1,
-            text=f'{value:.1f}°C',
+            self.width + 30, 
+            8,
+            text=f"{value:.1f}°C",
             font=('Arial', 8, 'bold'),
+            anchor='e',
             tags='value'
         )
         
@@ -271,10 +282,10 @@ class OilSubsystem:
         self.frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Frame for the temperature gauge
-        temp_frame = tk.Frame(self.frame, width=90)
+        temp_frame = tk.Frame(self.frame, width=100)
         temp_frame.pack(side=tk.LEFT, fill=tk.Y, expand=False, padx=(15, 0))
 
-        self.temp_gauge = TemperatureBar(temp_frame, "Temp   ")
+        self.temp_gauge = TemperatureBar(temp_frame, "Temp:")
         self.temp_gauge.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0,0))
 
         # Frame for the oil pressure gauge
