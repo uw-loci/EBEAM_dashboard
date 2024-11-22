@@ -151,10 +151,14 @@ class PressureGauge(tk.Canvas):
         
         # Draw colored ranges - 10 equal segments
         segment_count = 10
+        overlap = 2  # Add half a degree overlap between segments
+        total_span = 120 + (segment_count - 1) * overlap  # Adjust total span to account for overlaps
+        segment_span = total_span / segment_count
+
         for i in range(segment_count):
             intensity = i / (segment_count - 1)  # 0 to 1
-            start = self.start_angle - (i * 120 / segment_count)
-            extent = -120 / segment_count
+            start = self.start_angle - (i * (segment_span - overlap))
+            extent = -segment_span
             color = self.get_gradient_color(intensity)
             
             self.create_arc(
@@ -275,7 +279,7 @@ class OilSubsystem:
         self.parent = parent
         self.logger = logger
         self._pressure = 3.5 # TODO: Remove this. mock only
-        self._temperature = 70.0 # remove this. mock only
+        self._temperature = 30.0 # remove this. mock only
         self.setup_gui()
         self.read_sensor_data()
 
