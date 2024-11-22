@@ -5,16 +5,18 @@ import math
 
 class TemperatureBar(tk.Canvas):
     def __init__(self, parent, name: str, height: int = 200, width: int = 45):
-        super().__init__(parent, height=height, width=width)
+        super().__init__(parent, height=height, width=width, highlightthickness=0)
         self.name = name
         self.height = height
         self.width = width
         self.bar_width = 20
         self.value = 0
+
+        self.pack_propagate(False)
         
         # Create title
         self.create_text(
-            4, 
+            0, 
             8, 
             text=name, 
             font=('Arial', 8, 'bold'), 
@@ -23,7 +25,7 @@ class TemperatureBar(tk.Canvas):
 
         # Create initial value display
         self.create_text(
-            width + 30, 
+            width + 26, 
             8, 
             text="--°C",
             font=('Arial', 8, 'bold'),
@@ -36,7 +38,7 @@ class TemperatureBar(tk.Canvas):
         
     def create_scale(self):
         # Scale line
-        scale_x = self.width - 20
+        scale_x = self.width - 15
         top_y = 23
         bottom_y = self.height - 25
         scale_height = bottom_y - top_y
@@ -77,9 +79,9 @@ class TemperatureBar(tk.Canvas):
         
         # Draw bar
         self.create_rectangle(
-            5,
+            10,
             self.scale_bottom - bar_height,
-            5 + self.bar_width,
+            10 + self.bar_width,
             self.scale_bottom,
             fill=color,
             tags='bar'
@@ -91,7 +93,7 @@ class TemperatureBar(tk.Canvas):
         # Update value label
         self.delete('value')
         self.create_text(
-            self.width + 30, 
+            self.width + 26, 
             8,
             text=f"{value:.1f}°C",
             font=('Arial', 8, 'bold'),
@@ -132,7 +134,7 @@ class PressureGauge(tk.Canvas):
         self.current_value = 0
         
         self.draw_gauge()
-        self.create_text(self.center_x, self.height - 35, 
+        self.create_text(self.center_x, self.height - 45, 
                         text="Oil Pressure", font=('Helvetica', 10, 'bold'))
 
     def draw_gauge(self):
@@ -282,8 +284,9 @@ class OilSubsystem:
         self.frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Frame for the temperature gauge
-        temp_frame = tk.Frame(self.frame, width=100)
+        temp_frame = tk.Frame(self.frame, width=70)
         temp_frame.pack(side=tk.LEFT, fill=tk.Y, expand=False, padx=(15, 0))
+        temp_frame.pack_propagate(False)
 
         self.temp_gauge = TemperatureBar(temp_frame, "Temp:")
         self.temp_gauge.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0,0))
