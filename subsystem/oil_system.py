@@ -116,8 +116,8 @@ class PressureGauge(tk.Canvas):
     def __init__(self, parent, **kwargs):
         # Extract custom parameters, use defaults if not provided
         self.min_value = kwargs.pop('min_value', 0)
-        self.max_value = kwargs.pop('max_value', 10)
-        self.major_ticks = kwargs.pop('major_ticks', 11)
+        self.max_value = kwargs.pop('max_value', 30)
+        self.major_ticks = kwargs.pop('major_ticks', 7)
         self.radius = kwargs.pop('radius', 120)
         self.width = kwargs.pop('width', 300)
         self.height = kwargs.pop('height', 200)
@@ -134,8 +134,16 @@ class PressureGauge(tk.Canvas):
         self.current_value = 0
         
         self.draw_gauge()
-        self.create_text(self.center_x, self.height - 45, 
-                        text="Oil Pressure", font=('Helvetica', 10, 'bold'))
+        self.create_text(self.center_x, self.height - 65, 
+                        text="Oil Pressure [PSI]", font=('Helvetica', 10))
+        # Add numerical display
+        self.create_text(
+            self.center_x, 
+            self.height - 45,
+            text="--.- PSI",
+            font=('Helvetica', 12, 'bold'),
+            tags="value_text"
+        )
 
     def draw_gauge(self):
         """Draw the basic gauge elements"""
@@ -151,8 +159,8 @@ class PressureGauge(tk.Canvas):
         
         # Draw colored ranges - 10 equal segments
         segment_count = 10
-        overlap = 2  # Add half a degree overlap between segments
-        total_span = 120 + (segment_count - 1) * overlap  # Adjust total span to account for overlaps
+        overlap = 2  # Add 2 degree overlap between segments. fixes aliasing bug
+        total_span = 120 + (segment_count - 1) * overlap
         segment_span = total_span / segment_count
 
         for i in range(segment_count):
@@ -267,6 +275,9 @@ class PressureGauge(tk.Canvas):
                         self.center_y + hub_radius,
                         fill='red', tags="needle")
     
+        # Update the text of the existing value display
+        self.itemconfigure("value_text", text=f"{value:.1f} PSI")
+
     def set(self, value):
         """Update the gauge to show the specified value"""
         # Constrain value to valid range
@@ -303,7 +314,7 @@ class OilSubsystem:
         self.oil_gauge = PressureGauge(
             dial_frame,
             min_value=0,
-            max_value=10,
+            max_value=30,
             major_ticks=11,
             width=175,
             height=200,
@@ -313,7 +324,7 @@ class OilSubsystem:
 
     def update_oil_pressure(self, new_pressure):
         """Update the dial to reflect new oil pressure readings."""
-        if 0 <= new_pressure <= 10:  # Ensure the value is within the valid range
+        if 0 <= new_pressure <= 30:
             self.oil_gauge.set(new_pressure)
         else:
             print("Received out-of-range oil pressure value:", new_pressure)
@@ -327,9 +338,9 @@ class OilSubsystem:
         # TODO: Implement this
         import random
         # Random walk simulation
-        self._pressure += random.uniform(-0.2, 0.2)
-        self._pressure = max(0, min(10, self._pressure))
-        
+        self._pressure += random.uniform(-0.5, 0.5)
+        self._pressure = max(0, min(30, self._pressure))  # 30 PSI max
+    
         self._temperature += random.uniform(-1.0, 1.0)
         self._temperature = max(50, min(90, self._temperature))
         
