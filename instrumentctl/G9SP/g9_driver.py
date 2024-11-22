@@ -1,4 +1,8 @@
+# g9_driver.py
 import serial
+import threading
+import queue
+import time
 from utils import LogLevel
 
 class G9Driver:
@@ -59,7 +63,11 @@ class G9Driver:
         self._setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
-        self.lastResponse = None
+        self._lock = threading.Lock()
+        self._response_queue = queue.Queue(maxsize=1)
+        self._running = True
+        self._thread = threading.Thread(target=self._communication_thread, daemon=True)
+        self._thread.start()
 
     def _setup_serial(self, port, baudrate, timeout):
         """
@@ -86,27 +94,48 @@ class G9Driver:
             self.ser = None
             self.log("No port specified", LogLevel.WARNING)
 
+    def _communication_thread(self):
+        """Background thread for handling serial communication"""
+        while self._running:
+            try:
+                with self._lock:
+                    if not self.is_connected():
+                        time.sleep(0.1)
+                        continue
+                    
+                    self._send_command()
+                    response_data = self._read_response() # blocking until complete or timeout
+                    if response_data:
+                        
+                        result = self._process_response(response_data)
+                        
+                        # clear queue if it has a old response
+                        try:
+                            self._response_queue.get_nowait()
+                        except queue.Empty:
+                            pass
+                                       
+                        self._response_queue.put(result)
+
+            except Exception as e:
+                self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
+                #TODO: this might be solved with the comport detection, but if not might what to define this somewhere else
+                self._response_queue.queue[0] = ([0] * 13, [0] * 13, 0)
+                time.sleep(0.5) # back off on errors
+                
+            time.sleep(0.1)  # minimum sleep between successful reads
+
+
     def get_interlock_status(self):
         """
-        Starts the process to get the data from the G9
-
-        Catch:
-            Exception: Anything that the other functions throw
-        Raise:
-            The exception that was catch
+        Non-blocking method to get the latest interlock status
+        Returns None if no data is available or on error
         """
-        if not self.is_connected():
-            raise ConnectionError("Serial Port is Not Open")
-
         try:
-            self._send_command()
-            response_data = self._read_response()
-            return self._process_response(response_data)
-        #TODO: Should be catching the specific exceptions that were being thrown
-        #TODO: Should we be just catching an exception just to throw it???
-        except Exception as e:
-            self.log(f"Error getting interlock status: {str(e)}", LogLevel.ERROR)
-            raise
+            return self._response_queue.queue[0]
+        except queue.Empty:
+            self.log(f"No interlock information is here; Queue is Empty", LogLevel.WARNING)
+            return None
 
     def _send_command(self):
         """
@@ -141,7 +170,6 @@ class G9Driver:
         """
         try:
             data = self.ser.read_until(self.FOOTER)
-            self.lastResponse = data
 
             if len(data) != self.EXPECTED_DATA_LENGTH:
                 length_error_msg = f"Invalid response length: got: {len(data)}, expected 199 bytes"
@@ -181,7 +209,7 @@ class G9Driver:
                 'sotdf': self._extract_flags(status_data['sotdf'], 7),
                 'sotsf': self._extract_flags(status_data['sotsf'], 7)
             }
-            print(binary_data['sotdf'])
+            self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
 
             # Check for errors
             self._check_unit_status(status_data['unit_status'])
@@ -245,7 +273,6 @@ class G9Driver:
                 f" Received: {received.hex()}"
             )
 
-    #TODO: make sure this is accurate, currently just reporting Power Supply Errors
     def _check_unit_status(self, status):
         """
         Check unit status and raise error if issues found
@@ -257,19 +284,12 @@ class G9Driver:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
         if status != b'\x01\x00':
             bits = self._extract_flags(status, 16)
-            print(bits)
+            self.log(f"Unit status bits: {bits}", LogLevel.VERBOSE)
             for k in self.US_STATUS.keys():
-                if k != 9:
-                    if bits[k] == 1:
-                        self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
-                        # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
-                else:
-                    if bits[k] == 0:
-                        self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
-                        # raise ValueError(f"Unit State Error: {self.US_STATUS[k]}")
+                if bits[k] == 1:
+                    self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
             if bits[0] == 0:
                 self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
-                # raise ValueError("Unit State Error: Normal Operation Error Flag")
 
     def _check_safety_inputs(self, data):
         """Check safety input status"""
@@ -317,11 +337,6 @@ class G9Driver:
     # not currently being used but many be helpful in the future for getting errors
     def _bytes_to_binary(self, byte_string):
         return ''.join(format(byte, '08b') for byte in byte_string)
-    
-    #TODO: Check to see if the G9 switch is allowing high Voltage or not
-    # this function will need to be constantly sending requests/receiving to check when the high voltage is off/on
-    def checkStatus():
-        pass
 
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):

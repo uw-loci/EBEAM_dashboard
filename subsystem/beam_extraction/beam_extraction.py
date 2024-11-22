@@ -6,3 +6,4 @@ class BeamExtractionSubsystem:
 
     def __init__(self):
         # TODO: Implement
+        pass

@@ -1,7 +1,7 @@
 # interlocks.py
 import tkinter as tk
 import os, sys
-import instrumentctl.g9_driver as g9_driv
+import instrumentctl.G9SP.g9_driver as g9_driv
 from utils import LogLevel
 import time
 
