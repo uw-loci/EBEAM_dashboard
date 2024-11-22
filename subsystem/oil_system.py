@@ -290,7 +290,7 @@ class OilSubsystem:
         self.parent = parent
         self.logger = logger
         self._pressure = 3.5 # TODO: Remove this. mock only
-        self._temperature = 30.0 # remove this. mock only
+        self._temperature = 10.0 # remove this. mock only
         self.setup_gui()
         self.read_sensor_data()
 
