@@ -4,7 +4,7 @@
 - Manufacturer: BK Precision
 - Model: 9104 Series 320W Multi Range DC Power Supply
 - Firmware version: 1.30
-- Communication interface: RS232
+- Communication interface: UART over RS485
 
 ### Serial Port Configuration Settings
 | Setting | Value |
@@ -30,20 +30,20 @@ True
 True
 
 # Configure protection limits
->>> ps.set_over_voltage_protection(2.0)  # 2V limit
+>>> ps.set_over_voltage_protection(2.0)  # 2V OVP limit
 True
->>> ps.set_over_current_protection(8.5)   # 8.5A limit
+>>> ps.set_over_current_protection(8.5)   # 8.5A OCP limit
 True
 
 # Set voltage and current for preset 3
->>> ps.set_voltage(3, 5.0)  # Set to 5V
+>>> ps.set_voltage(3, 1.0)  # Set to 1V
 True
 >>> ps.set_current(3, 1.0)  # Set to 1A
 True
 
 # Verify settings
 >>> ps.get_settings(3)
-(5.0, 1.0)  # Returns (voltage, current)
+(1.0, 1.0)  # Returns (voltage, current)
 
 # Turn output on
 >>> ps.set_output(1)
