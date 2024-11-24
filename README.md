@@ -1,7 +1,7 @@
 # EBEAM System Dashboard Software
 
 
-![GUI layout diagram](https://github.com/uw-loci/EBEAM_dashboard/blob/main/media/GUI_layout.png)
+![GUI layout diagram](media/GUI_layout.png)
 
 ### 1. Core Architecture
 
