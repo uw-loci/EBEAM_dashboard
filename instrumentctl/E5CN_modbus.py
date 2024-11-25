@@ -28,6 +28,7 @@ class E5CNModbus:
         self.temperatures = [None, None, None] 
         self.temperatures_lock = threading.Lock()
         self.client_lock = threading.Lock()
+        self.connection_lock = threading.Lock()
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -46,9 +47,14 @@ class E5CNModbus:
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
         for unit in self.UNIT_NUMBERS:
-            thread = threading.Thread(target=self._read_temperature_continuously, args=(unit,), daemon=True)
+            thread = threading.Thread(
+                target=self._read_temperature_continuously, 
+                args=(unit,), 
+                daemon=True
+            )
             thread.start()
             self.threads.append(thread)
+            self.log(f"Started temperature reading thread for unit {unit}", LogLevel.DEBUG)
 
     def _read_temperature_continuously(self, unit):
         """
@@ -62,21 +68,18 @@ class E5CNModbus:
                 temperature = self.read_temperature(unit)
                 if temperature is not None:
                     with self.temperatures_lock:
-                        
-                        self.temperatures[unit - 1] = temperature  # Store the latest temperature
+                        self.temperatures[unit - 1] = temperature
                         self.log(f"Unit {unit} Temperature: {temperature} °C", LogLevel.INFO)
-
+                time.sleep(0.5)  # Add a small delay between reads
             except Exception as e:
-                self.log(f"Error reading temperature for unit {unit}: {str(e)}", LogLevel.ERROR)
-
-            # Sleep for 500 ms before the next reading
-            time.sleep(0.5)
+                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                time.sleep(1)  # Longer delay on error
 
     def stop_reading(self):
         """Stop all active temperature reading threads and clear them from the thread list."""
         self.stop_event.set()
         for thread in self.threads:
-            thread.join()  # Wait for the thread to finish
+            thread.join(timeout=2.0)  # Wait for the thread to finish
         self.threads.clear()
         self.log("Stopped all temperature reading threads", LogLevel.INFO)
 
@@ -104,9 +107,14 @@ class E5CNModbus:
                 return False
 
     def disconnect(self):
-        with self.client_lock:
-            self.client.close()
-            self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+        """Disconnect from the Modbus device with proper locking."""
+        with self.connection_lock:
+            try:
+                if self.client.is_socket_open():
+                    self.client.close()
+                    self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+            except Exception as e:
+                self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
 
     def read_temperature(self, unit):
         """
@@ -121,36 +129,46 @@ class E5CNModbus:
         attempts = 3
         while attempts > 0:
             try:
-                with self.client_lock: # Synchronize access to client
+                # First acquire connection lock to check/establish connection
+                with self.connection_lock:
                     if not self.client.is_socket_open():
                         self.log(f"Socket not open for unit {unit}. Attempting to reconnect...", LogLevel.WARNING)
                         if not self.connect():
-                            self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
                             attempts -= 1
                             continue
 
-                    # Read holding registers with count=2 and slave=unit
-                    response = self.client.read_holding_registers(address=self.TEMPERATURE_ADDRESS, count=2, slave=unit)
+                # Then acquire client lock for Modbus communication
+                with self.client_lock:
+                    response = self.client.read_holding_registers(
+                        address=self.TEMPERATURE_ADDRESS,
+                        count=2,
+                        slave=unit
+                    )
 
                     if response.isError():
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
                         continue
 
-                    # Log the raw response registers
                     self.log(f"Received registers: {response.registers}", LogLevel.DEBUG)
-
-                    # Directly access the second register for temperature
-                    temperature = response.registers[1] / 10.0  # Convert to °C
+                    temperature = response.registers[1] / 10.0
                     self.log(f"Temperature from unit {unit}: {temperature:.2f} °C", LogLevel.INFO)
                     return temperature
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
                 attempts -= 1
+                # On error, try to reconnect in the next attempt
+                with self.connection_lock:
+                    try:
+                        self.client.close()
+                    except:
+                        pass
 
-        self.log(f"Failed to read temperature from unit {unit} after 3 attempts.", LogLevel.ERROR)
-        return None  # Return if all attempts fail
+            time.sleep(0.1)  # Small delay between attempts
+
+        self.log(f"Failed to read temperature from unit {unit} after {3-attempts} attempts.", LogLevel.ERROR)
+        return None
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
