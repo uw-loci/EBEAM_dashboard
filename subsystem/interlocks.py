@@ -4,6 +4,9 @@ import os, sys
 import instrumentctl.g9_driver as g9_driv
 from utils import LogLevel
 import time
+import instrumentctl.g9_driver as g9_driv
+from utils import LogLevel
+import time
 
 class InterlocksSubsystem:
     # the bit poistion for each interlock
@@ -38,8 +41,46 @@ class InterlocksSubsystem:
     }
 
     def __init__(self, parent, com_ports, logger=None, frames=None):
+    # the bit poistion for each interlock
+    INPUTS = {
+        0 : "E-STOP Int", # Chassis Estop
+        1 : "E-STOP Int", # Chassis Estop
+        2 : "E-STOP Ext", # Peripheral Estop
+        3 : "E-STOP Ext", # Peripheral Estop
+        4 : "Door", # Door 
+        5 : "Door", # Door Lock
+        6 : "Vacuum Power", # Vacuum Power
+        7 : "Vacuum Pressure", # Vacuum Pressure
+        8 : "High Oil", # Oil High
+        9 : "Low Oil", # Oil Low
+        10 : "Water", # Water
+        11 : "HVolt ON", # HVolt ON
+        12 : "G9SP Active" # G9SP Active
+    }
+
+    INDICATORS = {
+        'Door': None,
+        'Water': None,
+        'Vacuum Power': None,
+        'Vacuum Pressure': None,
+        'Low Oil': None,
+        'High Oil': None,
+        'E-STOP Int': None,
+        'E-STOP Ext': None,
+        'All Interlocks': None,
+        'G9SP Active': None,
+        'HVolt ON': None
+    }
+
+    def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
         self.logger = logger
+        self.frames = frames
+        self.last_error_time = 0  # Track last error time
+        self.error_count = 0      # Track consecutive errors
+        self.update_interval = 500  # Default update interval (ms)
+        self.max_interval = 5000   # Maximum update interval (ms)
+        self._last_status = None
         self.frames = frames
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
@@ -104,6 +145,13 @@ class InterlocksSubsystem:
             self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
 
     def setup_gui(self):
+        """Setup the GUI for the interlocks subsystem"""
+        self._create_main_frame()
+        interlocks_frame = self._create_interlocks_frame()
+        self._create_indicators(interlocks_frame)
+
+    def _create_main_frame(self):
+        """Create and configure the main container frame"""
         """Setup the GUI for the interlocks subsystem"""
         self._create_main_frame()
         interlocks_frame = self._create_interlocks_frame()

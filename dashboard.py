@@ -9,9 +9,21 @@ from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
-# Only have the interlocks at the top of the display
 # title, row, width, height
 frames_config = [
+    ("Interlocks", 0, None, 2),  # Moved to the top row
+    ("Oil System", 1, 50, 150),
+    ("Visualization Gas Control", 2, 50, 150),
+    ("System Checks", 1, None, None),
+    ("Beam Extraction", 1, None, None),
+    ("Vacuum System", 2, 150, 300),
+    ("Deflection Monitor", 2, None, None),
+    ("Beam Pulse", 2, None, None),
+    ("Main Control", 2, 50, 300),
+    ("Setup Script", 3, None, 25),
+    ("High Voltage Warning", 3, None, 25),
+    ("Environmental", 4, 150, 450),
+    ("Cathode Heating", 4, 960, 450),
     ("Interlocks", 0, None, 2),  # Moved to the top row
     ("Oil System", 1, 50, 150),
     ("Visualization Gas Control", 2, 50, 150),
@@ -31,11 +43,16 @@ class EBEAMSystemDashboard:
     PORT_INFO = {
         "AD0K0ZIEA" : "Interlocks"
     }
+    PORT_INFO = {
+        "AD0K0ZIEA" : "Interlocks"
+    }
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
         self.set_com_ports = set(serial.tools.list_ports.comports())
 
+        self.set_com_ports = set(serial.tools.list_ports.comports())
+        
         self.root.title("EBEAM Control System Dashboard")
 
         # if save file exists call it and open it
@@ -64,6 +81,9 @@ class EBEAMSystemDashboard:
         # starts the constant check for the avavilbe com ports
         self._check_for_port_changes()
 
+        # start constant check for available COM ports
+        self._check_for_port_changes()
+
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
@@ -85,6 +105,8 @@ class EBEAMSystemDashboard:
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
             self.rows[row].add(frame, stretch='always')
+            if title != "Interlocks":
+                self.add_title(frame, title)
             if title != "Interlocks":
                 self.add_title(frame, title)
             self.frames[title] = frame
@@ -174,6 +196,11 @@ class EBEAMSystemDashboard:
         for i in range(len(frames_config)):
             if frames_config[i][0] in savedData:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
+        savedData = load_pane_states()
+
+        for i in range(len(frames_config)):
+            if frames_config[i][0] in savedData:
+                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
 
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
@@ -213,8 +240,13 @@ class EBEAMSystemDashboard:
                 com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
                 frames = self.frames
+                self.frames['Interlocks'],
+                com_ports = self.com_ports['Interlocks'],
+                logger=self.logger,
+                frames = self.frames
             ),
             'Oil System': subsystem.OilSubsystem(
+                self.frames['Oil System'],
                 self.frames['Oil System'],
                 logger=self.logger
             ), 
@@ -227,6 +259,8 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a frame for displaying messages and errors."""
+        self.messages_frame = MessagesFrame(self.rows[4])
+        self.rows[4].add(self.messages_frame.frame, stretch='always')
         self.messages_frame = MessagesFrame(self.rows[4])
         self.rows[4].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
@@ -242,6 +276,7 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
+        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']:
         for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
@@ -284,6 +319,18 @@ class EBEAMSystemDashboard:
             self.set_com_ports = nowPorts
             self.root.after(500, self._check_for_port_changes)
 
+    def _update_com_ports(self, subsystem, port):
+        """
+        Calls to update subsystems with change in comport
+        """
+        if subsystem == None:
+            raise ValueError("_update_com_ports was called with invalid args")
+        strPort = port.device if port != None else None
+        if subsystem in self.subsystems.keys():
+            if subsystem == "Interlocks" or subsystem == "Vacuum System":
+                self.subsystems[subsystem].update_com_port(strPort)
+            #TODO: Need to add Vacuum system and Cathode Heating
+            
     def _update_com_ports(self, subsystem, port):
         """
         Calls to update subsystems with change in comport
