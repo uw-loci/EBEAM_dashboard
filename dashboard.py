@@ -24,25 +24,9 @@ frames_config = [
     ("High Voltage Warning", 3, None, 25),
     ("Environmental", 4, 150, 450),
     ("Cathode Heating", 4, 960, 450),
-    ("Interlocks", 0, None, 2),  # Moved to the top row
-    ("Oil System", 1, 50, 150),
-    ("Visualization Gas Control", 2, 50, 150),
-    ("System Checks", 1, None, None),
-    ("Beam Extraction", 1, None, None),
-    ("Vacuum System", 2, 150, 300),
-    ("Deflection Monitor", 2, None, None),
-    ("Beam Pulse", 2, None, None),
-    ("Main Control", 2, 50, 300),
-    ("Setup Script", 3, None, 25),
-    ("High Voltage Warning", 3, None, 25),
-    ("Environmental", 4, 150, 450),
-    ("Cathode Heating", 4, 960, 450),
 ]
 
 class EBEAMSystemDashboard:
-    PORT_INFO = {
-        "AD0K0ZIEA" : "Interlocks"
-    }
     PORT_INFO = {
         "AD0K0ZIEA" : "Interlocks"
     }
@@ -54,10 +38,6 @@ class EBEAMSystemDashboard:
         self.set_com_ports = set(serial.tools.list_ports.comports())
         
         self.root.title("EBEAM Control System Dashboard")
-
-        # if save file exists call it and open it
-        if saveFileExists():
-             self.load_saved_pane_state()
 
         # if save file exists call it and open it
         if saveFileExists():
@@ -81,8 +61,6 @@ class EBEAMSystemDashboard:
         # starts the constant check for the avavilbe com ports
         self._check_for_port_changes()
 
-        # start constant check for available COM ports
-        self._check_for_port_changes()
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows."""
@@ -240,13 +218,8 @@ class EBEAMSystemDashboard:
                 com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
                 frames = self.frames
-                self.frames['Interlocks'],
-                com_ports = self.com_ports['Interlocks'],
-                logger=self.logger,
-                frames = self.frames
             ),
             'Oil System': subsystem.OilSubsystem(
-                self.frames['Oil System'],
                 self.frames['Oil System'],
                 logger=self.logger
             ), 
@@ -276,7 +249,6 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']:
         for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
