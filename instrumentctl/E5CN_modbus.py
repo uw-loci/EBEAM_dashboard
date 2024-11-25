@@ -28,6 +28,7 @@ class E5CNModbus:
         self.temperatures = [None, None, None] 
         self.temperatures_lock = threading.Lock()
         self.modbus_lock = threading.Lock()
+        self.is_initialized = threading.Event()
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -46,6 +47,19 @@ class E5CNModbus:
 
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
+        # Ensure initial connection is established before starting threads
+        with self.modbus_lock:
+            try:
+                if not self.client.is_socket_open():
+                    if not self.client.connect():
+                        self.log("Failed to establish initial connection", LogLevel.ERROR)
+                        return
+                    time.sleep(0.2)  # Allow initial connection to stabilize
+                self.is_initialized.set()
+            except Exception as e:
+                self.log(f"Error during initialization: {str(e)}", LogLevel.ERROR)
+                return
+        
         for unit in self.UNIT_NUMBERS:
             thread = threading.Thread(
                 target=self._read_temperature_continuously, 
@@ -53,6 +67,7 @@ class E5CNModbus:
                 daemon=True
             )
             thread.start()
+            time.sleep(0.1)
             self.threads.append(thread)
             self.log(f"Started temperature reading thread for unit {unit}", LogLevel.DEBUG)
 
@@ -78,9 +93,15 @@ class E5CNModbus:
     def stop_reading(self):
         """Stop all active temperature reading threads and clear them from the thread list."""
         self.stop_event.set()
+        self.is_initialized.clear()
         for thread in self.threads:
             thread.join(timeout=2.0)  # Wait for the thread to finish
         self.threads.clear()
+        with self.modbus_lock:
+            try:
+                self.client.close()
+            except:
+                pass
         self.log("Stopped all temperature reading threads", LogLevel.INFO)
 
     def connect(self):
