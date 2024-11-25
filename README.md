@@ -3,54 +3,50 @@
 
 ![GUI layout diagram](media/GUI_layout.png)
 
-### 1. Core Architecture
+### 1. Core Architecture and Flow
 
 - **High-level Design**: The application is divided into several modules:
   - **main.py**: Entry point that initializes the COM port configuration and launches the dashboard
   - **dashboard.py**: Core dashboard class that sets up the main GUI layout and manages subsystems
-  - **instrumentctl/**: Instrument-specific commnad abstraction libraries.
+  - **instrumentctl/**: Instrument-specific command libraries.
   - **subsystem/**: Contains classes and methods to manage individual hardware subsystems (e.g., VTRXSubsystem, EnvironmentalSubsystem).
   - **utils.py**: Utility functions and classes that support the main application (Logging, setup scripts, etc.).
-  - Core Structure:
-```
-EBEAM_DASHBOARD/
-├── README.md
-├── __init__.py 
-├── dashboard.py
-├── instrumentctl/
-│   ├── README.md
-│   ├── __init__.py
-│   ├── power_supply/
-│   │   ├── README.md
-│   │   └── power_supply_9014.py
-│   ├── G9_driver/
-│   │   ├── README.md
-│   │   └── G9_driver.py
-│   └── E5CN_modbus/
-│       ├── README.md
-│       └── E5CN_modbus.py
-├── main.py
-├── subsystem/
-│   ├── __init__.py
-│   ├── cathode_heating/
-│   │   ├── README.md
-│   │   └── cathode_heating.py
-│   ├── environmental/
-│   │   ├── README.md
-│   │   └── environmental.py
-│   ├── interlocks/
-│   │   ├── README.md
-│   │   └── interlocks.py
-│   ├── oil_system/
-│   │   ├── README.md
-│   │   └── oil_system.py
-│   ├── visualization_gas_control/
-│   │   ├── README.md
-│   │   └── visualization_gas_control.py
-│   └── vtrx/
-│       ├── README.md
-│       └── vtrx.py
-└── utils.py
+
+```mermaid
+flowchart TD
+    Start([python main.py]) --> PortConfig[Show Port Configuration Dialog]
+    PortConfig --> SaveConfig[Save Port Configuration]
+    
+    %% Main Dashboard Setup
+    SaveConfig --> InitDash[Initialize Dashboard]
+    InitDash --> SetupPane[Create Main Pane Structure]
+    SetupPane --> LoadLayout[Load Saved Layout]
+    LoadLayout --> CreateFrames[Create Frame Structure]
+    
+    %% Core Components
+    CreateFrames --> Messages[Messages Frame]
+    CreateFrames --> Controls[Main Controls]
+    CreateFrames --> SubSystems[[Subsystem Initialization]]
+    
+    %% Subsystems Detail
+    SubSystems --> Vacuum[Vacuum System]
+    SubSystems --> Environmental[Environmental]
+    SubSystems --> Gas[Gas Control]
+    SubSystems --> Interlocks[Interlocks]
+    SubSystems --> Oil[Oil System]
+    SubSystems --> Cathode[Cathode Heating]
+    
+    %% Control Components
+    Controls --> MainTab[Main Control Tab]
+    Controls --> ConfigTab[Configuration Tab]
+    
+    %% Monitoring Loop
+    CreateFrames --> Monitor[[Start COM Port Monitor Loop]]
+    Monitor --> CheckChanges{Port Changes?}
+    CheckChanges -->|Yes| UpdateSys[Update Affected Systems]
+    UpdateSys --> CheckChanges
+    CheckChanges -->|No| Continue[Continue Monitoring]
+    Continue --> CheckChanges
 ```
 
 ### 2. Dashboard (dashboard.py)
@@ -101,7 +97,49 @@ EBEAM_DASHBOARD/
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
-### 5. Development Workflow
+### 5. Directory Structure:
+```
+EBEAM_DASHBOARD/
+├── README.md
+├── __init__.py 
+├── dashboard.py
+├── instrumentctl/
+│   ├── README.md
+│   ├── __init__.py
+│   ├── power_supply/
+│   │   ├── README.md
+│   │   └── power_supply_9014.py
+│   ├── G9_driver/
+│   │   ├── README.md
+│   │   └── G9_driver.py
+│   └── E5CN_modbus/
+│       ├── README.md
+│       └── E5CN_modbus.py
+├── main.py
+├── subsystem/
+│   ├── __init__.py
+│   ├── cathode_heating/
+│   │   ├── README.md
+│   │   └── cathode_heating.py
+│   ├── environmental/
+│   │   ├── README.md
+│   │   └── environmental.py
+│   ├── interlocks/
+│   │   ├── README.md
+│   │   └── interlocks.py
+│   ├── oil_system/
+│   │   ├── README.md
+│   │   └── oil_system.py
+│   ├── visualization_gas_control/
+│   │   ├── README.md
+│   │   └── visualization_gas_control.py
+│   └── vtrx/
+│       ├── README.md
+│       └── vtrx.py
+└── utils.py
+```
+
+### 6. Development Workflow
 ![branching](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/branching_diagram.png)
 #### Branching strategy
 All code development intended to impact a future release is done on the latest `develop` branch. This applies to new instrument features, bug fixes, etc. The `develop` branch is **not stable**.
