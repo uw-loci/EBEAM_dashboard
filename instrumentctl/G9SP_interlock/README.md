@@ -319,17 +319,17 @@ flowchart TD
         K4 --> k5[Output]
         K3 --> k5
         J2 --> k5
-
-        k5 == All Yess ==> M2[Extract Data]
-        k5 == Any No ==> M[Raise Error]
+        k5 -- Any No --> M[Log Output]
+        k5 -- All Yes --> M2[Extract Data]
+        M --> M2
+        
 
         M2 --> N[Store Data in Queue]
     end
 
-
+    
     B -- No --> O[Wait 0.1s] --> B
     N --> O
-    M --> O
 ```
 
 
