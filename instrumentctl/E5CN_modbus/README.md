@@ -1,10 +1,12 @@
 # E5CN Temperature Controller Driver Documentation
 
 ### Hardware Specifications
-- Manufacturer:
-- Model:
-- Firmware version:
+- Manufacturer: Omron
+- Model: E5CN-HV2M-500
+- Datasheet [(link)](https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/518/E5CN-H.pdf)
 - Communication interface: Modbus RTU over RS485
+- Resolution: 0.01 °C
+- Sampling cycle: 60 ms
 
 ### Serial Port Configuration Settings
 | Setting | Value |

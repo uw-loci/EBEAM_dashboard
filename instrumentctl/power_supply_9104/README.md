@@ -4,6 +4,7 @@
 - Manufacturer: BK Precision
 - Model: 9104 Series 320W Multi Range DC Power Supply
 - Firmware version: 1.30
+- Datasheet [(link)](https://www.mouser.com/datasheet/2/43/9103_9104_series_datasheet-1131399.pdf)
 - Communication interface: UART over RS485
 
 ### Serial Port Configuration Settings
