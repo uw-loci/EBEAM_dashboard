@@ -40,14 +40,14 @@ def get_patterns(data_types):
     
     if 'temperature' in data_types:
         patterns['cathode_temp'] = {
-            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Unit (\d) Temperature: ([\d.]+) °C',
+            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Unit (\d) Temperature: ([\d.]+)\s*°?C',
             'display_name': 'Cathode',
             'measurements': ['temperature']
         }
 
     if 'pressure' in data_types:
         patterns['vacuum_pressure'] = {
-            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Chamber pressure: ([\d.]+(?:E[+-]\d+)?)\s*mbar\s*\(([\d.]+(?:E[+-]\d+)?)\)',
+            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - DEBUG: GUI updated with pressure: ([\d.]+(?:E[+-]\d+)?)\s*mbar',
             'display_name': 'Vacuum Chamber',
             'measurements': ['pressure']
         }
@@ -87,11 +87,9 @@ def parse_log_file(filename, patterns):
                             })
                         elif equip_type == 'vacuum_pressure':
                             pressure = float(match.group(2))
-                            raw_pressure = float(match.group(3))
                             data[equip_type].append({
                                 'timestamp': time_str,
-                                'pressure': pressure,
-                                'raw_pressure': raw_pressure
+                                'pressure': pressure
                             })
 
             for equip_type, readings in data.items():
@@ -230,16 +228,30 @@ def process_files(file_list, data_types, output_formats, output_dir):
                 save_statistics(df_sorted, 'pressure', os.path.join(stats_dir, f"{base_filename}_pressure_stats.txt"))
 
 def save_statistics(df, data_type, output_path):
+    """Save statistics to a file, handling different data types appropriately."""
     with open(output_path, 'w') as f:
-        f.write(f"{data_type.capitalize()} Summary Statistics\n")
-        group_by = 'ps_number' if data_type in ['voltage', 'current'] else 'sensor'
-        value_col = data_type if data_type in ['voltage', 'current'] else 'temperature'
+        f.write(f"{data_type.capitalize()} Summary Statistics\n\n")
         
-        for group, group_df in df.groupby(group_by):
-            f.write(f"\n{data_type.capitalize()} {group_by.replace('_', ' ').title()} {group}:\n")
-            stats = group_df[value_col].describe()
+        if data_type in ['voltage', 'current']:
+            # Group by power supply number
+            for group, group_df in df.groupby('ps_number'):
+                f.write(f"\n{data_type.capitalize()} Power Supply {group}:\n")
+                stats = group_df[data_type].describe()
+                f.write(str(stats))
+                f.write('\n')
+        elif data_type == 'temperature':
+            # Group by sensor
+            for group, group_df in df.groupby('sensor'):
+                f.write(f"\nTemperature Sensor {group}:\n")
+                stats = group_df['temperature'].describe()
+                f.write(str(stats))
+                f.write('\n')
+        else:  # pressure or other single-value measurements
+            f.write(f"{data_type.capitalize()} Statistics:\n")
+            stats = df[data_type].describe()
             f.write(str(stats))
             f.write('\n')
+            
     print(f"Statistics saved to {output_path}")
 
 
