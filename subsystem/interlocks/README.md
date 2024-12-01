@@ -48,6 +48,12 @@ The “INDICATORS” dictionary contains the Tkinter indicator components for ea
 ### update_data()
     Main method that interacts with the G9Driver. Calls the driver to pull data from G9, then parses the data and updates the interlocks to reflect the current status. Calls update_interlock(), with any changes that need to be made.
 
+### Expected Data
+
+sitsf_bits - These should always be 1s, if they are not their should be an error being raised, or an input is off
+sitdf_bits - First 11 bits repersent the interlocks, where 1 means good and 0 indicates an off/error, bit 12 repersents the HVOLT which 0 indicates good/error and 1 indicates off, bit 13 represents the enable button's state(thus need to look at the output data so see if that buttom was pressed)
+g9_active - bit 4 of the output data that indicates weather the g9 enable buttom had been pressed previously
+
 
 
 

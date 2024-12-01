@@ -276,7 +276,7 @@ The Unit Status section of the package has 2 bytes, of which contain 4 flags tha
 
 https://tinyurl.com/mr2wudtv (Updated 11/5)
 
-### Flowcharts
+### Flowchart
 ```mermaid
 flowchart TD
     a[Interlocks.py] --> b[G9_driver __init__] --> A
