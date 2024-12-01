@@ -231,9 +231,11 @@ class InterlocksSubsystem:
                     data = sitdf_bits[i]
                     self.update_interlock(self.INPUTS[i], safety, data)
                     
-                # Update overall status
-                
+                # Checks all 11 first interlocks
                 all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
+                # Checks if HVOLT is on (indicated with a 0)
+                all_good = all_good == sitdf_bits[11] != sitsf_bits[11]
+                
                 self.update_interlock("All Interlocks", True, all_good)
 
                 # make sure that the data output indicates button and been pressed and the input is not off/error
