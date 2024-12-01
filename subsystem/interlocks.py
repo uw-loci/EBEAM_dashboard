@@ -214,6 +214,8 @@ class InterlocksSubsystem:
                     
                 sitsf_bits, sitdf_bits, g9_active = status
 
+                self.log(f"sitsf_bits: {sitsf_bits} sitdf_bits: {sitdf_bits} g9_active: {g9_active}", LogLevel.DEBUG)
+
                 # Process dual-input interlocks (first 3 pairs)
                 for i in range(3):
                     safety = (sitsf_bits[i*2] & 
@@ -224,18 +226,22 @@ class InterlocksSubsystem:
                     self.update_interlock(self.INPUTS[i*2], safety, data)
                 
                 # Process single-input interlocks
-                for i in range(6, 13):
+                for i in range(6, 11):
                     safety = sitsf_bits[i]
                     data = sitdf_bits[i]
                     self.update_interlock(self.INPUTS[i], safety, data)
                     
                 # Update overall status
-                all_good = sitsf_bits[:12] == sitdf_bits[:12] == [1] * 12
+                
+                all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
                 self.update_interlock("All Interlocks", True, all_good)
 
                 # make sure that the data output indicates button and been pressed and the input is not off/error
-                if g9_active == sitsf_bits[12]:
+                if g9_active == sitsf_bits[12] == 1:
                     self.update_interlock("G9SP Active", True, all_good)
+                else:
+                    self.update_interlock("G9SP Active", False, all_good)
+
 
                 self._adjust_update_interval(success=True)
 
