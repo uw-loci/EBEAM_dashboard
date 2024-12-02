@@ -130,7 +130,16 @@ class InterlocksSubsystem:
         return interlocks_frame
 
     def _create_indicator_circle(self, frame, color):
-        """Create a circular indicator light"""
+        """
+        Create a circular indicator light
+        
+        Args:
+            frame: Parent frame for the indicator
+           color: Initial color of the indicator
+
+        Returns:
+            tuple: (canvas, oval_id) for the created indicator
+        """
         canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
         canvas.grid(sticky='nsew')
         oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
@@ -151,7 +160,14 @@ class InterlocksSubsystem:
 
     # updates indicator and logs updates
     def update_interlock(self, name, safety, data):
-        """Update individual interlock indicator"""
+        """
+        Update individual interlock indicator
+        
+        Args:
+            name: interlock to update
+            safety: Safety status bit
+            data: Data status bit
+        """
         if name not in self.INDICATORS or safety == None or data == None:
             self.log("Invalid inputs to update_interlock", LogLevel.ERROR)
 
