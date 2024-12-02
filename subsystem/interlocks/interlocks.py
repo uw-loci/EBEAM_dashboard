@@ -224,18 +224,26 @@ class InterlocksSubsystem:
                     self.update_interlock(self.INPUTS[i*2], safety, data)
                 
                 # Process single-input interlocks
-                for i in range(6, 13):
+                for i in range(6, 11):
                     safety = sitsf_bits[i]
                     data = sitdf_bits[i]
                     self.update_interlock(self.INPUTS[i], safety, data)
-                    
-                # Update overall status
-                all_good = sitsf_bits[:12] == sitdf_bits[:12] == [1] * 12
+
+                # Checks all 11 first interlocks
+                all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
                 self.update_interlock("All Interlocks", True, all_good)
 
+                # High Voltage Interlock (unrelated to All interlocks)
+                if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:
+                    self.update_interlock(self.INPUTS[11], True, True)
+                else:
+                    self.update_interlock(self.INPUTS[11], True, False)
+
                 # make sure that the data output indicates button and been pressed and the input is not off/error
-                if g9_active == sitsf_bits[12]:
+                if g9_active == sitsf_bits[12] == 1:
                     self.update_interlock("G9SP Active", True, all_good)
+                else:
+                    self.update_interlock("G9SP Active", False, all_good)
 
                 self._adjust_update_interval(success=True)
 

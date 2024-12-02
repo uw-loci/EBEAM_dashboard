@@ -31,12 +31,7 @@ class EBEAMSystemDashboard:
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
-
-
-        # if save file exists call it and open it
-        if saveFileExists():
-             self.load_saved_pane_state()
-
+        
         # if save file exists call it and open it
         if saveFileExists():
              self.load_saved_pane_state()
@@ -68,7 +63,6 @@ class EBEAMSystemDashboard:
 
     def create_frames(self):
         """Create frames for different systems and controls within the dashboard."""
-        global frames_config
         global frames_config
 
         for title, row, width, height in frames_config:
@@ -152,12 +146,9 @@ class EBEAMSystemDashboard:
         label.pack(pady=0, fill=tk.X)
 
     # saves data to file when button is pressed
-    # saves data to file when button is pressed
     def save_current_pane_state(self):
         save_pane_states(frames_config, self.frames, self.main_pane)
-        save_pane_states(frames_config, self.frames, self.main_pane)
 
-    # gets data in save config file (as dict) and updates the global var of frames_config
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
         savedData = load_pane_states()
