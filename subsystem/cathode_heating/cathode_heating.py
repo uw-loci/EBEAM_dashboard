@@ -715,22 +715,32 @@ class CathodeHeatingSubsystem:
         Initialize the connection to the Modbus devices.
         """
         port = self.com_ports.get('TempControllers', None)
-        if port:
+        if not port:
+            self.log("No port configured for temperature controllers", LogLevel.ERROR)
+            return False
+            
+        # Ensure any existing controller is properly cleaned up
+        if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-                # Assuming only one Modbus controller object for all units
-                tc = E5CNModbus(port=port, logger=self.logger)
-                if tc.connect():
-                    self.temperature_controller = tc
-                    self.temp_controllers_connected = True
-                    self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
-                
-                    self.temperature_controller.start_reading_temperatures()
-                else:
-                    self.log(f"Failed to connect to temperature controllers at {port}", LogLevel.ERROR)
-                    self.temperature_controllers_connected = False
+                self.temperature_controller.stop_reading()
             except Exception as e:
-                self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
+                self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
+                
+        try:
+            tc = E5CNModbus(port=port, logger=self.logger)
+            if tc.start_reading_temperatures():
+                self.temperature_controller = tc
+                self.temp_controllers_connected = True
+                self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
+                return True
+            else:
+                self.log(f"Failed to start temperature controllers at {port}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
+                return False
+        except Exception as e:
+            self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
+            self.temp_controllers_connected = False
+            return False
 
     def set_plot_color(self, index, error_type=None):
         """
