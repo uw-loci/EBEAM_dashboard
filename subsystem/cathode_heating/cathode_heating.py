@@ -8,9 +8,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.dates import DateFormatter
-from instrumentctl.ES440_cathode import ES440_cathode
-from instrumentctl.power_supply_9104 import PowerSupply9104
-from instrumentctl.E5CN_modbus import E5CNModbus
+from instrumentctl.ES440_cathode.ES440_cathode import ES440_cathode
+from instrumentctl.power_supply_9104.power_supply_9104 import PowerSupply9104
+from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np

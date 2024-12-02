@@ -276,6 +276,62 @@ The Unit Status section of the package has 2 bytes, of which contain 4 flags tha
 
 https://tinyurl.com/mr2wudtv (Updated 11/5)
 
+### Flowchart
+```mermaid
+flowchart TD
+    a[Interlocks.py] --> b[G9_driver __init__] --> A
+
+
+    A[Start Communication Thread] --> B{Is Serial Connected?}
+    
+    B -- Yes --> D1[Build Message]
+
+    subgraph "Send Command"
+        D1 --> D2[Calculate Checksum]
+        D2 --> D3[Send Message to Serial]
+    end
+
+    subgraph "Read Response"
+        D3 --> E1[Read Data from Serial]
+        E1 --> E2{Data Length Valid?}
+        E2 -- Yes --> E4{Checksum Valid?}
+        E2 -- No --> M3
+        E4 -- No --> M3[Raise Error] 
+        
+        
+    end
+    
+    M3 --> W[Wait 0.1s] --> B
+    E4 -- Yes --> H1
+
+    subgraph "Process Response"
+        
+        H1[Extract Flags from Data]
+        H1 -->  H2[Convert to Binary Strings]
+        H2 --> J1[_check_unit_status]
+        H2 --> K1[_check_safety_inputs]
+        H2 --> K2[_check_safety_outputs]
+
+        J1 --> J2{Unit Status OK?}
+        K1 --> K3{Safety Inputs OK?}
+        K2 --> K4{Safety Outputs OK?}
+
+        K4 --> k5[Output]
+        K3 --> k5
+        J2 --> k5
+        k5 -- Any No --> M[Log Output]
+        k5 -- All Yes --> M2[Extract Data]
+        M --> M2
+        
+
+        M2 --> N[Store Data in Queue]
+    end
+
+    
+    B -- No --> O[Wait 0.1s] --> B
+    N --> O
+```
+
 
 
 
