@@ -154,7 +154,10 @@ class E5CNModbus:
                     if not self.client.is_socket_open():
                         try:
                             if self.client.connect():
-                                time.sleep(0.1)
+                                time.sleep(0.2)
+                                # clear any stale data
+                                if hasattr(self.client, 'socket'):
+                                    self.client.socket.reset_input_buffer()
                             else:
                                 self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
                                 attempts -= 1
