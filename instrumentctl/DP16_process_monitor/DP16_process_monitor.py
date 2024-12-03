@@ -52,3 +52,36 @@ class DP16ProcessMonitor:
                 temperatures[unit] = None
                 
         return temperatures
+
+    def _crc_calculation(self, start_string: bytes, number_byte: int) -> int:
+        """Calculate CRC based on input bytes
+        
+        Args:
+            start_string: Bytes to calculate CRC for
+            number_byte: Number of bytes to process
+            
+        Returns:
+            Calculated CRC value
+        """
+        POLY = 0xA001
+        crc = 0xFFFF
+        data_pointer = 0
+        
+        while number_byte > 0:
+            # XOR current byte with CRC
+            crc ^= start_string[data_pointer]
+            bit_counter = 0
+            
+            # Process each bit
+            while bit_counter < 8:
+                if crc & 0x0001:
+                    crc >>= 1          # Shift right by 1
+                    crc ^= POLY        # XOR with polynomial
+                else:
+                    crc >>= 1          # Just shift right by 1
+                bit_counter += 1
+                
+            data_pointer += 1
+            number_byte -= 1
+            
+        return crc
