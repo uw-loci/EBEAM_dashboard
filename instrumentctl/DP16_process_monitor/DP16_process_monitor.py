@@ -6,6 +6,7 @@ class DP16ProcessMonitor:
     """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
 
     PROCESS_VALUE_REG = 39  # Register for current temperature reading
+    RDGCNF_REG = 8          # Register for decimal point position
 
     def __init__(self, port, unit_numbers=[1,2,3,4,5], baudrate=9600, logger=None):
         """ Initialize Modbus settings """
@@ -20,11 +21,19 @@ class DP16ProcessMonitor:
         self.unit_numbers = unit_numbers
         self.modbus_lock = threading.Lock()
 
-    def read_temperatures(self) -> Dict[int, float]:
-        """Read temperatures from all configured units
-        
-        Returns:
-            Dictionary mapping unit numbers to temperature values
+    def connect(self):
+        with self.modbus_lock:
+            try:
+                if self.client.is_socket_open():
+                    return True
+                return self.client.connect()
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error connecting: {str(e)}")
+                return False
+
+    def read_temperatures(self, unit):
+        """Single unit read with retries
         """
         temperatures = {}
         
