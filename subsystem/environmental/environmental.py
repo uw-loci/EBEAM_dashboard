@@ -6,6 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from typing import Dict, List
+from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 
 class TemperatureBar(tk.Canvas):
     def __init__(self, parent, name: str, height: int = 400, width: int = 40):
@@ -102,7 +103,7 @@ class TemperatureBar(tk.Canvas):
 
 
 class EnvironmentalSubsystem:
-    def __init__(self, parent, logger=None):
+    def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Bot', 'Chamber Top', 'Air temp']
@@ -110,6 +111,21 @@ class EnvironmentalSubsystem:
             name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
             for name in self.thermometers
         }
+
+        self.thermometer_map = {
+            'Solenoid 1': 1,
+            'Solenoid 2': 2,
+            'Chamber Bot': 3,
+            'Chamber Top': 4,
+            'Air temp': 5
+        }
+        
+        # Initialize the DP16 monitor
+        self.monitor = DP16ProcessMonitor(
+            port=com_port,
+            unit_numbers=list(self.thermometer_map.values()),
+            logger=logger
+        )
 
         self.setup_gui()
         self.update_temperatures()
@@ -126,11 +142,19 @@ class EnvironmentalSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
-        """Update temperature values periodically."""
-        for name in self.thermometers:
-            offset = 30 if 'Solenoid' in name else 0
-            new_temp = random.uniform(30 + offset, 33 + offset)
-            self.temperatures[name] = new_temp
-            self.temp_bars[name].update_value(new_temp)
+        try:
+            # Read all temperatures
+            temps = self.monitor.read_temperatures()
             
+            # Update each temperature bar
+            for name, unit in self.thermometer_map.items():
+                temp = temps.get(unit)
+                if temp is not None:
+                    self.temp_bars[name].update_value(temp)
+                    
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error updating temperatures: {str(e)}")
+                
+        # Schedule next update
         self.parent.after(500, self.update_temperatures)

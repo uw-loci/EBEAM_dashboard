@@ -189,6 +189,7 @@ class EBEAMSystemDashboard:
             ),
             'Environmental [°C]': subsystem.EnvironmentalSubsystem(
                 self.frames['Environmental'], 
+                com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger
             ),
             'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
