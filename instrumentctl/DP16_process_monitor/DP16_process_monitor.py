@@ -35,7 +35,11 @@ class DP16ProcessMonitor:
                     self.logger.error(f"Error connecting: {str(e)}")
                 return False
 
-    def get_decimal_position(self, unit):
+    def get_reading_config(self, unit):
+        """Get reading configuration including decimal position and temperature unit
+        Returns:
+            tuple: (decimal_position, is_fahrenheit) - decimals and temperature unit flag
+        """
         try:
             with self.modbus_lock:
                 response = self.client.read_holding_registers(
