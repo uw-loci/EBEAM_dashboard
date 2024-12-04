@@ -44,6 +44,10 @@ class DP16ProcessMonitor:
 
                 if not response.isError():
                     rdgcnf = response.registers[0]
+
+                    # check temperature bit
+                    is_fahrenheit = bool(rdgcnf & 0x08)  # Extract bit 3
+
                     # extract bits 2-0 for decimal point position
                     dp_bits = rdgcnf & 0x07 # get last three bits
 
@@ -56,16 +60,24 @@ class DP16ProcessMonitor:
                 # 100 = F.FFF (3 decimal places)
 
                 if dp_bits == 0b01 or dp_bits == 0b010:
-                    return 1
+                    dp = 1
                 elif dp_bits == 0b011:
-                    return 2
+                    dp = 2
                 elif dp_bits == 0b100:
-                    return 3
-                return 0
+                    dp = 3
+                else:
+                    dp = 0
+
+                return dp, is_fahrenheit
+            return 0, False
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error reading decimal position for unit {unit}: {str(e)}")
-            return 0
+            return 0, False
+
+    def fahrenheit_to_celsius(self, f_temp):
+        """Convert Fahrenheit to Celsius"""
+        return (f_temp - 32) * 5/9
 
     def read_temperatures(self):
         """Single unit read with retries
@@ -75,7 +87,7 @@ class DP16ProcessMonitor:
         for unit in self.unit_numbers:
             try:
 
-                decimal_pos = self.get_decimal_position(unit)
+                decimal_pos, is_farenheit = self.get_decimal_position(unit)
 
                 with self.modbus_lock:
                     response = self.client.read_holding_registers(
@@ -87,6 +99,10 @@ class DP16ProcessMonitor:
                     if not response.isError():
                         raw_value = response.registers[0]
                         value = raw_value / (10 ** decimal_pos)
+
+                        if is_farenheit:
+                            value = self.fahrenheit_to_celsius(value)
+
                         temperatures[unit] = value
                     else:
                         if self.logger:
