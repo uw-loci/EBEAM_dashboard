@@ -1,5 +1,6 @@
-from pymodbus.client import ModbusSerialClient as ModbusClient
+import time
 import threading
+from pymodbus.client import ModbusSerialClient as ModbusClient
 from typing import Dict
 
 class DP16ProcessMonitor:
@@ -20,6 +21,7 @@ class DP16ProcessMonitor:
         )
         self.unit_numbers = unit_numbers
         self.modbus_lock = threading.Lock()
+        self.stop_event = threading.Event()
         self.logger = logger
 
     def connect(self):
@@ -83,35 +85,41 @@ class DP16ProcessMonitor:
         """Single unit read with retries
         """
         temperatures = {}
-        
-        for unit in self.unit_numbers:
-            try:
-
-                decimal_pos, is_farenheit = self.get_decimal_position(unit)
-
-                with self.modbus_lock:
-                    response = self.client.read_holding_registers(
-                        address=self.PROCESS_VALUE_REG,
-                        count=1,
-                        slave=unit
-                    )
-                    
-                    if not response.isError():
-                        raw_value = response.registers[0]
-                        value = raw_value / (10 ** decimal_pos)
-
-                        if is_farenheit:
-                            value = self.fahrenheit_to_celsius(value)
-
-                        temperatures[unit] = value
-                    else:
-                        if self.logger:
-                            self.logger.error(f"Error reading unit {unit}")
-                        temperatures[unit] = None
-                        
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Communication error with unit {unit}: {str(e)}")
-                temperatures[unit] = None
+        try:
+            # check/restore connection
+            if not self.client.is_socket_open():
+                if not self.connect():
+                    if self.logger:
+                        self.logger.error("Failed to reconnect to DP16 Process Monitors")
+                    return temperatures
                 
+                time.sleep(0.2) # allow connection to stabilize. used for E5CN also
+                if hasattr(self.client, 'socket'):
+                    self.client.socket.reset_input_buffer()
+                
+            for unit in self.unit_numbers:
+                    decimal_pos, is_farenheit = self.get_decimal_position(unit)
+
+                    with self.modbus_lock:
+                        response = self.client.read_holding_registers( # Read the Temperature
+                            address=self.PROCESS_VALUE_REG,
+                            count=1,
+                            slave=unit
+                        )
+                        
+                        if not response.isError():
+                            raw_value = response.registers[0]
+                            value = raw_value / (10 ** decimal_pos)
+                            if is_farenheit:
+                                value = self.fahrenheit_to_celsius(value)
+                            temperatures[unit] = value
+                        else:
+                            if self.logger:
+                                self.logger.error(f"Error reading unit {unit}")
+                            temperatures[unit] = None
+                            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Communication error: {str(e)}")
+
         return temperatures
