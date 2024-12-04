@@ -126,6 +126,9 @@ class EnvironmentalSubsystem:
             unit_numbers=list(self.thermometer_map.values()),
             logger=logger
         )
+        if not self.monitor.connect():
+            if self.logger:
+                self.logger.warning("Failed to connect to DP16 Process Monitor")
 
         self.setup_gui()
         self.update_temperatures()
