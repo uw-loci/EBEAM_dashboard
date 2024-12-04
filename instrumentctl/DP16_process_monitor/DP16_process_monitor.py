@@ -117,9 +117,21 @@ class DP16ProcessMonitor:
                             if self.logger:
                                 self.logger.error(f"Error reading unit {unit}")
                             temperatures[unit] = None
-                            
+
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Communication error: {str(e)}")
 
         return temperatures
+
+    def disconnect(self):
+        """ Cllose Modbus connection """
+        with self.modbus_lock:
+            try:
+                if self.client.is_socket_open():
+                    self.client.close()
+                    if self.logger:
+                        self.logger.info("Disconnected from DP16 Process Monitors")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error disconnecting: {str(e)}")
