@@ -137,11 +137,15 @@ class EnvironmentalSubsystem:
         self.frame = tk.Frame(self.parent)
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         
+        # Configure grid weights for responsive layout
+        for i in range(len(self.thermometers)):
+            self.frame.grid_columnconfigure(i, weight=1)
+        
         # Create temperature bars
         self.temp_bars: Dict[str, TemperatureBar] = {}
-        for name in self.thermometers:
+        for i, name in enumerate(self.thermometers):
             bar = TemperatureBar(self.frame, name)
-            bar.pack(side=tk.LEFT, padx=5)
+            bar.grid(row=0, column=i, padx=5, sticky='nsew')
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
