@@ -23,8 +23,8 @@ frames_config = [
     ("Main Control", 2, 50, 300),
     ("Setup Script", 3, None, 25),
     ("High Voltage Warning", 3, None, 25),
-    ("Process Monitor", 4, 150, 450),
-    ("Cathode Heating", 4, 960, 450),
+    ("Process Monitor", 4, 250, 450),
+    ("Cathode Heating", 4, 980, 450),
 ]
 
 class EBEAMSystemDashboard:
