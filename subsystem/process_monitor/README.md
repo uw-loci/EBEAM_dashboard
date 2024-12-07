@@ -13,6 +13,27 @@ communicates with the DP16_process_monitor.py in order to retrieve information f
 
 
 
+
+
+## Dependencies Utilized:
+
+- **Tkinter** : For the GUI development
+
+- **matplotlib** : For plotting graphs
+
+    - **FigureCanvasTkAgg** : To embed Matplotlib figures in Tkinter.
+
+    - **Normalize**: To normalize the data for color mapping. 
+
+- **instrumentctl.DP16_process_monitor.DP16_process_monitor**: For interfacing with the DP16 process monitor. 
+
+
+
+
+
+
+
+
 ## Key Components
 
 This application mainly consists of the following key components -
@@ -38,6 +59,10 @@ scaled and colored based on the updated temperatures returned by the temp_bars d
 
 
 - **DP16_process_monitor.py**:
+
+
+
+
 
 
 
