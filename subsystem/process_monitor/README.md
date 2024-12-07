@@ -42,6 +42,8 @@ This application mainly consists of the following key components -
 
     The setup_gui method within this class is responsible for the initial setup of the GUI. It instantiates and places the TemperatureBar objects          within the parent frame for readily displaying the real-time temperature status of the monitored units, when the class is instantiated. 
 
+    The update_temperatures method within this class communicates with the driver file to retrieve the updated temperatures of all the units. The retireved temperatures are stored in the form of a dictionary with the key corresponding to the unit numbers of the sensors and the value correcponding to their respective temperatures. The thermometer_maps dictionary, initialized within the constructor, is utilized to retrieve the name of the sensor corresponding to the particular unit numbers. The bar graph for that particular sensor is then updated to the new temperature value obtained from the driver. 
+
 
 
 - **DP16_process_monitor.py**:
