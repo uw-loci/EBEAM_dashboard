@@ -46,7 +46,7 @@ This application mainly consists of the following key components -
 
 
 
-- **DP16_process_monitor.py**:
+- **DP16_process_monitor.py**: 
 
 
 
