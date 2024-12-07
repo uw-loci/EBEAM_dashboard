@@ -42,11 +42,11 @@ class EBEAMSystemDashboard:
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
-        # Initialize all the frames within the main pane
-        self.create_frames()
-
         # Set up a frame for displaying messages and errors
         self.create_messages_frame()
+
+        # Initialize all the frames within the main pane
+        self.create_frames()
 
         # Set up different subsystems within their respective frames
         self.create_subsystems()
@@ -79,6 +79,8 @@ class EBEAMSystemDashboard:
                 SetupScripts(frame)
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
+
+        self.rows[4].add(self.messages_frame.frame, stretch='always')
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -171,7 +173,9 @@ class EBEAMSystemDashboard:
         log_levels = [level.name for level in LogLevel]
         log_level_dropdown = ttk.Combobox(log_level_frame, textvariable=self.log_level_var, values=log_levels, state="readonly")
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        log_level_dropdown.set(LogLevel.INFO.name) 
+        
+        current_level = self.messages_frame.get_log_level()
+        log_level_dropdown.set(current_level.name) 
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
     def on_log_level_change(self, event):
@@ -215,7 +219,6 @@ class EBEAMSystemDashboard:
     def create_messages_frame(self):
         """Create a frame for displaying messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[4])
-        self.rows[4].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
 
     def create_com_port_frame(self, parent_frame):
