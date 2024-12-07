@@ -1,12 +1,14 @@
 ## Overview
 
-`process_monitor.py` aims to visualize real-time temperature data of different sensors ('Solenoid
+`process_monitor.py` aims to visualize real-time temperature data of different sensors (
 
-1', 'Solenoid 2', 'Chamber Bot', 'Chamber Top', 'Air temp') using the GUI. It communicates with the 
+**Solenoid 1**, **Solenoid 2**, **Chamber Bot**, **Chamber Top**, **Air temp**) using the GUI. It
 
-DP16_process_monitor.py in order to retrieve information from the `temperature` dictionary retuned 
+communicates with the DP16_process_monitor.py in order to retrieve information from the 
 
-by the read_temperatures method in the driver file (DP16_process_monitor.py). 
+`temperature` dictionary retuned by the read_temperatures method in the driver file 
+
+(DP16_process_monitor.py). 
 
 
 
