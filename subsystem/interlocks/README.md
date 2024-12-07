@@ -64,7 +64,7 @@ flowchart TD
         updateComport -- initialized --> c
     
         interlocks.py -- initialized --> a[Get Interlocks Status]
-        interlocks.py -- not initialize--> init
+        interlocks.py -- not initialized--> init
 
 
         init --> b[Creates all tkinter objects]
