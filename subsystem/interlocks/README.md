@@ -57,22 +57,26 @@ g9_active - bit 4 of the output data that indicates weather the g9 enable buttom
 ### FlowChart
 ```mermaid
 flowchart TD
-    dashboard.py --> interlocks.py
-
-    dashboard.py --> updateComport
-    updateComport -- If intialized --> c 
+    subgraph Interlocks Subsystem 
+        dashboard.py --> interlocks.py
+        
+        dashboard.py --> updateComport
+        updateComport -- initialized --> c
     
-    interlocks.py -- if intialized --> a[Get Interlocks Status]
-    interlocks.py -- if not intialized--> init 
+        interlocks.py -- initialized --> a[Get Interlocks Status]
+        interlocks.py -- not initialized--> init
 
-    init --> b[Creates all tkinter objects]
-    b[Creates all tkinter objects] --> c[Attends to make serial connection through driver]
-    c[Attends to make serial connection through driver] --Sucessful--> d[Update Interlock Status]
-    c[Attends to make serial connection through driver] --Failed--> e[Set all Interlocks to red]
-    a --> d
-    d --Sucessful --> f[Parse Data updating interlocks accordingly]
-    f --> g[Update Interval Scheduling]
-    d --Failed --> g
-    g --> d 
-    ```
+
+        init --> b[Creates all tkinter objects]
+        b[Creates all tkinter objects] --> c[Attends to make serial connection through driver]
+        c[Attends to make serial connection through driver] --Successful--> d[Update Interlock Status]
+        c[Attends to make serial connection through driver] --Failed--> e[Set all Interlocks to red]
+        a --> d
+        d --Successful --> f[Parse Data updating interlocks accordingly]
+        f --> g[Update Interval Scheduling]
+        d --Failed --> g
+        g --> d
+    end
+```
+
 
