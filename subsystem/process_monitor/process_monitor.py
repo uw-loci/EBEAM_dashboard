@@ -104,7 +104,7 @@ class ProcessMonitorSubsystem:
     def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
-        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Bot', 'Chamber Top', 'Air temp']
+        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp']
         self.temperatures = {
             name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
             for name in self.thermometers
@@ -113,8 +113,8 @@ class ProcessMonitorSubsystem:
         self.thermometer_map = {
             'Solenoid 1': 1,
             'Solenoid 2': 2,
-            'Chamber Bot': 3,
-            'Chamber Top': 4,
+            'Chamber Top': 3,
+            'Chamber Bot': 4,
             'Air temp': 5
         }
         
