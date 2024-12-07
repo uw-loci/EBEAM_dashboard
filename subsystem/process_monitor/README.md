@@ -7,7 +7,7 @@
 `temperature` dictionary retuned by the read_temperatures method in the driver file (DP16_process_monitor.py). 
 
 
-
+&nbsp;
 
 
 
@@ -26,7 +26,7 @@
 
 
 
-
+&nbsp;
 
 
 
