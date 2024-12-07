@@ -5,6 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
+import subsystem.process_monitor
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
@@ -22,7 +23,7 @@ frames_config = [
     ("Main Control", 2, 50, 300),
     ("Setup Script", 3, None, 25),
     ("High Voltage Warning", 3, None, 25),
-    ("Environmental", 4, 150, 450),
+    ("Process Monitor", 4, 150, 450),
     ("Cathode Heating", 4, 960, 450),
 ]
 
@@ -187,8 +188,8 @@ class EBEAMSystemDashboard:
                 serial_port=self.com_ports['VTRXSubsystem'], 
                 logger=self.logger
             ),
-            'Environmental [°C]': subsystem.EnvironmentalSubsystem(
-                self.frames['Environmental'], 
+            'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
+                self.frames['Process Monitor'], 
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger
             ),

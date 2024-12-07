@@ -1,5 +1,3 @@
-
-# environmental.py
 import tkinter as tk
 import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -102,7 +100,7 @@ class TemperatureBar(tk.Canvas):
             return '#FF0000'  # Red for hot
 
 
-class EnvironmentalSubsystem:
+class ProcessMonitorSubsystem:
     def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
