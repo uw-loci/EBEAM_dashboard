@@ -1,8 +1,5 @@
 import tkinter as tk
 import random
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 
