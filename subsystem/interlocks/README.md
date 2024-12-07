@@ -58,7 +58,7 @@ g9_active - bit 4 of the output data that indicates weather the g9 enable buttom
 ```mermaid
 flowchart TD
     dashboard.py --> interlocks.py
-    subgraph Interlocks Subsystem 
+    
     dashboard.py --> updateComport
     updateComport -- initialized --> c
    
