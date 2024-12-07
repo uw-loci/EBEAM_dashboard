@@ -30,7 +30,7 @@
 
 
 
-## Key Components
+## Key Components - Main Code Structure
 
 This application mainly consists of the following key components -
 
@@ -38,7 +38,9 @@ This application mainly consists of the following key components -
 
 
 
-- **ProcessMonitorSusbsystem Class**: 
+- **ProcessMonitorSusbsystem Class**: The `ProcessMonitorSubsystem Class` is responsible for calling the parent tkinter frame. It instantiates a DP16ProcessMonitor object. If the DP16Monitor object fails to connect via the RS-485 port, i.e., if the connect method in the `DP16_process_monitor` class fails to execute, the logger throws a warning message mentioning the same. 
+
+The setup_gui method within this class is responsible for the initial setup of the GUI. It instantiates and places the TemperatureBar objects within the parent frame for readily displaying the real-time temperature status of the monitored units, when the class is instantiated. 
 
 
 
