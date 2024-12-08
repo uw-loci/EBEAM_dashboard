@@ -101,7 +101,7 @@ class DP16ProcessMonitor:
         return temperatures
 
     def disconnect(self):
-        """ Cllose Modbus connection """
+        """ Close Modbus connection """
         with self.modbus_lock:
             try:
                 if self.client.is_socket_open():
