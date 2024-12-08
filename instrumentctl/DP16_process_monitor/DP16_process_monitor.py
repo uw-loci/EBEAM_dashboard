@@ -10,7 +10,7 @@ class DP16ProcessMonitor:
     PROCESS_VALUE_REG = 0x210   # Register 39 in Table 6.2
     RDGCNF_REG = 0x248          # Register 8 in Table 6.2
 
-    def __init__(self, port, unit_numbers=[1,2,3,4,5], baudrate=9600, logger=None):
+    def __init__(self, port, unit_numbers={1,2,3,4,5}, baudrate=9600, logger=None):
         """ Initialize Modbus settings """
         self.client = ModbusClient(
             port=port,
@@ -27,6 +27,10 @@ class DP16ProcessMonitor:
         self.logger = logger
 
     def connect(self):
+        """
+        Checks to see if serial connection is good
+        Returns True if good, false otherwise
+        """
         with self.modbus_lock:
             try:
                 if self.client.is_socket_open():
