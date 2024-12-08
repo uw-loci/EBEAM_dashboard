@@ -56,10 +56,10 @@ class TemperatureBar(tk.Canvas):
         self.delete('bar')
         
         # Calculate bar height
-        bar_height = ((value/100) * (self.scale_bottom - self.scale_top))
+        bar_height = ((value/100) * (self.scale_bottom - self.scale_top)) if value != -1 else 3 # Bar takes full height upon error  
         
         # Calculate color based on temperature
-        color = self.get_temperature_color(value)
+        color = self.get_temperature_color(value) if value != -1 else '#FFA500'  # Orange color assigned for error representation 
         
         # Draw bar
         self.create_rectangle(
@@ -87,6 +87,8 @@ class TemperatureBar(tk.Canvas):
         
     def get_temperature_color(self, temp: float) -> str:
         """Return a color based on temperature value."""
+        # TODO: Update the scale and limits for each sensor to determine what constitutes as cold, warm, normal or hot. 
+        # Ask Brandon for the temperatures limits/Ranges for each sensor 
         if temp < 30:
             return '#0000FF'  # Blue for cold
         elif temp < 50:
@@ -104,10 +106,12 @@ class ProcessMonitorSubsystem:
         self.parent = parent
         self.logger = logger
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
-        self.temperatures = {
-            name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
-            for name in self.thermometers
-        }
+
+        """Code previously used for simulation but can be scrapped as soon as we see live data from sensors"""
+        # self.temperatures = {
+        #     name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
+        #     for name in self.thermometers
+        # }
 
         self.thermometer_map = {
             'Solenoid 1': 1,
@@ -156,6 +160,7 @@ class ProcessMonitorSubsystem:
                 temp = temps.get(unit)
                 if temp is not None:
                     self.temp_bars[name].update_value(temp)
+                
                     
         except Exception as e:
             if self.logger:
