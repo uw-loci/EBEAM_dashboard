@@ -103,7 +103,7 @@ class ProcessMonitorSubsystem:
     def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
-        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned Temperatures']
+        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.temperatures = {
             name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
             for name in self.thermometers
@@ -115,7 +115,7 @@ class ProcessMonitorSubsystem:
             'Chamber Top': 3,
             'Chamber Bot': 4,
             'Air temp': 5,
-            'Unassigned Temperatures': 6
+            'Unassigned': 6
         }
         
         # Initialize the DP16 monitor

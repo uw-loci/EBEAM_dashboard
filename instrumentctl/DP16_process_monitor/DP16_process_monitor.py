@@ -22,9 +22,9 @@ class DP16ProcessMonitor:
         )
         self.unit_numbers = unit_numbers
         self.modbus_lock = threading.Lock()
+        self.logger = logger
         for unit in unit_numbers:
             self.set_decimal_config(unit)
-        self.logger = logger
 
     def connect(self):
         """
