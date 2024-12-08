@@ -92,16 +92,18 @@ class TemperatureBar(tk.Canvas):
         elif temp < 50:
             return '#00FF00'  # Green for normal
         elif temp < 70:
-            return '#FFA500'  # Orange for warm
+            return '#FFFF00'  # Yellow for warm
         else:
             return '#FF0000'  # Red for hot
+        
+        # return '#FFA500'  # Orange for warm
 
 
 class ProcessMonitorSubsystem:
     def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
-        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp']
+        self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned Temperatures']
         self.temperatures = {
             name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
             for name in self.thermometers
@@ -112,7 +114,8 @@ class ProcessMonitorSubsystem:
             'Solenoid 2': 2,
             'Chamber Top': 3,
             'Chamber Bot': 4,
-            'Air temp': 5
+            'Air temp': 5,
+            'Unassigned Temperatures': 6
         }
         
         # Initialize the DP16 monitor
