@@ -21,12 +21,11 @@ if not client.is_socket_open():
 
     except Exception as e:
         print(f'Failed to connect: {e}')
-
-
+        
 response = client.read_holding_registers(
-    address=0x0240,
-    count=1,
-    slave=3
+    address=0x210,
+    count=2,
+    slave=4
 )
 
 print(response)

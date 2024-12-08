@@ -22,6 +22,8 @@ class DP16ProcessMonitor:
         )
         self.unit_numbers = unit_numbers
         self.modbus_lock = threading.Lock()
+        for unit in unit_numbers:
+            self.set_decimal_config(unit)
         self.logger = logger
 
     def connect(self):
@@ -54,9 +56,33 @@ class DP16ProcessMonitor:
             if self.logger:
                 self.logger.error(f"Error reading config: {e}")
             return None
+        
+    def set_decimal_config(self, unit, val = 0x002):
+        """
+        Sets the reading configuration format
+        2 - FFF.F
+        3 - FFFF
+        Returns:
+            if setting is successful or not
+        """
+        try:
+            with self.modbus_lock:
+                response = self.client.write_register(
+                    address=self.RDGCNF_REG,
+                    value=val,
+                    slave=unit
+                )
+                if not response.isError():
+                    return False
+                return True
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error reading config: {e}")
+            return None
 
     def read_temperatures(self):
-        """Single unit read with retries
+        """
+        Single unit read with retries
         """
         temperatures = {}
         try:
