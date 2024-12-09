@@ -77,8 +77,8 @@ class DP16ProcessMonitor:
                     slave=unit
                 )
                 if not response.isError():
-                    return False
-                return True
+                    return True
+                return False
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error reading config: {e}")
