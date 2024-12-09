@@ -51,7 +51,7 @@ class TemperatureBar(tk.Canvas):
         self.scale_top = top_y
         self.scale_bottom = bottom_y
         
-    def update_value(self, value: float):
+    def update_value(self, name, value: float):
         """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
         self.delete('bar')
         
@@ -59,7 +59,7 @@ class TemperatureBar(tk.Canvas):
         bar_height = ((value/100) * (self.scale_bottom - self.scale_top)) if value != -1 else ((100/100) * (self.scale_bottom - self.scale_top)) # Bar takes full height upon error  
         
         # Calculate color based on temperature
-        color = self.get_temperature_color(value) if value != -1 else '#FFA500'  # Orange color assigned for error representation 
+        color = self.get_temperature_color(name, value) if value != -1 else '#FFA500'  # Orange color assigned for error representation 
         
         # Draw bar
         self.create_rectangle(
@@ -85,20 +85,40 @@ class TemperatureBar(tk.Canvas):
             tags='value'
         )
         
-    def get_temperature_color(self, temp: float) -> str:
+    def get_temperature_color(self, name, temp: float) -> str:
         """Return a color based on temperature value."""
-        # TODO: Update the scale and limits for each sensor to determine what constitutes as cold, warm, normal or hot. 
-        # Ask Brandon for the temperatures limits/Ranges for each sensor 
-        if temp < 30:
-            return '#0000FF'  # Blue for cold
-        elif temp < 50:
-            return '#00FF00'  # Green for normal
-        elif temp < 70:
-            return '#FFFF00'  # Yellow for warm
-        else:
-            return '#FF0000'  # Red for hot
         
-        # return '#FFA500'  # Orange for warm
+        if temp < 20:
+            return '#0000FF'  # Blue for cold
+        
+        if name.startswith('Solenoid'): 
+            if temp < 70:
+                return '#00FF00'  # Green for normal 
+            elif temp < 100:
+                return '#FFFF00'  # Yellow for warm 
+            else:
+                return '#FF0000'  # Red for hot
+        elif name.startswith('Chamber'): 
+            if temp < 50:
+                return '#00FF00'  # Green for normal 
+            elif temp < 70:
+                return '#FFFF00'  # Yellow for warm 
+            else:
+                return '#FF0000'  # Red for hot 
+        elif name.startswith('Air'):
+            if temp < 30:
+                return '#00FF00'  # Green for normal 
+            elif temp < 40:
+                return '#FFFF00'  # Yellow for warm 
+            else:
+                return '#FF0000'  # Red for hot
+        else:
+            if temp < 70:
+                return '#00FF00'  # Green for normal
+            elif temp < 100:
+                return '#FFFF00'  # Yellow for warm
+            else:
+                return '#FF0000'  # Red for hot 
 
 
 class ProcessMonitorSubsystem:
@@ -159,7 +179,7 @@ class ProcessMonitorSubsystem:
             for name, unit in self.thermometer_map.items():
                 temp = temps.get(unit)
                 if temp is not None:
-                    self.temp_bars[name].update_value(temp)
+                    self.temp_bars[name].update_value(name, temp)
                 
                     
         except Exception as e:
