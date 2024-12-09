@@ -26,7 +26,6 @@ class DP16ProcessMonitor:
         self.logger = logger
         self.lst_resp = {unit: -1 for unit in unit_numbers}
         self._is_running = True
-        self._threads = []
         self.start_up_threading()
     
     def start_up_threading(self):
@@ -36,8 +35,6 @@ class DP16ProcessMonitor:
         try:
             for unit in self.unit_numbers:
                 self._set_config(unit)
-            self._threads.append(threading.Thread(target=self.update_temperature, daemon=True))
-            self._threads[-1].start()
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Threading start up failed: {e}")
@@ -57,6 +54,7 @@ class DP16ProcessMonitor:
                 if self.logger:
                     self.logger.error(f"Error connecting: {str(e)}")
                 return False
+
 
     def get_reading_config(self, unit):
         """Get reading configuration format
@@ -78,6 +76,7 @@ class DP16ProcessMonitor:
                 self.logger.error(f"Error reading config: {e}")
             return None
         
+
     def _set_config(self, unit):
         """
         Sets the reading configuration format along with the run state
@@ -128,70 +127,74 @@ class DP16ProcessMonitor:
             return False
 
 
-    def _update_temperature(self):
+    def update_temperature(self):
         """
         Single unit read with retries
         """
-        
         try:
-                # for unit in self.unit_numbers:
-                with self.modbus_lock:
-                    for unit in self.unit_numbers:
-                    # expected 6 for normal; 10 for error
-                        status = self.client.read_holding_registers( # Read the Status
-                            address=self.STATUS_REG,
-                            count=1,
-                            slave=unit
-                        )
+            # for unit in self.unit_numbers:
+            with self.modbus_lock:
+                if not self.client.is_socket_open():
+                    try:
+                        if self.client.connect():
+                            time.sleep(0.2)
+                        else:
+                            print("Failed to connect, no exception thrown")
 
-                        if not status.isError():
+                    except Exception as e:
+                        print(f'Failed to connect: {e}')
+                for unit in self.unit_numbers:
+                # expected 6 for normal; 10 for error
+                    status = self.client.read_holding_registers( # Read the Status
+                        address=self.STATUS_REG,
+                        count=1,
+                        slave=unit
+                    )
+
+                    if not status.isError():
+                        if self.logger:
                             self.logger.debug(f"Status for unit {unit}: {status.registers[0]}")
+                        if status.registers[0] == 6: # Normal operation
+                            # Read the Temperature
+                            response = self.client.read_holding_registers(
+                                address=self.PROCESS_VALUE_REG,
+                                count=2, # for 32 bit float
+                                slave=unit
+                            )
 
-                            if status.registers[0] == 6: # Normal operation
-                                # Read the Temperature
-                                response = self.client.read_holding_registers(
-                                    address=self.PROCESS_VALUE_REG,
-                                    count=2, # for 32 bit float
-                                    slave=unit
-                                )
-
-                                if not response.isError():
-                                    # Convert two 16-bit registers to float
-                                    raw_float = struct.pack('>HH', 
-                                        response.registers[0], 
-                                        response.registers[1])
-                                    value = struct.unpack('>f', raw_float)[0]
-                                    # inline validation
-                                    if -90 <= value <= 500:  # RTD range (P3A-TAPE-REC-PX-1-PFXX-40-STWL)
+                            if not response.isError():
+                                # Convert two 16-bit registers to float
+                                raw_float = struct.pack('>HH', 
+                                    response.registers[0], 
+                                    response.registers[1])
+                                value = struct.unpack('>f', raw_float)[0]
+                                # inline validation
+                                if -90 <= value <= 500:  # RTD range (P3A-TAPE-REC-PX-1-PFXX-40-STWL)
+                                    if self.logger:
                                         self.logger.info(f"DP16 Unit {unit} temp: {value:.2f}")
-                                        self.lst_resp[unit] = value
-                                    else:
-                                        if self.logger:
-                                            self.logger.error(f"DP16 Unit {unit} temp out of range: {value}°C")
-                                        self.lst_resp[unit] = None
+                                    self.lst_resp[unit] = value
                                 else:
                                     if self.logger:
-                                        self.logger.error(f"Failed to read PROCESS_VALUE_REG for unit {unit}: {response}")
+                                        self.logger.error(f"DP16 Unit {unit} temp out of range: {value}°C")
                                     self.lst_resp[unit] = None
                             else:
                                 if self.logger:
-                                    self.logger.error(f"DP16 Unit {unit} abnormal status: {status.registers[0]}")
-                                self.lst_resp[unit] = -1  
+                                    self.logger.error(f"Failed to read PROCESS_VALUE_REG for unit {unit}: {response}")
+                                self.lst_resp[unit] = None
                         else:
                             if self.logger:
-                                self.logger.error(f"Missed package on unit - {unit}")   
-                            self.lst_resp[unit] = -1   
+                                self.logger.error(f"DP16 Unit {unit} abnormal status: {status.registers[0]}")
+                            self.lst_resp[unit] = -1  
+                    else:
+                        if self.logger:
+                            self.logger.error(f"Missed package on unit - {unit}")   
+                        self.lst_resp[unit] = None 
 
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Communication error: {str(e)}")
-        finally:
-            time.sleep(0.2)
-
-    def last_response(self):
-        # return self.lst_resp
-        with self.modbus_lock: # guard access to shared lst_resp variable
-            return self.lst_resp.copy()
+        
+        return self.lst_resp
 
     def disconnect(self):
         """ Close Modbus connection """

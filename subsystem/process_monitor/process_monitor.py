@@ -186,20 +186,20 @@ class ProcessMonitorSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
-        try:
+        # try:
             # Read all temperatures
-            temps = self.monitor.last_response()
+        temps = self.monitor.update_temperature()
 
-            # Update each temperature bar
-            for name, unit in self.thermometer_map.items():
-                temp = temps.get(unit)
-                if temp is not None:
-                    self.temp_bars[name].update_value(name, temp)
+        # Update each temperature bar
+        for name, unit in self.thermometer_map.items():
+            temp = temps.get(unit)
+            if temp is not None:
+                self.temp_bars[name].update_value(name, temp)
                 
                     
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error updating temperatures: {str(e)}")
+        # except Exception as e:
+        #     if self.logger:
+        #         self.logger.error(f"Error updating temperatures: {str(e)}")
                 
         # Schedule next update
         self.parent.after(500, self.update_temperatures)

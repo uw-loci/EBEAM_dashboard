@@ -24,18 +24,16 @@ if not client.is_socket_open():
 
 for _ in range(2):
      for unit in unit_numbers:
-
-
         status = client.read_holding_registers(
             address=0x240,
             count=1,
-            slave=5
+            slave=4
         )
-        if status.registers[0] == 6:
+        if not status.isError() and status.registers[0] == 6:
             response = client.read_holding_registers(
                 address=0x210,
                 count=2,
-                slave=5
+                slave=4
             )
             if response and not response.isError():
                 temperature = response.registers[0]
