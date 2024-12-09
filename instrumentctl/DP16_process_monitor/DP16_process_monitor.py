@@ -181,7 +181,8 @@ class DP16ProcessMonitor:
                 time.sleep(0.2)
 
     def last_response(self):
-        return self.lst_resp
+        with self.modbus_lock: # guard access to shared lst_resp variable
+            return self.lst_resp.copy()
 
     def disconnect(self):
         """ Close Modbus connection """
