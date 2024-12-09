@@ -99,7 +99,7 @@ class DP16ProcessMonitor:
                 )
                 if response1.isError():
                     if self.logger:
-                        self.logger.error(f"Failed to write RDGCNF_REG for unit {unit}")
+                        self.logger.error(f"Failed to write RDGCNF_REG for unit {unit}. Response:{response1}")
                     return False # Exit early if the first write fails
                     
                 # Second write: Update the status register
@@ -110,9 +110,10 @@ class DP16ProcessMonitor:
                 )
                 if response2.isError():
                     if self.logger:
-                        self.logger.error(f"Failed to write STATUS_REG for unit {unit}")
+                        self.logger.error(f"Failed to write STATUS_REG for unit {unit}: Response:{response2}")
                     return False # Exit if second write fails
                 
+                self.logger.info(f"Configuration successful for DP16 unit {unit}")
                 return True
             
         except Exception as e:
@@ -131,10 +132,8 @@ class DP16ProcessMonitor:
                     if not self.connect():
                         if self.logger:
                             self.logger.error("Failed to reconnect to DP16 Process Monitors")
-                    
-                    # time.sleep(0.2) # allow connection to stabilize. used for E5CN also
-                    # if hasattr(self.client, 'socket'):
-                    #     self.client.socket.reset_input_buffer()
+                        time.sleep(0.2) # I think we want some time for recovery
+                        continue
                     
                 # for unit in self.unit_numbers:
                 with self.modbus_lock:
@@ -146,8 +145,11 @@ class DP16ProcessMonitor:
                     )
 
                     if not status.isError():
-                        if status.registers[0] == 6:
-                            response = self.client.read_holding_registers( # Read the Temperature
+                        self.logger.debug(f"Status for unit {unit}: {status.registers[0]}")
+
+                        if status.registers[0] == 6: # Normal operation
+                            # Read the Temperature
+                            response = self.client.read_holding_registers(
                                 address=self.PROCESS_VALUE_REG,
                                 count=2, # for 32 bit float
                                 slave=unit
@@ -161,18 +163,24 @@ class DP16ProcessMonitor:
                                 value = struct.unpack('>f', raw_float)[0]
                                 # inline validation
                                 if -90 <= value <= 500:  # RTD range (P3A-TAPE-REC-PX-1-PFXX-40-STWL)
+                                    self.logger.info(f"DP16 Unit {unit} temp: {value:.2f}")
                                     self.lst_resp[unit] = value
                                 else:
                                     if self.logger:
-                                        self.logger.error(f"Temperature out of range: {value}°C")
+                                        self.logger.error(f"DP16 Unit {unit} temp out of range: {value}°C")
                                     self.lst_resp[unit] = None
+                            else:
+                                if self.logger:
+                                    self.logger.error(f"Failed to read PROCESS_VALUE_REG for unit {unit}: {response}")
+                                self.lst_resp[unit] = None
                         else:
                             if self.logger:
-                                self.logger.error(f"Return message from unit indicating error status: unit - {unit}")
+                                self.logger.error(f"DP16 Unit {unit} abnormal status: {status.registers[0]}")
                             self.lst_resp[unit] = -1  
                     else:
                         if self.logger:
-                            self.logger.error(f"Missed package on unit - {unit}")      
+                            self.logger.error(f"Missed package on unit - {unit}")   
+                        self.lst_resp[unit] = -1   
 
             except Exception as e:
                 if self.logger:
