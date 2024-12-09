@@ -86,21 +86,35 @@ class DP16ProcessMonitor:
         if unit not in self.unit_numbers:
             if self.logger:
                 self.logger.debug(f"set_decimal_config was called with an invalid unit address")
+            return False # exit for invalid unit
+        
         try:
             with self.modbus_lock:
-                response = self.client.write_register(
+
+                # First write: Set the reading configuration format
+                response1 = self.client.write_register(
                     address=self.RDGCNF_REG,
                     value=0x002,
                     slave=unit
                 )
+                if response1.isError():
+                    if self.logger:
+                        self.logger.error(f"Failed to write RDGCNF_REG for unit {unit}")
+                        return False # Exit early if the first write fails
+                    
+                # Second write: Update the status register
                 response = self.client.write_register(
                     address=self.STATUS_REG,
                     value=0x0006,
                     slave=unit
                 )
-                if not response.isError():
-                    return True
-                return False
+                if response.isError():
+                    if self.logger:
+                        self.logger.error(f"Failed to write STATUS_REG for unit {unit}")
+                    return False # Exit if second write fails
+                
+                return True
+            
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error writing config: {e}")
