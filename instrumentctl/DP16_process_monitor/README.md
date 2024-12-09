@@ -50,22 +50,32 @@ This code is used when calling the .read_holding_registers() method on a pyModbu
 client.read_holding_registers(
     address=register_location,
     count=number_of_registers,
-    slave=adress
+    slave=unit
 )
 ```
 
 0x04 - Read Input Registers
-This code is used to read the input registers, inpur registers generally contain information to how the monitor is configured.
+This code is used to read the input registers, input registers generally contain information to how the monitor is configured.
 
 ```python
 client.read_input_registers(
     address=register_location,
     count=number_of_registers,
-    slave=adress
+    slave=unit
 )
 ```
 
-0x10 - Write (idk how this works yet)
+0x10 - Write
+This is used to write to mutable registers. This is most use to write in config specs to make sure monitior is working as expected.
+
+```python
+client.write_register(
+        address=register_location,
+        value=val,
+        slave=unit
+    )
+
+```
 
 ### Packages 
 
