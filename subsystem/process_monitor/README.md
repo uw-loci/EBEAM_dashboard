@@ -61,7 +61,7 @@ This application mainly consists of the following key components -
          If a temperature is outside this range, it is stored as None.
 
 
-The temperature for a particular unit is retrieved from the lst_resp dictionary, which is updated in real-time by the update_temperature method in the driver file. Using this dictionary, the temperatures for the units are updated based on the stored values.
+The temperature for a particular unit is retrieved from the `lst_resp` dictionary, which is updated in real-time by the `update_temperature` method in the driver file. Using this dictionary, the temperatures for the units are updated based on the stored values.
 
 
 
