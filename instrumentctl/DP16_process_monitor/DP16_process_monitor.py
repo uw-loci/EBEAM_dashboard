@@ -28,8 +28,11 @@ class DP16ProcessMonitor:
         self._is_running = True
         self._threads = []
         self.start_up_threading()
-        
+    
     def start_up_threading(self):
+        """
+        Starts up the thread for each unit, and called _set_config, before going into the update loop
+        """
         try:
             for unit in self.unit_numbers:
                 self._set_config(unit)
@@ -77,9 +80,12 @@ class DP16ProcessMonitor:
         
     def _set_config(self, unit):
         """
-        Sets the reading configuration format
+        Sets the reading configuration format along with the run state
         2 - FFF.F
         3 - FFFF
+
+        6 - Running 
+        10 - Operating
         Returns:
             if setting is successful or not
         """
