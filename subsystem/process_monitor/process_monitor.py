@@ -118,8 +118,7 @@ class ProcessMonitorSubsystem:
             'Solenoid 2': 2,
             'Chamber Top': 3,
             'Chamber Bot': 4,
-            'Air temp': 5,
-            'Unassigned': 6
+            'Air temp': 5
         }
         
         # Initialize the DP16 monitor
@@ -133,6 +132,7 @@ class ProcessMonitorSubsystem:
                 self.logger.warning("Failed to connect to DP16 Process Monitor")
 
         self.setup_gui()
+        self.monitor.start_up_threading()
         self.update_temperatures()
 
     def setup_gui(self):
