@@ -70,3 +70,6 @@ The temperature for a particular unit is retrieved from the `lst_resp` dictionar
 
 
 ## Flow Chart for process_monitor.py
+
+
+<img src="./workflow.png" alt="Workflow Diagram">
