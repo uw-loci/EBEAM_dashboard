@@ -152,6 +152,7 @@ class DP16ProcessMonitor:
                     )
 
                     if not status.isError():
+                        time.sleep(.2)
                         if status.registers[0] == 6:
                             response = self.client.read_holding_registers( # Read the Temperature
                                 address=self.PROCESS_VALUE_REG,
