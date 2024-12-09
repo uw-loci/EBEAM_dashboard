@@ -104,7 +104,7 @@ class DP16ProcessMonitor:
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error writing config: {e}")
-            return None
+            return False
 
     def update_temperature(self, unit):
         """
