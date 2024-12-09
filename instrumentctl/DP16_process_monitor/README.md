@@ -114,7 +114,6 @@ PC to Master
 
 
 Master to PC
-PC to Master
 | Byte Offset |  Size   | Description                          |
 |-------------|-------------------------|--------------------------------------|
 | +0          |  1 byte | Slave address                        |
