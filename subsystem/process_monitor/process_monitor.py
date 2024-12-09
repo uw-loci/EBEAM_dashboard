@@ -47,11 +47,11 @@ class TemperatureBar(tk.Canvas):
         else:
             scale_key = None  # Default behavior if name does not match
 
-        temp_min, temp_max, ticks = self.SCALE_LABELS.get(scale_key, [0, 100, 20])
+        self.temp_min, self.temp_max, self.ticks = self.SCALE_LABELS.get(scale_key, [0, 100, 20])
         
         # Scale marks and labels
-        for i in range(temp_min, temp_max + 1, ticks):
-            y = bottom_y - (i/100) * scale_height
+        for i in range(self.temp_min, self.temp_max + 1, self.ticks):
+            y = bottom_y - (i/self.temp_max) * scale_height
             self.create_line(scale_x-2, y, scale_x+2, y)
             self.create_text(
                 scale_x-6, 
@@ -71,7 +71,7 @@ class TemperatureBar(tk.Canvas):
         self.delete('bar')
         
         # Calculate bar height
-        bar_height = ((value/100) * (self.scale_bottom - self.scale_top)) if value != -1 else ((100/100) * (self.scale_bottom - self.scale_top)) # Bar takes full height upon error  
+        bar_height = ((value/self.temp_max) * (self.scale_bottom - self.scale_top)) if value != -1 else ((100/100) * (self.scale_bottom - self.scale_top)) # Bar takes full height upon error  
         
         # Calculate color based on temperature
         color = self.get_temperature_color(name, value) if value != -1 else '#FFA500'  # Orange color assigned for error representation 
