@@ -100,15 +100,15 @@ class DP16ProcessMonitor:
                 if response1.isError():
                     if self.logger:
                         self.logger.error(f"Failed to write RDGCNF_REG for unit {unit}")
-                        return False # Exit early if the first write fails
+                    return False # Exit early if the first write fails
                     
                 # Second write: Update the status register
-                response = self.client.write_register(
+                response2 = self.client.write_register(
                     address=self.STATUS_REG,
                     value=0x0006,
                     slave=unit
                 )
-                if response.isError():
+                if response2.isError():
                     if self.logger:
                         self.logger.error(f"Failed to write STATUS_REG for unit {unit}")
                     return False # Exit if second write fails
@@ -177,11 +177,11 @@ class DP16ProcessMonitor:
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Communication error: {str(e)}")
-        time.sleep(0.2)
+            finally:
+                time.sleep(0.2)
 
     def last_response(self):
         return self.lst_resp
-
 
     def disconnect(self):
         """ Close Modbus connection """
