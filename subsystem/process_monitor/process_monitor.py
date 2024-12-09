@@ -4,6 +4,9 @@ from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 
 class TemperatureBar(tk.Canvas):
+
+    SCALE_LABELS = {'Solenoids': [0 , 120, 24], 'Chambers' : [0, 100, 20], 'Air': [0, 50, 10]} # Limits and ticks for temperature bars
+
     def __init__(self, parent, name: str, height: int = 400, width: int = 40):
         super().__init__(parent, height=height, width=width)
         self.name = name
@@ -33,9 +36,21 @@ class TemperatureBar(tk.Canvas):
         scale_height = bottom_y - top_y
         
         self.create_line(scale_x, top_y, scale_x, bottom_y)
+
+        # Determine scale based on name
+        if 'Solenoid' in self.name:
+            scale_key = 'Solenoids'
+        elif 'Chamber' in self.name:
+            scale_key = 'Chambers'
+        elif 'Air' in self.name:
+            scale_key = 'Air'
+        else:
+            scale_key = None  # Default behavior if name does not match
+
+        temp_min, temp_max, ticks = self.SCALE_LABELS.get(scale_key, [0, 100, 20])
         
         # Scale marks and labels
-        for i in range(0, 101, 20):
+        for i in range(temp_min, temp_max + 1, ticks):
             y = bottom_y - (i/100) * scale_height
             self.create_line(scale_x-2, y, scale_x+2, y)
             self.create_text(
@@ -88,7 +103,7 @@ class TemperatureBar(tk.Canvas):
     def get_temperature_color(self, name, temp: float) -> str:
         """Return a color based on temperature value."""
         
-        if temp < 20:
+        if temp < 15:
             return '#0000FF'  # Blue for cold
         
         if name.startswith('Solenoid'): 
