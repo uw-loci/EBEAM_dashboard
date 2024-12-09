@@ -52,11 +52,11 @@ class TemperatureBar(tk.Canvas):
         self.scale_bottom = bottom_y
         
     def update_value(self, value: float):
-        """Update the temperature bar with a new value."""
+        """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
         self.delete('bar')
         
         # Calculate bar height
-        bar_height = ((value/100) * (self.scale_bottom - self.scale_top)) if value != -1 else 3 # Bar takes full height upon error  
+        bar_height = ((value/100) * (self.scale_bottom - self.scale_top)) if value != -1 else ((100/100) * (self.scale_bottom - self.scale_top)) # Bar takes full height upon error  
         
         # Calculate color based on temperature
         color = self.get_temperature_color(value) if value != -1 else '#FFA500'  # Orange color assigned for error representation 
