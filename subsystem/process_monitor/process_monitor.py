@@ -125,7 +125,7 @@ class ProcessMonitorSubsystem:
         # Initialize the DP16 monitor
         self.monitor = DP16ProcessMonitor(
             port=com_port,
-            unit_numbers=[5],#list(self.thermometer_map.values()),
+            unit_numbers=list(self.thermometer_map.values()),
             logger=logger
         )
         if not self.monitor.connect():
@@ -153,7 +153,7 @@ class ProcessMonitorSubsystem:
     def update_temperatures(self):
         try:
             # Read all temperatures
-            temps = self.monitor.read_temperatures()
+            temps = self.monitor.last_responce()
 
             # Update each temperature bar
             for name, unit in self.thermometer_map.items():

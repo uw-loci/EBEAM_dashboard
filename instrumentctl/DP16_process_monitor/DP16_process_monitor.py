@@ -20,13 +20,25 @@ class DP16ProcessMonitor:
             bytesize=8,
             parity='N',
             stopbits=1,
-            timeout=.2
+            timeout=.3
         )
         self.unit_numbers = unit_numbers
         self.modbus_lock = threading.Lock()
         self.logger = logger
-        for unit in unit_numbers:
-            self._set_config(unit)
+        self.lst_resp = {unit: -1 for unit in unit_numbers}
+        self._is_running = True
+        self._thread = threading.Thread(target=self.start_up_threading, daemon=True)
+        self._thread.start()
+        
+    def start_up_threading(self):
+        try:
+            for unit in self.unit_numbers:
+                self._set_config(unit)
+            self.update_temperatures()
+        except Exception as e:
+            if self.logger:
+                self.logger.error("Threading start up failed: {e}")
+
 
     def connect(self):
         """
@@ -94,64 +106,64 @@ class DP16ProcessMonitor:
                 self.logger.error(f"Error writing config: {e}")
             return None
 
-    def read_temperatures(self):
+    def update_temperatures(self):
         """
         Single unit read with retries
         """
-        temperatures = {}
-        try:
-            # check/restore connection
-            if not self.client.is_socket_open():
-                if not self.connect():
-                    if self.logger:
-                        self.logger.error("Failed to reconnect to DP16 Process Monitors")
-                    return temperatures
-                
-                time.sleep(0.2) # allow connection to stabilize. used for E5CN also
-                if hasattr(self.client, 'socket'):
-                    self.client.socket.reset_input_buffer()
-                
-            for unit in self.unit_numbers:
-
-                    with self.modbus_lock:
-                        # expected 6 for normal; 10 for error
-                        status = self.client.read_holding_registers( # Read the Status
-                            address=self.STATUS_REG,
-                            count=1,
-                            slave=unit
-                        )
-
-                        if not status.isError() and status.registers[0] == 6:
-                            response = self.client.read_holding_registers( # Read the Temperature
-                                address=self.PROCESS_VALUE_REG,
-                                count=2, # for 32 bit float
+        while self._is_running:
+            try:
+                # check/restore connection
+                if not self.client.is_socket_open():
+                    if not self.connect():
+                        if self.logger:
+                            self.logger.error("Failed to reconnect to DP16 Process Monitors")
+                    
+                    time.sleep(0.2) # allow connection to stabilize. used for E5CN also
+                    if hasattr(self.client, 'socket'):
+                        self.client.socket.reset_input_buffer()
+                    
+                for unit in self.unit_numbers:
+                        with self.modbus_lock:
+                            # expected 6 for normal; 10 for error
+                            status = self.client.read_holding_registers( # Read the Status
+                                address=self.STATUS_REG,
+                                count=1,
                                 slave=unit
                             )
 
-                            if not response.isError():
-                                # Convert two 16-bit registers to float
-                                raw_float = struct.pack('>HH', 
-                                    response.registers[0], 
-                                    response.registers[1])
-                                value = struct.unpack('>f', raw_float)[0]
-                                # inline validation
-                                if -90 <= value <= 500:  # RTD range (P3A-TAPE-REC-PX-1-PFXX-40-STWL)
-                                    temperatures[unit] = value
-                                else:
-                                    if self.logger:
-                                        self.logger.error(f"Temperature out of range: {value}°C")
-                                    temperatures[unit] = None
-                        else:
-                            temperatures[unit] = -1
-                            if self.logger:
-                                    self.logger.error(f"Return message from unit indicating error status: unit - {unit}")
-                            
+                            if not status.isError() and status.registers[0] == 6:
+                                response = self.client.read_holding_registers( # Read the Temperature
+                                    address=self.PROCESS_VALUE_REG,
+                                    count=2, # for 32 bit float
+                                    slave=unit
+                                )
 
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Communication error: {str(e)}")
+                                if not response.isError():
+                                    # Convert two 16-bit registers to float
+                                    raw_float = struct.pack('>HH', 
+                                        response.registers[0], 
+                                        response.registers[1])
+                                    value = struct.unpack('>f', raw_float)[0]
+                                    # inline validation
+                                    if -90 <= value <= 500:  # RTD range (P3A-TAPE-REC-PX-1-PFXX-40-STWL)
+                                        self.lst_resp[unit] = value
+                                    else:
+                                        if self.logger:
+                                            self.logger.error(f"Temperature out of range: {value}°C")
+                                        self.lst_resp[unit] = None
+                            else:
+                                if self.logger:
+                                        self.logger.error(f"Return message from unit indicating error status: unit - {unit}")
+                                self.lst_resp[unit] = -1
+                                
 
-        return temperatures
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Communication error: {str(e)}")
+
+    def last_responce(self):
+        return self.lst_resp
+
 
     def disconnect(self):
         """ Close Modbus connection """
