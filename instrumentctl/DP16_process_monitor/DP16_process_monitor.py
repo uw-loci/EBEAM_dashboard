@@ -165,7 +165,7 @@ class DP16ProcessMonitor:
                     self.logger.error(f"Communication error: {str(e)}")
         time.sleep(0.2)
 
-    def last_responce(self):
+    def last_response(self):
         return self.lst_resp
 
 

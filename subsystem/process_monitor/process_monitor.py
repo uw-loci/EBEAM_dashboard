@@ -153,7 +153,7 @@ class ProcessMonitorSubsystem:
     def update_temperatures(self):
         try:
             # Read all temperatures
-            temps = self.monitor.last_responce()
+            temps = self.monitor.last_response()
 
             # Update each temperature bar
             for name, unit in self.thermometer_map.items():
