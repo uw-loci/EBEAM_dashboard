@@ -1,6 +1,7 @@
 import time
 import threading
 import struct
+import queue
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from typing import Dict
 
@@ -19,15 +20,20 @@ class DP16ProcessMonitor:
             bytesize=8,
             parity='N',
             stopbits=1,
-            timeout=.5
+            timeout=.1
         )
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = threading.Lock()
         self.logger = logger
-        self.lst_resp = {unit: -1 for unit in unit_numbers}
+        self.lst_resp = {}
+        self._response_queue = queue.Queue(maxsize=1)
         self._is_running = True
         self.start_up_threading()
-    
+
+        # Start a thread to run update_temperature
+        self.update_thread = threading.Thread(target=self._run_update_temperature, daemon=True)
+        self.update_thread.start()
+
     def start_up_threading(self):
         """
         Starts up the thread for each unit, and called _set_config, before going into the update loop
@@ -39,6 +45,34 @@ class DP16ProcessMonitor:
             if self.logger:
                 self.logger.error(f"Threading start up failed: {e}")
 
+    def _run_update_temperature(self):
+        """ Continuously update temperature in a separate thread """
+        while self._is_running:
+            response_data = self.update_temperature()
+
+            if response_data:
+                              
+                try:
+                    self._response_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                                
+                self._response_queue.put(response_data)
+            time.sleep(.2)  
+
+    def get_tempature_status(self):
+        try:
+            return self._response_queue.queue[0]
+        except queue.Empty:
+            if self.logger:
+                self.logger.error(f"No interlock information is here; Queue is Empty")
+            return None
+
+
+    def stop(self):
+        """ Stop the update thread """
+        self._is_running = False
+        self.update_thread.join()
 
     def connect(self):
         """
@@ -136,11 +170,8 @@ class DP16ProcessMonitor:
             with self.modbus_lock:
                 if not self.client.is_socket_open():
                     try:
-                        if self.client.connect():
-                            time.sleep(0.2)
-                        else:
+                        if not self.client.connect():
                             print("Failed to connect, no exception thrown")
-
                     except Exception as e:
                         print(f'Failed to connect: {e}')
                 for unit in self.unit_numbers:
