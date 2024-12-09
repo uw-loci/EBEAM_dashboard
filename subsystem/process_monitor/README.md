@@ -46,7 +46,25 @@ This application mainly consists of the following key components -
 
 
 
-- **DP16_process_monitor.py**: 
+- **DP16_process_monitor.py**: The main method being utilized from the driver file (DP16_process_monitor.py) is the update_temperature method. This method primarily updates a dictionary called the lst_resp dictionary, which is returned by the last_response method in the driver file. The lst_resp dictionary is updated with temperature values based on the following constraints:
+
+1) Modbus connection must be open: The connection is checked before attempting any read or write operations. If the connection is not open, it is re-established, and the method retries.
+
+2) STATUS_REG reads 6 from the status registers: A value of 6 indicates normal operation. Any other value is treated as an abnormal state, and the state of the corresponding unit is logged as -1 in the lst_resp dictionary.
+
+3) Temperatures are read from the process value registers: These readings are converted from raw Modbus register values into 32-bit floating-point numbers to represent the temperature accurately.
+
+4) Temperature validation: Temperatures read from the process value registers are further validated to be within the range of -90°C to 500°C. If a temperature is outside this range, it is stored as None.
+
+
+The temperature for a particular unit is obtained from the lst_resp dictionary, which is updated in real-time as the update_temperature method iterates through the units. This iteration is facilitated by the thermometer_map dictionary, which provides the mapping to the unit numbers. The temperature values are subsequently updated for the corresponding units using the update_value method in process_monitor.py.
+
+
+
+
+
+
+
 
 
 
