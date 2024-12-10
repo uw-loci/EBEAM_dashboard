@@ -198,15 +198,15 @@ class DP16ProcessMonitor:
             if self.logger:
                 self.logger.error(f"Communication error (unit {unit}): {str(e)}")
 
-def disconnect(self):
-    # Stop polling thread
-    self._is_running = False
-    if self._thread and self._thread.is_alive():
-        self._thread.join()
-    
-    # Close connection
-    with self.modbus_lock:
-        if self.client.is_socket_open():
-            self.client.close()
-            if self.logger:
-                self.logger.info("Disconnected from DP16 Process Monitors")
+    def disconnect(self):
+        # Stop polling thread
+        self._is_running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join()
+        
+        # Close connection
+        with self.modbus_lock:
+            if self.client.is_socket_open():
+                self.client.close()
+                if self.logger:
+                    self.logger.info("Disconnected from DP16 Process Monitors")

@@ -1,5 +1,4 @@
 import tkinter as tk
-import random
 from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 
@@ -188,18 +187,13 @@ class ProcessMonitorSubsystem:
     def update_temperatures(self):
         # try:
             # Read all temperatures
-        temps = self.monitor.update_temperature()
+        temps = self.monitor.lst_resp
 
         # Update each temperature bar
         for name, unit in self.thermometer_map.items():
             temp = temps.get(unit)
             if temp is not None:
                 self.temp_bars[name].update_value(name, temp)
-                
-                    
-        # except Exception as e:
-        #     if self.logger:
-        #         self.logger.error(f"Error updating temperatures: {str(e)}")
                 
         # Schedule next update
         self.parent.after(500, self.update_temperatures)
