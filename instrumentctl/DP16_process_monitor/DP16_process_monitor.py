@@ -20,59 +20,29 @@ class DP16ProcessMonitor:
             bytesize=8,
             parity='N',
             stopbits=1,
-            timeout=.1
+            timeout=1
         )
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = threading.Lock()
         self.logger = logger
-        self.lst_resp = {}
-        self._response_queue = queue.Queue(maxsize=1)
+        self.lst_resp = {unit: -1 for unit in unit_numbers}
         self._is_running = True
-        self.start_up_threading()
-
-        # Start a thread to run update_temperature
-        self.update_thread = threading.Thread(target=self._run_update_temperature, daemon=True)
-        self.update_thread.start()
-
-    def start_up_threading(self):
-        """
-        Starts up the thread for each unit, and called _set_config, before going into the update loop
-        """
-        try:
-            for unit in self.unit_numbers:
-                self._set_config(unit)
-        except Exception as e:
+        self._thread = None
+        
+        # Establish serial connection
+        if self.connect() and self.logger:
+            self.logger.debug(f"{port} Connected to DP16 Process Monitor")
+        else:
             if self.logger:
-                self.logger.error(f"Threading start up failed: {e}")
+                self.logger.warning("Failed to connect to DP16 Process Monitor")
 
-    def _run_update_temperature(self):
-        """ Continuously update temperature in a separate thread """
-        while self._is_running:
-            response_data = self.update_temperature()
+         # Set configuration for each unit
+        for unit in self.unit_numbers:
+            self._set_config(unit)
 
-            if response_data:
-                              
-                try:
-                    self._response_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                                
-                self._response_queue.put(response_data)
-            time.sleep(.2)  
-
-    def get_tempature_status(self):
-        try:
-            return self._response_queue.queue[0]
-        except queue.Empty:
-            if self.logger:
-                self.logger.error(f"No interlock information is here; Queue is Empty")
-            return None
-
-
-    def stop(self):
-        """ Stop the update thread """
-        self._is_running = False
-        self.update_thread.join()
+        # Start single background polling thread
+        self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
+        self._thread.start()
 
     def connect(self):
         """
@@ -88,7 +58,6 @@ class DP16ProcessMonitor:
                 if self.logger:
                     self.logger.error(f"Error connecting: {str(e)}")
                 return False
-
 
     def get_reading_config(self, unit):
         """Get reading configuration format
@@ -109,7 +78,6 @@ class DP16ProcessMonitor:
             if self.logger:
                 self.logger.error(f"Error reading config: {e}")
             return None
-        
 
     def _set_config(self, unit):
         """
@@ -159,82 +127,86 @@ class DP16ProcessMonitor:
             if self.logger:
                 self.logger.error(f"Error writing config: {e}")
             return False
-
-
-    def update_temperature(self):
+        
+    def poll_all_units(self):
         """
-        Single unit read with retries
+        Continuously poll all units in a single thread.
+        """
+        while self._is_running:
+            if not self.client.is_socket_open():
+                if not self.connect():
+                    if self.logger:
+                        self.logger.error("Failed to reconnect to DP16 Process Monitors")
+                    time.sleep(0.5)
+                    continue
+
+            with self.modbus_lock:
+                for unit in self.unit_numbers:
+                    self._poll_single_unit(unit)
+
+            time.sleep(0.1) # TODO: Test this interval
+
+    def _poll_single_unit(self, unit):
+        """
+        Poll a single unit for status and temperature.
         """
         try:
-            # for unit in self.unit_numbers:
-            with self.modbus_lock:
-                if not self.client.is_socket_open():
-                    try:
-                        if not self.client.connect():
-                            print("Failed to connect, no exception thrown")
-                    except Exception as e:
-                        print(f'Failed to connect: {e}')
-                for unit in self.unit_numbers:
-                # expected 6 for normal; 10 for error
-                    status = self.client.read_holding_registers( # Read the Status
-                        address=self.STATUS_REG,
-                        count=1,
+            status = self.client.read_holding_registers(
+                address=self.STATUS_REG,
+                count=1,
+                slave=unit
+            )
+
+            if not status.isError():
+                if self.logger:
+                    self.logger.debug(f"Status for unit {unit}: {status.registers[0]}")
+
+                if status.registers[0] == 6: # Normal operation
+                    response = self.client.read_holding_registers(
+                        address=self.PROCESS_VALUE_REG,
+                        count=2,
                         slave=unit
                     )
 
-                    if not status.isError():
-                        if self.logger:
-                            self.logger.debug(f"Status for unit {unit}: {status.registers[0]}")
-                        if status.registers[0] == 6: # Normal operation
-                            # Read the Temperature
-                            response = self.client.read_holding_registers(
-                                address=self.PROCESS_VALUE_REG,
-                                count=2, # for 32 bit float
-                                slave=unit
-                            )
-
-                            if not response.isError():
-                                # Convert two 16-bit registers to float
-                                raw_float = struct.pack('>HH', 
-                                    response.registers[0], 
-                                    response.registers[1])
-                                value = struct.unpack('>f', raw_float)[0]
-                                # inline validation
-                                if -90 <= value <= 500:  # RTD range (P3A-TAPE-REC-PX-1-PFXX-40-STWL)
-                                    if self.logger:
-                                        self.logger.info(f"DP16 Unit {unit} temp: {value:.2f}")
-                                    self.lst_resp[unit] = value
-                                else:
-                                    if self.logger:
-                                        self.logger.error(f"DP16 Unit {unit} temp out of range: {value}°C")
-                                    self.lst_resp[unit] = None
-                            else:
-                                if self.logger:
-                                    self.logger.error(f"Failed to read PROCESS_VALUE_REG for unit {unit}: {response}")
-                                self.lst_resp[unit] = None
+                    if not response.isError():
+                        raw_float = struct.pack('>HH', 
+                            response.registers[0], 
+                            response.registers[1])
+                        value = struct.unpack('>f', raw_float)[0]
+                        if -90 <= value <= 500:
+                            if self.logger:
+                                self.logger.info(f"DP16 Unit {unit} temp: {value:.2f}")
+                            self.lst_resp[unit] = value
                         else:
                             if self.logger:
-                                self.logger.error(f"DP16 Unit {unit} abnormal status: {status.registers[0]}")
-                            self.lst_resp[unit] = -1  
+                                self.logger.error(f"DP16 Unit {unit} temp out of range: {value}°C")
+                            self.lst_resp[unit] = None
                     else:
                         if self.logger:
-                            self.logger.error(f"Missed package on unit - {unit}")   
-                        self.lst_resp[unit] = None 
+                            self.logger.error(f"Failed to read PROCESS_VALUE_REG for unit {unit}: {response}")
+                        self.lst_resp[unit] = None
+                else:
+                    if self.logger:
+                        self.logger.error(f"DP16 Unit {unit} abnormal status: {status.registers[0]}")
+                    self.lst_resp[unit] = -1  
+            else:
+                if self.logger:
+                    self.logger.error(f"Missed package on unit - {unit}")   
+                self.lst_resp[unit] = -1   
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Communication error: {str(e)}")
-        
-        return self.lst_resp
+                self.logger.error(f"Communication error (unit {unit}): {str(e)}")
 
-    def disconnect(self):
-        """ Close Modbus connection """
-        with self.modbus_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    if self.logger:
-                        self.logger.info("Disconnected from DP16 Process Monitors")
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Error disconnecting: {str(e)}")
+def disconnect(self):
+    # Stop polling thread
+    self._is_running = False
+    if self._thread and self._thread.is_alive():
+        self._thread.join()
+    
+    # Close connection
+    with self.modbus_lock:
+        if self.client.is_socket_open():
+            self.client.close()
+            if self.logger:
+                self.logger.info("Disconnected from DP16 Process Monitors")
