@@ -3,6 +3,7 @@ import threading
 import struct
 import queue
 from pymodbus.client import ModbusSerialClient as ModbusClient
+from pymodbus.exceptions import ModbusIOException
 from typing import Dict
 
 class DP16ProcessMonitor:
@@ -54,6 +55,10 @@ class DP16ProcessMonitor:
                 if self.client.is_socket_open():
                     return True
                 return self.client.connect()
+            except ModbusIOException as e:
+                if self.logger:
+                    self.logger.error(f"Modbus IO error during connection: {e}")
+                return False
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Error connecting: {str(e)}")
@@ -74,6 +79,9 @@ class DP16ProcessMonitor:
                 if not response.isError():
                     return response.registers[0]
                 return None
+        except ModbusIOException as e:
+            if self.logger:
+                self.logger.error(f"Modbus IO error reading config for DP16 unit {unit}: {e}")
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error reading config: {e}")
@@ -122,7 +130,10 @@ class DP16ProcessMonitor:
                 
                 self.logger.info(f"Configuration successful for DP16 unit {unit}")
                 return True
-            
+        except ModbusIOException as e:
+            if self.logger:
+                self.logger.error(f"Modbus IO error while setting config for unit {unit}: {e}")
+            return False
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error writing config: {e}")
@@ -194,6 +205,10 @@ class DP16ProcessMonitor:
                     self.logger.error(f"Missed package on unit - {unit}")   
                 self.lst_resp[unit] = -1   
 
+        except ModbusIOException as e:
+                if self.logger:
+                    self.logger.error(f"Modbus IO error (unit {unit}): {e}")
+                self.lst_resp[unit] = -1  # Mark unit as unavailable
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Communication error (unit {unit}): {str(e)}")
