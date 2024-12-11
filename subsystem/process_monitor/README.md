@@ -62,7 +62,119 @@ The temperature for a particular unit is retrieved from the `lst_resp` dictionar
 
 
 
-## Flow Chart for process_monitor.py
+## Flow Charts for process_monitor.py
 
+### Subsystem Initialization
+```mermaid
+flowchart TD
+    Start([Initialize ProcessMonitorSubsystem]) --> ParentLogger[Store parent and logger references]
+    ParentLogger --> InitVars[Initialize error tracking and<br/>update interval variables]
+    InitVars --> SetThermo[Setup thermometer arrays:<br/>- thermometers list<br/>- thermometer_map dictionary]
+    
+    SetThermo --> ComCheck{COM Port<br/>Provided?}
+    ComCheck -->|Yes| TryInit[Try DP16ProcessMonitor initialization]
+    ComCheck -->|No| NoComPort[Set monitor = None<br/>Log warning]
+    
+    TryInit --> ConnectCheck{Connection<br/>Successful?}
+    ConnectCheck -->|Yes| SetupGUI[Setup GUI]
+    ConnectCheck -->|No| LogWarn[Log warning]
+    
+    NoComPort --> ErrorState[Set all temps to error state]
+    LogWarn --> SetupGUI
+    ErrorState --> SetupGUI
+    
+    SetupGUI --> CreateFrame[Create and configure frame]
+    CreateFrame --> CreateBars[Create temperature bars]
+    CreateBars --> StartUpdate[Start update_temperatures loop]
+    
+    %% Error paths
+    TryInit -- Exception --> HandleError[Log error<br/>Set monitor = None<br/>Set all temps to error]
+    HandleError --> SetupGUI
+```
 
-<img src="./workflow.png" alt="Workflow Diagram">
+### `update_temperatures` Loop
+```mermaid
+flowchart TD
+    Start([Update Temperatures]) --> GetTime[Get current time]
+    GetTime --> MonitorCheck{Monitor exists and<br/>socket open?}
+    
+    MonitorCheck -->|No| TimeCheck1{Time since last<br/>error > interval?}
+    MonitorCheck -->|Yes| GetTemps[Get temperatures<br/>from monitor.lst_resp]
+    
+    TimeCheck1 -->|Yes| ErrorState1[Set all temps to error<br/>Log warning<br/>Update last_error_time]
+    TimeCheck1 -->|No| Schedule[Schedule next update]
+    ErrorState1 --> AdjustInt1[Adjust interval - failure]
+    
+    GetTemps --> ValidCheck{Any valid<br/>temperature values?}
+    
+    ValidCheck -->|No| TimeCheck2{Time since last<br/>error > interval?}
+    ValidCheck -->|Yes| UpdateLoop[For each thermometer]
+    
+    TimeCheck2 -->|Yes| ErrorState2[Set all temps to error<br/>Log error<br/>Update last_error_time]
+    TimeCheck2 -->|No| Schedule
+    ErrorState2 --> AdjustInt2[Adjust interval - failure]
+    
+    UpdateLoop --> TempCheck{Temperature valid<br/>and not -1?}
+    
+    TempCheck -->|Yes| UpdateBar[Update bar with temperature<br/>Log debug message]
+    TempCheck -->|No| ErrorBar[Update bar with -1<br/>Log warning]
+    
+    UpdateBar --> NextThermo{More<br/>thermometers?}
+    ErrorBar --> NextThermo
+    
+    NextThermo -->|Yes| UpdateLoop
+    NextThermo -->|No| AdjustInt3[Adjust interval - success]
+    
+    AdjustInt1 --> Schedule
+    AdjustInt2 --> Schedule
+    AdjustInt3 --> Schedule
+    
+    Schedule --> End([End])
+    
+    %% Exception handling
+    GetTemps -- Exception --> ExceptionTime{Time since last<br/>error > interval?}
+    ExceptionTime -->|Yes| ErrorState3[Set all temps to error<br/>Log error<br/>Update last_error_time]
+    ExceptionTime -->|No| Schedule
+    ErrorState3 --> AdjustInt4[Adjust interval - failure]
+    AdjustInt4 --> Schedule
+```
+
+Temperature Color Logic
+```mermaid
+flowchart TD
+    Start([Get Temperature Color]) --> ErrorCheck{Temperature = -1?}
+    ErrorCheck -->|Yes| ReturnOrange[Return Orange]
+    ErrorCheck -->|No| ColdCheck{Temp < 15°C?}
+    
+    ColdCheck -->|Yes| ReturnBlue[Return Blue]
+    ColdCheck -->|No| SensorCheck{Check sensor type}
+    
+    SensorCheck --> Solenoid{Starts with<br/>'Solenoid'?}
+    SensorCheck --> Chamber{Starts with<br/>'Chamber'?}
+    SensorCheck --> Air{Starts with<br/>'Air'?}
+    SensorCheck --> Default{Default case}
+    
+    Solenoid --> SolCheck1{Temp < 70°C?}
+    SolCheck1 -->|Yes| SolGreen[Return Green]
+    SolCheck1 -->|No| SolCheck2{Temp < 100°C?}
+    SolCheck2 -->|Yes| SolYellow[Return Yellow]
+    SolCheck2 -->|No| SolRed[Return Red]
+    
+    Chamber --> ChamCheck1{Temp < 50°C?}
+    ChamCheck1 -->|Yes| ChamGreen[Return Green]
+    ChamCheck1 -->|No| ChamCheck2{Temp < 70°C?}
+    ChamCheck2 -->|Yes| ChamYellow[Return Yellow]
+    ChamCheck2 -->|No| ChamRed[Return Red]
+    
+    Air --> AirCheck1{Temp < 30°C?}
+    AirCheck1 -->|Yes| AirGreen[Return Green]
+    AirCheck1 -->|No| AirCheck2{Temp < 40°C?}
+    AirCheck2 -->|Yes| AirYellow[Return Yellow]
+    AirCheck2 -->|No| AirRed[Return Red]
+    
+    Default --> DefCheck1{Temp < 70°C?}
+    DefCheck1 -->|Yes| DefGreen[Return Green]
+    DefCheck1 -->|No| DefCheck2{Temp < 100°C?}
+    DefCheck2 -->|Yes| DefYellow[Return Yellow]
+    DefCheck2 -->|No| DefRed[Return Red]
+```
