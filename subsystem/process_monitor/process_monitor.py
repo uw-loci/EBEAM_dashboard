@@ -1,6 +1,8 @@
+import time
 import tkinter as tk
 from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
+from utils import LogLevel
 
 class TemperatureBar(tk.Canvas):
 
@@ -139,14 +141,12 @@ class ProcessMonitorSubsystem:
     def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
+        self.last_error_time = 0
+        self.error_count = 0
+        self.update_interval = 500  # default update interval (ms)
+        self.max_interval = 5000    # Maximum update interval (ms)
+
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
-
-        """Code previously used for simulation but can be scrapped as soon as we see live data from sensors"""
-        # self.temperatures = {
-        #     name: (random.uniform(60, 90) if 'Solenoid' in name else random.uniform(50, 70)) 
-        #     for name in self.thermometers
-        # }
-
         self.thermometer_map = {
             'Solenoid 1': 1,
             'Solenoid 2': 2,
@@ -157,15 +157,24 @@ class ProcessMonitorSubsystem:
         }
         
         # Initialize the DP16 monitor
-        self.monitor = DP16ProcessMonitor(
-            port=com_port,
-            unit_numbers=list(self.thermometer_map.values()),
-            logger=logger
-        )
-        if not self.monitor.connect():
-            if self.logger:
-                self.logger.warning("Failed to connect to DP16 Process Monitor")
-
+        try:
+            if com_port:
+                self.monitor = DP16ProcessMonitor(
+                    port=com_port,
+                    unit_numbers=list(self.thermometer_map.values()),
+                    logger=logger
+                )
+                if not self.monitor.connect():
+                    self.log("Failed to connect to DP16 Process Monitor", LogLevel.WARNING)
+            else:
+                self.monitor = None
+                self.log("No COM port provided for ProcessMonitorSubsystem", LogLevel.WARNING)
+                self._set_all_temps_error()
+        except Exception as e:
+            self.monitor = None
+            self.log(f"Failed to initialize DP16ProcessMonitor: {str(e)}", LogLevel.ERROR)
+            self._set_all_temps_error()
+        
         self.setup_gui()
         self.update_temperatures()
 
@@ -185,15 +194,67 @@ class ProcessMonitorSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
-        # try:
-            # Read all temperatures
-        temps = self.monitor.lst_resp
+        """Update temperature readings with error handling and backoff"""
+        current_time = time.time()
+        try:
+            if not self.monitor or not self.monitor.client.is_socket_open():
+                if current_time - self.last_error_time > (self.update_interval / 1000):
+                    self._set_all_temps_error()
+                    self.log("DP16 monitor not connected", LogLevel.WARNING)
+                    self.last_error_time = current_time
+                    self._adjust_update_interval(success=False)
+            else:
+                temps = self.monitor.lst_resp
 
-        # Update each temperature bar
-        for name, unit in self.thermometer_map.items():
-            temp = temps.get(unit)
-            if temp is not None:
-                self.temp_bars[name].update_value(name, temp)
+                if not any(temps.values()):
+                    if current_time - self.last_error_time > (self.update_interval / 1000):
+                        self._set_all_temps_error()
+                        self.log("No temperature data available from DP16", LogLevel.ERROR)
+                        self.last_error_time = current_time
+                        self._adjust_update_interval(success=False)
+                else:
+                    # Update each temperature bar
+                    for name, unit in self.thermometer_map.items():
+                        temp = temps.get(unit)
+                        if temp is not None and temp != -1:
+                            self.temp_bars[name].update_value(name, temp)
+                            self.log(f"Temperature update - {name}: {temp:.1f}C", LogLevel.DEBUG)
+                        else:
+                            self.temp_bars[name].update_value(name, -1)
+                            self.log(f"Temperature error - {name}", LogLevel.WARNING)
+
+                    self._adjust_update_interval(success=True)
+
+        except Exception as e:
+            if current_time - self.last_error_time > (self.update_interval / 1000):
+                self.log(f"Unexpected error updating temperatures: {str(e)}", LogLevel.ERROR)
+                self._set_all_temps_error()
+                self.last_error_time = current_time
+                self._adjust_update_interval(success=False)
                 
-        # Schedule next update
-        self.parent.after(500, self.update_temperatures)
+        finally:
+            # Schedule next update
+            if self.monitor:
+                self.parent.after(self.update_interval, self.update_temperatures)
+
+    def _adjust_update_interval(self, success=True):
+        """Adjust the polling interval based on connection success/failure"""
+        if success:
+            self.error_count = 0
+            self.update_interval = 500  # Reset to default interval
+        else:
+            self.error_count = min(self.error_count + 1, 5)  # Cap error count
+            self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
+
+    def _set_all_temps_error(self):
+        """Set all temperature bars to error state"""
+        if hasattr(self, 'temp_bars'):
+            for name in self.temp_bars:
+                self.temp_bars[name].update_value(name, -1)
+
+    def log(self, message, level=LogLevel.INFO):
+        """Log a message with the specified level if a logger is configured."""
+        if self.logger:
+            self.logger.log(message, level)
+        else:
+            print(f"{level.name}: {message}")

@@ -30,12 +30,6 @@ class DP16ProcessMonitor:
         self.lst_resp = {unit: -1 for unit in unit_numbers}
         self._is_running = True
         self._thread = None
-
-        # exponential backoff parameters
-        self.last_error_time = 0
-        self.error_count = 0
-        self.update_interval = 0.5  # seconds
-        self.max_interval = 5.0     # seconds
         
         # Establish serial connection
         if self.connect():
@@ -67,15 +61,6 @@ class DP16ProcessMonitor:
             except Exception as e:
                 self.log(f"DP16 Error connecting: {str(e)}", LogLevel.ERROR)
                 return False
-            
-    def _adjust_update_interval(self, success=True):
-        """ Adjust the polling interval baseed on connection success/failure """
-        if success:
-            self.error_count = 0
-            self.update_interval = 0.5
-        else:
-            self.error_count = min(self.error_count + 1, 5)
-            self.update_interval = min(0.5 * (2 ** self.error_count), self.max_interval)
 
     def get_reading_config(self, unit):
         """Get reading configuration format
@@ -150,29 +135,22 @@ class DP16ProcessMonitor:
         Continuously poll all units in a single thread.
         """
         while self._is_running:
-            current_time = time.time()
             try:
                 if not self.client.is_socket_open():
                     if not self.connect():
                         self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
-                        self.last_error_time = current_time
-                        self._adjust_update_interval(success=False)
-                        time.sleep(self.update_interval)
+                        time.sleep(0.5)
                         continue
 
                 with self.modbus_lock:
                     for unit in self.unit_numbers:
                         self._poll_single_unit(unit)
 
-                self._adjust_update_interval(success=True)
-                time.sleep(self.update_interval)
+                time.sleep(0.1) # small delay between polls
             
             except Exception as e:
-                if current_time - self.last_error_time > self.update_interval:
-                    self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
-                    self.last_error_time = current_time
-                    self._adjust_update_interval(success=False)
-                time.sleep(self.update_interval)
+                self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
+                time.sleep(0.5)
 
     def _poll_single_unit(self, unit):
         """
