@@ -2,6 +2,7 @@ import time
 import threading
 import struct
 import queue
+from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
 from typing import Dict
@@ -29,13 +30,18 @@ class DP16ProcessMonitor:
         self.lst_resp = {unit: -1 for unit in unit_numbers}
         self._is_running = True
         self._thread = None
+
+        # exponential backoff parameters
+        self.last_error_time = 0
+        self.error_count = 0
+        self.update_interval = 0.5  # seconds
+        self.max_interval = 5.0     # seconds
         
         # Establish serial connection
-        if self.connect() and self.logger:
-            self.logger.debug(f"{port} Connected to DP16 Process Monitor")
+        if self.connect():
+            self.log(f"{port} Connected to DP16 Process Monitors", LogLevel.INFO)
         else:
-            if self.logger:
-                self.logger.warning("Failed to connect to DP16 Process Monitor")
+            self.log(f"Failed to connect to DP16 Process Monitors on {port}", LogLevel.WARNING)
 
          # Set configuration for each unit
         for unit in self.unit_numbers:
@@ -56,13 +62,20 @@ class DP16ProcessMonitor:
                     return True
                 return self.client.connect()
             except ModbusIOException as e:
-                if self.logger:
-                    self.logger.error(f"Modbus IO error during connection: {e}")
+                self.log(f"Modbus IO error during DP16 connection: {e}", LogLevel.ERROR)
                 return False
             except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Error connecting: {str(e)}")
+                self.log(f"DP16 Error connecting: {str(e)}", LogLevel.ERROR)
                 return False
+            
+    def _adjust_update_interval(self, success=True):
+        """ Adjust the polling interval baseed on connection success/failure """
+        if success:
+            self.error_count = 0
+            self.update_interval = 0.5
+        else:
+            self.error_count = min(self.error_count + 1, 5)
+            self.update_interval = min(0.5 * (2 ** self.error_count), self.max_interval)
 
     def get_reading_config(self, unit):
         """Get reading configuration format
@@ -80,11 +93,9 @@ class DP16ProcessMonitor:
                     return response.registers[0]
                 return None
         except ModbusIOException as e:
-            if self.logger:
-                self.logger.error(f"Modbus IO error reading config for DP16 unit {unit}: {e}")
+            self.log(f"Modbus IO error reading config for DP16 unit {unit}: {e}", LogLevel.WARNING)
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error reading config: {e}")
+            self.log(f"Error reading config: {e}", LogLevel.ERROR)
             return None
 
     def _set_config(self, unit):
@@ -99,8 +110,7 @@ class DP16ProcessMonitor:
             if setting is successful or not
         """
         if unit not in self.unit_numbers:
-            if self.logger:
-                self.logger.debug(f"set_decimal_config was called with an invalid unit address")
+            self.log(f"DP16 set_decimal_config was called with an invalid unit address", LogLevel.ERROR)
             return False # exit for invalid unit
         
         try:
@@ -113,8 +123,7 @@ class DP16ProcessMonitor:
                     slave=unit
                 )
                 if response1.isError():
-                    if self.logger:
-                        self.logger.error(f"Failed to write RDGCNF_REG for unit {unit}. Response:{response1}")
+                    self.log(f"Failed to write RDGCNF_REG for DP16 unit {unit}. Response:{response1}", LogLevel.ERROR)
                     return False # Exit early if the first write fails
                     
                 # Second write: Update the status register
@@ -124,19 +133,16 @@ class DP16ProcessMonitor:
                     slave=unit
                 )
                 if response2.isError():
-                    if self.logger:
-                        self.logger.error(f"Failed to write STATUS_REG for unit {unit}: Response:{response2}")
+                    self.log(f"Failed to write STATUS_REG for unit {unit}: Response:{response2}", LogLevel.ERROR)
                     return False # Exit if second write fails
                 
-                self.logger.info(f"Configuration successful for DP16 unit {unit}")
+                self.log(f"Configuration successful for DP16 unit {unit}", LogLevel.INFO)
                 return True
         except ModbusIOException as e:
-            if self.logger:
-                self.logger.error(f"Modbus IO error while setting config for unit {unit}: {e}")
+            self.log(f"Modbus IO error while setting config for unit {unit}: {e}", LogLevel.ERROR)
             return False
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error writing config: {e}")
+            self.log(f"Error writing RDGCNF_REG config: {e}", LogLevel.ERROR)
             return False
         
     def poll_all_units(self):
@@ -144,18 +150,29 @@ class DP16ProcessMonitor:
         Continuously poll all units in a single thread.
         """
         while self._is_running:
-            if not self.client.is_socket_open():
-                if not self.connect():
-                    if self.logger:
-                        self.logger.error("Failed to reconnect to DP16 Process Monitors")
-                    time.sleep(0.5)
-                    continue
+            current_time = time.time()
+            try:
+                if not self.client.is_socket_open():
+                    if not self.connect():
+                        self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
+                        self.last_error_time = current_time
+                        self._adjust_update_interval(success=False)
+                        time.sleep(self.update_interval)
+                        continue
 
-            with self.modbus_lock:
-                for unit in self.unit_numbers:
-                    self._poll_single_unit(unit)
+                with self.modbus_lock:
+                    for unit in self.unit_numbers:
+                        self._poll_single_unit(unit)
 
-            time.sleep(0.1) # TODO: Test this interval
+                self._adjust_update_interval(success=True)
+                time.sleep(self.update_interval)
+            
+            except Exception as e:
+                if current_time - self.last_error_time > self.update_interval:
+                    self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
+                    self.last_error_time = current_time
+                    self._adjust_update_interval(success=False)
+                time.sleep(self.update_interval)
 
     def _poll_single_unit(self, unit):
         """
@@ -169,8 +186,7 @@ class DP16ProcessMonitor:
             )
 
             if not status.isError():
-                if self.logger:
-                    self.logger.debug(f"Status for unit {unit}: {status.registers[0]}")
+                self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.DEBUG)
 
                 if status.registers[0] == 6: # Normal operation
                     response = self.client.read_holding_registers(
@@ -185,33 +201,26 @@ class DP16ProcessMonitor:
                             response.registers[1])
                         value = struct.unpack('>f', raw_float)[0]
                         if -90 <= value <= 500:
-                            if self.logger:
-                                self.logger.info(f"DP16 Unit {unit} temp: {value:.2f}")
+                            self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.INFO)
                             self.lst_resp[unit] = value
                         else:
-                            if self.logger:
-                                self.logger.error(f"DP16 Unit {unit} temp out of range: {value}°C")
+                            self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
                             self.lst_resp[unit] = None
                     else:
-                        if self.logger:
-                            self.logger.error(f"Failed to read PROCESS_VALUE_REG for unit {unit}: {response}")
+                        self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
                         self.lst_resp[unit] = None
                 else:
-                    if self.logger:
-                        self.logger.error(f"DP16 Unit {unit} abnormal status: {status.registers[0]}")
+                    self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
                     self.lst_resp[unit] = -1  
             else:
-                if self.logger:
-                    self.logger.error(f"Missed package on unit - {unit}")   
+                self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)   
                 self.lst_resp[unit] = -1   
 
         except ModbusIOException as e:
-                if self.logger:
-                    self.logger.error(f"Modbus IO error (unit {unit}): {e}")
-                self.lst_resp[unit] = -1  # Mark unit as unavailable
+            self.log(f"Modbus IO error (unit {unit}): {e}", LogLevel.ERROR)
+            self.lst_resp[unit] = -1  # Mark unit as unavailable
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Communication error (unit {unit}): {str(e)}")
+            self.log(f"Communication error (unit {unit}): {str(e)}", LogLevel.ERROR)
 
     def disconnect(self):
         # Stop polling thread
@@ -223,5 +232,11 @@ class DP16ProcessMonitor:
         with self.modbus_lock:
             if self.client.is_socket_open():
                 self.client.close()
-                if self.logger:
-                    self.logger.info("Disconnected from DP16 Process Monitors")
+                self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
+
+    def log(self, message, level=LogLevel.INFO):
+        """Log a message with the specified level if a logger is configured."""
+        if self.logger:
+            self.logger.log(message, level)
+        else:
+            print(f"{level.name}: {message}")
