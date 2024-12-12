@@ -6,7 +6,13 @@ from utils import LogLevel
 
 class TemperatureBar(tk.Canvas):
 
+    DISCONNECTED = -1
+    SENSOR_ERROR = -2
     SCALE_LABELS = {'Solenoids': [0 , 120, 24], 'Chambers' : [0, 100, 20], 'Air': [0, 50, 10]} # Limits and ticks for temperature bars
+    ERROR_COLORS = {
+        DISCONNECTED: '#808080',  # Grey for disconnected state
+        SENSOR_ERROR: '#FFA500',  # Keep orange for actual sensor errors
+    }
 
     def __init__(self, parent, name: str, height: int = 400, width: int = 40):
         super().__init__(parent, height=height, width=width)
@@ -70,24 +76,45 @@ class TemperatureBar(tk.Canvas):
     def update_value(self, name, value: float):
         """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
         self.delete('bar')
-        
-        # Calculate bar height
-        bar_height = ((value/self.temp_max) * (self.scale_bottom - self.scale_top)) if value != -1 else ((100/100) * (self.scale_bottom - self.scale_top)) # Bar takes full height upon error  
-        
-        # Calculate color based on temperature
-        color = self.get_temperature_color(name, value) if value != -1 else '#FFA500'  # Orange color assigned for error representation 
-        
-        # Draw bar
-        self.create_rectangle(
-            5,
-            self.scale_bottom - bar_height,
-            5 + self.bar_width,
-            self.scale_bottom,
-            fill=color,
-            tags='bar',
-            state='normal'
-        )
-        
+
+        if value == self.DISCONNECTED:
+            # grey out bar area with hatched pattern
+            self.create_rectangle(
+                5,
+                self.scale_top,
+                5 + self.bar_width,
+                self.scale_bottom,
+                fill='#E0E0E0',
+                stipple='gray50', # hatched pattern
+                tags='bar'
+            )
+            value_text = "---"
+        elif value == self.SENSOR_ERROR:
+            # Show orange bar for sensor error
+            bar_height = self.scale_bottom - self.scale_top
+            self.create_rectangle(
+                5,
+                self.scale_bottom - bar_height,
+                5 + self.bar_width,
+                self.scale_bottom,
+                fill=self.ERROR_COLORS[self.SENSOR_ERROR],
+                tags='bar'
+            )
+            value_text = "ERR"
+        else:
+            # Normal temperature display
+            bar_height = ((value/self.temp_max) * (self.scale_bottom - self.scale_top))
+            color = self.get_temperature_color(name, value)
+            self.create_rectangle(
+                5,
+                self.scale_bottom - bar_height,
+                5 + self.bar_width,
+                self.scale_bottom,
+                fill=color,
+                tags='bar'
+            )
+            value_text = f'{value:.1f}°'
+
         # ensure labels are on top
         self.tag_raise('scale_labels')
 
@@ -96,8 +123,9 @@ class TemperatureBar(tk.Canvas):
         self.create_text(
             self.width//2,
             self.height-5,
-            text=f'{value:.1f}°',
+            text=value_text,
             font=('Arial', 9, 'bold'),
+            fill='#808080' if value == self.DISCONNECTED else 'black',
             tags='value'
         )
         
@@ -199,7 +227,7 @@ class ProcessMonitorSubsystem:
         try:
             if not self.monitor or not self.monitor.client.is_socket_open():
                 if current_time - self.last_error_time > (self.update_interval / 1000):
-                    self._set_all_temps_error()
+                    self._set_all_temps_disconnected()
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
                     self._adjust_update_interval(success=False)
@@ -251,6 +279,12 @@ class ProcessMonitorSubsystem:
         if hasattr(self, 'temp_bars'):
             for name in self.temp_bars:
                 self.temp_bars[name].update_value(name, -1)
+
+    def _set_all_temps_disconnected(self):
+        """Set all temperature bars to disconnected state"""
+        if hasattr(self, 'temp_bars'):
+            for name in self.temp_bars:
+                self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
