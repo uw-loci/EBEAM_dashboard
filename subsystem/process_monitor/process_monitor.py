@@ -8,7 +8,12 @@ class TemperatureBar(tk.Canvas):
 
     DISCONNECTED = -1
     SENSOR_ERROR = -2
-    SCALE_LABELS = {'Solenoids': [0 , 120, 24], 'Chambers' : [0, 100, 20], 'Air': [0, 50, 10]} # Limits and ticks for temperature bars
+    SCALE_LABELS = {
+        'Solenoids': [20 , 120, 24], 
+        'Chambers' : [20, 100, 20], 
+        'Air': [20, 50, 10],
+        None: [20, 100, 10]
+    } 
     ERROR_COLORS = {
         DISCONNECTED: '#808080',  # Grey for disconnected state
         SENSOR_ERROR: '#FFA500',  # Keep orange for actual sensor errors
@@ -54,11 +59,13 @@ class TemperatureBar(tk.Canvas):
         else:
             scale_key = None  # Default behavior if name does not match
 
-        self.temp_min, self.temp_max, self.ticks = self.SCALE_LABELS.get(scale_key, [0, 100, 20])
-        
+        self.temp_min, self.temp_max, self.ticks = self.SCALE_LABELS.get(scale_key, self.SCALE_LABELS[None])
+        temp_range = self.temp_max - self.temp_min
+
         # Scale marks and labels
-        for i in range(self.temp_min, self.temp_max + 1, self.ticks):
-            y = bottom_y - (i/self.temp_max) * scale_height
+        for i in range(self.temp_min, self.temp_max + 1, 10):    
+            relative_pos = (i - self.temp_min) / temp_range
+            y = bottom_y - (relative_pos * scale_height)
             self.create_line(scale_x-2, y, scale_x+2, y)
             self.create_text(
                 scale_x-6, 
@@ -69,7 +76,7 @@ class TemperatureBar(tk.Canvas):
                 angle=90,
                 tags='scale_labels'
             )
-            
+                
         self.scale_top = top_y
         self.scale_bottom = bottom_y
         
@@ -91,7 +98,7 @@ class TemperatureBar(tk.Canvas):
             value_text = "---"
         elif value == self.SENSOR_ERROR:
             # Show orange bar for sensor error
-            bar_height = self.scale_bottom - self.scale_top
+            bar_height = (((value - self.temp_min) / (self.temp_max - self.temp_min)) * (self.scale_bottom - self.scale_top))
             self.create_rectangle(
                 5,
                 self.scale_bottom - bar_height,
@@ -132,27 +139,28 @@ class TemperatureBar(tk.Canvas):
     def get_temperature_color(self, name, temp: float) -> str:
         """Return a color based on temperature value."""
         
-        if temp < 15:
+        if temp < 20:
             return '#0000FF'  # Blue for cold
         
         if name.startswith('Solenoid'): 
-            if temp < 70:
+            if 20 <= temp < 70:
                 return '#00FF00'  # Green for normal 
-            elif temp < 100:
+            elif 70 <= temp < 100:
                 return '#FFFF00'  # Yellow for warm 
             else:
                 return '#FF0000'  # Red for hot
+            
         elif name.startswith('Chamber'): 
-            if temp < 50:
+            if 20 <= temp < 50:
                 return '#00FF00'  # Green for normal 
-            elif temp < 70:
+            elif 50 <= temp < 70:
                 return '#FFFF00'  # Yellow for warm 
             else:
                 return '#FF0000'  # Red for hot 
         elif name.startswith('Air'):
-            if temp < 30:
+            if 20 <= temp < 30:
                 return '#00FF00'  # Green for normal 
-            elif temp < 40:
+            elif 30 <= temp < 40:
                 return '#FFFF00'  # Yellow for warm 
             else:
                 return '#FF0000'  # Red for hot
@@ -184,7 +192,7 @@ class ProcessMonitorSubsystem:
             'Unassigned': 6
         }
         
-        # Initialize the DP16 monitor
+        # Initialize the PMON Hardware driver
         try:
             if com_port:
                 self.monitor = DP16ProcessMonitor(
@@ -232,7 +240,9 @@ class ProcessMonitorSubsystem:
                     self.last_error_time = current_time
                     self._adjust_update_interval(success=False)
             else:
-                temps = self.monitor.lst_resp
+
+                # Retrieve the last responses from all units
+                temps = self.monitor.temperature_readings
 
                 if not any(temps.values()):
                     if current_time - self.last_error_time > (self.update_interval / 1000):
