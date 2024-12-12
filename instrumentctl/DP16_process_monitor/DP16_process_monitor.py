@@ -28,7 +28,7 @@ class DP16ProcessMonitor:
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
-        self.lst_resp = {unit: -1 for unit in unit_numbers}
+        self.temperature_readings = {unit: -1 for unit in unit_numbers}
         self._is_running = True
         self._thread = None
         self.response_lock = Lock()
@@ -212,28 +212,28 @@ class DP16ProcessMonitor:
                         if -90 <= value <= 500:
                             self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.INFO)
                             with self.response_lock:
-                                self.lst_resp[unit] = value
+                                self.temperature_readings[unit] = value
                         else:
                             self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
                             with self.response_lock:
-                                self.lst_resp[unit] = None
+                                self.temperature_readings[unit] = None
                     else:
                         self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
                         with self.response_lock:
-                            self.lst_resp[unit] = None
+                            self.tempertature_readings[unit] = None
                 else:
                     self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
                     with self.response_lock:
-                        self.lst_resp[unit] = -1  
+                        self.temperature_readings[unit] = -1  
             else:
                 self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)   
                 with self.response_lock:
-                    self.lst_resp[unit] = -1   
+                    self.temperature_readings[unit] = -1   
 
         except ModbusIOException as e:
             self.log(f"Modbus IO error (unit {unit}): {e}", LogLevel.ERROR)
             with self.response_lock:
-                self.lst_resp[unit] = -1  # Mark unit as unavailable
+                self.temperature_readings[unit] = -1  # Mark unit as unavailable
         except Exception as e:
             self.log(f"Communication error (unit {unit}): {str(e)}", LogLevel.ERROR)
 
