@@ -1,5 +1,6 @@
 import time
 import threading
+from threading import Lock
 import struct
 import queue
 from utils import LogLevel
@@ -25,30 +26,44 @@ class DP16ProcessMonitor:
             timeout=1
         )
         self.unit_numbers = set(unit_numbers)
-        self.modbus_lock = threading.Lock()
+        self.modbus_lock = Lock()
         self.logger = logger
         self.lst_resp = {unit: -1 for unit in unit_numbers}
         self._is_running = True
         self._thread = None
+        self.response_lock = Lock()
         
-        # Establish serial connection
-        if self.connect():
+        try:
+            # First establish connection
+            if not self.connect():
+                raise RuntimeError(f"Failed to connect to DP16 Process Monitors on {port}")
+
             self.log(f"{port} Connected to DP16 Process Monitors", LogLevel.INFO)
-        else:
+            
+            # Set configuration for each unit
+            for unit in self.unit_numbers:
+                if not self._set_config(unit):
+                    raise RuntimeError(f"Failed to configure PMON unit {unit}")
+                
+            # Start single background polling thread after successful connection and configuration
+            self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
+            self._thread.start()
+        
+        except Exception as e:
+            self._is_running = False # Ensure the thread won't start
+            self.disconnect() # clean up resources
             self.log(f"Failed to connect to DP16 Process Monitors on {port}", LogLevel.WARNING)
-
-         # Set configuration for each unit
-        for unit in self.unit_numbers:
-            self._set_config(unit)
-
-        # Start single background polling thread
-        self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
-        self._thread.start()
+            raise RuntimeError(f"Failed to connect to PMON: {str(e)}")
 
     def connect(self):
         """
-        Checks to see if serial connection is good
-        Returns True if good, false otherwise
+        Establish a connection to the DP16 units.
+
+        Tries to open communication with the units using the configured 
+        baud rate and serial port. Logs any connection issues.
+
+        Returns:
+            bool: True if the connection is successful, False otherwise.
         """
         with self.modbus_lock:
             try:
@@ -134,28 +149,38 @@ class DP16ProcessMonitor:
         """
         Continuously poll all units in a single thread.
         """
+        base_delay = 0.1 # initial sequential delay 
+        max_delay = 5 # maximum sequential delay
+        current_delay = base_delay
+
         while self._is_running:
             try:
                 if not self.client.is_socket_open():
                     if not self.connect():
                         self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
-                        time.sleep(0.5)
+                        time.sleep(current_delay)
+                        current_delay = min(current_delay * 2, max_delay)
                         continue
+                current_delay = base_delay # reset delay on successful connection
 
                 with self.modbus_lock:
                     for unit in self.unit_numbers:
                         self._poll_single_unit(unit)
 
-                time.sleep(0.1) # small delay between polls
+                time.sleep(base_delay) # Normal polling interval
             
             except Exception as e:
                 self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
-                time.sleep(0.5)
+                time.sleep(current_delay)
+                current_delay = min(current_delay * 2, max_delay)
 
     def _poll_single_unit(self, unit):
         """
         Poll a single unit for status and temperature.
         """
+        if not self._is_running:
+            return
+        
         try:
             status = self.client.read_holding_registers(
                 address=self.STATUS_REG,
@@ -163,10 +188,12 @@ class DP16ProcessMonitor:
                 slave=unit
             )
 
-            if not status.isError():
+            if not status.isError(): # received valid response
                 self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.DEBUG)
 
                 if status.registers[0] == 6: # Normal operation
+
+                    # Read the decimal configuration
                     response = self.client.read_holding_registers(
                         address=self.PROCESS_VALUE_REG,
                         count=2,
@@ -174,29 +201,39 @@ class DP16ProcessMonitor:
                     )
 
                     if not response.isError():
+
+                        # Construct the float representation
                         raw_float = struct.pack('>HH', 
                             response.registers[0], 
                             response.registers[1])
                         value = struct.unpack('>f', raw_float)[0]
+
+                        # Validate the response
                         if -90 <= value <= 500:
                             self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.INFO)
-                            self.lst_resp[unit] = value
+                            with self.response_lock:
+                                self.lst_resp[unit] = value
                         else:
                             self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
-                            self.lst_resp[unit] = None
+                            with self.response_lock:
+                                self.lst_resp[unit] = None
                     else:
                         self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
-                        self.lst_resp[unit] = None
+                        with self.response_lock:
+                            self.lst_resp[unit] = None
                 else:
                     self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
-                    self.lst_resp[unit] = -1  
+                    with self.response_lock:
+                        self.lst_resp[unit] = -1  
             else:
                 self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)   
-                self.lst_resp[unit] = -1   
+                with self.response_lock:
+                    self.lst_resp[unit] = -1   
 
         except ModbusIOException as e:
             self.log(f"Modbus IO error (unit {unit}): {e}", LogLevel.ERROR)
-            self.lst_resp[unit] = -1  # Mark unit as unavailable
+            with self.response_lock:
+                self.lst_resp[unit] = -1  # Mark unit as unavailable
         except Exception as e:
             self.log(f"Communication error (unit {unit}): {str(e)}", LogLevel.ERROR)
 
