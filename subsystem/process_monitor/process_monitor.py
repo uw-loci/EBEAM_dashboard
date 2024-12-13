@@ -190,6 +190,9 @@ class ProcessMonitorSubsystem:
             'Air temp': 5,
             'Unassigned': 6
         }
+
+        # set up GUI first so temp_bars are available
+        self.setup_gui()
         
         # Initialize the PMON Hardware driver
         try:
@@ -210,7 +213,7 @@ class ProcessMonitorSubsystem:
             self.log(f"Failed to initialize DP16ProcessMonitor: {str(e)}", LogLevel.ERROR)
             self._set_all_temps_error()
         
-        self.setup_gui()
+        # start the callback method
         self.update_temperatures()
 
     def setup_gui(self):
