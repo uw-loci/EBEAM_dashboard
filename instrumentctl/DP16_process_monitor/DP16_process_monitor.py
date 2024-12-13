@@ -247,6 +247,11 @@ class DP16ProcessMonitor:
         except Exception as e:
             self.log(f"Communication error (unit {unit}): {str(e)}", LogLevel.ERROR)
 
+    def get_all_temperatures(self):
+        """ Thread-safe access method """
+        with self.response_lock:
+            return self.temperature_readings.copy()
+
     def disconnect(self):
         # Stop polling thread
         self._is_running = False
