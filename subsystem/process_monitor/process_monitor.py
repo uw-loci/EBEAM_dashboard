@@ -243,7 +243,7 @@ class ProcessMonitorSubsystem:
                 # Retrieve the last responses from all units
                 temps = self.monitor.temperature_readings
 
-                if not any(temps.values()):
+                if all(temp is None or temp == -1 for temp in temps.values()):
                     if current_time - self.last_error_time > (self.update_interval / 1000):
                         self._set_all_temps_error()
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
