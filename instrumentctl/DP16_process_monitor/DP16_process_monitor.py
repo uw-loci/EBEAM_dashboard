@@ -2,7 +2,6 @@ import time
 import threading
 from threading import Lock
 import struct
-import queue
 from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
