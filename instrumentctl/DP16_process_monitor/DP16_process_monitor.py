@@ -28,7 +28,7 @@ class DP16ProcessMonitor:
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
-        self.temperature_readings = {unit: -1 for unit in unit_numbers}
+        self.temperature_readings = {unit: None for unit in unit_numbers}
         self._is_running = True
         self._thread = None
         self.response_lock = Lock()
