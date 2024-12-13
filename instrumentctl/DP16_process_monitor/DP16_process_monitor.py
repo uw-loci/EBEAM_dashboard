@@ -220,7 +220,7 @@ class DP16ProcessMonitor:
                     else:
                         self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
                         with self.response_lock:
-                            self.tempertature_readings[unit] = None
+                            self.temperature_readings[unit] = None
                 else:
                     self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
                     with self.response_lock:
