@@ -98,10 +98,9 @@ class TemperatureBar(tk.Canvas):
             value_text = "---"
         elif value == self.SENSOR_ERROR:
             # Show orange bar for sensor error
-            bar_height = (((value - self.temp_min) / (self.temp_max - self.temp_min)) * (self.scale_bottom - self.scale_top))
             self.create_rectangle(
                 5,
-                self.scale_bottom - bar_height,
+                self.scale_bottom,
                 5 + self.bar_width,
                 self.scale_bottom,
                 fill=self.ERROR_COLORS[self.SENSOR_ERROR],
@@ -110,7 +109,7 @@ class TemperatureBar(tk.Canvas):
             value_text = "ERR"
         else:
             # Normal temperature display
-            bar_height = ((value/self.temp_max) * (self.scale_bottom - self.scale_top))
+            bar_height = (((value - self.temp_min) / (self.temp_max - self.temp_min)) * (self.scale_bottom - self.scale_top))
             color = self.get_temperature_color(name, value)
             self.create_rectangle(
                 5,
