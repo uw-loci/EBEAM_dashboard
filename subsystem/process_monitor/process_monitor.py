@@ -191,10 +191,7 @@ class ProcessMonitorSubsystem:
             'Unassigned': 6
         }
 
-        # set up GUI first so temp_bars are available
         self.setup_gui()
-        
-        # Initialize the PMON Hardware driver
         try:
             if com_port:
                 self.monitor = DP16ProcessMonitor(
@@ -244,7 +241,7 @@ class ProcessMonitorSubsystem:
             else:
 
                 # Retrieve the last responses from all units
-                temps = self.monitor.temperature_readings
+                temps = self.monitor.get_all_temperatures()
 
                 if all(temp is None or temp == -1 for temp in temps.values()):
                     if current_time - self.last_error_time > (self.update_interval / 1000):
