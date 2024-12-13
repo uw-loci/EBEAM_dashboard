@@ -14,6 +14,17 @@ class DP16ProcessMonitor:
     RDGCNF_REG = 0x248          # Register 8 in Table 6.2
     STATUS_REG = 0x240
 
+    # PT100 RTD Air temperature range
+    MIN_TEMP = -90
+    MAX_TEMP = 500
+    
+    # Polling delay
+    BASE_DELAY = 0.5
+    MAX_DELAY = 5
+
+    # Status Codes
+    STATUS_RUNNING = 0x0006
+
     def __init__(self, port, unit_numbers=(1,2,3,4,5), baudrate=9600, logger=None):
         """ Initialize Modbus settings """
         self.client = ModbusClient(
@@ -128,7 +139,7 @@ class DP16ProcessMonitor:
                 # Second write: Update the status register
                 response2 = self.client.write_register(
                     address=self.STATUS_REG,
-                    value=0x0006,
+                    value=self.STATUS_RUNNING,
                     slave=unit
                 )
                 if response2.isError():
@@ -148,9 +159,7 @@ class DP16ProcessMonitor:
         """
         Continuously poll all units in a single thread.
         """
-        base_delay = 0.1 # initial sequential delay 
-        max_delay = 5 # maximum sequential delay
-        current_delay = base_delay
+        current_delay = self.BASE_DELAY
 
         while self._is_running:
             try:
@@ -158,20 +167,22 @@ class DP16ProcessMonitor:
                     if not self.connect():
                         self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
                         time.sleep(current_delay)
-                        current_delay = min(current_delay * 2, max_delay)
+                        current_delay = min(current_delay * 2, self.MAX_DELAY)
                         continue
-                current_delay = base_delay # reset delay on successful connection
+                current_delay = self.BASE_DELAY # reset delay on successful connection
 
                 with self.modbus_lock:
+
+                    # Poll all PMON units
                     for unit in self.unit_numbers:
                         self._poll_single_unit(unit)
 
-                time.sleep(base_delay) # Normal polling interval
+                time.sleep(self.BASE_DELAY) # Normal polling interval
             
             except Exception as e:
                 self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
                 time.sleep(current_delay)
-                current_delay = min(current_delay * 2, max_delay)
+                current_delay = min(current_delay * 2, self.MAX_DELAY)
 
     def _poll_single_unit(self, unit):
         """
@@ -190,7 +201,7 @@ class DP16ProcessMonitor:
             if not status.isError(): # received valid response
                 self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.DEBUG)
 
-                if status.registers[0] == 6: # Normal operation
+                if status.registers[0] == self.STATUS_RUNNING: # Normal operation
 
                     # Read the decimal configuration
                     response = self.client.read_holding_registers(
@@ -208,7 +219,7 @@ class DP16ProcessMonitor:
                         value = struct.unpack('>f', raw_float)[0]
 
                         # Validate the response
-                        if -90 <= value <= 500:
+                        if self.MIN_TEMP <= value <= self.MAX_TEMP:
                             self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.INFO)
                             with self.response_lock:
                                 self.temperature_readings[unit] = value
