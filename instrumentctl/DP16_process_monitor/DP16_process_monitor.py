@@ -14,16 +14,20 @@ class DP16ProcessMonitor:
     RDGCNF_REG = 0x248          # Register 8 in Table 6.2
     STATUS_REG = 0x240
 
-    # PT100 RTD Air temperature range
-    MIN_TEMP = -90
-    MAX_TEMP = 500
+    # PT100 RTD temperature range
+    MIN_TEMP = -90      # [C]
+    MAX_TEMP = 500      # [C]
     
     # Polling delay
-    BASE_DELAY = 0.5
-    MAX_DELAY = 5
+    BASE_DELAY = 0.5    # [seconds]
+    MAX_DELAY = 5       # [seconds]
 
     # Status Codes
     STATUS_RUNNING = 0x0006
+
+    # Error states
+    DISCONNECTED = -1
+    SENSOR_ERROR = -2
 
     def __init__(self, port, unit_numbers=(1,2,3,4,5), baudrate=9600, logger=None):
         """ Initialize Modbus settings """
@@ -166,13 +170,15 @@ class DP16ProcessMonitor:
                 if not self.client.is_socket_open():
                     if not self.connect():
                         self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
+                        with self.response_lock:
+                            for unit in self.unit_numbers:
+                                self.temperature_readings[unit] = self.DISCONNECTED
                         time.sleep(current_delay)
                         current_delay = min(current_delay * 2, self.MAX_DELAY)
                         continue
                 current_delay = self.BASE_DELAY # reset delay on successful connection
 
                 with self.modbus_lock:
-
                     # Poll all PMON units
                     for unit in self.unit_numbers:
                         self._poll_single_unit(unit)
@@ -181,6 +187,9 @@ class DP16ProcessMonitor:
             
             except Exception as e:
                 self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
+                with self.response_lock:
+                    for unit in self.unit_numbers:
+                        self.temperature_readings[unit] = self.DISCONNECTED
                 time.sleep(current_delay)
                 current_delay = min(current_delay * 2, self.MAX_DELAY)
 
@@ -202,7 +211,6 @@ class DP16ProcessMonitor:
                 self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.DEBUG)
 
                 if status.registers[0] == self.STATUS_RUNNING: # Normal operation
-
                     # Read the decimal configuration
                     response = self.client.read_holding_registers(
                         address=self.PROCESS_VALUE_REG,
@@ -211,7 +219,6 @@ class DP16ProcessMonitor:
                     )
 
                     if not response.isError():
-
                         # Construct the float representation
                         raw_float = struct.pack('>HH', 
                             response.registers[0], 
@@ -226,26 +233,28 @@ class DP16ProcessMonitor:
                         else:
                             self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
                             with self.response_lock:
-                                self.temperature_readings[unit] = None
+                                self.temperature_readings[unit] = self.SENSOR_ERROR
                     else:
                         self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
                         with self.response_lock:
-                            self.temperature_readings[unit] = None
+                            self.temperature_readings[unit] = self.SENSOR_ERROR
                 else:
                     self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
                     with self.response_lock:
-                        self.temperature_readings[unit] = -1  
+                        self.temperature_readings[unit] = self.SENSOR_ERROR  
             else:
                 self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)   
                 with self.response_lock:
-                    self.temperature_readings[unit] = -1   
+                    self.temperature_readings[unit] = self.SENSOR_ERROR   
 
         except ModbusIOException as e:
             self.log(f"Modbus IO error (unit {unit}): {e}", LogLevel.ERROR)
             with self.response_lock:
-                self.temperature_readings[unit] = -1  # Mark unit as unavailable
+                self.temperature_readings[unit] = self.DISCONNECTED  # Mark unit as unavailable
         except Exception as e:
             self.log(f"Communication error (unit {unit}): {str(e)}", LogLevel.ERROR)
+            with self.response_lock:
+                self.temperature_readings[unit] = self.DISCONNECTED
 
     def get_all_temperatures(self):
         """ Thread-safe access method """
