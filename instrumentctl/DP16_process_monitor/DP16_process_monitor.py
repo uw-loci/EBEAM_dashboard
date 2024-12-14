@@ -50,14 +50,20 @@ class DP16ProcessMonitor:
         try:
             # First establish connection
             if not self.connect():
-                raise RuntimeError(f"Failed to connect to DP16 Process Monitors on {port}")
-
-            self.log(f"{port} Connected to DP16 Process Monitors", LogLevel.INFO)
+                raise RuntimeError(f"Failed to connect to any DP16 Process Monitors on {port}")
             
             # Set configuration for each unit
+            configured_units = set()
             for unit in self.unit_numbers:
-                if not self._set_config(unit):
-                    raise RuntimeError(f"Failed to configure PMON unit {unit}")
+                if self._set_config(unit):
+                    configured_units.add(unit)
+                else:
+                    self.log(f"Failed to configure unit {unit}", LogLevel.WARNING)
+                    with self.response_lock:
+                        self.temperature_readings[unit] = self.SENSOR_ERROR
+
+            if not configured_units:
+                raise RuntimeError(f"Failed to configure any DP16 units")
                 
             # Start single background polling thread after successful connection and configuration
             self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
@@ -83,7 +89,31 @@ class DP16ProcessMonitor:
             try:
                 if self.client.is_socket_open():
                     return True
-                return self.client.connect()
+                
+                if not self.client.connect():
+                    return False
+                
+                # Track working units
+                working_units = set()
+
+                for unit in self.unit_numbers:
+                    status = self.client.read_holding_registers(
+                        address=self.STATUS_REG,
+                        count=1,
+                        slave=unit
+                    )
+                    if not status.isError():
+                        working_units.add(unit)
+                    else:
+                        self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
+                        with self.response_lock:
+                            self.temperature_readings[unit] = self.DISCONNECTED
+
+                # Return True if at least one unit is working
+                if working_units:
+                    self.log(f"Connected to {len(working_units)}/{len(self.unit_numbers)} DP16 units", LogLevel.INFO)
+                    return True
+                return False
             except ModbusIOException as e:
                 self.log(f"Modbus IO error during DP16 connection: {e}", LogLevel.ERROR)
                 return False

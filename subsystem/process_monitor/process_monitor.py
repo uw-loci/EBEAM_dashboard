@@ -192,19 +192,16 @@ class ProcessMonitorSubsystem:
         }
 
         self.setup_gui()
+        
         try:
-            if com_port:
-                self.monitor = DP16ProcessMonitor(
-                    port=com_port,
-                    unit_numbers=list(self.thermometer_map.values()),
-                    logger=logger
-                )
-                if not self.monitor.connect():
-                    self.log("Failed to connect to DP16 Process Monitor", LogLevel.WARNING)
-            else:
-                self.monitor = None
-                self.log("No COM port provided for ProcessMonitorSubsystem", LogLevel.WARNING)
-                self._set_all_temps_error()
+            if not com_port:
+                raise ValueError("No COM port provided for ProcessMonitor")
+            # Instantiate PMON driver
+            self.monitor = DP16ProcessMonitor(
+                port=com_port,
+                unit_numbers=list(self.thermometer_map.values()),
+                logger=logger
+            )
         except Exception as e:
             self.monitor = None
             self.log(f"Failed to initialize DP16ProcessMonitor: {str(e)}", LogLevel.ERROR)
