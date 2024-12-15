@@ -5,29 +5,53 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-import subsystem.process_monitor
 from utils import MessagesFrame, SetupScripts, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
-
 frames_config = [
-    ("Interlocks", 0, None, 2),  # Moved to the top row
+    # Row 0
+    ("Interlocks", 0, None, 2),
+    
+    # Row 1
     ("Oil System", 1, 50, 150),
     ("Visualization Gas Control", 2, 50, 150),
     ("System Checks", 1, None, None),
+    
+    # Row 2
     ("Beam Extraction", 1, None, None),
     ("Vacuum System", 2, 150, 300),
     ("Deflection Monitor", 2, None, None),
     ("Beam Pulse", 2, None, None),
     ("Main Control", 2, 50, 300),
+    
+    # Row 3
     ("Setup Script", 3, None, 25),
     ("High Voltage Warning", 3, None, 25),
+    
+    # Row 4
     ("Process Monitor", 4, 250, 450),
     ("Cathode Heating", 4, 980, 450),
 ]
 
 class EBEAMSystemDashboard:
+    """
+    Main dashboard class that manages the EBEAM System Control Dashboard interface.
+
+    Manages the layout and visualization of multiple hardware subsystems including:
+    - Interlocks and safety systems
+    - Vacuum and pressure monitoring
+    - Temperature monitoring
+    - Cathode heating control
+    - System status monitoring and logging
+
+    Attributes:
+        root: tkinter root window
+        com_ports: Dictionary mapping subsystem names to serial COM port assigments
+        frames: Dictionary of tkinter frames for each subsystem
+        subsystems: Dictionary of initialized subsystem objects
+    """
+
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
@@ -53,7 +77,7 @@ class EBEAMSystemDashboard:
         self.create_subsystems()
 
     def setup_main_pane(self):
-        """Initialize the main layout pane and its rows."""
+        """Initialize the main layout pane and its rows for subsystem organization."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
@@ -63,7 +87,10 @@ class EBEAMSystemDashboard:
             self.main_pane.add(row_pane, stretch='always')
 
     def create_frames(self):
-        """Create frames for different systems and controls within the dashboard."""
+        """
+        Create and configure frames for all subsystems based on frames_config.
+        Each frame is added to its designated row in the main pane.
+        """
         global frames_config
 
         for title, row, width, height in frames_config:
@@ -142,7 +169,13 @@ class EBEAMSystemDashboard:
                             f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
-        """Add a title label to a frame."""
+        """
+        Add a formatted title label to a frame.
+        
+        Args:
+            frame: Frame to add title to
+            title: Title text to display
+        """
         label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
         label.pack(pady=0, fill=tk.X)
 
@@ -181,7 +214,10 @@ class EBEAMSystemDashboard:
         print(f"Log level changed to: {selected_level.name}")
 
     def create_subsystems(self):
-        """Initialize subsystems in their designated frames using component settings."""
+        """
+        Initialize all subsystem objects with their respective frames and settings.
+        Each subsystem is configured with appropriate COM ports and logging.
+        """
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
@@ -215,12 +251,16 @@ class EBEAMSystemDashboard:
         }
 
     def create_messages_frame(self):
-        """Create a frame for displaying messages and errors."""
+        """Create a scrollable frame for displaying system messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[4])
         self.rows[4].add(self.messages_frame.frame, stretch='always')
         self.logger = self.messages_frame.logger
 
     def create_com_port_frame(self, parent_frame):
+        """
+        Create the COM port configuration interface.
+        Allows dynamic assignment of COM ports to different subsystems.
+        """
         self.com_port_frame = ttk.Frame(parent_frame)
         self.com_port_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
@@ -256,6 +296,7 @@ class EBEAMSystemDashboard:
             self.com_port_button.config(text="Hide COM Port Configuration")
 
     def update_available_ports(self):
+        """Scan for available COM ports and update dropdown menus."""
         available_ports = [port.device for port in serial.tools.list_ports.comports()]
         for dropdown in self.port_dropdowns.values():
             current_value = dropdown.get()
