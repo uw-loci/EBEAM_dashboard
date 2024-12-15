@@ -22,7 +22,7 @@ def config_com_ports(saved_com_ports):
         except ImportError:
             pass
 
-    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']
+    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']
     available_ports = [port.device for port in serial.tools.list_ports.comports()]
 
     if not available_ports:
@@ -46,7 +46,7 @@ def config_com_ports(saved_com_ports):
     main_frame.pack(side=tk.TOP, fill=tk.X)
 
     # Create a dropdown for each subsystem
-    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks']
+    subsystems = ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']
     for subsystem in subsystems:
         frame = ttk.Frame(main_frame)
         frame.pack(pady=5, anchor='center')

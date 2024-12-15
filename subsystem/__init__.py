@@ -1,5 +1,5 @@
 from .vtrx.vtrx import VTRXSubsystem
-from .environmental.environmental import EnvironmentalSubsystem
+from .process_monitor.process_monitor import ProcessMonitorSubsystem
 from .interlocks.interlocks import InterlocksSubsystem
 from .oil_system.oil_system import OilSubsystem
 from .cathode_heating.cathode_heating import CathodeHeatingSubsystem
@@ -10,7 +10,7 @@ from .deflection_monitor.deflection_monitor import DeflectionMonitorSubsystem
 
 __all__ = [
     'VTRXSubsystem',
-    'EnvironmentalSubsystem',
+    'ProcessMonitorSubsystem',
     'InterlocksSubsystem',
     'OilSubsystem',
     'CathodeHeatingSubsystem',
