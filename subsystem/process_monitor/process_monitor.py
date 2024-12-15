@@ -230,15 +230,17 @@ class ProcessMonitorSubsystem:
         current_time = time.time()
         try:
             if not self.monitor or not self.monitor.client.is_socket_open():
+                self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
                     self._adjust_update_interval(success=False)
             else:
-
+                self.log("Retrieving temperatures from all PMON units")
                 # Retrieve the last responses from all units
                 temps = self.monitor.get_all_temperatures()
+                self.log(f"Retrieved temps: {temps}", LogLevel.DEBUG)
 
                 if all(temp is None or temp == -1 for temp in temps.values()):
                     if current_time - self.last_error_time > (self.update_interval / 1000):
@@ -249,6 +251,7 @@ class ProcessMonitorSubsystem:
                 else:
                     # Update each temperature bar
                     for name, unit in self.thermometer_map.items():
+                        self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.DEBUG)
                         temp = temps.get(unit)
                         if temp is not None and temp != -1:
                             self.temp_bars[name].update_value(name, temp)
@@ -260,6 +263,7 @@ class ProcessMonitorSubsystem:
                     self._adjust_update_interval(success=True)
 
         except Exception as e:
+            self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
             if current_time - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error updating temperatures: {str(e)}", LogLevel.ERROR)
                 self._set_all_temps_error()

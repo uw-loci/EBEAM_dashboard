@@ -88,14 +88,15 @@ class DP16ProcessMonitor:
         with self.modbus_lock:
             try:
                 if self.client.is_socket_open():
+                    self.log("Reusing existing PMON Modbus connection", LogLevel.DEBUG)
                     return True
                 
+                self.log(f"Attempting to connect on port {self.client}", LogLevel.DEBUG)
                 if not self.client.connect():
                     return False
                 
                 # Track working units
                 working_units = set()
-
                 for unit in self.unit_numbers:
                     status = self.client.read_holding_registers(
                         address=self.STATUS_REG,
@@ -104,6 +105,7 @@ class DP16ProcessMonitor:
                     )
                     if not status.isError():
                         working_units.add(unit)
+                        self.log(f"DP16 Unit {unit} responded with status: {status.registers[0]}", LogLevel.DEBUG)
                     else:
                         self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
                         with self.response_lock:
@@ -159,7 +161,7 @@ class DP16ProcessMonitor:
         
         try:
             with self.modbus_lock:
-
+                self.log(f"Setting RDGCNF_REG for unit {unit}", LogLevel.DEBUG)
                 # First write: Set the reading configuration format
                 response1 = self.client.write_register(
                     address=self.RDGCNF_REG,
@@ -171,13 +173,14 @@ class DP16ProcessMonitor:
                     return False # Exit early if the first write fails
                     
                 # Second write: Update the status register
+                self.log(f"Setting STATUS_REG for unit {unit}", LogLevel.DEBUG)
                 response2 = self.client.write_register(
                     address=self.STATUS_REG,
                     value=self.STATUS_RUNNING,
                     slave=unit
                 )
                 if response2.isError():
-                    self.log(f"Failed to write STATUS_REG for unit {unit}: Response:{response2}", LogLevel.ERROR)
+                    self.log(f"Failed to write STATUS_REG for DP16 unit {unit}: Response:{response2}", LogLevel.ERROR)
                     return False # Exit if second write fails
                 
                 self.log(f"Configuration successful for DP16 unit {unit}", LogLevel.INFO)
