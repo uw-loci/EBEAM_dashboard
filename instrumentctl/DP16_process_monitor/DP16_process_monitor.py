@@ -289,7 +289,7 @@ class DP16ProcessMonitor:
     def get_all_temperatures(self):
         """ Thread-safe access method """
         with self.response_lock:
-            return self.temperature_readings.copy()
+            return dict(self.temperature_readings) # create new response dict while holding lock
 
     def disconnect(self):
         # Stop polling thread
