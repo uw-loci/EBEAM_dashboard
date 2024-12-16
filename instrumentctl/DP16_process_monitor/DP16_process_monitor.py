@@ -43,6 +43,7 @@ class DP16ProcessMonitor:
         self.modbus_lock = Lock()
         self.logger = logger
         self.temperature_readings = {unit: None for unit in unit_numbers}
+        self.error_counts = {unit: 0 for unit in self.unit_numbers}
         self._is_running = True
         self._thread = None
         self.response_lock = Lock()
@@ -263,14 +264,20 @@ class DP16ProcessMonitor:
                             self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.INFO)
                             with self.response_lock:
                                 self.temperature_readings[unit] = value
+                            self.error_counts[unit] = 0
                         else:
                             self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
+                            self.error_counts[unit] += 1
+                            if self.error_counts[unit] >= 3:
+                                # only indicate SENSOR_ERROR after three consecutive readings
+                                with self.response_lock:
+                                    self.temperature_readings[unit] = self.SENSOR_ERROR
+                    else:
+                        self.error_counts[unit] += 1
+                        if self.error_counts[unit] >= 3:
+                            self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
                             with self.response_lock:
                                 self.temperature_readings[unit] = self.SENSOR_ERROR
-                    else:
-                        self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
-                        with self.response_lock:
-                            self.temperature_readings[unit] = self.SENSOR_ERROR
                 else:
                     self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
                     with self.response_lock:
