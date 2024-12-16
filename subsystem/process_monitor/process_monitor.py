@@ -239,7 +239,9 @@ class ProcessMonitorSubsystem:
             else:
                 # Retrieve the last responses from all units
                 temps = self.monitor.get_all_temperatures()
-                self.log(f"Retrieved temps: {temps}", LogLevel.DEBUG)
+                formatted_temps = {unit: f"{value:.2f}" if isinstance(value, float) else value
+                                for unit, value in temps.items()}
+                self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
 
                 if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):
@@ -248,11 +250,10 @@ class ProcessMonitorSubsystem:
                         self.last_error_time = current_time
                         self._adjust_update_interval(success=False)
                 else:
-                    has_valid_reading = False
                     # Update each temperature bar
                     for name, unit in self.thermometer_map.items():
                         temp = temps.get(unit)
-                        self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.DEBUG)
+                        self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.VERBOSE)
                         temp = temps.get(unit)
                         if temp is None:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
@@ -266,7 +267,7 @@ class ProcessMonitorSubsystem:
                                 if -90 <= temp_value <= 500:  # Valid temperature range
                                     has_valid_reading = True
                                     self.temp_bars[name].update_value(name, temp_value)
-                                    self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.DEBUG)
+                                    self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
                                     self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                     self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
