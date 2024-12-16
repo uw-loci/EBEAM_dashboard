@@ -19,7 +19,7 @@ class DP16ProcessMonitor:
     MAX_TEMP = 500      # [C]
     
     # Polling delay
-    BASE_DELAY = 0.5    # [seconds]
+    BASE_DELAY = 0.1    # [seconds]
     MAX_DELAY = 5       # [seconds]
 
     # Status Codes
@@ -28,6 +28,7 @@ class DP16ProcessMonitor:
     # Error states
     DISCONNECTED = -1
     SENSOR_ERROR = -2
+    MAX_ERROR_THRESHOLD = 3
 
     def __init__(self, port, unit_numbers=(1,2,3,4,5), baudrate=9600, logger=None):
         """ Initialize Modbus settings """
@@ -37,13 +38,14 @@ class DP16ProcessMonitor:
             bytesize=8,
             parity='N',
             stopbits=1,
-            timeout=1
+            timeout=0.5
         )
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
         self.temperature_readings = {unit: None for unit in unit_numbers}
         self.error_counts = {unit: 0 for unit in self.unit_numbers}
+        self.last_good_readings = {unit: None for unit in self.unit_numbers}
         self._is_running = True
         self._thread = None
         self.response_lock = Lock()
@@ -106,7 +108,7 @@ class DP16ProcessMonitor:
                     )
                     if not status.isError():
                         working_units.add(unit)
-                        self.log(f"DP16 Unit {unit} responded with status: {status.registers[0]}", LogLevel.DEBUG)
+                        self.log(f"DP16 Unit {unit} responded with status: {status.registers[0]}", LogLevel.VERBOSE)
                     else:
                         self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
                         with self.response_lock:
@@ -136,6 +138,7 @@ class DP16ProcessMonitor:
                     count=1,
                     slave=unit
                 )
+                time.sleep(0.1)
                 if not response.isError():
                     return response.registers[0]
                 return None
@@ -180,6 +183,7 @@ class DP16ProcessMonitor:
                     value=self.STATUS_RUNNING,
                     slave=unit
                 )
+                time.sleep(0.1)
                 if response2.isError():
                     self.log(f"Failed to write STATUS_REG for DP16 unit {unit}: Response:{response2}", LogLevel.ERROR)
                     return False # Exit if second write fails
@@ -242,7 +246,7 @@ class DP16ProcessMonitor:
             )
 
             if not status.isError(): # received valid response
-                self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.DEBUG)
+                self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.VERBOSE)
 
                 if status.registers[0] == self.STATUS_RUNNING: # Normal operation
                     # Read the decimal configuration
@@ -261,31 +265,52 @@ class DP16ProcessMonitor:
 
                         # Validate the response
                         if self.MIN_TEMP <= value <= self.MAX_TEMP:
-                            self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.INFO)
+                            self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.VERBOSE)
                             with self.response_lock:
                                 self.temperature_readings[unit] = value
+                                self.last_good_readings[unit] = value
                             self.error_counts[unit] = 0
                         else:
+                            # out of range reading
                             self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
                             self.error_counts[unit] += 1
-                            if self.error_counts[unit] >= 3:
+                            if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
                                 # only indicate SENSOR_ERROR after three consecutive readings
                                 with self.response_lock:
                                     self.temperature_readings[unit] = self.SENSOR_ERROR
+                            else:
+                                # Use last good reading if available
+                                if self.last_good_readings[unit] is not None:
+                                    with self.response_lock:
+                                        self.temperature_readings[unit] = self.last_good_readings[unit]
                     else:
                         self.error_counts[unit] += 1
-                        if self.error_counts[unit] >= 3:
+                        if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
                             self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
                             with self.response_lock:
                                 self.temperature_readings[unit] = self.SENSOR_ERROR
+                        else:
+                            # Use last good reading if available
+                            if self.last_good_readings[unit] is not None:
+                                with self.response_lock:
+                                    self.temperature_readings[unit] = self.last_good_readings[unit]
                 else:
+                    # abnormal status
                     self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
                     with self.response_lock:
                         self.temperature_readings[unit] = self.SENSOR_ERROR  
             else:
-                self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)   
-                with self.response_lock:
-                    self.temperature_readings[unit] = self.SENSOR_ERROR   
+                # missed package
+                self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)
+                self.error_counts[unit] += 1
+                if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
+                    with self.response_lock:
+                        self.temperature_readings[unit] = self.SENSOR_ERROR
+                else:
+                    # Use last good reading if available
+                    if self.last_good_readings[unit] is not None:
+                        with self.response_lock:
+                            self.temperature_readings[unit] = self.last_good_readings[unit]
 
         except ModbusIOException as e:
             self.log(f"Modbus IO error (unit {unit}): {e}", LogLevel.ERROR)
