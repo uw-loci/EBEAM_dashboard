@@ -3,7 +3,7 @@ import sys
 import subprocess
 import os
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, filedialog
 import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -28,16 +28,21 @@ class Logger:
             self.setup_log_file()
 
     def setup_log_file(self):
-        log_dir = os.path.join(os.path.dirname(sys.executable), 'logs')
-        os.makedirs(log_dir, exist_ok=True)
-        log_file_name = f"ebeam_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
-
+        """Setup a new log file in the 'EBEAM-Dashboard-Logs/' directory."""
+        try:
+            log_dir = os.path.join(os.path.expanduser("~"), "EBEAM-Dashboard-Logs")  # Use home directory
+            os.makedirs(log_dir, exist_ok=True)
+            log_file_name = f"ebeam_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+        except Exception as e:
+            print(f"Error creating log file: {str(e)}")
+        
     def log(self, msg, level=LogLevel.INFO):
         if level >= self.log_level:
             timestamp = datetime.datetime.now().strftime("%H:%M:%S")
             formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
             
+            # Write to text widget
             self.text_widget.insert(tk.END, formatted_message)
             self.text_widget.see(tk.END)
 
@@ -72,32 +77,43 @@ class MessagesFrame:
 
     def __init__(self, parent):
         self.frame = tk.Frame(parent, borderwidth=2, relief="solid")
-        self.frame.pack(fill=tk.BOTH, expand=True)  # Make sure it expands and fills space
+        self.frame.pack(fill=tk.BOTH, expand=True) 
 
         # Add a title to the Messages & Errors frame
         label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 10, "bold"))
-        label.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        label.grid(row=0, column=0, columnspan=4, sticky="ew", padx=10, pady=10)
 
         # Configure the grid layout to allow the text widget to expand
         self.frame.columnconfigure(0, weight=1)
         self.frame.columnconfigure(1, weight=1)
+        self.frame.columnconfigure(2, weight=1)
+        self.frame.columnconfigure(3, weight=0)
         self.frame.rowconfigure(1, weight=1)
 
         # Create a Text widget for logs
         self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 8))
-        self.text_widget.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=10, pady=0)
+        self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=10, pady=0)
 
         # Create a button to clear the text widget
         self.clear_button = tk.Button(self.frame, text="Clear Messages", command=self.confirm_clear)
         self.clear_button.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
 
-        self.save_button = tk.Button(self.frame, text="Save Log", command=self.save_log)
-        self.save_button.grid(row=2, column=1, sticky="ew", padx=10, pady=10)
+        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log)
+        self.export_button.grid(row=2, column=1, sticky="ew", padx=10, pady=10)
+
+        self.toggle_file_logging_button = tk.Button(self.frame, text="Record Logs: ON", command=self.toggle_file_logging)
+        self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=10, pady=10)
+
+        # circular indicator for log writing state
+        self.logging_indicator_canvas = tk.Canvas(self.frame, width=12, height=12, highlightthickness=0)
+        self.logging_indicator_canvas.grid(row=2, column=3, padx=(0, 10), pady=10)
+        self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(2, 2, 10, 10, fill="green", outline="black")
+
+        self.file_logging_enabled = True
+        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
-        
-        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Ensure that the log directory exists
         self.ensure_log_directory()
@@ -106,6 +122,27 @@ class MessagesFrame:
         """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
         self.trim_text()
+
+    def toggle_file_logging(self):
+        # Toggle the file_logging_enabled state
+        if self.file_logging_enabled:
+            # Currently ON, turn it OFF
+            self.file_logging_enabled = False
+            self.logger.log_to_file = False
+            if self.logger.log_file:
+                self.logger.log_file.close()
+            self.toggle_file_logging_button.config(text="Record Logs: OFF")
+            self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
+            self.logger.info("Log recording has been turned OFF.")
+        else:
+            # Currently OFF, turn it ON
+            self.file_logging_enabled = True
+            self.logger.log_to_file = True
+            if not self.logger.log_file:  # if no file is open, set up a new one
+                self.logger.setup_log_file()
+            self.toggle_file_logging_button.config(text="Record Logs: ON")
+            self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="green")
+            self.logger.info("Log recording has been turned ON.")
 
     def set_log_level(self, level):
         self.logger.set_log_level(level)
@@ -142,22 +179,28 @@ class MessagesFrame:
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
 
-    def save_log(self):
-        """ Save the current contents of the text widget to a timestamped log file in 'logs/' directory. """
+    def export_log(self):
+        """ Export the current log contents to a user-specified file. """
         try:
-            filename = datetime.datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt")
-            full_path = os.path.join(self.log_dir, filename)
-            with open(full_path, 'w') as file:
-                file.write(self.text_widget.get("1.0", tk.END))
-            messagebox.showinfo("Save Successful", f"Log saved as {filename}")
+            # Open a file dialog to let the user choose save location
+            initial_name = f"log_export_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                initialfile=initial_name,
+                title="Export Log As...",
+                filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+            )
+            if file_path:
+                with open(file_path, 'w') as file:
+                    file.write(self.text_widget.get("1.0", tk.END))
+                messagebox.showinfo("Export Successful", f"Log exported to {file_path}")
         except Exception as e:
-            messagebox.showerror("Save Error", f"Failed to save log: {str(e)}")
+            messagebox.showerror("Export Error", f"Failed to export log: {str(e)}")
 
     def confirm_clear(self):
         ''' Show a confirmation dialog before clearing the text widget '''
         if messagebox.askokcancel("Clear Messages", "Do you really want to clear all messages?"):
             self.text_widget.delete('1.0', tk.END)
-
 
 class TextRedirector:
     def __init__(self, widget, tag="stdout"):
@@ -258,7 +301,7 @@ class ToolTip(object):
             self.tip_window.bind("<Destroy>", lambda e, fig=fig: plt.close(fig))
 
             # Add vertical and horizontal lines if values are provided
-            if self.voltage_var.get() and self.current_var.get():
+            if self.voltage_var and self.current_var:
 
                 try:
                     voltage = float(self.voltage_var.get().replace(' V', ''))
