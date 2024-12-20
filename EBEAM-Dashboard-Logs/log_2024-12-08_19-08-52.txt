@@ -1,0 +1,102 @@
+[19:08:18] - ERROR: Error opening serial port DUMMY_COM1: could not open port 'DUMMY_COM1': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[19:08:21] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:22] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:23] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:23] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.50634765625, 4: -1, 5: 26.877044677734375, 6: -1}
+[19:08:23] - ERROR: Failed to open serial port DUMMY_COM6: could not open port 'DUMMY_COM6': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[19:08:23] - INFO: G9 driver initialized
+[19:08:24] - DEBUG: Initializing E5CNModbus with port: DUMMY_COM5
+[19:08:24] - ERROR: Failed to connect to the E5CN Modbus device.
+[19:08:24] - ERROR: Cannot start reading temperatures - connection failed
+[19:08:24] - ERROR: Failed to start temperature controllers at DUMMY_COM5
+[19:08:24] - ERROR: Error opening serial port DUMMY_COM2: could not open port 'DUMMY_COM2': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[19:08:24] - DEBUG: Raw command sent: SABC3
+[19:08:24] - ERROR: Failed to initialize CathodeA PS on port DUMMY_COM2: 'NoneType' object has no attribute 'write'
+[19:08:24] - ERROR: Error opening serial port DUMMY_COM3: could not open port 'DUMMY_COM3': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[19:08:24] - DEBUG: Raw command sent: SABC3
+[19:08:24] - ERROR: Failed to initialize CathodeB PS on port DUMMY_COM3: 'NoneType' object has no attribute 'write'
+[19:08:24] - ERROR: Error opening serial port DUMMY_COM4: could not open port 'DUMMY_COM4': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[19:08:24] - DEBUG: Raw command sent: SABC3
+[19:08:24] - ERROR: Failed to initialize CathodeC PS on port DUMMY_COM4: 'NoneType' object has no attribute 'write'
+[19:08:24] - DEBUG: Power supply 1 not initialized. Button disabled.
+[19:08:24] - DEBUG: Power supply 2 not initialized. Button disabled.
+[19:08:24] - DEBUG: Power supply 3 not initialized. Button disabled.
+[19:08:24] - DEBUG: No power supplies were initialized properly.
+[19:08:24] - DEBUG: No connection to CCS temperature controller 1
+[19:08:24] - DEBUG: No connection to CCS temperature controller 2
+[19:08:24] - DEBUG: No connection to CCS temperature controller 3
+[19:08:24] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:24] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:25] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:26] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.497127532958984, 4: -1, 5: 26.884401321411133, 6: -1}
+[19:08:26] - WARNING: G9 driver not connected
+[19:08:27] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:27] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:28] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:28] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.492839813232422, 4: -1, 5: 26.87826156616211, 6: -1}
+[19:08:28] - WARNING: G9 driver not connected
+[19:08:29] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:29] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:30] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:31] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.47994041442871, 4: -1, 5: 26.88625144958496, 6: -1}
+[19:08:31] - WARNING: G9 driver not connected
+[19:08:31] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:32] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:33] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:33] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.481788635253906, 4: -1, 5: 26.88993263244629, 6: -1}
+[19:08:34] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:34] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:35] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:35] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.475650787353516, 4: -1, 5: 26.898550033569336, 6: -1}
+[19:08:35] - DEBUG: No connection to CCS temperature controller 1
+[19:08:36] - DEBUG: No connection to CCS temperature controller 2
+[19:08:36] - DEBUG: No connection to CCS temperature controller 3
+[19:08:36] - WARNING: G9 driver not connected
+[19:08:36] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:37] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:37] - ERROR: Return message from unit indicating error status: unit - 3
+[19:08:37] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:38] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: -1, 4: -1, 5: 26.9046688079834, 6: -1}
+[19:08:39] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:39] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:40] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:40] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.465824127197266, 4: -1, 5: 26.91514015197754, 6: -1}
+[19:08:41] - WARNING: G9 driver not connected
+[19:08:41] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:41] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:42] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:43] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.463361740112305, 4: -1, 5: 26.900989532470703, 6: -1}
+[19:08:43] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:44] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:45] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:45] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.465824127197266, 4: -1, 5: 26.89670181274414, 6: -1}
+[19:08:46] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:46] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:47] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:48] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.460905075073242, 4: -1, 5: 26.90591049194336, 6: -1}
+[19:08:48] - WARNING: G9 driver not connected
+[19:08:48] - DEBUG: No connection to CCS temperature controller 1
+[19:08:48] - DEBUG: No connection to CCS temperature controller 2
+[19:08:48] - DEBUG: No connection to CCS temperature controller 3
+[19:08:48] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:49] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:49] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:50] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.45046615600586, 4: -1, 5: 26.874582290649414, 6: -1}
+[19:08:51] - ERROR: Return message from unit indicating error status: unit - 1
+[19:08:51] - ERROR: Return message from unit indicating error status: unit - 2
+[19:08:52] - ERROR: Return message from unit indicating error status: unit - 4
+[19:08:52] - ERROR: Return message from unit indicating error status: unit - 6
+{1: -1, 2: -1, 3: 24.45046615600586, 4: -1, 5: 26.885013580322266, 6: -1}
+

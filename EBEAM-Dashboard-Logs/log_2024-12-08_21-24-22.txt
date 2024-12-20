@@ -1,0 +1,28 @@
+[21:23:46] - WARNING: G9 driver not connected
+[21:23:47] - ERROR: Missed package on unit - 5
+[21:23:47] - ERROR: Missed package on unit - 3
+[21:23:51] - WARNING: G9 driver not connected
+[21:23:52] - ERROR: Missed package on unit - 3
+[21:23:53] - DEBUG: No connection to CCS temperature controller 3
+[21:23:54] - DEBUG: No connection to CCS temperature controller 1
+[21:23:54] - DEBUG: No connection to CCS temperature controller 2
+[21:23:56] - WARNING: G9 driver not connected
+[21:24:01] - WARNING: G9 driver not connected
+[21:24:02] - ERROR: Missed package on unit - 5
+[21:24:03] - DEBUG: No connection to CCS temperature controller 3
+[21:24:03] - ERROR: Missed package on unit - 5
+[21:24:04] - ERROR: Missed package on unit - 5
+[21:24:04] - DEBUG: No connection to CCS temperature controller 1
+[21:24:04] - DEBUG: No connection to CCS temperature controller 2
+[21:24:06] - WARNING: G9 driver not connected
+[21:24:07] - ERROR: Missed package on unit - 3
+[21:24:11] - WARNING: G9 driver not connected
+[21:24:13] - DEBUG: No connection to CCS temperature controller 3
+[21:24:13] - ERROR: Missed package on unit - 5
+[21:24:14] - DEBUG: No connection to CCS temperature controller 1
+[21:24:14] - DEBUG: No connection to CCS temperature controller 2
+[21:24:16] - WARNING: G9 driver not connected
+[21:24:17] - ERROR: Missed package on unit - 5
+[21:24:20] - ERROR: Missed package on unit - 3
+[21:24:21] - WARNING: G9 driver not connected
+

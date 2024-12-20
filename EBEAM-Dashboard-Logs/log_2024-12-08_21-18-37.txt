@@ -1,0 +1,71 @@
+[21:17:01] - ERROR: Error opening serial port DUMMY_COM1: could not open port 'DUMMY_COM1': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[21:17:32] - ERROR: Failed to open serial port DUMMY_COM6: could not open port 'DUMMY_COM6': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[21:17:32] - INFO: G9 driver initialized
+[21:17:32] - DEBUG: Initializing E5CNModbus with port: DUMMY_COM5
+[21:17:32] - ERROR: Failed to connect to the E5CN Modbus device.
+[21:17:32] - ERROR: Cannot start reading temperatures - connection failed
+[21:17:32] - ERROR: Failed to start temperature controllers at DUMMY_COM5
+[21:17:32] - ERROR: Error opening serial port DUMMY_COM2: could not open port 'DUMMY_COM2': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[21:17:32] - DEBUG: Raw command sent: SABC3
+[21:17:32] - ERROR: Failed to initialize CathodeA PS on port DUMMY_COM2: 'NoneType' object has no attribute 'write'
+[21:17:32] - ERROR: Error opening serial port DUMMY_COM3: could not open port 'DUMMY_COM3': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[21:17:32] - DEBUG: Raw command sent: SABC3
+[21:17:32] - ERROR: Failed to initialize CathodeB PS on port DUMMY_COM3: 'NoneType' object has no attribute 'write'
+[21:17:32] - ERROR: Error opening serial port DUMMY_COM4: could not open port 'DUMMY_COM4': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[21:17:32] - DEBUG: Raw command sent: SABC3
+[21:17:32] - ERROR: Failed to initialize CathodeC PS on port DUMMY_COM4: 'NoneType' object has no attribute 'write'
+[21:17:32] - DEBUG: Power supply 1 not initialized. Button disabled.
+[21:17:32] - DEBUG: Power supply 2 not initialized. Button disabled.
+[21:17:32] - DEBUG: Power supply 3 not initialized. Button disabled.
+[21:17:32] - DEBUG: No power supplies were initialized properly.
+[21:17:32] - DEBUG: No connection to CCS temperature controller 1
+[21:17:32] - DEBUG: No connection to CCS temperature controller 2
+[21:17:32] - DEBUG: No connection to CCS temperature controller 3
+[21:17:32] - WARNING: G9 driver not connected
+[21:17:33] - WARNING: G9 driver not connected
+[21:17:35] - WARNING: G9 driver not connected
+[21:17:36] - ERROR: Missed package on unit - 3
+[21:17:38] - ERROR: Missed package on unit - 3
+[21:17:39] - WARNING: G9 driver not connected
+[21:17:43] - ERROR: Missed package on unit - 3
+[21:17:43] - DEBUG: No connection to CCS temperature controller 1
+[21:17:43] - DEBUG: No connection to CCS temperature controller 2
+[21:17:43] - DEBUG: No connection to CCS temperature controller 3
+[21:17:44] - ERROR: Missed package on unit - 3
+[21:17:44] - WARNING: G9 driver not connected
+[21:17:49] - WARNING: G9 driver not connected
+[21:17:53] - DEBUG: No connection to CCS temperature controller 1
+[21:17:53] - DEBUG: No connection to CCS temperature controller 2
+[21:17:53] - DEBUG: No connection to CCS temperature controller 3
+[21:17:54] - WARNING: G9 driver not connected
+[21:17:56] - ERROR: Missed package on unit - 5
+[21:17:59] - WARNING: G9 driver not connected
+[21:18:03] - DEBUG: No connection to CCS temperature controller 1
+[21:18:03] - DEBUG: No connection to CCS temperature controller 2
+[21:18:03] - DEBUG: No connection to CCS temperature controller 3
+[21:18:05] - WARNING: G9 driver not connected
+[21:18:05] - ERROR: Missed package on unit - 3
+[21:18:05] - ERROR: Missed package on unit - 3
+[21:18:08] - ERROR: Missed package on unit - 3
+[21:18:10] - WARNING: G9 driver not connected
+[21:18:13] - DEBUG: No connection to CCS temperature controller 1
+[21:18:13] - DEBUG: No connection to CCS temperature controller 2
+[21:18:13] - DEBUG: No connection to CCS temperature controller 3
+[21:18:15] - WARNING: G9 driver not connected
+[21:18:20] - WARNING: G9 driver not connected
+[21:18:23] - DEBUG: No connection to CCS temperature controller 1
+[21:18:23] - DEBUG: No connection to CCS temperature controller 2
+[21:18:23] - DEBUG: No connection to CCS temperature controller 3
+[21:18:24] - ERROR: Missed package on unit - 3
+[21:18:25] - WARNING: G9 driver not connected
+[21:18:25] - ERROR: Missed package on unit - 5
+[21:18:30] - WARNING: G9 driver not connected
+[21:18:30] - ERROR: Missed package on unit - 3
+[21:18:32] - ERROR: Missed package on unit - 3
+[21:18:33] - ERROR: Missed package on unit - 5
+[21:18:34] - DEBUG: No connection to CCS temperature controller 1
+[21:18:34] - DEBUG: No connection to CCS temperature controller 2
+[21:18:34] - DEBUG: No connection to CCS temperature controller 3
+[21:18:35] - WARNING: G9 driver not connected
+[21:18:36] - ERROR: Missed package on unit - 3
+

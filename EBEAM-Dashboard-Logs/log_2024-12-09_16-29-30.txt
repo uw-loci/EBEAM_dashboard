@@ -1,0 +1,35 @@
+[16:29:16] - ERROR: Error opening serial port DUMMY_COM1: could not open port 'DUMMY_COM1': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[16:29:17] - INFO: Configuration successful for DP16 unit 1
+[16:29:17] - INFO: Configuration successful for DP16 unit 2
+[16:29:17] - INFO: Configuration successful for DP16 unit 3
+[16:29:18] - INFO: Configuration successful for DP16 unit 4
+[16:29:18] - INFO: Configuration successful for DP16 unit 5
+[16:29:18] - INFO: Configuration successful for DP16 unit 6
+[16:29:20] - ERROR: Failed to open serial port DUMMY_COM6: could not open port 'DUMMY_COM6': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[16:29:20] - INFO: G9 driver initialized
+[16:29:20] - DEBUG: Initializing E5CNModbus with port: DUMMY_COM5
+[16:29:20] - ERROR: Failed to connect to the E5CN Modbus device.
+[16:29:20] - ERROR: Cannot start reading temperatures - connection failed
+[16:29:20] - ERROR: Failed to start temperature controllers at DUMMY_COM5
+[16:29:20] - ERROR: Error opening serial port DUMMY_COM2: could not open port 'DUMMY_COM2': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[16:29:20] - DEBUG: Raw command sent: SABC3
+[16:29:20] - ERROR: Failed to initialize CathodeA PS on port DUMMY_COM2: 'NoneType' object has no attribute 'write'
+[16:29:20] - ERROR: Error opening serial port DUMMY_COM3: could not open port 'DUMMY_COM3': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[16:29:20] - DEBUG: Raw command sent: SABC3
+[16:29:20] - ERROR: Failed to initialize CathodeB PS on port DUMMY_COM3: 'NoneType' object has no attribute 'write'
+[16:29:20] - ERROR: Error opening serial port DUMMY_COM4: could not open port 'DUMMY_COM4': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)
+[16:29:20] - DEBUG: Raw command sent: SABC3
+[16:29:20] - ERROR: Failed to initialize CathodeC PS on port DUMMY_COM4: 'NoneType' object has no attribute 'write'
+[16:29:20] - DEBUG: Power supply 1 not initialized. Button disabled.
+[16:29:20] - DEBUG: Power supply 2 not initialized. Button disabled.
+[16:29:20] - DEBUG: Power supply 3 not initialized. Button disabled.
+[16:29:20] - DEBUG: No power supplies were initialized properly.
+[16:29:20] - DEBUG: No connection to CCS temperature controller 1
+[16:29:20] - DEBUG: No connection to CCS temperature controller 2
+[16:29:20] - DEBUG: No connection to CCS temperature controller 3
+[16:29:21] - WARNING: G9 driver not connected
+[16:29:20] - ERROR: Communication error: main thread is not in main loop
+[16:29:22] - WARNING: G9 driver not connected
+[16:29:24] - WARNING: G9 driver not connected
+[16:29:28] - WARNING: G9 driver not connected
+
