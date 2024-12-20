@@ -67,29 +67,38 @@ The temperature for a particular unit is retrieved from the `lst_resp` dictionar
 ### Subsystem Initialization
 ```mermaid
 flowchart TD
-    Start([Initialize ProcessMonitorSubsystem]) --> ParentLogger[Store parent and logger references]
-    ParentLogger --> InitVars[Initialize error tracking and<br/>update interval variables]
+    Start([Initialize ProcessMonitorSubsystem]) --> InitVars[Initialize variables:<br/>- error tracking<br/>- update interval<br/>- error counts<br/>- last good readings]
     InitVars --> SetThermo[Setup thermometer arrays:<br/>- thermometers list<br/>- thermometer_map dictionary]
     
     SetThermo --> ComCheck{COM Port<br/>Provided?}
-    ComCheck -->|Yes| TryInit[Try DP16ProcessMonitor initialization]
     ComCheck -->|No| NoComPort[Set monitor = None<br/>Log warning]
+    ComCheck -->|Yes| TryInit[Try DP16ProcessMonitor initialization]
     
-    TryInit --> ConnectCheck{Connection<br/>Successful?}
-    ConnectCheck -->|Yes| SetupGUI[Setup GUI]
-    ConnectCheck -->|No| LogWarn[Log warning]
+    TryInit --> ConnectAttempt{Try up to 3<br/>connection attempts}
+    ConnectAttempt -->|Success| ConfigureUnits[Configure each unit]
+    ConnectAttempt -->|All Failed| InitFailed[Log error<br/>Set monitor = None]
     
-    NoComPort --> ErrorState[Set all temps to error state]
-    LogWarn --> SetupGUI
-    ErrorState --> SetupGUI
+    ConfigureUnits --> UnitLoop[For each unit]
+    UnitLoop --> ConfigCheck{Configuration<br/>successful?}
+    ConfigCheck -->|Yes| AddUnit[Add to configured units]
+    ConfigCheck -->|No| LogUnitFail[Log unit failure]
+    
+    AddUnit --> MoreUnits{More units?}
+    LogUnitFail --> MoreUnits
+    MoreUnits -->|Yes| UnitLoop
+    MoreUnits -->|No| UnitsCheck{Any units<br/>configured?}
+    
+    UnitsCheck -->|Yes| StartThread[Start polling thread]
+    UnitsCheck -->|No| RaiseError[Raise RuntimeError]
+    
+    NoComPort --> SetupGUI[Setup GUI]
+    InitFailed --> SetupGUI
+    StartThread --> SetupGUI
+    RaiseError --> SetupGUI
     
     SetupGUI --> CreateFrame[Create and configure frame]
     CreateFrame --> CreateBars[Create temperature bars]
     CreateBars --> StartUpdate[Start update_temperatures loop]
-    
-    %% Error paths
-    TryInit -- Exception --> HandleError[Log error<br/>Set monitor = None<br/>Set all temps to error]
-    HandleError --> SetupGUI
 ```
 
 ### `update_temperatures` Loop
