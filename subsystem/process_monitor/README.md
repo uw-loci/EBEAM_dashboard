@@ -105,47 +105,48 @@ flowchart TD
 ```mermaid
 flowchart TD
     Start([Update Temperatures]) --> GetTime[Get current time]
-    GetTime --> MonitorCheck{Monitor exists and<br/>socket open?}
+    GetTime --> MonitorCheck{Monitor exists?}
     
-    MonitorCheck -->|No| TimeCheck1{Time since last<br/>error > interval?}
-    MonitorCheck -->|Yes| GetTemps[Get temperatures<br/>from monitor.lst_resp]
+    MonitorCheck -->|No| DebugLog[Log debug message]
+    DebugLog --> TimeCheck1{Time since last<br/>error > interval?}
+    TimeCheck1 -->|Yes| DisconnectAll[Set all temps to DISCONNECTED<br/>Log warning<br/>Update last_error_time]
+    DisconnectAll --> AdjustInterval1[Increase error count<br/>Adjust interval exponentially]
     
-    TimeCheck1 -->|Yes| ErrorState1[Set all temps to error<br/>Log warning<br/>Update last_error_time]
-    TimeCheck1 -->|No| Schedule[Schedule next update]
-    ErrorState1 --> AdjustInt1[Adjust interval - failure]
-    
-    GetTemps --> ValidCheck{Any valid<br/>temperature values?}
+    MonitorCheck -->|Yes| TryGetTemps[Try get_all_temperatures]
+    TryGetTemps --> ValidCheck{Temperatures<br/>received?}
     
     ValidCheck -->|No| TimeCheck2{Time since last<br/>error > interval?}
-    ValidCheck -->|Yes| UpdateLoop[For each thermometer]
+    TimeCheck2 -->|Yes| LogError[Log error<br/>Set all temps to DISCONNECTED<br/>Update last_error_time]
+    LogError --> AdjustInterval2[Increase error count<br/>Adjust interval exponentially]
     
-    TimeCheck2 -->|Yes| ErrorState2[Set all temps to error<br/>Log error<br/>Update last_error_time]
+    ValidCheck -->|Yes| ProcessTemps[Process each temperature]
+    ProcessTemps --> TempLoop[For each thermometer]
+    
+    TempLoop --> ValueCheck{Check temp<br/>value type}
+    ValueCheck -->|None| SetDisconnected[Update bar with DISCONNECTED]
+    ValueCheck -->|SENSOR_ERROR| SetError[Update bar with SENSOR_ERROR]
+    ValueCheck -->|DISCONNECTED| SetDisconnected
+    ValueCheck -->|Valid Number| RangeCheck{-90°C ≤ temp ≤ 500°C?}
+    
+    RangeCheck -->|Yes| UpdateValue[Update bar with temperature<br/>Store as last good reading<br/>Reset error count]
+    RangeCheck -->|No| ErrorCount{Error count ≥<br/>threshold?}
+    
+    ErrorCount -->|Yes| SetError
+    ErrorCount -->|No| UseLastGood[Use last good reading<br/>Increment error count]
+    
+    SetDisconnected --> NextThermo{More<br/>thermometers?}
+    SetError --> NextThermo
+    UpdateValue --> NextThermo
+    UseLastGood --> NextThermo
+    
+    NextThermo -->|Yes| TempLoop
+    NextThermo -->|No| ResetInterval[Reset interval<br/>Reset error count]
+    
+    TimeCheck1 -->|No| Schedule[Schedule next update]
     TimeCheck2 -->|No| Schedule
-    ErrorState2 --> AdjustInt2[Adjust interval - failure]
-    
-    UpdateLoop --> TempCheck{Temperature valid<br/>and not -1?}
-    
-    TempCheck -->|Yes| UpdateBar[Update bar with temperature<br/>Log debug message]
-    TempCheck -->|No| ErrorBar[Update bar with -1<br/>Log warning]
-    
-    UpdateBar --> NextThermo{More<br/>thermometers?}
-    ErrorBar --> NextThermo
-    
-    NextThermo -->|Yes| UpdateLoop
-    NextThermo -->|No| AdjustInt3[Adjust interval - success]
-    
-    AdjustInt1 --> Schedule
-    AdjustInt2 --> Schedule
-    AdjustInt3 --> Schedule
-    
-    Schedule --> End([End])
-    
-    %% Exception handling
-    GetTemps -- Exception --> ExceptionTime{Time since last<br/>error > interval?}
-    ExceptionTime -->|Yes| ErrorState3[Set all temps to error<br/>Log error<br/>Update last_error_time]
-    ExceptionTime -->|No| Schedule
-    ErrorState3 --> AdjustInt4[Adjust interval - failure]
-    AdjustInt4 --> Schedule
+    AdjustInterval1 --> Schedule
+    AdjustInterval2 --> Schedule
+    ResetInterval --> Schedule
 ```
 
 Temperature Color Logic
