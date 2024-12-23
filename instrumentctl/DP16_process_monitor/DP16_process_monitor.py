@@ -67,7 +67,7 @@ class DP16ProcessMonitor:
 
             if not configured_units:
                 raise RuntimeError(f"Failed to configure any DP16 units")
-                
+            
             # Start single background polling thread after successful connection and configuration
             self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
             self._thread.start()
@@ -199,10 +199,8 @@ class DP16ProcessMonitor:
         
     def poll_all_units(self):
         """
-        Continuously poll all units in a single thread.
+        Continuously poll all units in a single thread and per-unit error isolation.
         """
-        current_delay = self.BASE_DELAY
-
         while self._is_running:
             try:
                 if not self.client.is_socket_open():
@@ -211,25 +209,23 @@ class DP16ProcessMonitor:
                         with self.response_lock:
                             for unit in self.unit_numbers:
                                 self.temperature_readings[unit] = self.DISCONNECTED
-                        time.sleep(current_delay)
-                        current_delay = min(current_delay * 2, self.MAX_DELAY)
+                        time.sleep(self.BASE_DELAY)
                         continue
-                current_delay = self.BASE_DELAY # reset delay on successful connection
 
-                with self.modbus_lock:
-                    # Poll all PMON units
-                    for unit in self.unit_numbers:
-                        self._poll_single_unit(unit)
+                for unit in self.unit_numbers:
+                    try:
+                        with self.modbus_lock:
+                            self._poll_single_unit(unit)
+                            time.sleep(self.BASE_DELAY)
 
-                time.sleep(self.BASE_DELAY) # Normal polling interval
-            
+                    except Exception as e:
+                        self.log(f"Error polling unit: {unit}: {e}", LogLevel.ERROR)
+                        with self.response_lock:
+                            self.temperature_readings[unit] = self.DISCONNECTED
+                            
             except Exception as e:
-                self.log(f"Unexpected DP16 error in poll_all_units: {str(e)}", LogLevel.ERROR)
-                with self.response_lock:
-                    for unit in self.unit_numbers:
-                        self.temperature_readings[unit] = self.DISCONNECTED
-                time.sleep(current_delay)
-                current_delay = min(current_delay * 2, self.MAX_DELAY)
+                self.log(f"Critical error in polling loop: {str(e)}", LogLevel.ERROR)
+                time.sleep(self.BASE_DELAY)
 
     def _poll_single_unit(self, unit):
         """
