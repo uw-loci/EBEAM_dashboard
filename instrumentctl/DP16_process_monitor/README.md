@@ -169,6 +169,24 @@ After checking the STATUS register, we check the PROCCESS_VAL register. Which we
 
 ```mermaid
 flowchart TB
+    Start(["Initialize DP16ProcessMonitor"]) --> InitModbus["Initialize ModbusClient<br>Set unit numbers & locks"]
+    InitModbus --> Connect{"Attempt<br>Connection"}
+    Connect -->|Success| ConfigUnits["Configure Each Unit"]
+    Connect -->|Failure| Error1["Raise RuntimeError:<br>Failed to connect"]
+    
+    ConfigUnits --> ConfigCheck{"Any Units<br>Configured?"}
+    ConfigCheck -->|Yes| StartThread["Start Polling Thread"]
+    ConfigCheck -->|No| Error2["Raise RuntimeError:<br>No units configured"]
+    
+    StartThread --> Ready(["Driver Ready"])
+    
+    Error1 --> Cleanup["Cleanup:<br>Disconnect & Stop"]
+    Error2 --> Cleanup
+    Cleanup --> End(["Exit with Error"])
+```
+
+```mermaid
+flowchart TB
     Start(["poll_all_units()"]) --> CheckConn{"Connection<br>open?"}
     CheckConn -->|No| Reconnect{"Attempt<br>Reconnect"}
     Reconnect -->|Success| PollUnits
