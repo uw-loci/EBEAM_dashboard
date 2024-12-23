@@ -165,7 +165,43 @@ Firstly, we read what the STATUS register is, receiving a 0x0006 indicates that 
 
 After checking the STATUS register, we check the PROCCESS_VAL register. Which we have one of two outcomes, either the package is received and the information is sent to the frontend to update the thermometer, or the package is not received and will have to wait till the next clock cycle to retrieve the temperature data.
 
+### Flowcharts
 
+```mermaid
+flowchart TB
+    Start(["poll_all_units()"]) --> CheckConn{"Connection<br>open?"}
+    CheckConn -->|No| Reconnect{"Attempt<br>Reconnect"}
+    Reconnect -->|Success| PollUnits
+    Reconnect -->|Failure| SetDisconnected["Set all units as<br>DISCONNECTED"]
+    SetDisconnected --> Wait["Wait BASE_DELAY"]
+    Wait --> CheckConn
+    
+    CheckConn -->|Yes| PollUnits["Poll Each Unit"]
+    PollUnits --> ReadStatus["Read Status Register"]
+    
+    ReadStatus --> CheckStatus{"Status<br>Valid?"}
+    CheckStatus -->|Yes| CheckRunning{"Status =<br>RUNNING?"}
+    CheckStatus -->|No| ErrorCount["Increment Error Count"]
+    
+    CheckRunning -->|Yes| ReadTemp["Read Temperature<br>Registers"]
+    CheckRunning -->|No| SetError["Set SENSOR_ERROR"]
+    
+    ReadTemp --> ValidateTemp{"Temperature in<br>Valid Range?"}
+    ValidateTemp -->|Yes| UpdateReading["Update Temperature<br>Reading"]
+    ValidateTemp -->|No| ErrorCount
+    
+    ErrorCount --> CheckThreshold{"Error Count ><br>Threshold?"}
+    CheckThreshold -->|Yes| SetError
+    CheckThreshold -->|No| UseLast["Use Last Good Reading"]
+    
+    UpdateReading --> NextUnit{"More Units?"}
+    SetError --> NextUnit
+    UseLast --> NextUnit
+    
+    NextUnit -->|Yes| PollUnits
+    NextUnit -->|No| Wait2["Wait BASE_DELAY"]
+    Wait2 --> CheckConn
+```
 
 
 
