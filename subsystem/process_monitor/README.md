@@ -9,7 +9,18 @@ The Process Monitor Subsystem is a real-time temperature monitoring system that 
 - **Chamber Top**
 - **Air temp** 
 
-## Temperature Ranges and Alerts
+## Process Monitor Subsystem Class
+### Overview:
+Mainly used to inatlized and start Temperatrue Bar objects and to establish communictions via the DP16 driver.
+### Important Method(s)
+#### update_temperatures():
+This method communicates directly to the driver to collect the data needed to update the visual representation of the themature data.
+The expected return value is a dictionary, with the unit number being the key (1-6) and the tempature values being the value. Whatever is retuned from the driver(expected or unexpected), this method iteratviely udpates each of the corresponding thermonitors.
+
+## Temperature Bar Class
+### Overview
+When called created a thermointor with the given specs. This method was created due to the fact that our different locations are expected to have different ranges of expected temperatures. This class does not handle any of the data parsing, it only displays/updates, in numeric, color, and bar data.
+
 ### Solenoid Temperature Ranges (0-120°C)
 - Normal: < 70°C (Green)
 - Warning: 70-100°C (Yellow)
@@ -24,18 +35,6 @@ The Process Monitor Subsystem is a real-time temperature monitoring system that 
 - Normal: < 30°C (Green)
 - Warning: 30-40°C (Yellow)
 - Critical: > 40°C (Red)
-
-## Process Monitor Subsystem Class
-### Overview:
-Mainly used to inatlized and start Temperatrue Bar objects and to establish communictions via the DP16 driver.
-### Important Method(s)
-#### update_temperatures():
-This method communicates directly to the driver to collect the data needed to update the visual representation of the themature data.
-The expected return value is a dictionary, with the unit number being the key (1-6) and the tempature values being the value. Whatever is retuned from the driver(expected or unexpected), this method iteratviely udpates each of the corresponding thermonitors.
-
-## Temperature Bar Class
-### Overview
-When called created a thermointor with the given specs. This method was created due to the fact that our different locations are expected to have different ranges of expected temperatures. This class does not handle any of the data parsing, it only displays/updates, in numeric, color, and bar data.
 
 
 &nbsp;
