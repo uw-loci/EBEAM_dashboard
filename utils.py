@@ -28,11 +28,15 @@ class Logger:
             self.setup_log_file()
 
     def setup_log_file(self):
-        """Setup a new log file in the 'EBEAM-Dashboard-Logs/' directory."""
+        """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
-            log_dir = os.path.join(os.path.expanduser("~"), "EBEAM-Dashboard-Logs")  # Use home directory
+            # Use the EBEAM_dashboard directory
+            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
             os.makedirs(log_dir, exist_ok=True)
-            log_file_name = f"ebeam_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            
+            # Create the log file with the old naming pattern
+            log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
             print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
         except Exception as e:
