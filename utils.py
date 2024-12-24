@@ -76,7 +76,11 @@ class Logger:
 
     def close(self):
         if self.log_file:
-            self.log_file.close()
+            try:
+                self.log_file.close()
+                self.log_file = None
+            except Exception as e:
+                print(f"Error closing log file {str(e)}")
 
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
