@@ -34,10 +34,12 @@ class Logger:
             os.makedirs(log_dir, exist_ok=True)
             log_file_name = f"ebeam_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+            print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
         
     def log(self, msg, level=LogLevel.INFO):
+        """ Log a message to the text widget and optionally to local file """
         if level >= self.log_level:
             timestamp = datetime.datetime.now().strftime("%H:%M:%S")
             formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
@@ -46,9 +48,13 @@ class Logger:
             self.text_widget.insert(tk.END, formatted_message)
             self.text_widget.see(tk.END)
 
+            # write to log flie if enabled
             if self.log_to_file and self.log_file:
-                self.log_file.write(formatted_message)
-                self.log_file.flush()
+                try:
+                    self.log_file.write(formatted_message)
+                    self.log_file.flush()
+                except Exception as e:
+                    print(f"Error writing to log file: {str(e)}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
