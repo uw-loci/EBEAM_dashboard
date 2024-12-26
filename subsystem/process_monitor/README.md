@@ -14,16 +14,17 @@ The Process Monitor Subsystem is a real-time temperature monitoring system that 
 
 ## Process Monitor Subsystem Class
 ### Overview:
-Mainly used to initialize and start Temperature Bar objects and to establish communications via the DP16 driver.
+Initializes DP16 driver object along with Tkinter Temperature Bar objects. This class pulls the available data from the driver to update the GUI with most recently pulled data from monitors. 
+
 ### Important Method(s)
 #### update_temperatures():
-This method communicates directly to the driver to collect the data needed to update the visual representation of the themature data.
+This method communicates directly to the driver to collect the data needed to update the visual representation of the temperature data.
 The expected return value is a dictionary, with the unit number being the key (1-6) and the temperature values being the value. Whatever is returned from the driver(expected or unexpected), this method iteratively updates each of the corresponding thermometers.
 
 
 ## Temperature Bar Class
 ### Overview
-When called, create a thermometer with the given specs. This method was created due to the fact that our different locations are expected to have different ranges of expected temperatures. This class does not handle any of the data parsing, it only displays/updates, in numeric, color, and bar data.
+When called, create a thermometer with the given specs. This method was created due to the fact that our different locations are expected to have different ranges of expected temperatures. This class does not handle any of the data parsing, it only displays/updates, in numeric, color, and bar data. When the connection is lost or a series of packages are missed the corresponding gauge will be surrounded by a orange box to indicate a communication error.
 
 
 ### Solenoid Temperature Ranges (0-120°C)
