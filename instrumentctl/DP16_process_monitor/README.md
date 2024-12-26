@@ -6,9 +6,7 @@
 The DP16PT process monitors are used to extract important temperature readings from various locations of the experimental setup. The PMON system monitors 6 different temperature points to display real-time information related to the Solenoids, top and bottom of the vacuum chamber, and air temperature. Communication is established over a RS-485 bus using Modbus RTU protocol.
 
 
-Libraries / Imports:
-
-
+## Libraries / Imports:
 
 
 PyModbus (RS-485) - allows us to be able to send and receive packages in the standard Modbus (Master/Slave) communication protocol
