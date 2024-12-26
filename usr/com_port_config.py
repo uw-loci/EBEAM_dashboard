@@ -2,7 +2,7 @@
 import json
 import os
 
-CONFIG_FILE = 'usr/com_ports.json'
+CONFIG_FILE = 'usr/usr_data/com_ports.json'
 
 def save_com_ports(com_ports, filepath=CONFIG_FILE):
     """Save COM port selections to a JSON file."""

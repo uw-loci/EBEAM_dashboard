@@ -1,8 +1,10 @@
 # usr/panel_config.py
 import json
 
+CONFIG_FILE = 'usr/usr_data/pane_state.json'
+
 # saves all the data related to the frames/widgets and panes to a file
-def save_pane_states(config, frames, pane, filepath='usr/pane_state.json'):
+def save_pane_states(config, frames, pane, filepath=CONFIG_FILE):
     data = {}
     _ = len(pane.panes())
     for i in range(_ - 1):
@@ -15,7 +17,7 @@ def save_pane_states(config, frames, pane, filepath='usr/pane_state.json'):
         json.dump(data, file)
 
 # reads in file and passes the config file back as a dict
-def load_pane_states(filepath='usr/pane_state.json'):
+def load_pane_states(filepath=CONFIG_FILE):
     try:
         with open(filepath, 'r') as file:
             data = json.load(file)
@@ -26,7 +28,7 @@ def load_pane_states(filepath='usr/pane_state.json'):
         print(f"Failed to load pane states: {e}")
 
 # checks to see if that config file exists
-def saveFileExists(filepath='usr/pane_state.json'):
+def saveFileExists(filepath=CONFIG_FILE):
     try:
         with open(filepath, 'r') as file:
             json.load(file)
