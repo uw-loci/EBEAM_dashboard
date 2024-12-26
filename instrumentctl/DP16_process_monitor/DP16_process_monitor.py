@@ -198,149 +198,76 @@ class DP16ProcessMonitor:
             return False
         
     def poll_all_units(self):
-        """
-        Continuously poll all units in a single thread and per-unit error isolation.
-        """
-        last_connection_check = time.time()
-        connection_check_interval = 3.0
-        
+        """Single polling loop with each unit independent"""
         while self._is_running:
-            try:
-                current_time = time.time()
-                
-                # Check connection state periodically, not every cycle
-                if current_time - last_connection_check > connection_check_interval:
-                    if not self.client.is_socket_open():
-                        if not self.connect():
-                            self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
-                            with self.response_lock:
-                                for unit in self.unit_numbers:
-                                    self.temperature_readings[unit] = self.DISCONNECTED
-                            time.sleep(self.BASE_DELAY)
-                            last_connection_check = current_time
-                            continue
-                    last_connection_check = current_time
+            for unit in sorted(self.unit_numbers):
+                try:
+                    self._poll_single_unit(unit)
+                    time.sleep(0.05)  # Brief pause between units
+                except Exception as e:
+                    self.log(f"Critical error polling unit {unit}: {e}", LogLevel.ERROR)
 
-                # Clear buffer at start of polling cycle when we know we're not in a reconnect
+            time.sleep(self.BASE_DELAY)
+
+    def _poll_single_unit(self, unit):
+        """Poll a single unit atomically"""
+        if not self._is_running:
+            return
+
+        with self.modbus_lock:  # Single lock per complete unit operation
+            try:
+                # Clear any stale data
                 if hasattr(self.client, 'serial'):
                     self.client.serial.reset_input_buffer()
 
-                cycle_start = time.time()
-                for unit in sorted(self.unit_numbers):  # Sort units to maintain consistent polling order
-                    try:
-                        # Skip units that have had too many recent errors
-                        if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
-                            continue
+                # Read status first
+                status = self.client.read_holding_registers(
+                    address=self.STATUS_REG,
+                    count=1,
+                    slave=unit
+                )
 
-                        with self.modbus_lock:
-                            self._poll_single_unit(unit)
-                            # Brief delay between units
-                            time.sleep(0.05)  # 50ms between individual unit polls
+                if status.isError():
+                    self.error_counts[unit] += 1
+                    raise ModbusIOException("Status read failed")
 
-                    except Exception as e:
-                        self.log(f"Error polling unit: {unit}: {e}", LogLevel.ERROR)
-                        with self.response_lock:
-                            self.temperature_readings[unit] = self.DISCONNECTED
+                # Quick validation of status
+                if status.registers[0] != self.STATUS_RUNNING:
+                    self.error_counts[unit] += 1
+                    raise ModbusIOException("Unit not in running state")
 
-                # Calculate time spent in cycle and sleep only if needed
-                cycle_time = time.time() - cycle_start
-                sleep_time = max(0, self.BASE_DELAY - cycle_time)
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                                
-            except Exception as e:
-                self.log(f"Critical error in polling loop: {str(e)}", LogLevel.ERROR)
-                time.sleep(self.BASE_DELAY)
+                # Now read temperature
+                response = self.client.read_holding_registers(
+                    address=self.PROCESS_VALUE_REG,
+                    count=2,
+                    slave=unit
+                )
 
-    def _poll_single_unit(self, unit):
-        """
-        Poll a single unit for status and temperature.
-        """
-        if not self._is_running:
-            return
-        
-        try:
-            status = self.client.read_holding_registers(
-                address=self.STATUS_REG,
-                count=1,
-                slave=unit
-            )
+                if response.isError():
+                    self.error_counts[unit] += 1
+                    raise ModbusIOException("Temperature read failed")
 
-            if not status.isError(): # received valid response
-                self.log(f"Status for unit {unit}: {status.registers[0]}", LogLevel.VERBOSE)
+                # Process response
+                raw_float = struct.pack('>HH', response.registers[0], response.registers[1])
+                value = struct.unpack('>f', raw_float)[0]
 
-                if status.registers[0] == self.STATUS_RUNNING: # Normal operation
-                    # Read the decimal configuration
-                    response = self.client.read_holding_registers(
-                        address=self.PROCESS_VALUE_REG,
-                        count=2,
-                        slave=unit
-                    )
+                if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
+                    raise ValueError(f"Temperature out of range: {value}")
 
-                    if not response.isError():
-                        # Construct the float representation
-                        raw_float = struct.pack('>HH', 
-                            response.registers[0], 
-                            response.registers[1])
-                        value = struct.unpack('>f', raw_float)[0]
+                # Success! Clear error count and update reading
+                self.error_counts[unit] = 0
+                with self.response_lock:
+                    self.temperature_readings[unit] = value
+                    self.last_good_readings[unit] = value
 
-                        # Validate the response
-                        if self.MIN_TEMP <= value <= self.MAX_TEMP:
-                            self.log(f"DP16 Unit {unit} temp: {value:.2f}", LogLevel.VERBOSE)
-                            with self.response_lock:
-                                self.temperature_readings[unit] = value
-                                self.last_good_readings[unit] = value
-                            self.error_counts[unit] = 0
-                        else:
-                            # out of range reading
-                            self.log(f"DP16 Unit {unit} temp out of range: {value}°C", LogLevel.ERROR)
-                            self.error_counts[unit] += 1
-                            if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
-                                # only indicate SENSOR_ERROR after three consecutive readings
-                                with self.response_lock:
-                                    self.temperature_readings[unit] = self.SENSOR_ERROR
-                            else:
-                                # Use last good reading if available
-                                if self.last_good_readings[unit] is not None:
-                                    with self.response_lock:
-                                        self.temperature_readings[unit] = self.last_good_readings[unit]
-                    else:
-                        self.error_counts[unit] += 1
-                        if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
-                            self.log(f"Failed to read PROCESS_VALUE_REG for DP16 unit {unit}: {response}", LogLevel.ERROR)
-                            with self.response_lock:
-                                self.temperature_readings[unit] = self.SENSOR_ERROR
-                        else:
-                            # Use last good reading if available
-                            if self.last_good_readings[unit] is not None:
-                                with self.response_lock:
-                                    self.temperature_readings[unit] = self.last_good_readings[unit]
-                else:
-                    # abnormal status
-                    self.log(f"DP16 Unit {unit} abnormal status: {status.registers[0]}", LogLevel.ERROR)
-                    with self.response_lock:
-                        self.temperature_readings[unit] = self.SENSOR_ERROR  
-            else:
-                # missed package
-                self.log(f"Missed package on DP16 unit - {unit}", LogLevel.ERROR)
-                self.error_counts[unit] += 1
+            except (ModbusIOException, ValueError) as e:
+                self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
                 if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
                     with self.response_lock:
-                        self.temperature_readings[unit] = self.SENSOR_ERROR
-                else:
-                    # Use last good reading if available
-                    if self.last_good_readings[unit] is not None:
-                        with self.response_lock:
-                            self.temperature_readings[unit] = self.last_good_readings[unit]
-
-        except ModbusIOException as e:
-            self.log(f"Modbus IO error (unit {unit}): {e}", LogLevel.ERROR)
-            with self.response_lock:
-                self.temperature_readings[unit] = self.DISCONNECTED  # Mark unit as unavailable
-        except Exception as e:
-            self.log(f"Communication error (unit {unit}): {str(e)}", LogLevel.ERROR)
-            with self.response_lock:
-                self.temperature_readings[unit] = self.DISCONNECTED
+                        self.temperature_readings[unit] = self.DISCONNECTED
+                elif self.last_good_readings[unit] is not None:
+                    with self.response_lock:
+                        self.temperature_readings[unit] = self.last_good_readings[unit]
 
     def get_all_temperatures(self):
         """ Thread-safe access method """
