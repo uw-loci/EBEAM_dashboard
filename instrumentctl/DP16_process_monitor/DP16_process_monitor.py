@@ -214,7 +214,7 @@ class DP16ProcessMonitor:
         if not self._is_running:
             return
 
-        with self.modbus_lock:  # Single lock per complete unit operation
+        with self.modbus_lock:
             try:
                 # Clear any stale data
                 if hasattr(self.client, 'serial'):
@@ -228,15 +228,15 @@ class DP16ProcessMonitor:
                 )
 
                 if status.isError():
-                    self.error_counts[unit] += 1
+                    # self.error_counts[unit] += 1
                     raise ModbusIOException("Status read failed")
 
                 # Quick validation of status
                 if status.registers[0] != self.STATUS_RUNNING:
-                    self.error_counts[unit] += 1
+                    # self.error_counts[unit] += 1
                     raise ModbusIOException("Unit not in running state")
 
-                # Now read temperature
+                # Read temperature
                 response = self.client.read_holding_registers(
                     address=self.PROCESS_VALUE_REG,
                     count=2,
@@ -244,12 +244,15 @@ class DP16ProcessMonitor:
                 )
 
                 if response.isError():
-                    self.error_counts[unit] += 1
+                    # self.error_counts[unit] += 1
                     raise ModbusIOException("Temperature read failed")
 
                 # Process response
                 raw_float = struct.pack('>HH', response.registers[0], response.registers[1])
                 value = struct.unpack('>f', raw_float)[0]
+
+                if abs(value) < 0.001:
+                    raise ValueError("Zero reading indicates communication error")
 
                 if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                     raise ValueError(f"Temperature out of range: {value}")
@@ -262,6 +265,10 @@ class DP16ProcessMonitor:
 
             except (ModbusIOException, ValueError) as e:
                 self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
+                if isinstance(e, ModbusIOException):
+                    with self.response_lock:
+                        self.temperature_readings[unit] = self.DISCONNECTED
+                
                 if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
                     with self.response_lock:
                         self.temperature_readings[unit] = self.DISCONNECTED
