@@ -201,28 +201,53 @@ class DP16ProcessMonitor:
         """
         Continuously poll all units in a single thread and per-unit error isolation.
         """
+        last_connection_check = time.time()
+        connection_check_interval = 3.0
+        
         while self._is_running:
             try:
-                if not self.client.is_socket_open():
-                    if not self.connect():
-                        self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
-                        with self.response_lock:
-                            for unit in self.unit_numbers:
-                                self.temperature_readings[unit] = self.DISCONNECTED
-                        time.sleep(self.BASE_DELAY)
-                        continue
+                current_time = time.time()
+                
+                # Check connection state periodically, not every cycle
+                if current_time - last_connection_check > connection_check_interval:
+                    if not self.client.is_socket_open():
+                        if not self.connect():
+                            self.log("Failed to reconnect to DP16 Process Monitors", LogLevel.ERROR)
+                            with self.response_lock:
+                                for unit in self.unit_numbers:
+                                    self.temperature_readings[unit] = self.DISCONNECTED
+                            time.sleep(self.BASE_DELAY)
+                            last_connection_check = current_time
+                            continue
+                    last_connection_check = current_time
 
-                for unit in self.unit_numbers:
+                # Clear buffer at start of polling cycle when we know we're not in a reconnect
+                if hasattr(self.client, 'serial'):
+                    self.client.serial.reset_input_buffer()
+
+                cycle_start = time.time()
+                for unit in sorted(self.unit_numbers):  # Sort units to maintain consistent polling order
                     try:
+                        # Skip units that have had too many recent errors
+                        if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
+                            continue
+
                         with self.modbus_lock:
                             self._poll_single_unit(unit)
-                            time.sleep(self.BASE_DELAY)
+                            # Brief delay between units
+                            time.sleep(0.05)  # 50ms between individual unit polls
 
                     except Exception as e:
                         self.log(f"Error polling unit: {unit}: {e}", LogLevel.ERROR)
                         with self.response_lock:
                             self.temperature_readings[unit] = self.DISCONNECTED
-                            
+
+                # Calculate time spent in cycle and sleep only if needed
+                cycle_time = time.time() - cycle_start
+                sleep_time = max(0, self.BASE_DELAY - cycle_time)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                                
             except Exception as e:
                 self.log(f"Critical error in polling loop: {str(e)}", LogLevel.ERROR)
                 time.sleep(self.BASE_DELAY)
