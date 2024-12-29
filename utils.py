@@ -207,7 +207,7 @@ class MessagesFrame:
                 filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
             )
             if file_path:
-                with open(file_path, 'w') as file:
+                with open(file_path, 'a') as file:
                     file.write(self.text_widget.get("1.0", tk.END))
                 messagebox.showinfo("Export Successful", f"Log exported to {file_path}")
         except Exception as e:
