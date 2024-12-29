@@ -110,18 +110,20 @@ class MessagesFrame:
 
         # Create a button to clear the text widget
         self.clear_button = tk.Button(self.frame, text="Clear Messages", command=self.confirm_clear)
-        self.clear_button.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+        self.clear_button.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
 
         self.export_button = tk.Button(self.frame, text="Export", command=self.export_log)
-        self.export_button.grid(row=2, column=1, sticky="ew", padx=10, pady=10)
+        self.export_button.grid(row=2, column=1, sticky="ew", padx=5, pady=10)
 
         self.toggle_file_logging_button = tk.Button(self.frame, text="Record Log: ON", command=self.toggle_file_logging)
-        self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=10, pady=10)
+        self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=5, pady=10)
 
         # circular indicator for log writing state
-        self.logging_indicator_canvas = tk.Canvas(self.frame, width=12, height=12, highlightthickness=0)
+        self.logging_indicator_canvas = tk.Canvas(self.frame, width=16, height=16, highlightthickness=0)
         self.logging_indicator_canvas.grid(row=2, column=3, padx=(0, 10), pady=10)
-        self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(2, 2, 10, 10, fill="green", outline="black")
+        self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(
+            2, 2, 14, 14, fill="green", outline="black", width=2
+        )
 
         self.file_logging_enabled = True
         self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
