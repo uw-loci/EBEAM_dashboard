@@ -115,7 +115,7 @@ class MessagesFrame:
         self.export_button = tk.Button(self.frame, text="Export", command=self.export_log)
         self.export_button.grid(row=2, column=1, sticky="ew", padx=10, pady=10)
 
-        self.toggle_file_logging_button = tk.Button(self.frame, text="Record Logs: ON", command=self.toggle_file_logging)
+        self.toggle_file_logging_button = tk.Button(self.frame, text="Record Log: ON", command=self.toggle_file_logging)
         self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=10, pady=10)
 
         # circular indicator for log writing state
@@ -145,7 +145,7 @@ class MessagesFrame:
             self.logger.log_to_file = False
             if self.logger.log_file:
                 self.logger.log_file.close()
-            self.toggle_file_logging_button.config(text="Record Logs: OFF")
+            self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
             self.logger.info("Log recording has been turned OFF.")
         else:
@@ -154,7 +154,7 @@ class MessagesFrame:
             self.logger.log_to_file = True
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
-            self.toggle_file_logging_button.config(text="Record Logs: ON")
+            self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="green")
             self.logger.info("Log recording has been turned ON.")
 
