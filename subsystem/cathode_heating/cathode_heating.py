@@ -210,7 +210,7 @@ class CathodeHeatingSubsystem:
             line, = ax.plot([], [])
             self.temperature_data[i].append(line)
             ax.set_xlabel('Time', fontsize=8)
-            # ax.set_ylabel('Temp (°C)', fontsize=8)
+            ax.set_ylim(15, 80)
             ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
             ax.xaxis.set_major_locator(MaxNLocator(4))
             ax.tick_params(axis='x', labelsize=6)
@@ -900,20 +900,38 @@ class CathodeHeatingSubsystem:
         self.parent.after(500, self.update_data)
 
     def update_plot(self, index):
-        if len(self.time_data[index]) == 0: # skip if there's no new data
+        if len(self.time_data[index]) == 0:
             return
         
         time_data = self.time_data[index]
         temperature_data = self.temperature_data[index][0].get_data()[1]
-
-        # Update the data points for the plot
+        
+        # Update the data points
         self.temperature_data[index][0].set_data(time_data, temperature_data)
         ax = self.temperature_data[index][0].axes
-
-        # Adjust plot to new data
+        
+        # Filter out None values and check if we have valid data
+        valid_temps = [t for t in temperature_data if t is not None]
+        
+        if valid_temps:  # If we have any valid temperature readings
+            temp_min = min(valid_temps)
+            temp_max = max(valid_temps)
+            span = temp_max - temp_min
+            
+            if span < 10:  # If span is less than 10°C
+                middle = (temp_max + temp_min) / 2
+                temp_min = middle - 5  # Extend 5°C below middle
+                temp_max = middle + 5  # Extend 5°C above middle
+            
+            # Add 10% padding
+            padding = (temp_max - temp_min) * 0.1
+            ax.set_ylim(temp_min - padding, temp_max + padding)
+        else:  # If no valid temperature readings
+            # Set default range
+            ax.set_ylim(15, 80)
+        
         ax.relim()
-        ax.autoscale_view()
-
+        ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
     
     def toggle_output(self, index):
