@@ -603,7 +603,14 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            ovp_value = int(self.overvoltage_limit_vars[index].get() * 100)  # Convert to centivolts
+            raw_value = self.overvoltage_limit_vars[index].get()
+            if raw_value < 0 or raw_value > 60:
+                raise ValueError("OVP out of valid range (0-60 V).")
+            
+            ovp_value = int(round(raw_value * 100))  # Convert to centivolts
+            if ovp_value < 0 or ovp_value > 6000:
+                raise ValueError("OVP out of valid range (0-60.00).")
+            
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {ovp_value:04d}", LogLevel.DEBUG)
             ovp_set_response = self.power_supplies[index].set_over_voltage_protection(f"{ovp_value:04d}")
             if not ovp_set_response:
@@ -611,16 +618,27 @@ class CathodeHeatingSubsystem:
                 return
 
             # Verify the set value
-            ovp_get_response = self.power_supplies[index].get_over_voltage_protection().strip()
-            if ovp_get_response is None or abs(ovp_get_response - (ovp_value / 100.0)) > 0.01:
-                self.log(f"OVP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {ovp_value:04d}, Got: {ovp_get_response}", LogLevel.WARNING)
+            ovp_get_response = self.power_supplies[index].get_over_voltage_protection()
+            if ovp_get_response is None:
+                self.log("OVP readback is None--possible comm issue", LogLevel.WARNING)
             else:
-                self.log(f"OVP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {ovp_value/100:.2f}V", LogLevel.INFO)
-                msgbox.showinfo("Success", f"OVP set to {ovp_value/100:.2f}V for Cathode {['A', 'B', 'C'][index]}")
+                # compare with actual float value
+                if abs(ovp_get_response - (ovp_value / 100.0)) > 0.01:
+                    self.log(
+                        f"OVP mismatch for Cathode {['A','B','C'][index]}. "
+                        f"Set: {ovp_value/100:.2f}, Got: {ovp_get_response:.2f}",
+                        LogLevel.WARNING
+                    )
+                else:
+                    self.log(
+                        f"OVP successfully set and confirmed for Cathode {['A','B','C'][index]}: "
+                        f"{ovp_value/100:.2f} V", LogLevel.INFO
+                    )
+                    msgbox.showinfo("Success", f"OVP set to {ovp_value/100:.2f} V for Cathode {['A','B','C'][index]}")
 
-        except ValueError:
-            self.log(f"Invalid input for OVP limit for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-            msgbox.showerror("Error", "Invalid input for OVP limit. Please enter a valid number.")
+        except ValueError as e:
+            self.log(f"Invalid input for OVP limit for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Invalid input for OVP limit: {str(e)}")
 
     def set_overcurrent_limit(self, index):
         if not self.power_supply_status[index]:
