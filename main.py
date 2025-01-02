@@ -1,9 +1,21 @@
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
+
 from dashboard import EBEAMSystemDashboard
-import sys
 from usr.com_port_config import save_com_ports, load_com_ports
+
+
+SUBSYSTEMS = [
+    'VTRXSubsystem', 
+    'CathodeA PS', 
+    'CathodeB PS', 
+    'CathodeC PS', 
+    'TempControllers', 
+    'Interlocks', 
+    'ProcessMonitors'
+]
 
 def create_dummy_port_labels(subsystems):
     """
@@ -37,21 +49,11 @@ def config_com_ports(saved_com_ports):
             pyi_splash.close()
         except ImportError:
             pass
-
-    subsystems = [
-        'VTRXSubsystem', 
-        'CathodeA PS', 
-        'CathodeB PS', 
-        'CathodeC PS', 
-        'TempControllers', 
-        'Interlocks', 
-        'ProcessMonitors'
-    ]
     
     # Get real COM ports on the system
     real_ports = [port.device for port in serial.tools.list_ports.comports()]
     # Create a combined list of real + dummy port labels for user to pick
-    dummy_port_labels = create_dummy_port_labels(subsystems)
+    dummy_port_labels = create_dummy_port_labels(SUBSYSTEMS)
     # Combine real + dummy port labels
     combined_port_options = real_ports + dummy_port_labels
 
@@ -64,7 +66,7 @@ def config_com_ports(saved_com_ports):
     main_frame.pack(side=tk.TOP, fill=tk.X)
 
     # Create a dropdown for each subsystem
-    for subsystem in subsystems:
+    for subsystem in SUBSYSTEMS:
         frame = ttk.Frame(main_frame)
         frame.pack(pady=5, anchor='center')
 
