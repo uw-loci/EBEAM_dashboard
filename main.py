@@ -37,12 +37,26 @@ def create_dummy_ports(subsystems):
     return {subsystem: f"DUMMY_COM{i+1}" for i, subsystem in enumerate(subsystems)}
 
 def start_main_app(com_ports):
+    """
+    Create and start the main EBEAM System Dashboard application.
+
+    :param com_ports: Dict mapping subsystems to their selected COM ports.
+    """
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
 def config_com_ports(saved_com_ports):
+    """
+    Display a configuration GUI for selecting COM ports for each subsystem.
+    Users can choose from available real COM ports or dummy ports.
+    If any subsystem is left blank, the user will be prompted to fill
+    in dummy ports or return to the config window.
+    
+    :param saved_com_ports: Dict of previously saved COM port settings.
+    """
+    # Close the PyInstaller splash if running as bundled executable
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
             import pyi_splash
@@ -70,9 +84,15 @@ def config_com_ports(saved_com_ports):
         frame = ttk.Frame(main_frame)
         frame.pack(pady=5, anchor='center')
 
-        label = tk.Label(frame, text=f"{subsystem} COM Port:", width=25, anchor='e')
+        label = tk.Label(
+            frame, 
+            text=f"{subsystem} COM Port:", 
+            width=25, 
+            anchor='e'
+        )
         label.pack(side=tk.LEFT, padx=(0, 10))
 
+        # Default to a previously saved port if available, otherwise blank
         selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
 
         combobox = ttk.Combobox(
@@ -86,7 +106,11 @@ def config_com_ports(saved_com_ports):
         selections[subsystem] = selected_port
 
     def on_submit():
-        # Retrieve chosen ports for each subsystem
+        """
+        Handler for the 'Submit' button. Checks if all subsystems have a port
+        selected. If not, offers to fill those with dummy ports. If the user
+        refuses, they remain in the config window.
+        """
         selected_ports = {key: value.get() for key, value in selections.items()}
         
         # check that all COM ports are selected
@@ -106,10 +130,11 @@ def config_com_ports(saved_com_ports):
                 # if the user doesn't want to use dummy ports, they must pick real ones
                 return  # Stay on the configuration window
         
+        # save final selections
         save_com_ports(selected_ports)
         config_root.destroy()
         
-        # Start the main application
+        # Launch the main application
         start_main_app(selected_ports)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
@@ -118,7 +143,7 @@ def config_com_ports(saved_com_ports):
     config_root.mainloop()
 
 if __name__ == "__main__":
-    
+    # Load previously saved COM ports, if any
     saved_com_ports = load_com_ports()
 
     # Prompt the user to confirm or change COM ports
