@@ -122,7 +122,7 @@ class MessagesFrame:
         self.logging_indicator_canvas = tk.Canvas(self.frame, width=16, height=16, highlightthickness=0)
         self.logging_indicator_canvas.grid(row=2, column=3, padx=(0, 10), pady=10)
         self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(
-            2, 2, 14, 14, fill="green", outline="black", width=2
+            2, 2, 14, 14, fill="#00FF24", outline="black", width=2
         )
 
         self.file_logging_enabled = True
