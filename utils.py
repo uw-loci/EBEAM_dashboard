@@ -140,9 +140,9 @@ class MessagesFrame:
         self.trim_text()
 
     def toggle_file_logging(self):
-        # Toggle the file_logging_enabled state
         if self.file_logging_enabled:
             # Currently ON, turn it OFF
+            self.logger.info("Log recording has been turned OFF.")
             self.file_logging_enabled = False
             self.logger.log_to_file = False
             if self.logger.log_file:
@@ -151,12 +151,14 @@ class MessagesFrame:
                 except Exception as e:
                     print(f"Error closing log file: {e}")
                 self.logger.log_file = None
+
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
             # Currently OFF, turn it ON
             self.file_logging_enabled = True
             self.logger.log_to_file = True
+            
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
             self.toggle_file_logging_button.config(text="Record Log: ON")
