@@ -1,4 +1,4 @@
-# subsystem.py
+# cathode_heating.py
 import tkinter as tk
 from tkinter import ttk
 import tkinter.simpledialog as tksd
@@ -17,7 +17,18 @@ import numpy as np
 from utils import LogLevel
 
 def resource_path(relative_path):
-    """ Magic needed for paths to work for development and when running as bundled executable"""
+    """
+    Get the absolute path to a resource file for both development and bundled executable environments.
+    
+    When running as a bundled executable, resources are stored in a temporary directory specified by
+    sys._MEIPASS. In development, resources are relative to the current directory.
+    
+    Args:
+        relative_path (str): Path to the resource relative to the base directory
+        
+    Returns:
+        str: Absolute path to the resource
+    """
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS # type: ignore
@@ -36,63 +47,142 @@ class CathodeHeatingSubsystem:
     }
     
     def __init__(self, parent, com_ports, logger=None):
+        """
+        Initialize the cathode heating subsystem.
+        
+        Args:
+            parent: Parent Tkinter widget for GUI elements
+            com_ports (dict): Dictionary mapping device names to COM ports
+                Format: {
+                    'CathodeA PS': 'COM1',
+                    'CathodeB PS': 'COM2',
+                    'CathodeC PS': 'COM3',
+                    'TempControllers': 'COM4'
+                }
+            logger: Optional logger instance for system events
+        """
         self.parent = parent
         self.com_ports = com_ports
+        self.logger = logger
+
+        # Power supply state tracking
         self.power_supplies_initialized = False
         self.voltage_set = [False, False, False]
-        self.temp_controllers_connected = False
-        self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
-        self.log_interval = datetime.timedelta(seconds=10) # used for E5CN timeout msg
-        self.voltage_check_interval = 5
-        self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
-        self.user_set_voltages = [None, None, None]  # Store user-set voltages
-        self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
-        self.query_settings_buttons = []
-        self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
-        
-        self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
-
-        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        
-        self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]
-        self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]
-        self.actual_target_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)]
-        self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.clamp_temp_labels = []
-        self.previous_temperature = 20 # PLACEHOLDER
-        self.last_plot_time = datetime.datetime.now()
-        self.plot_interval = datetime.timedelta(seconds=5)
-
-        # Config tab
-        self.current_display_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.voltage_display_vars = [tk.StringVar(value='--') for _ in range(3)]
-        self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]
-        
-        self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
-        self.overvoltage_limit_vars= [tk.DoubleVar(value=1.0) for _ in range(3)]  
-        self.overcurrent_limit_vars = [tk.DoubleVar(value=8.5) for _ in range(3)]
-        self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
-
+        self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
         self.entry_fields = []
-        self.power_supplies = []
+        self.user_set_voltages = [None, None, None]
+        self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
+        self.query_settings_buttons = []
+
+        # Timing/tracking for voltage checks
+        self.voltage_check_interval = 5
+        self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
+
+        # Temperature controller state tracking
+        self.temp_controllers_connected = False
         self.temperature_controller = None
-        self.time_data = [[] for _ in range(3)]
-        self.temperature_data = [[] for _ in range(3)]
-        self.logger = logger
+        self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
+        self.log_interval = datetime.timedelta(seconds=10) # E5CN timeout message interval
+
+        # Initialize GUI variables
+        self._init_prediction_variables()    # Predicted values for cathode behavior
+        self._init_measurement_variables()   # Real-time hardware measurements
+        self._init_config_variables()        # Configuration and safety settings
+
+        # System initialization sequence
+        self.init_cathode_model()            # Initialize cathode physics models
+        self.setup_gui()                     # Set up graphical interface
+        self.initialize_temperature_controllers()  # Connect to temperature controllers
+        self.initialize_power_supplies()      # Connect to power supplies
+        self.update_data()                   # Start the data update loop
+
+    def _init_prediction_variables(self):
+        """
+        Initialize GUI variables for predicted cathode behavior.
         
-        self.init_cathode_model()
-        self.setup_gui()
-        self.initialize_temperature_controllers()
-        self.initialize_power_supplies()
-        self.update_data()
+        Sets up StringVar objects for displaying predicted values including:
+        - Emission currents
+        - Grid currents
+        - Heater currents 
+        - Cathode temperatures
+        
+        All variables are initialized with '--' to indicate no data available.
+        Each cathode (A, B, C) has its own set of prediction variables.
+        """
+        # Emission current predictions and ideal values (mA)
+        self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
+        self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        
+        # Grid current predictions - expect to intercept 28% of emission current
+        self.predicted_grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        
+        # Heater current predictions - used for power supply control
+        self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+        
+        # Temperature predictions from heater current model
+        self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
+    
+    def _init_measurement_variables(self):
+        """
+        Initialize GUI variables for actual hardware measurements.
+        
+        Sets up StringVar objects for displaying real-time measurements including:
+        - Heater voltages and currents
+        - Target currents
+        - Grid currents
+        - Clamp temperatures
+        
+        Also initializes timing variables for data collection and plotting.
+        """
+        # Heater control and monitoring variables
+        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set voltage
+        self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
+        self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
+        
+        # Beam current monitoring
+        self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Total emission
+        self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current hitting target
+        self.grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current intercepted by grid
+        self.actual_target_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)] # Measured target current
+
+        # Temperature monitoring
+        self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured temperatures
+        self.clamp_temp_labels = []  # Labels for temperature display
+        self.previous_temperature = 20  # Initial temperature baseline
+        
+        # Plotting and timing variables
+        self.last_plot_time = datetime.datetime.now()
+        self.plot_interval = datetime.timedelta(seconds=5)  # Time between plot updates
+        self.time_data = [[] for _ in range(3)]  # Timestamp arrays for plotting
+        self.temperature_data = [[] for _ in range(3)]  # Temperature arrays for plotting
+
+    def _init_config_variables(self):
+        """
+        Initialize GUI variables for configuration settings.
+        
+        Sets up variables for:
+        - Power supply status display
+        - Safety limit settings
+        - Operating mode indicators
+        - Protection status monitoring
+        
+        Implements system defaults and safety thresholds.
+        """
+        # Power supply status display variables
+        self.current_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current readings
+        self.voltage_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Voltage readings
+        self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]  # CV/CC mode
+        
+        # Safety limit variables
+        ## Temperature protection
+        self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
+        self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
+        
+        ## Power supply protection
+        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit
+        self.overcurrent_limit_vars = [tk.DoubleVar(value=8.5) for _ in range(3)]  # Default 8.5A limit
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -709,6 +799,14 @@ class CathodeHeatingSubsystem:
             self.log(f"Error checking settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
 
     def init_cathode_model(self):
+        """
+        Initialize the physics model for cathode behavior prediction.
+
+        Sets up three interedependent models:
+        1. Heater voltage Model: Maps current to required voltage
+        2. Emission current model: Predicts emission based on heater current 
+        3. Temperature Model: Estimates cathode temperature
+        """
         try:
             # initialize heater voltage model
             heater_current = [data[0] for data in ES440_cathode.heater_voltage_current_data]
@@ -730,7 +828,16 @@ class CathodeHeatingSubsystem:
 
     def initialize_temperature_controllers(self):
         """
-        Initialize the connection to the Modbus devices.
+        Initialize the connection to the E5CN Temperature controllers over Modbus.
+
+        Attempts to:
+        1. close any existing controller connections
+        2. Establishes a new connection on configured port
+        3. Starts a tempeature polling thread
+        4. Verify communication with all controllers
+
+        Returns:
+            bool: True if initialization succeeded, False otherwise
         """
         port = self.com_ports.get('TempControllers', None)
         if not port:
