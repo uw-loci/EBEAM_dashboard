@@ -53,7 +53,7 @@ class VTRXSubsystem:
         self.data_queue = queue.Queue()
         self.x_data = []
         self.y_data = []
-        self.indicators = {
+        self.indicators = { # TODO: replace this with Tkinter Canvas widget
             0: tk.PhotoImage(file=resource_path("media/off.png")),
             1: tk.PhotoImage(file=resource_path("media/on.png"))
         }
