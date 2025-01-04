@@ -242,7 +242,7 @@ class VTRXSubsystem:
             self.ax.set_xlabel('Time', fontsize=8)
             self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
             self.ax.set_yscale('log')
-            self.ax.set_ylim(1e-6, 3000.0)
+            self.ax.set_ylim(1e-7, 3000.0)
             self.ax.tick_params(axis='x', labelsize=6)
             self.ax.grid(True)
 
