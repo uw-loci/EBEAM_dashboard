@@ -199,72 +199,73 @@ class VTRXSubsystem:
             print(f"{level.name}: {message}")
 
     def setup_gui(self):
-            layout_frame = tk.Frame(self.parent)
-            layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        layout_frame = tk.Frame(self.parent)
+        layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-            # Formatting status indicators
-            switches_frame = tk.Frame(layout_frame, width=135)
-            switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
+        # Formatting status indicators
+        switches_frame = tk.Frame(layout_frame, width=135)
+        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
 
-            # Setup labels for each switch
-            switch_labels = [
-                "Pumps Power ON", 
-                "Turbo Rotor ON", 
-                "Turbo Vent OPEN",
-                "972b Power ON", 
-                "Turbo Gate CLOSED",
-                "Turbo Gate OPEN", 
-                "Argon Gate OPEN", 
-                "Argon Gate CLOSED"
-            ]
-            label_width = 17
+        # Setup labels for each switch
+        switch_labels = [
+            "Pumps Power ON", 
+            "Turbo Rotor ON", 
+            "Turbo Vent OPEN",
+            "972b Power ON", 
+            "Turbo Gate CLOSED",
+            "Turbo Gate OPEN", 
+            "Argon Gate OPEN", 
+            "Argon Gate CLOSED"
+        ]
+        label_width = 17
 
-            switches_frame.grid_columnconfigure(0, weight=1)
-            switches_frame.grid_columnconfigure(1, weight=0)
+        switches_frame.grid_columnconfigure(0, weight=1)
+        switches_frame.grid_columnconfigure(1, weight=0)
 
-            for idx, switch in enumerate(switch_labels):
-                tk.Label(switches_frame, text=switch, anchor='e', width=label_width).grid(
-                    row=idx, column=0, pady=2, sticky='e'
-                )
-                canvas, oval_id = self._create_indicator_circle(switches_frame, color='grey')
-                canvas.grid(row=idx, column=1, pady=2, padx=(5,0), sticky='w')
-                self.circle_indicators.append((canvas, oval_id))
+        for idx, switch in enumerate(switch_labels):
+            tk.Label(switches_frame, text=switch, anchor='e', width=label_width).grid(
+                row=idx, column=0, pady=2, sticky='e'
+            )
+            canvas, oval_id = self._create_indicator_circle(switches_frame, color='grey')
+            canvas.grid(row=idx, column=1, pady=2, padx=(5,0), sticky='w')
+            self.circle_indicators.append((canvas, oval_id))
 
-            # Pressure label setup
-            self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='e', width=label_width,
-                                        font=('Helvetica', 11, 'bold'))
-            self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, pady=1, sticky='e')
+        # Pressure label setup
+        self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='e', width=label_width,
+                                    font=('Helvetica', 11, 'bold'))
+        self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, pady=1, sticky='e')
 
-            # Buttons
-            button_frame = tk.Frame(switches_frame)
-            button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, pady=1)
-            
-            self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
-            self.reset_button.pack(side=tk.LEFT, padx=5)
-            
-            self.clear_button = tk.Button(button_frame, text="Clear Plot", command=self.clear_graph)
-            self.clear_button.pack(side=tk.LEFT, padx=5)
+        # Buttons
+        button_frame = tk.Frame(switches_frame)
+        button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, pady=1)
+        
+        self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
+        self.reset_button.pack(side=tk.LEFT, padx=5)
+        
+        self.clear_button = tk.Button(button_frame, text="Clear Plot", command=self.clear_graph)
+        self.clear_button.pack(side=tk.LEFT, padx=5)
 
-            # Plot frame
-            plot_frame = tk.Frame(layout_frame)
-            plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
-            self.fig, self.ax = plt.subplots()
-            self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
-            self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            self.fig.autofmt_xdate()  
-            self.ax.set_title('')
-            self.ax.set_xlabel('Time', fontsize=8)
-            self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-            self.ax.set_yscale('log')
-            self.ax.set_ylim(1e-7, 3000.0)
-            self.ax.tick_params(axis='x', labelsize=6)
-            self.ax.grid(True)
+        # Plot frame
+        plot_frame = tk.Frame(layout_frame)
+        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+        self.fig, self.ax = plt.subplots()
+        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
+        self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        self.fig.autofmt_xdate()  
+        self.ax.set_title('')
+        self.ax.set_xlabel('Time', fontsize=8)
+        self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
+        self.ax.set_yscale('log')
+        self.ax.set_ylim(1e-7, 3000.0)
+        self.ax.tick_params(axis='x', labelsize=6)
+        self.ax.grid(True)
 
-            self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-            self.canvas.draw()
-            self.canvas_widget = self.canvas.get_tk_widget()
-            self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        self.canvas.draw()
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
     
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         if self.error_state:
