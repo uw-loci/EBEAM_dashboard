@@ -151,6 +151,11 @@ class VTRXSubsystem:
             self.parent.after(500, self.process_queue)
 
     def update_gui_with_error_state(self):
+        """Update GUI elements to reflect error state.
+        
+        Sets indicators to red, updates pressure label, and changes plot appearance
+        to indicate error condition.
+        """
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
         self.ax.set_title('(Error)', fontsize=10, color='red')
@@ -159,6 +164,17 @@ class VTRXSubsystem:
         self.canvas.draw_idle()
 
     def handle_serial_data(self, data):
+        """Process raw serial data from VTRX system.
+    
+        Args:
+            data (str): Semicolon-separated string containing:
+                - pressure value (float)
+                - raw pressure string
+                - binary switch states
+                - optional error messages
+                
+        Format: "pressure;raw_pressure;switch_states[;errors...]"
+        """
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.log("Incomplete data received.", LogLevel.WARNING)
@@ -199,7 +215,13 @@ class VTRXSubsystem:
             print(f"{level.name}: {message}")
 
     def setup_gui(self):
+        """Initialize and configure the GUI components including status indicators and plot.
         
+        Creates:
+        - Status indicator frame with switch state indicators
+        - Pressure label and control buttons
+        - Real-time pressure plot with logarithmic scale
+        """
         layout_frame = tk.Frame(self.parent)
         layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -268,6 +290,13 @@ class VTRXSubsystem:
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
     
     def update_gui(self, pressure_value, pressure_raw, switch_states):
+        """Update GUI with new pressure and switch state data.
+    
+        Args:
+            pressure_value (float): Current pressure reading
+            pressure_raw (str): Raw pressure string from sensor
+            switch_states (list): List of binary switch states
+        """
         if self.error_state:
             return
         
@@ -290,7 +319,7 @@ class VTRXSubsystem:
 
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
-                canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'red')
+                canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
             
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
