@@ -222,7 +222,6 @@ class VTRXSubsystem:
             switches_frame.grid_columnconfigure(0, weight=1)
             switches_frame.grid_columnconfigure(1, weight=0)
 
-
             for idx, switch in enumerate(switch_labels):
                 tk.Label(switches_frame, text=switch, anchor='e', width=label_width).grid(
                     row=idx, column=0, pady=2, sticky='e'
@@ -252,6 +251,8 @@ class VTRXSubsystem:
             self.fig, self.ax = plt.subplots()
             self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
             self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
+            self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            self.fig.autofmt_xdate()  
             self.ax.set_title('')
             self.ax.set_xlabel('Time', fontsize=8)
             self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
@@ -296,13 +297,17 @@ class VTRXSubsystem:
         # Update the data for the line, rather than recreating it
         self.line.set_data(self.x_data, self.y_data)
         self.ax.relim()  # Recalculate limits based on the new data
-        self.ax.autoscale_view(True, True, True)
+        self.ax.autoscale_view(True, True, False)
+
+        current_time = self.x_data[-1]
+        start_time = current_time - datetime.timedelta(seconds=self.time_window)
+        self.ax.set_xlim(start_time, current_time)
 
         # Efficiently update the canvas without redrawing everything
         self.canvas.draw_idle()  # Use draw_idle instead of draw
 
         # Adjust the x-axis to show the latest data
-        self.ax.set_xlim(left=max(self.x_data[0], self.x_data[-1] - datetime.timedelta(seconds=self.time_window)), right=self.x_data[-1])
+        # self.ax.set_xlim(left=max(self.x_data[0], self.x_data[-1] - datetime.timedelta(seconds=self.time_window)), right=self.x_data[-1])
 
         self.canvas.flush_events()
 
