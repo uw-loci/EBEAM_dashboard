@@ -132,10 +132,21 @@ class VTRXSubsystem:
                 time.sleep(1)
 
     def _create_indicator_circle(self, parent_frame, color="grey"):
-        """ Switch state circular indicator on a canvas. """
         canvas = tk.Canvas(parent_frame, width=30, height=30, highlightthickness=0)
+        canvas.bind('<Configure>', lambda e: self._resize_indicator(canvas, e))
         oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
         return canvas, oval_id
+
+    def _resize_indicator(self, canvas, event):
+        canvas.delete('all')
+        width, height = event.width, event.height
+        margin = min(width, height) // 4
+        canvas.create_oval(
+            margin, margin, 
+            width - margin, height - margin, 
+            fill=canvas.itemcget(canvas.find_all()[0], 'fill') if canvas.find_all() else 'grey', 
+            outline="black"
+        )
 
     def process_queue(self):
         try:
@@ -248,18 +259,15 @@ class VTRXSubsystem:
             "Argon Gate OPEN", 
             "Argon Gate CLOSED"
         ]
-        label_width = 17
-
-        # switches_frame.grid_columnconfigure(0, weight=1)
-        # switches_frame.grid_columnconfigure(1, weight=0)
+        label_width = 15
 
         for idx, switch in enumerate(switch_labels):
             
             label = tk.Label(switches_frame, text=switch, anchor='center', width=label_width)
-            label.grid(row=idx, column=0, sticky='nsew', pady=2)
+            label.grid(row=idx, column=0, sticky='nsew', pady=2, padx=(0, 1))
             
             canvas, oval_id = self._create_indicator_circle(switches_frame, color='grey')
-            canvas.grid(row=idx, column=1, sticky='nsew', pady=2, padx=(5,0))
+            canvas.grid(row=idx, column=1, sticky='nsew', pady=2, padx=(0, 1))
             self.circle_indicators.append((canvas, oval_id))
 
         # Pressure label setup
@@ -281,7 +289,7 @@ class VTRXSubsystem:
         plot_frame = tk.Frame(layout_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
+        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.05)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
@@ -290,7 +298,7 @@ class VTRXSubsystem:
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 3000.0)
-        self.ax.tick_params(axis='x', labelsize=6)
+        self.ax.tick_params(axis='x', labelsize=6, pad=1)
         self.ax.grid(True)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
