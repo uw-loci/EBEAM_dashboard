@@ -230,7 +230,12 @@ class VTRXSubsystem:
 
         # Formatting status indicators
         switches_frame = tk.Frame(layout_frame, width=135)
-        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
+        switches_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=5)
+
+        # Distribute vertical space
+        switches_frame.grid_rowconfigure(tuple(range(10)), weight=1)
+        switches_frame.grid_columnconfigure(0, weight=3) # Label colunm
+        switches_frame.grid_columnconfigure(1, weight=1) # indicator column 
 
         # Setup labels for each switch
         switch_labels = [
@@ -245,31 +250,32 @@ class VTRXSubsystem:
         ]
         label_width = 17
 
-        switches_frame.grid_columnconfigure(0, weight=1)
-        switches_frame.grid_columnconfigure(1, weight=0)
+        # switches_frame.grid_columnconfigure(0, weight=1)
+        # switches_frame.grid_columnconfigure(1, weight=0)
 
         for idx, switch in enumerate(switch_labels):
-            tk.Label(switches_frame, text=switch, anchor='e', width=label_width).grid(
-                row=idx, column=0, pady=2, sticky='e'
-            )
+            
+            label = tk.Label(switches_frame, text=switch, anchor='center', width=label_width)
+            label.grid(row=idx, column=0, sticky='nsew', pady=2)
+            
             canvas, oval_id = self._create_indicator_circle(switches_frame, color='grey')
-            canvas.grid(row=idx, column=1, pady=2, padx=(5,0), sticky='w')
+            canvas.grid(row=idx, column=1, sticky='nsew', pady=2, padx=(5,0))
             self.circle_indicators.append((canvas, oval_id))
 
         # Pressure label setup
-        self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='e', width=label_width,
-                                    font=('Helvetica', 11, 'bold'))
-        self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, pady=1, sticky='e')
+        self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='center', width=label_width,
+                                font=('Helvetica', 11, 'bold'))
+        self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
 
-        # Buttons
+        # Buttons frame with vertical expansion
         button_frame = tk.Frame(switches_frame)
-        button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, pady=1)
+        button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, sticky='nsew', pady=1)
         
         self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
-        self.reset_button.pack(side=tk.LEFT, padx=5)
+        self.reset_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         
         self.clear_button = tk.Button(button_frame, text="Clear Plot", command=self.clear_graph)
-        self.clear_button.pack(side=tk.LEFT, padx=5)
+        self.clear_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
@@ -336,12 +342,7 @@ class VTRXSubsystem:
         start_time = current_time - datetime.timedelta(seconds=self.time_window)
         self.ax.set_xlim(start_time, current_time)
 
-        # Efficiently update the canvas without redrawing everything
-        self.canvas.draw_idle()  # Use draw_idle instead of draw
-
-        # Adjust the x-axis to show the latest data
-        # self.ax.set_xlim(left=max(self.x_data[0], self.x_data[-1] - datetime.timedelta(seconds=self.time_window)), right=self.x_data[-1])
-
+        self.canvas.draw_idle()
         self.canvas.flush_events()
 
     def start_serial_thread(self):
@@ -374,7 +375,7 @@ class VTRXSubsystem:
             self.log(error_message, LogLevel.ERROR)
 
     def clear_graph(self):
-        # Clear the plot as defined in the original setup...
+        # Clear the plot
         self.line.set_data([], [])
         self.ax.relim()
         self.ax.autoscale_view()
