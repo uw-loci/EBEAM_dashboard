@@ -122,7 +122,7 @@ class MessagesFrame:
         self.logging_indicator_canvas = tk.Canvas(self.frame, width=16, height=16, highlightthickness=0)
         self.logging_indicator_canvas.grid(row=2, column=3, padx=(0, 10), pady=10)
         self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(
-            2, 2, 14, 14, fill="green", outline="black", width=2
+            2, 2, 14, 14, fill="#00FF24", outline="black", width=2
         )
 
         self.file_logging_enabled = True
@@ -140,24 +140,32 @@ class MessagesFrame:
         self.trim_text()
 
     def toggle_file_logging(self):
-        # Toggle the file_logging_enabled state
         if self.file_logging_enabled:
             # Currently ON, turn it OFF
+            self.logger.info("Log recording has been turned OFF.")
             self.file_logging_enabled = False
             self.logger.log_to_file = False
             if self.logger.log_file:
-                self.logger.log_file.close()
+                try:
+                    self.logger.log_file.close()
+                except Exception as e:
+                    print(f"Error closing log file: {e}")
+                self.logger.log_file = None
+
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
-            self.logger.info("Log recording has been turned OFF.")
         else:
             # Currently OFF, turn it ON
             self.file_logging_enabled = True
             self.logger.log_to_file = True
+            
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
             self.toggle_file_logging_button.config(text="Record Log: ON")
-            self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="green")
+            self.logging_indicator_canvas.itemconfig(
+                self.logging_indicator_circle, 
+                fill="#00FF24"
+            )
             self.logger.info("Log recording has been turned ON.")
 
     def set_log_level(self, level):
