@@ -53,10 +53,7 @@ class VTRXSubsystem:
         self.data_queue = queue.Queue()
         self.x_data = []
         self.y_data = []
-        self.indicators = {
-            0: tk.PhotoImage(file=resource_path("media/off.png")),
-            1: tk.PhotoImage(file=resource_path("media/on.png"))
-        }
+        self.circle_indicators = []
         self.error_state = False
         self.error_logged = False
         self.stop_event = threading.Event()
@@ -118,21 +115,27 @@ class VTRXSubsystem:
                         self.data_queue.put(None)
                 except serial.SerialException as e:
                     if not self.error_logged:
-                        self.log(f"Serial communication error: {e}", LogLevel.ERROR)
+                        self.log(f"VTRX Serial communication error: {e}", LogLevel.ERROR)
                         self.error_logged = True
                 except UnicodeDecodeError as e:
                     if not self.error_logged:
-                        self.log(f"Data decoding error: {e}", LogLevel.ERROR)
+                        self.log(f"VTRX Data decoding error: {e}", LogLevel.ERROR)
                         self.error_logged = True
                 except Exception as e:
                     if not self.error_logged:
-                        self.log(f"Unexpected error: {e}", LogLevel.ERROR)
+                        self.log(f"VTRX Unexpected error: {e}", LogLevel.ERROR)
                         self.error_logged = True
             else:
                 if not self.error_logged:
-                    self.log("Serial port is not open.", LogLevel.ERROR)
+                    self.log("VTRX Serial port is not open.", LogLevel.ERROR)
                     self.error_logged = True
                 time.sleep(1)
+
+    def _create_indicator_circle(self, parent_frame, color="grey"):
+        """ Switch state circular indicator on a canvas. """
+        canvas = tk.Canvas(parent_frame, width=30, height=30, highlightthickness=0)
+        oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
+        return canvas, oval_id
 
     def process_queue(self):
         try:
@@ -148,15 +151,30 @@ class VTRXSubsystem:
             self.parent.after(500, self.process_queue)
 
     def update_gui_with_error_state(self):
+        """Update GUI elements to reflect error state.
+        
+        Sets indicators to red, updates pressure label, and changes plot appearance
+        to indicate error condition.
+        """
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
         self.ax.set_title('(Error)', fontsize=10, color='red')
-        for label in self.labels:
-            label.config(image=self.indicators[0])
-        
+        for canvas, oval_id in self.circle_indicators:
+            canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
 
     def handle_serial_data(self, data):
+        """Process raw serial data from VTRX system.
+    
+        Args:
+            data (str): Semicolon-separated string containing:
+                - pressure value (float)
+                - raw pressure string
+                - binary switch states
+                - optional error messages
+                
+        Format: "pressure;raw_pressure;switch_states[;errors...]"
+        """
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.log("Incomplete data received.", LogLevel.WARNING)
@@ -189,6 +207,9 @@ class VTRXSubsystem:
         except ValueError as e:    
             self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
             self.error_state = True
+        except IndexError as e:
+            self.log(f"VTRX Data processing error: Insufficient segments - {data}. Error: {e}", LogLevel.ERROR)
+            self.error_state = True
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
@@ -197,61 +218,88 @@ class VTRXSubsystem:
             print(f"{level.name}: {message}")
 
     def setup_gui(self):
-            layout_frame = tk.Frame(self.parent)
-            layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        """Initialize and configure the GUI components including status indicators and plot.
+        
+        Creates:
+        - Status indicator frame with switch state indicators
+        - Pressure label and control buttons
+        - Real-time pressure plot with logarithmic scale
+        """
+        layout_frame = tk.Frame(self.parent)
+        layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-            # Formatting status indicators
-            switches_frame = tk.Frame(layout_frame, width=135)
-            switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
+        # Formatting status indicators
+        switches_frame = tk.Frame(layout_frame, width=135)
+        switches_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5) 
 
-            # Setup labels for each switch
-            switch_labels = [
-                "Pumps Power On ", "Turbo Rotor ON ", "Turbo Vent Open ",
-                "972b Power On ", "Turbo Gate Valve Closed ",
-                "Turbo Gate Valve Open ", "Argon Gate Valve Open ", "Argon Gate Valve Closed "
-            ]
-            self.labels = []
-            label_width = 17
-            for switch in switch_labels:
-                label = tk.Label(switches_frame, text=switch, image=self.indicators[0], compound='right', anchor='e', width=label_width)
-                label.pack(anchor="e", pady=2, fill='x')
-                self.labels.append(label)
+        # Setup labels for each switch
+        switch_labels = [
+            "Pumps Power ON", 
+            "Turbo Rotor ON", 
+            "Turbo Vent OPEN",
+            "972b Power ON", 
+            "Turbo Gate CLOSED",
+            "Turbo Gate OPEN", 
+            "Argon Gate OPEN", 
+            "Argon Gate CLOSED"
+        ]
+        label_width = 17
 
-            # Pressure label setup
-            # Increase font size and make it bold
-            self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='e', width=label_width,
-                                        font=('Helvetica', 11, 'bold'))
-            self.label_pressure.pack(anchor="e", pady=1, fill='x')
+        switches_frame.grid_columnconfigure(0, weight=1)
+        switches_frame.grid_columnconfigure(1, weight=0)
 
-            self.reset_button = tk.Button(switches_frame, text="Reset VTRX", command=self.confirm_reset)
-            self.reset_button.pack(side=tk.LEFT, padx=5, pady=1)
-            self.clear_button = tk.Button(switches_frame, text="Clear Plot", command=self.clear_graph)
-            self.clear_button.pack(side=tk.LEFT, padx=5, pady=1)
+        for idx, switch in enumerate(switch_labels):
+            tk.Label(switches_frame, text=switch, anchor='e', width=label_width).grid(
+                row=idx, column=0, pady=2, sticky='e'
+            )
+            canvas, oval_id = self._create_indicator_circle(switches_frame, color='grey')
+            canvas.grid(row=idx, column=1, pady=2, padx=(5,0), sticky='w')
+            self.circle_indicators.append((canvas, oval_id))
 
-            # Add button to clear display output
-            #self.btn_clear_graph = tk.Button(switches_frame, text="Clear Plot", command=self.confirm_clear)
-            #self.btn_clear_graph.pack(pady=10)
+        # Pressure label setup
+        self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='e', width=label_width,
+                                    font=('Helvetica', 11, 'bold'))
+        self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, pady=1, sticky='e')
 
-            # Plot frame
-            plot_frame = tk.Frame(layout_frame)
-            plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
-            self.fig, self.ax = plt.subplots()
-            self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
-            self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
-            self.ax.set_title('')
-            self.ax.set_xlabel('Time', fontsize=8)
-            self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
-            self.ax.set_yscale('log')
-            self.ax.set_ylim(1e-7, 3000.0)
-            self.ax.tick_params(axis='x', labelsize=6)
-            self.ax.grid(True)
+        # Buttons
+        button_frame = tk.Frame(switches_frame)
+        button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, pady=1)
+        
+        self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
+        self.reset_button.pack(side=tk.LEFT, padx=5)
+        
+        self.clear_button = tk.Button(button_frame, text="Clear Plot", command=self.clear_graph)
+        self.clear_button.pack(side=tk.LEFT, padx=5)
 
-            self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-            self.canvas.draw()
-            self.canvas_widget = self.canvas.get_tk_widget()
-            self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        # Plot frame
+        plot_frame = tk.Frame(layout_frame)
+        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+        self.fig, self.ax = plt.subplots()
+        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.1) 
+        self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        self.fig.autofmt_xdate()  
+        self.ax.set_title('')
+        self.ax.set_xlabel('Time', fontsize=8)
+        self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
+        self.ax.set_yscale('log')
+        self.ax.set_ylim(1e-7, 3000.0)
+        self.ax.tick_params(axis='x', labelsize=6)
+        self.ax.grid(True)
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        self.canvas.draw()
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
     
     def update_gui(self, pressure_value, pressure_raw, switch_states):
+        """Update GUI with new pressure and switch state data.
+    
+        Args:
+            pressure_value (float): Current pressure reading
+            pressure_raw (str): Raw pressure string from sensor
+            switch_states (list): List of binary switch states
+        """
         if self.error_state:
             return
         
@@ -273,7 +321,8 @@ class VTRXSubsystem:
             self.update_plot()
 
             for idx, state in enumerate(switch_states):
-                self.labels[idx].config(image=self.indicators[state])
+                canvas, oval_id = self.circle_indicators[idx]
+                canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
             
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
@@ -281,13 +330,17 @@ class VTRXSubsystem:
         # Update the data for the line, rather than recreating it
         self.line.set_data(self.x_data, self.y_data)
         self.ax.relim()  # Recalculate limits based on the new data
-        self.ax.autoscale_view(True, True, True)
+        self.ax.autoscale_view(True, True, False)
+
+        current_time = self.x_data[-1]
+        start_time = current_time - datetime.timedelta(seconds=self.time_window)
+        self.ax.set_xlim(start_time, current_time)
 
         # Efficiently update the canvas without redrawing everything
         self.canvas.draw_idle()  # Use draw_idle instead of draw
 
         # Adjust the x-axis to show the latest data
-        self.ax.set_xlim(left=max(self.x_data[0], self.x_data[-1] - datetime.timedelta(seconds=self.time_window)), right=self.x_data[-1])
+        # self.ax.set_xlim(left=max(self.x_data[0], self.x_data[-1] - datetime.timedelta(seconds=self.time_window)), right=self.x_data[-1])
 
         self.canvas.flush_events()
 
