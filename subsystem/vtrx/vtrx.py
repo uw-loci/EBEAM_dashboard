@@ -207,6 +207,9 @@ class VTRXSubsystem:
         except ValueError as e:    
             self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
             self.error_state = True
+        except IndexError as e:
+            self.log(f"VTRX Data processing error: Insufficient segments - {data}. Error: {e}", LogLevel.ERROR)
+            self.error_state = True
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
