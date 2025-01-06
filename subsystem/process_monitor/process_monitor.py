@@ -138,9 +138,6 @@ class TemperatureBar(tk.Canvas):
     def get_temperature_color(self, name, temp: float) -> str:
         """Return a color based on temperature value."""
         
-        if temp < 20:
-            return '#0000FF'  # Blue for cold
-        
         if name.startswith('Solenoid'): 
             if 20 <= temp < 70:
                 return '#00FF00'  # Green for normal 
