@@ -223,7 +223,6 @@ class ProcessMonitorSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
-        """Update temperature readings with error handling and backoff"""
         current_time = time.time()
         try:
             if not self.monitor:
@@ -234,10 +233,20 @@ class ProcessMonitorSubsystem:
                     self.last_error_time = current_time
                     self._adjust_update_interval(success=False)
             else:
-                # Retrieve the last responses from all units
                 temps = self.monitor.get_all_temperatures()
-                formatted_temps = {unit: f"{value:.2f}" if isinstance(value, float) else value
-                                for unit, value in temps.items()}
+                
+                # Format both valid readings and error states
+                formatted_temps = {}
+                for unit, value in temps.items():
+                    if isinstance(value, float):
+                        formatted_temps[unit] = f"{value:.2f}"
+                    elif value == self.monitor.DISCONNECTED:
+                        formatted_temps[unit] = "DISCONNECTED"
+                    elif value == self.monitor.SENSOR_ERROR:
+                        formatted_temps[unit] = "SENSOR_ERROR"
+                    else:
+                        formatted_temps[unit] = str(value)
+                        
                 self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
 
                 if not temps:

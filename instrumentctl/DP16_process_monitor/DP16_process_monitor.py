@@ -21,6 +21,8 @@ class DP16ProcessMonitor:
     # Polling delay
     BASE_DELAY = 0.1    # [seconds]
     MAX_DELAY = 5       # [seconds]
+    ERROR_LOG_INTERVAL = 5
+    TRANSIENT_ERROR_THRESHOLD = 3 # consequtive erros before considering disconnected
 
     # Status Codes
     STATUS_RUNNING = 0x0006
@@ -28,7 +30,6 @@ class DP16ProcessMonitor:
     # Error states
     DISCONNECTED = -1
     SENSOR_ERROR = -2
-    MAX_ERROR_THRESHOLD = 3
 
     def __init__(self, port, unit_numbers=(1,2,3,4,5), baudrate=9600, logger=None):
         """ Initialize Modbus settings """
@@ -46,9 +47,11 @@ class DP16ProcessMonitor:
         self.temperature_readings = {unit: None for unit in unit_numbers}
         self.error_counts = {unit: 0 for unit in self.unit_numbers}
         self.last_good_readings = {unit: None for unit in self.unit_numbers}
+        self.consecutive_connection_errors = 0
         self._is_running = True
         self._thread = None
         self.response_lock = Lock()
+        self.last_critical_error_time = 0
         
         try:
             # First establish connection
@@ -199,15 +202,68 @@ class DP16ProcessMonitor:
         
     def poll_all_units(self):
         """Single polling loop with each unit independent"""
+        last_connection_attempt = 0
+        CONNECTION_RETRY_DELAY = 5  # seconds
+        
         while self._is_running:
-            for unit in sorted(self.unit_numbers):
-                try:
-                    self._poll_single_unit(unit)
-                    time.sleep(0.1)  # Inter-unit polling delay
-                except Exception as e:
-                    self.log(f"Critical error polling unit {unit}: {e}", LogLevel.ERROR)
+            current_time = time.time()
+            
+            # Rate limit connection attempts
+            if self.consecutive_connection_errors > 0:
+                if current_time - last_connection_attempt < CONNECTION_RETRY_DELAY:
+                    time.sleep(0.5)
+                    continue
+                last_connection_attempt = current_time
+                
+            try:
+                # Check if client is still connected
+                if not self.client.is_socket_open():
+                    self.consecutive_connection_errors += 1
+                    if self.consecutive_connection_errors >= self.TRANSIENT_ERROR_THRESHOLD:
+                        with self.response_lock:
+                            for unit in self.unit_numbers:
+                                self.temperature_readings[unit] = self.DISCONNECTED
+                    # Try to reconnect
+                    if not self.connect():
+                        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+                            self.log("Failed to reconnect to PMON", LogLevel.ERROR)
+                            self.last_critical_error_time = current_time
+                        time.sleep(1)  # Delay before next attempt
+                        continue
+                
+                for unit in sorted(self.unit_numbers):
+                    try:
+                        self._poll_single_unit(unit)
+                        self.consecutive_connection_errors = 0  # Reset on successful poll
+                        time.sleep(0.1)
+                    except ModbusIOException as e:
+                        self.error_counts[unit] += 1
+                        if "Failed to connect" in str(e) or "Connection" in str(e):
+                            self.consecutive_connection_errors += 1
+                            if self.consecutive_connection_errors >= self.TRANSIENT_ERROR_THRESHOLD:
+                                self.client.close()
+                                with self.response_lock:
+                                    if self.last_good_readings[unit] is not None:
+                                        # Keep showing last good reading for a while
+                                        self.temperature_readings[unit] = self.last_good_readings[unit]
+                                    else:
+                                        self.temperature_readings[unit] = self.DISCONNECTED
+                                break
+                        
+                        # Rate limited error logging
+                        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+                            self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
+                            self.last_critical_error_time = current_time
 
-            time.sleep(self.BASE_DELAY)
+                if consecutive_connection_failures == 0:
+                    time.sleep(self.BASE_DELAY)
+                    
+            except Exception as e:
+                self.consecutive_connection_errors += 1
+                current_time = time.time()
+                if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+                    self.log(f"Polling error: {e}", LogLevel.ERROR)
+                    self.last_critical_error_time = current_time
 
     def _poll_single_unit(self, unit):
         """Poll a single unit atomically"""
