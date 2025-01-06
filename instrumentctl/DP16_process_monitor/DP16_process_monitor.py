@@ -203,7 +203,7 @@ class DP16ProcessMonitor:
             for unit in sorted(self.unit_numbers):
                 try:
                     self._poll_single_unit(unit)
-                    time.sleep(0.05)  # Brief pause between units
+                    time.sleep(0.1)  # Inter-unit polling delay
                 except Exception as e:
                     self.log(f"Critical error polling unit {unit}: {e}", LogLevel.ERROR)
 
