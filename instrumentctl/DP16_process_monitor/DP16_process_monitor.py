@@ -228,12 +228,12 @@ class DP16ProcessMonitor:
                 )
 
                 if status.isError():
-                    # self.error_counts[unit] += 1
+                    self.error_counts[unit] += 1
                     raise ModbusIOException("Status read failed")
 
-                # Quick validation of status
+                # Validate status
                 if status.registers[0] != self.STATUS_RUNNING:
-                    # self.error_counts[unit] += 1
+                    self.error_counts[unit] += 1
                     raise ModbusIOException("Unit not in running state")
 
                 # Read temperature
@@ -244,7 +244,7 @@ class DP16ProcessMonitor:
                 )
 
                 if response.isError():
-                    # self.error_counts[unit] += 1
+                    self.error_counts[unit] += 1
                     raise ModbusIOException("Temperature read failed")
 
                 # Process response
