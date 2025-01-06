@@ -38,7 +38,7 @@ class DP16ProcessMonitor:
             bytesize=8,
             parity='N',
             stopbits=1,
-            timeout=0.5
+            timeout=0.2
         )
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
@@ -265,16 +265,19 @@ class DP16ProcessMonitor:
 
             except (ModbusIOException, ValueError) as e:
                 self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
-                if isinstance(e, ModbusIOException):
-                    with self.response_lock:
+                with self.response_lock:
+                    if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
+                        # Exceeded error threshold
                         self.temperature_readings[unit] = self.DISCONNECTED
-                
-                if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
-                    with self.response_lock:
+                    elif isinstance(e, ModbusIOException) and "Unit not in running state" in str(e):
+                        # Unit is not in running state
                         self.temperature_readings[unit] = self.DISCONNECTED
-                elif self.last_good_readings[unit] is not None:
-                    with self.response_lock:
+                    elif self.last_good_readings[unit] is not None and self.error_counts[unit] < 2:
+                        # Only use last good reading for first error
                         self.temperature_readings[unit] = self.last_good_readings[unit]
+                    else:
+                        # Default to disconnected state
+                        self.temperature_readings[unit] = self.DISCONNECTED
 
     def get_all_temperatures(self):
         """ Thread-safe access method """
