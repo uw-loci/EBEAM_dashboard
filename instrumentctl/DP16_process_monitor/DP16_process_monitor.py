@@ -22,7 +22,7 @@ class DP16ProcessMonitor:
     BASE_DELAY = 0.1    # [seconds]
     MAX_DELAY = 5       # [seconds]
     ERROR_LOG_INTERVAL = 5
-    TRANSIENT_ERROR_THRESHOLD = 3 # consequtive erros before considering disconnected
+    MAX_ERROR_THRESHOLD = 3 # consecutive erros before considering disconnected
 
     # Status Codes
     STATUS_RUNNING = 0x0006
@@ -219,7 +219,7 @@ class DP16ProcessMonitor:
                 # Check if client is still connected
                 if not self.client.is_socket_open():
                     self.consecutive_connection_errors += 1
-                    if self.consecutive_connection_errors >= self.TRANSIENT_ERROR_THRESHOLD:
+                    if self.consecutive_connection_errors >= self.MAX_ERROR_THRESHOLD:
                         with self.response_lock:
                             for unit in self.unit_numbers:
                                 self.temperature_readings[unit] = self.DISCONNECTED
@@ -240,7 +240,7 @@ class DP16ProcessMonitor:
                         self.error_counts[unit] += 1
                         if "Failed to connect" in str(e) or "Connection" in str(e):
                             self.consecutive_connection_errors += 1
-                            if self.consecutive_connection_errors >= self.TRANSIENT_ERROR_THRESHOLD:
+                            if self.consecutive_connection_errors >= self.MAX_ERROR_THRESHOLD:
                                 self.client.close()
                                 with self.response_lock:
                                     if self.last_good_readings[unit] is not None:
@@ -255,7 +255,7 @@ class DP16ProcessMonitor:
                             self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
                             self.last_critical_error_time = current_time
 
-                if consecutive_connection_failures == 0:
+                if self.consecutive_connection_errors == 0:
                     time.sleep(self.BASE_DELAY)
                     
             except Exception as e:
