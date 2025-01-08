@@ -289,8 +289,7 @@ class DP16ProcessMonitor:
 
                 # Validate status
                 if status.registers[0] != self.STATUS_RUNNING:
-                    self.error_counts[unit] += 1
-                    raise ModbusIOException("Unit not in running state")
+                    self.log(f"Unit {unit} status {status_registers[0]} differs from expected {self.STATUS_RUNNING}", LogLevel.WARNING)
 
                 # Read temperature
                 response = self.client.read_holding_registers(
