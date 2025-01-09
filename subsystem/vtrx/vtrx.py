@@ -91,6 +91,16 @@ class VTRXSubsystem:
             self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
 
     def setup_serial(self):
+        """
+        Attempt to establish serial connection with the VTRX hardware using the specified port and baud rate.
+
+        Tries to open the serial port configured in `self.serial_port`. If successful, 
+        updates the internal `self.ser` reference. If it fails, logs an error and sets 
+        `self.ser` to None.
+
+        Raises:
+            serial.SerialException: If opening the serial port fails unexpectedly 
+        """
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
             self.log(f"Serial connection established on {self.serial_port}", LogLevel.INFO)
@@ -101,6 +111,15 @@ class VTRXSubsystem:
             self.error_logged = False
 
     def read_serial(self):
+        """
+        Continuously read data from the serial port and push it to the queue.
+
+        This method runs in the dedicated "serial" thread. It checks if the serial port is open,
+        reads a line of data, decodes it, and places the resulting string onto 
+        `self.data_queue`. If any serial-related error occurs, logs the error once.
+
+        This method exits if `self.stop_event` is set.
+        """
         while not self.stop_event.is_set():
             if self.ser and self.ser.is_open:
                 try:
@@ -148,6 +167,15 @@ class VTRXSubsystem:
         )
 
     def process_queue(self):
+        """
+        Process all items in the data queue and update the GUI.
+
+        This method is scheduled every 500ms. It fetches new items from 
+        self.data_queue. If an item is None, it indicates no data is currently 
+        available. If the item is valid data, it invokes the serial handler.
+
+        After processing all items, reschedules itself to run again after 500 ms.
+        """
         try:
             while True:
                 data = self.data_queue.get_nowait()
@@ -161,7 +189,8 @@ class VTRXSubsystem:
             self.parent.after(500, self.process_queue)
 
     def update_gui_with_error_state(self):
-        """Update GUI elements to reflect error state.
+        """
+        Update GUI elements to reflect error state.
         
         Sets indicators to red, updates pressure label, and changes plot appearance
         to indicate error condition.
@@ -174,16 +203,25 @@ class VTRXSubsystem:
         self.canvas.draw_idle()
 
     def handle_serial_data(self, data):
-        """Process raw serial data from VTRX system.
-    
+        """
+        Parse and handle a single line of raw serial data from the VTRX system.
+
+        The serial data is expected to be a semicolon-separated string containing 
+        at least three fields:
+            1) pressure value (float)
+            2) raw pressure string (scientific notation)
+            3) switch states in binary format
+            4+) optional error messages
+
+        If parsing is successful, updates the GUI with the new pressure value and 
+        switch states, or sets the error state if anything is invalid.
+
         Args:
-            data (str): Semicolon-separated string containing:
-                - pressure value (float)
-                - raw pressure string
-                - binary switch states
-                - optional error messages
-                
-        Format: "pressure;raw_pressure;switch_states[;errors...]"
+            data: The raw data string read from the serial port (e.g., "1.23;1.23E-01;10110010;972b ERR:...").
+
+        Raises:
+            ValueError: If the pressure value cannot be converted to float.
+            IndexError: If the data string has fewer parts than expected.
         """
         data_parts = data.split(';')
         if len(data_parts) < 3:
@@ -228,7 +266,8 @@ class VTRXSubsystem:
             print(f"{level.name}: {message}")
 
     def setup_gui(self):
-        """Initialize and configure the GUI components including status indicators and plot.
+        """
+        Initializes and configures the GUI components including status indicators and plot.
         
         Creates:
         - Status indicator frame with switch state indicators
@@ -306,12 +345,13 @@ class VTRXSubsystem:
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
     
     def update_gui(self, pressure_value, pressure_raw, switch_states):
-        """Update GUI with new pressure and switch state data.
+        """
+        Update GUI labels, indicators, and plot with new pressure/switch data.
     
         Args:
             pressure_value (float): Current pressure reading
-            pressure_raw (str): Raw pressure string from sensor
-            switch_states (list): List of binary switch states
+            pressure_raw (str): Raw pressure string from sensor (e.g. "1.23E-04)
+            switch_states (list): List of 8 bits binary switch states
         """
         if self.error_state:
             return
