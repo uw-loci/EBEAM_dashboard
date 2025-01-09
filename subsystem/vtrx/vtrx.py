@@ -24,7 +24,6 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class VTRXSubsystem: 
-    MAX_POINTS = 20 # Maximum number of points to display on the plot
     ERROR_CODES = {
         0: "VALVE CONTENTION",
         1: "COLD CATHODE FAILURE",
