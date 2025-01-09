@@ -282,8 +282,8 @@ class VTRXSubsystem:
         self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
         self.reset_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         
-        self.clear_button = tk.Button(button_frame, text="Clear Plot", command=self.clear_graph)
-        self.clear_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+        self.save_button = tk.Button(button_frame, text="Save Plot", command=self.save_plot)
+        self.save_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
@@ -382,16 +382,26 @@ class VTRXSubsystem:
             messagebox.showerror("Error", error_message)
             self.log(error_message, LogLevel.ERROR)
 
-    def clear_graph(self):
-        # Clear the plot
-        self.line.set_data([], [])
-        self.ax.relim()
-        self.ax.autoscale_view()
-        self.canvas.draw()
-        self.x_data = [datetime.datetime.now() + datetime.timedelta(seconds=i) for i in range(self.time_window)]
-        self.y_data = [0] * len(self.x_data)
-        self.init_time = self.x_data[0]
-        self.log("VTRX Pressure Graph cleared", LogLevel.INFO)
+    def save_plot(self):
+        """Save the current plot as a PNG file in the EBEAM_dashboard_logs directory."""
+        try:
+            # Create logs directory if it doesn't exist
+            log_dir = "EBEAM-Dashboard-Logs"
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            # Generate timestamp for filename
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(log_dir, f"pressure_plot_{timestamp}.png")
+            
+            # Save the figure
+            self.fig.savefig(filename, dpi=300, bbox_inches='tight')
+            self.log(f"Plot saved to {filename}", LogLevel.INFO)
+            messagebox.showinfo("Success", f"Plot saved to {filename}")
+        except Exception as e:
+            error_message = f"Failed to save plot: {str(e)}"
+            messagebox.showerror("Error", error_message)
+            self.log(error_message, LogLevel.ERROR)
 
     def __del__(self):
             # TBD ensure serial thread is stopped when the object is destroyed
