@@ -278,7 +278,7 @@ class VTRXSubsystem:
         layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Formatting status indicators
-        switches_frame = tk.Frame(layout_frame, width=135)
+        switches_frame = tk.Frame(layout_frame)
         switches_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=5)
 
         # Distribute vertical space
@@ -313,10 +313,11 @@ class VTRXSubsystem:
                                 font=('Helvetica', 11, 'bold'))
         self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
 
-        # Buttons frame with vertical expansion
+        # Buttons frame
         button_frame = tk.Frame(switches_frame)
         button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, sticky='nsew', pady=1)
-        
+        button_frame.bind("<Configure>", self._on_button_frame_resize)
+
         self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
         self.reset_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         
@@ -441,6 +442,26 @@ class VTRXSubsystem:
             error_message = f"Failed to save plot: {str(e)}"
             messagebox.showerror("Error", error_message)
             self.log(error_message, LogLevel.ERROR)
+
+    def _on_button_frame_resize(self, event):
+        """
+        Callback to adjust the font size of the Reset/Save buttons
+        based on the current height of the parent frame.
+        """
+        base_height = 300 
+        base_font_size = 16
+
+        # Current frame height
+        current_height = event.height
+
+        # Calculate a scale factor relative to the baseline
+        scale_factor = max(0.5, min(2.0, current_height / base_height))
+
+        new_font_size = int(base_font_size * scale_factor)
+
+        # Configure both buttons with the new font size
+        self.reset_button.config(font=("Helvetica", new_font_size))
+        self.save_button.config(font=("Helvetica", new_font_size))
 
     def __del__(self):
             # TBD ensure serial thread is stopped when the object is destroyed
