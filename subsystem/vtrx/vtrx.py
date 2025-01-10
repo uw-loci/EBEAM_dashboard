@@ -60,7 +60,7 @@ class VTRXSubsystem:
         self.setup_serial()
         self.setup_gui()
 
-        self.time_window = 100 # Time window in seconds
+        self.time_window = 300 # Time window in seconds
         self.data_timeout = 1.5 # Seconds timeout for receiving data
         self.init_time = datetime.datetime.now()
         self.last_gui_update_time = time.time()
@@ -328,7 +328,9 @@ class VTRXSubsystem:
             ("5 min", 300),
             ("15 min", 900),
             ("30 min", 1800),
-            ("1 hour", 3600)
+            ("1 hour", 3600),
+            ("5 hour", 18000),
+            ("10 hour", 36000)
         ]
         
         self.time_window_var = tk.StringVar(value="5 min")
@@ -342,11 +344,8 @@ class VTRXSubsystem:
         time_dropdown.pack(fill=tk.X)
         time_dropdown.bind('<<ComboboxSelected>>', 
             lambda _: self.update_time_window(dict(times)[self.time_window_var.get()]))
-
-        self.reset_button = tk.Button(button_frame, text="RESET", command=self.confirm_reset)
-        self.reset_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         
-        self.save_button = tk.Button(button_frame, text="Save", command=self.save_plot)
+        self.save_button = tk.Button(button_frame, text="Save Plot", command=self.save_plot)
         self.save_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
 
         # Plot frame
@@ -458,26 +457,10 @@ class VTRXSubsystem:
         self.time_window = seconds
         self.update_plot()
 
-    def confirm_reset(self):
-        if messagebox.askyesno("Confirm Reset", "Do you really want to reset the VTRX System?"):
-            self.send_reset_command()
-
-    def send_reset_command(self):
-        if self.ser and self.ser.is_open:
-            try:
-                self.ser.write("RESET\n".encode('utf-8')) # Send RESET command to Arduino
-                self.log("Sent RESET command to VTRX.", LogLevel.INFO)
-            except serial.SerialException as e:
-                error_message = f"Failed to send reset command: {str(e)}"
-                messagebox.showerror("Error", error_message)
-                self.log(error_message, LogLevel.ERROR)
-        else:
-            error_message = "Cannot send RESET command. VTRX serial port is not open."
-            messagebox.showerror("Error", error_message)
-            self.log(error_message, LogLevel.ERROR)
-
     def save_plot(self):
-        """Save the current plot as a PNG file in the EBEAM_dashboard_logs directory."""
+        """
+        Save the current plot as a PNG file in the EBEAM_dashboard_logs directory.
+        """
         try:
             # Create logs directory if it doesn't exist
             log_dir = "EBEAM-Dashboard-Logs"
@@ -504,17 +487,10 @@ class VTRXSubsystem:
         """
         base_height = 300 
         base_font_size = 16
-
-        # Current frame height
         current_height = event.height
 
-        # Calculate a scale factor relative to the baseline
         scale_factor = max(0.5, min(2.0, current_height / base_height))
-
         new_font_size = int(base_font_size * scale_factor)
-
-        # Configure both buttons with the new font size
-        self.reset_button.config(font=("Helvetica", new_font_size))
         self.save_button.config(font=("Helvetica", new_font_size))
 
     def __del__(self):
