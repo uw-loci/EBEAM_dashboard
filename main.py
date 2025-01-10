@@ -140,7 +140,9 @@ def config_com_ports(saved_com_ports):
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
     
+    config_root.bind('<Return>', lambda event: on_submit())
     config_root.mainloop()
+
 
 if __name__ == "__main__":
     # Load previously saved COM ports, if any
