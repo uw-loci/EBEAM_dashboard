@@ -6,6 +6,7 @@ import serial
 import threading
 from utils import LogLevel
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from tkinter import ttk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import time
@@ -318,10 +319,34 @@ class VTRXSubsystem:
         button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, sticky='nsew', pady=1)
         button_frame.bind("<Configure>", self._on_button_frame_resize)
 
-        self.reset_button = tk.Button(button_frame, text="Reset VTRX", command=self.confirm_reset)
+        self.button_frame = button_frame
+    
+        timeframe_frame = tk.Frame(button_frame)
+        timeframe_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+        
+        times = [
+            ("5 min", 300),
+            ("15 min", 900),
+            ("30 min", 1800),
+            ("1 hour", 3600)
+        ]
+        
+        self.time_window_var = tk.StringVar(value="5 min")
+        time_dropdown = ttk.Combobox(
+            timeframe_frame, 
+            textvariable=self.time_window_var,
+            values=[t[0] for t in times],
+            state='readonly',
+            width=6
+        )
+        time_dropdown.pack(fill=tk.X)
+        time_dropdown.bind('<<ComboboxSelected>>', 
+            lambda _: self.update_time_window(dict(times)[self.time_window_var.get()]))
+
+        self.reset_button = tk.Button(button_frame, text="RESET", command=self.confirm_reset)
         self.reset_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         
-        self.save_button = tk.Button(button_frame, text="Save Plot", command=self.save_plot)
+        self.save_button = tk.Button(button_frame, text="Save", command=self.save_plot)
         self.save_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
 
         # Plot frame
@@ -367,6 +392,10 @@ class VTRXSubsystem:
         self.x_data.append(current_time)
         self.y_data.append(pressure_value)
 
+        current_window = (self.x_data[-1] - self.x_data[0]).total_seconds()
+        if current_window > self.time_window * 1.1:  # 10% buffer before forced sync
+            self.update_time_window(self.time_window)
+
         if time.time() - self.last_gui_update_time > 0.5:
             self.last_gui_update_time = time.time()
             self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="black" if not self.error_state else "red")
@@ -386,6 +415,12 @@ class VTRXSubsystem:
         self.ax.relim()  # Recalculate limits based on the new data
         self.ax.autoscale_view(True, True, False)
 
+        if self.y_data:  # Check if we have data
+            y_min = min(self.y_data)
+            y_max = max(self.y_data)
+            if y_min > 0 and y_max > 0:  # Protect  zero/negative values in log scale
+                self.ax.set_ylim(y_min * 0.5, y_max * 2)
+
         current_time = self.x_data[-1]
         start_time = current_time - datetime.timedelta(seconds=self.time_window)
         self.ax.set_xlim(start_time, current_time)
@@ -403,6 +438,25 @@ class VTRXSubsystem:
         self.stop_event.set()
         if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
             self.serial_thread.join()
+    
+    def update_time_window(self, seconds):
+        current_time = datetime.datetime.now()
+        cutoff_time = current_time - datetime.timedelta(seconds=seconds)
+        
+        # Filter existing data
+        valid_data = [(x, y) for x, y in zip(self.x_data, self.y_data) 
+                    if x >= cutoff_time]
+        
+        if valid_data:
+            self.x_data, self.y_data = zip(*valid_data)
+            self.x_data = list(self.x_data)
+            self.y_data = list(self.y_data)
+        else:
+            self.x_data = [current_time]
+            self.y_data = [self.y_data[-1] if self.y_data else 0]
+        
+        self.time_window = seconds
+        self.update_plot()
 
     def confirm_reset(self):
         if messagebox.askyesno("Confirm Reset", "Do you really want to reset the VTRX System?"):
