@@ -44,6 +44,8 @@ def start_main_app(com_ports):
     """
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
+    root.state('zoomed')
+
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
