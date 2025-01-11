@@ -110,7 +110,7 @@ def start_main_app(com_ports):
         shortcuts = [
             ("F1", "Show this help window"),
             ("Ctrl + Q", "Quit application"),
-            ("Ctrl + W", "Quit application (alternative)"),
+            ("Ctrl + W", "Quit application (alt.)"),
             ("F11", "Toggle fullscreen"),
             ("Escape", "Exit fullscreen"),
             ("Ctrl + M", "Toggle maximize/restore"),
