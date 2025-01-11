@@ -46,6 +46,41 @@ def start_main_app(com_ports):
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
 
+    # Track fullscreen state
+    fullscreen = False
+    
+    def quit_app(event=None):
+        if messagebox.askokcancel("Quit", "Do you want to quit?"):
+            root.destroy()
+        return "break"
+    
+    def toggle_fullscreen(event=None):
+        nonlocal fullscreen
+        fullscreen = not fullscreen
+        root.attributes('-fullscreen', fullscreen)
+        return "break"
+    
+    def escape_handler(event=None):
+        nonlocal fullscreen
+        if fullscreen:
+            fullscreen = False
+            root.attributes('-fullscreen', False)
+        return "break"
+    
+    def toggle_maximize(event=None):
+        if root.state() == 'zoomed':
+            root.state('normal')
+        else:
+            root.state('zoomed')
+        return "break"
+
+    # Bind keyboard shortcuts
+    root.bind('<Control-q>', quit_app)          # Quit application
+    root.bind('<Control-w>', quit_app)          # Alternative quit
+    root.bind('<F11>', toggle_fullscreen)       # Toggle fullscreen
+    root.bind('<Escape>', escape_handler)       # Exit fullscreen
+    root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
+
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
