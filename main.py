@@ -74,12 +74,23 @@ def start_main_app(com_ports):
             root.state('zoomed')
         return "break"
 
+    def save_logs(event=None):
+        if hasattr(app, 'messages_frame'):
+            app.messages_frame.export_log()
+        else:
+            messagebox.showwarning(
+                "Warning", 
+                "Message frame not initialized. Cannot save logs"
+            )
+        return "break"
+
     # Bind keyboard shortcuts
     root.bind('<Control-q>', quit_app)          # Quit application
     root.bind('<Control-w>', quit_app)          # Alternative quit
     root.bind('<F11>', toggle_fullscreen)       # Toggle fullscreen
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
+    root.bind('<Control-s>', save_logs)         # Save log file
 
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
