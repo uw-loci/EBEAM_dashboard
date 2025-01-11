@@ -88,7 +88,7 @@ def start_main_app(com_ports):
         """Display a window showing all keyboard shortcuts."""
         shortcuts_window = tk.Toplevel(root)
         shortcuts_window.title("Keyboard Shortcuts")
-        shortcuts_window.geometry("250x300")
+        shortcuts_window.geometry("280x300")
         
         # Make the window modal (user must close it to continue)
         shortcuts_window.transient(root)
