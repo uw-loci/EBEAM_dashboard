@@ -122,13 +122,35 @@ class EBEAMSystemDashboard:
 
         # TODO: add main control buttons to main tab here
 
-        # Add Config tab elements
-        self.create_com_port_frame(config_tab)
-        self.create_post_processor_button(config_tab)
-        self.create_log_level_dropdown(config_tab)
+        config_frame = ttk.Frame(config_tab, padding="10")
+        config_frame.pack(fill=tk.BOTH, expand=True)
 
-        save_layout_button = tk.Button(config_tab, text="Save Layout", command=self.save_current_pane_state)
-        save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=5)
+        # 1. COM Port Configuration
+        self.create_com_port_frame(config_frame)
+
+        # 2. Save Layout button
+        save_layout_frame = ttk.Frame(config_frame)
+        save_layout_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        ttk.Button(
+            save_layout_frame,
+            text="Save Layout",
+            command=self.save_current_pane_state
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 3. Post Processor button
+        self.create_post_processor_button(config_frame)
+
+        # 4. Log Level dropdown
+        self.create_log_level_dropdown(config_frame)
+
+        # Add F1 help hint
+        help_label = ttk.Label(
+            config_frame,
+            text="Press F1 for keyboard shortcuts",
+            font=("Helvetica", 8, "italic"),
+            foreground="gray"
+        )
+        help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
 
     def create_post_processor_button(self, parent_frame):
         """Create a button to launch the standalone post-processor application"""
@@ -205,7 +227,13 @@ class EBEAMSystemDashboard:
 
         self.log_level_var = tk.StringVar()
         log_levels = [level.name for level in LogLevel]
-        log_level_dropdown = ttk.Combobox(log_level_frame, textvariable=self.log_level_var, values=log_levels, state="readonly")
+        log_level_dropdown = ttk.Combobox(
+            log_level_frame, 
+            textvariable=self.log_level_var, 
+            values=log_levels, 
+            state="readonly", 
+            width=15
+        )
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
         
         current_level = self.messages_frame.get_log_level()
