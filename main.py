@@ -84,10 +84,86 @@ def start_main_app(com_ports):
             )
         return "break"
 
+    def show_shortcuts(event=None):
+        """Display a window showing all keyboard shortcuts."""
+        shortcuts_window = tk.Toplevel(root)
+        shortcuts_window.title("Keyboard Shortcuts")
+        shortcuts_window.geometry("250x300")
+        
+        # Make the window modal (user must close it to continue)
+        shortcuts_window.transient(root)
+        shortcuts_window.grab_set()
+        
+        # Create a frame with padding
+        frame = ttk.Frame(shortcuts_window, padding="20 20 20 20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(
+            frame, 
+            text="Available Keyboard Shortcuts",
+            font=("Helvetica", 12, "bold")
+        )
+        title_label.pack(pady=(0, 20))
+        
+        # Shortcuts list
+        shortcuts = [
+            ("F1", "Show this help window"),
+            ("Ctrl + Q", "Quit application"),
+            ("Ctrl + W", "Quit application (alternative)"),
+            ("F11", "Toggle fullscreen"),
+            ("Escape", "Exit fullscreen"),
+            ("Ctrl + M", "Toggle maximize/restore"),
+            ("Ctrl + S", "Save logs"),
+        ]
+        
+        # Create a frame for the shortcuts
+        shortcuts_frame = ttk.Frame(frame)
+        shortcuts_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Add shortcuts to the frame in a grid
+        for i, (key, description) in enumerate(shortcuts):
+            key_label = ttk.Label(
+                shortcuts_frame,
+                text=key,
+                font=("Courier", 10),
+                padding=(5, 2)
+            )
+            key_label.grid(row=i, column=0, sticky="e", padx=(0, 10))
+            
+            desc_label = ttk.Label(
+                shortcuts_frame,
+                text=description,
+                padding=(5, 2)
+            )
+            desc_label.grid(row=i, column=1, sticky="w")
+        
+        # Close button
+        close_button = ttk.Button(
+            frame,
+            text="Close",
+            command=shortcuts_window.destroy
+        )
+        close_button.pack(pady=(20, 0))
+        
+        # Bind Escape key to close the window
+        shortcuts_window.bind('<Escape>', lambda e: shortcuts_window.destroy())
+        
+        # Center the window on the screen
+        shortcuts_window.update_idletasks()
+        width = shortcuts_window.winfo_width()
+        height = shortcuts_window.winfo_height()
+        x = (root.winfo_screenwidth() // 2) - (width // 2)
+        y = (root.winfo_screenheight() // 2) - (height // 2)
+        shortcuts_window.geometry(f'{width}x{height}+{x}+{y}')
+
+        return "break"
+
     # Bind keyboard shortcuts
     root.bind('<Control-q>', quit_app)          # Quit application
     root.bind('<Control-w>', quit_app)          # Alternative quit
     root.bind('<F11>', toggle_fullscreen)       # Toggle fullscreen
+    root.bind('<F1>', show_shortcuts)            # Show keyboard shortcuts
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
