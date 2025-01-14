@@ -51,22 +51,30 @@ class VTRXSubsystem:
         self.baud_rate = baud_rate
         self.logger = logger
         self.data_queue = queue.Queue()
-        self.x_data = []
-        self.y_data = []
+        
+        self.MAX_HISTORY_SECONDS = 36000 # 10 hours
+        self.full_history_x = []    # Complete timestamp history
+        self.full_history_y = []    # Complete pressure history
+        self.x_data = []            # Display window data
+        self.y_data = []            # Display window data
+        self.display_window = 300   # Default 5 minutes
+
         self.circle_indicators = []
         self.error_state = False
         self.error_logged = False
         self.stop_event = threading.Event()
+        self.last_data_received_time = time.time()
+        self.last_gui_update_time = time.time()
+        
+        current_time = datetime.datetime.now()
+        self.full_history_x = [current_time]
+        self.full_history_y = [1e3]
+        self.x_data = [current_time]
+        self.y_data = [1e3]
+        
         self.setup_serial()
         self.setup_gui()
-
-        self.time_window = 300 # Time window in seconds
-        self.data_timeout = 1.5 # Seconds timeout for receiving data
-        self.init_time = datetime.datetime.now()
-        self.last_gui_update_time = time.time()
-        self.x_data = [self.init_time + datetime.timedelta(seconds=i) for i in range(self.time_window)]
-        self.y_data = [0] * self.time_window
-
+        
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
 
@@ -126,7 +134,7 @@ class VTRXSubsystem:
                 try:
                     data_bytes = self.ser.readline()
                     if data_bytes:
-                        self.last_data_received_time = time.time()  # Update last received time
+                        self.last_data_received_time = time.time()
                         data = data_bytes.decode('utf-8', errors='replace').strip()
                         if data:
                             self.data_queue.put(data)
@@ -360,7 +368,7 @@ class VTRXSubsystem:
         self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-7, 3000.0)
+        self.ax.set_ylim(1e-7, 1e3)  
         self.ax.tick_params(axis='x', labelsize=6, pad=1)
         self.ax.grid(True)
 
@@ -368,7 +376,7 @@ class VTRXSubsystem:
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
-    
+     
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """
         Update GUI labels, indicators, and plot with new pressure/switch data.
@@ -382,24 +390,29 @@ class VTRXSubsystem:
             return
         
         current_time = datetime.datetime.now()
-        elapsed_time = (current_time - self.init_time).total_seconds()
-
-        if elapsed_time > self.time_window:
-            self.x_data.pop(0)
-            self.y_data.pop(0)
-
-        self.x_data.append(current_time)
-        self.y_data.append(pressure_value)
-
-        current_window = (self.x_data[-1] - self.x_data[0]).total_seconds()
-        if current_window > self.time_window * 1.1:  # 10% buffer before forced sync
-            self.update_time_window(self.time_window)
-
+        
+        # Update full history
+        self.full_history_x.append(current_time)
+        self.full_history_y.append(pressure_value)
+        
+        # Trim history older than MAX_HISTORY_SECONDS
+        cutoff_time = current_time - datetime.timedelta(seconds=self.MAX_HISTORY_SECONDS)
+        while self.full_history_x and self.full_history_x[0] < cutoff_time:
+            self.full_history_x.pop(0)
+            self.full_history_y.pop(0)
+        
+        # Update display window data
+        display_cutoff = current_time - datetime.timedelta(seconds=self.display_window)
+        self.x_data = [x for x in self.full_history_x if x >= display_cutoff]
+        self.y_data = self.full_history_y[-len(self.x_data):]
+        
         if time.time() - self.last_gui_update_time > 0.5:
             self.last_gui_update_time = time.time()
-            self.label_pressure.config(text=f"Press: {pressure_raw} mbar", fg="black" if not self.error_state else "red")
+            self.label_pressure.config(text=f"Press: {pressure_raw} mbar", 
+                                    fg="black" if not self.error_state else "red")
             self.line.set_color('green' if not self.error_state else 'red')
-            self.ax.set_title('Live Pressure Readout', fontsize=10, color='black' if not self.error_state else 'red')
+            self.ax.set_title('Live Pressure Readout', fontsize=10, 
+                            color='black' if not self.error_state else 'red')
             self.update_plot()
 
             for idx, state in enumerate(switch_states):
@@ -409,20 +422,22 @@ class VTRXSubsystem:
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
     def update_plot(self):
-        # Update the data for the line, rather than recreating it
+        """Update plot with current display window data."""
+        # Update the data for the line
         self.line.set_data(self.x_data, self.y_data)
-        self.ax.relim()  # Recalculate limits based on the new data
+        self.ax.relim()
         self.ax.autoscale_view(True, True, False)
 
-        if self.y_data:  # Check if we have data
+        if self.y_data:
             y_min = min(self.y_data)
             y_max = max(self.y_data)
-            if y_min > 0 and y_max > 0:  # Protect  zero/negative values in log scale
+            if y_min > 0 and y_max > 0:
                 self.ax.set_ylim(y_min * 0.5, y_max * 2)
 
-        current_time = self.x_data[-1]
-        start_time = current_time - datetime.timedelta(seconds=self.time_window)
-        self.ax.set_xlim(start_time, current_time)
+        if self.x_data:
+            current_time = self.x_data[-1]
+            start_time = current_time - datetime.timedelta(seconds=self.display_window)
+            self.ax.set_xlim(start_time, current_time)
 
         self.canvas.draw_idle()
         self.canvas.flush_events()
@@ -440,21 +455,13 @@ class VTRXSubsystem:
     
     def update_time_window(self, seconds):
         current_time = datetime.datetime.now()
-        cutoff_time = current_time - datetime.timedelta(seconds=seconds)
+        self.display_window = seconds
         
-        # Filter existing data
-        valid_data = [(x, y) for x, y in zip(self.x_data, self.y_data) 
-                    if x >= cutoff_time]
+        # Update display data from full history
+        display_cutoff = current_time - datetime.timedelta(seconds=seconds)
+        self.x_data = [x for x in self.full_history_x if x >= display_cutoff]
+        self.y_data = self.full_history_y[-len(self.x_data):]
         
-        if valid_data:
-            self.x_data, self.y_data = zip(*valid_data)
-            self.x_data = list(self.x_data)
-            self.y_data = list(self.y_data)
-        else:
-            self.x_data = [current_time]
-            self.y_data = [self.y_data[-1] if self.y_data else 0]
-        
-        self.time_window = seconds
         self.update_plot()
 
     def save_plot(self):
