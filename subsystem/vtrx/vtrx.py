@@ -160,20 +160,17 @@ class VTRXSubsystem:
 
     def _create_indicator_circle(self, parent_frame, color="grey"):
         canvas = tk.Canvas(parent_frame, width=30, height=30, highlightthickness=0)
+        oval_id = canvas.create_oval(2, 2, 28, 28, fill=color, outline="black")
+        canvas._oval_id = oval_id
         canvas.bind('<Configure>', lambda e: self._resize_indicator(canvas, e))
-        oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
         return canvas, oval_id
 
     def _resize_indicator(self, canvas, event):
-        canvas.delete('all')
         width, height = event.width, event.height
         margin = min(width, height) // 4
-        canvas.create_oval(
-            margin, margin, 
-            width - margin, height - margin, 
-            fill=canvas.itemcget(canvas.find_all()[0], 'fill') if canvas.find_all() else 'grey', 
-            outline="black"
-        )
+        # Update the coordinates of the existing oval without deleting it.
+        if hasattr(canvas, '_oval_id'):
+            canvas.coords(canvas._oval_id, margin, margin, width - margin, height - margin)
 
     def process_queue(self):
         """
@@ -235,7 +232,7 @@ class VTRXSubsystem:
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.log("Incomplete data received.", LogLevel.WARNING)
-            self.log(f"Literal data from VTRX: {data}", LogLevel.VERBOSE)
+            self.log(f"Literal data from VTRX: {data}", LogLevel.DEBUG)
             self.error_state = True
             self.update_gui_with_error_state()
             return
@@ -309,7 +306,6 @@ class VTRXSubsystem:
         label_width = 15
 
         for idx, switch in enumerate(switch_labels):
-            
             label = tk.Label(switches_frame, text=switch, anchor='center', width=label_width)
             label.grid(row=idx, column=0, sticky='nsew', pady=2, padx=(0, 1))
             
@@ -318,9 +314,24 @@ class VTRXSubsystem:
             self.circle_indicators.append((canvas, oval_id))
 
         # Pressure label setup
-        self.label_pressure = tk.Label(switches_frame, text="No data...", anchor='center', width=label_width,
-                                font=('Helvetica', 11, 'bold'))
-        self.label_pressure.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
+        pressure_frame = tk.Frame(switches_frame)
+        pressure_frame.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
+        # Configure columns to center the label
+        pressure_frame.grid_columnconfigure(0, weight=1) 
+        pressure_frame.grid_columnconfigure(2, weight=1) 
+        pressure_frame.grid_columnconfigure(1, weight=0) 
+
+        self.label_pressure = tk.Label(
+            pressure_frame,
+            text="No data...", 
+            anchor='center',
+            font=('Helvetica', 11, 'bold'), 
+            relief='ridge', 
+            bg='#0D006E', #007FFF
+            fg='white', 
+            padx=3, pady=2
+        )
+        self.label_pressure.grid(row=0, column=1, ipady=2)
 
         # Buttons frame
         button_frame = tk.Frame(switches_frame)
@@ -408,11 +419,26 @@ class VTRXSubsystem:
         
         if time.time() - self.last_gui_update_time > 0.5:
             self.last_gui_update_time = time.time()
-            self.label_pressure.config(text=f"Press: {pressure_raw} mbar", 
-                                    fg="black" if not self.error_state else "red")
+            if not self.error_state:
+                # Normal state
+                self.label_pressure.config(
+                    text=f"{pressure_raw} mbar",
+                    bg="white",
+                    fg="black"
+                )
+            else:
+                # Error state
+                self.label_pressure.config(
+                    text="No data...",
+                    bg="#FF0000",
+                    fg="#FFB6B6"
+                )
             self.line.set_color('green' if not self.error_state else 'red')
-            self.ax.set_title('Live Pressure Readout', fontsize=10, 
-                            color='black' if not self.error_state else 'red')
+            self.ax.set_title(
+                'VTRX Pressure Readout',
+                fontsize=10,
+                color='black' if not self.error_state else 'red'
+            )
             self.update_plot()
 
             for idx, state in enumerate(switch_states):
