@@ -327,11 +327,11 @@ class VTRXSubsystem:
             anchor='center',
             font=('Helvetica', 11, 'bold'), 
             relief='ridge', 
-            bg='#0D006E', #007FFF
-            fg='white', 
+            bg='white',
+            fg='black', 
             padx=3, pady=2
         )
-        self.label_pressure.grid(row=0, column=1, ipady=2)
+        self.label_pressure.grid(row=0, column=1, ipady=2, pady=(0,2))
 
         # Buttons frame
         button_frame = tk.Frame(switches_frame)
