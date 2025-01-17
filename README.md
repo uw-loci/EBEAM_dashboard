@@ -49,14 +49,27 @@ flowchart TD
     Continue --> CheckChanges
 ```
 
-### 2. Dashboard (dashboard.py)
+### 2. Application Controls
+| Shortcut  | Action | |
+| ------------- | ------------- | ------------- |
+| F1  | Help | Opens the keyboard shortcuts help window |
+| F11  | Toggle Fullscreen | Switch between fullscreen and windowed mode |
+| Escape  | Exit Fullscreen | Exit fullscreen mode |
+| Ctrl + M  | Toggle Maximize | Switch between maximized and normal window size |
+| Ctrl + S  | Help | Opens the keyboard shortcuts help window |
+| Ctrl + Q | Quit | Close the application (with confirmation) |
+| Ctrl + W | Quit (alternative) | Close the application (with confirmation) |
+
+All of these shortcuts are supported across different operating systems.
+
+### 3. Dashboard (dashboard.py)
 
 - **EBEAMSystemDashboard Class**: The main class that sets up the dashboard interface.
   - Implements a flexible, configurable layout system using Tkinter's PanedWindow container widget.
   - Allows users to arrange and resize different control sections at run-time.
    - Each subsystem occupies its own configurable space
 
-### 3. Subsystems
+### 4. Subsystems
 
 - **`vtrx/vtrx.py`**:
   - Manages the VTRX system, including serial communication and error handling.
@@ -83,7 +96,7 @@ flowchart TD
   - TBD
 
 
-### 4. Utilities (`utils.py`)
+### 5. Utilities (`utils.py`)
 
 - **MessagesFrame Class**:
   - A custom Tkinter frame for displaying messages and errors.
@@ -97,7 +110,7 @@ flowchart TD
   - Manages the selection and execution of configuration scripts.
   - Provides a GUI for selecting scripts from a dropdown menu and executing them.
 
-### 5. Directory Structure:
+### 6. Directory Structure:
 ```
 EBEAM_DASHBOARD/
 ├── README.md
@@ -139,7 +152,7 @@ EBEAM_DASHBOARD/
 └── utils.py
 ```
 
-### 6. Development Workflow
+### 7. Development Workflow
 ![branching](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/branching_diagram.png)
 #### Branching strategy
 All code development intended to impact a future release is done on the latest `develop` branch. This applies to new instrument features, bug fixes, etc. The `develop` branch is **not stable**.
