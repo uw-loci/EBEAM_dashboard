@@ -16,6 +16,10 @@ Parser expects semicolon-separated string containing at least three fields:
 3. switch states in binary format
 4. Optional additional error messages
 
+### Data Retention and Time Window
+The subsystem maintains a rolling buffer of pressure readings with the following characteristics:
+- Max history: 168 hours (1 week)
+- Data points are automatically trimmed beyond this window
 
 ### GUI Elements
 - Real-time pressure plotting with configurable time window

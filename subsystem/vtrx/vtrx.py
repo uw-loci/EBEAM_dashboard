@@ -52,7 +52,7 @@ class VTRXSubsystem:
         self.logger = logger
         self.data_queue = queue.Queue()
         
-        self.MAX_HISTORY_SECONDS = 36000 # 10 hours
+        self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
         self.full_history_y = []    # Complete pressure history
         self.x_data = []            # Display window data
@@ -349,7 +349,14 @@ class VTRXSubsystem:
             ("30 min", 1800),
             ("1 hour", 3600),
             ("5 hour", 18000),
-            ("10 hour", 36000)
+            ("10 hour", 36000),
+            ("1 day", 86400),
+            ("2 days", 172800),
+            ("3 days", 259200),
+            ("4 days", 345600),
+            ("5 days", 432000),
+            ("6 days", 518400),
+            ("Max", self.MAX_HISTORY_SECONDS)
         ]
         
         self.time_window_var = tk.StringVar(value="5 min")
