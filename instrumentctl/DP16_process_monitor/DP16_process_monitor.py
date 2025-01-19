@@ -44,10 +44,12 @@ class DP16ProcessMonitor:
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
+
         self.temperature_readings = {unit: None for unit in unit_numbers}
         self.error_counts = {unit: 0 for unit in self.unit_numbers}
         self.last_good_readings = {unit: None for unit in self.unit_numbers}
         self.consecutive_connection_errors = 0
+        
         self._is_running = True
         self._thread = None
         self.response_lock = Lock()
@@ -77,16 +79,13 @@ class DP16ProcessMonitor:
         
         except Exception as e:
             self._is_running = False # Ensure the thread won't start
-            self.disconnect() # clean up resources
+            self.disconnect()        # clean up resources
             self.log(f"Failed to connect to DP16 Process Monitors on {port}", LogLevel.WARNING)
             raise RuntimeError(f"Failed to connect to PMON: {str(e)}")
 
     def connect(self):
         """
         Establish a connection to the DP16 units.
-
-        Tries to open communication with the units using the configured 
-        baud rate and serial port. Logs any connection issues.
 
         Returns:
             bool: True if the connection is successful, False otherwise.
@@ -101,7 +100,7 @@ class DP16ProcessMonitor:
                 if not self.client.connect():
                     return False
                 
-                # Track working units
+                # Check if any unit responds
                 working_units = set()
                 for unit in self.unit_numbers:
                     status = self.client.read_holding_registers(
@@ -117,11 +116,11 @@ class DP16ProcessMonitor:
                         with self.response_lock:
                             self.temperature_readings[unit] = self.DISCONNECTED
 
-                # Return True if at least one unit is working
                 if working_units:
                     self.log(f"Connected to {len(working_units)}/{len(self.unit_numbers)} DP16 units", LogLevel.INFO)
                     return True
                 return False
+
             except ModbusIOException as e:
                 self.log(f"Modbus IO error during DP16 connection: {e}", LogLevel.ERROR)
                 return False
@@ -169,17 +168,17 @@ class DP16ProcessMonitor:
         try:
             with self.modbus_lock:
                 self.log(f"Setting RDGCNF_REG for unit {unit}", LogLevel.DEBUG)
-                # First write: Set the reading configuration format
+                # First write: Set decimal format
                 response1 = self.client.write_register(
                     address=self.RDGCNF_REG,
-                    value=0x002,
+                    value=0x002, # e.g. "FFF.F"
                     slave=unit
                 )
                 if response1.isError():
                     self.log(f"Failed to write RDGCNF_REG for DP16 unit {unit}. Response:{response1}", LogLevel.ERROR)
                     return False # Exit early if the first write fails
                     
-                # Second write: Update the status register
+                # Second write: Update STATUS_REG
                 self.log(f"Setting STATUS_REG for unit {unit}", LogLevel.DEBUG)
                 response2 = self.client.write_register(
                     address=self.STATUS_REG,
@@ -193,6 +192,7 @@ class DP16ProcessMonitor:
                 
                 self.log(f"Configuration successful for DP16 unit {unit}", LogLevel.INFO)
                 return True
+            
         except ModbusIOException as e:
             self.log(f"Modbus IO error while setting config for unit {unit}: {e}", LogLevel.ERROR)
             return False
@@ -237,18 +237,8 @@ class DP16ProcessMonitor:
                         self.consecutive_connection_errors = 0  # Reset on successful poll
                         time.sleep(0.1)
                     except ModbusIOException as e:
-                        self.error_counts[unit] += 1
-                        if "Failed to connect" in str(e) or "Connection" in str(e):
-                            self.consecutive_connection_errors += 1
-                            if self.consecutive_connection_errors >= self.MAX_ERROR_THRESHOLD:
-                                self.client.close()
-                                with self.response_lock:
-                                    if self.last_good_readings[unit] is not None:
-                                        # Keep showing last good reading for a while
-                                        self.temperature_readings[unit] = self.last_good_readings[unit]
-                                    else:
-                                        self.temperature_readings[unit] = self.DISCONNECTED
-                                break
+                        # Parse the exception message to figure out what to do
+                        self._handle_modbus_io_exception(e, unit)
                         
                         # Rate limited error logging
                         if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
@@ -289,7 +279,7 @@ class DP16ProcessMonitor:
 
                 # Validate status
                 if status.registers[0] != self.STATUS_RUNNING:
-                    self.log(f"Unit {unit} status {status_registers[0]} differs from expected {self.STATUS_RUNNING}", LogLevel.WARNING)
+                    self.log(f"Unit {unit} status {status.registers[0]} differs from expected {self.STATUS_RUNNING}", LogLevel.WARNING)
 
                 # Read temperature
                 response = self.client.read_holding_registers(
