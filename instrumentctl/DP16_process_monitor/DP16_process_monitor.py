@@ -14,6 +14,8 @@ class DP16ProcessMonitor:
     RDGCNF_REG = 0x248          # Register 8 in Table 6.2
     STATUS_REG = 0x240
 
+    STATUS_RUNNING = 0x0006
+
     # PT100 RTD temperature range
     MIN_TEMP = -90      # [C]
     MAX_TEMP = 500      # [C]
@@ -21,11 +23,10 @@ class DP16ProcessMonitor:
     # Polling delay
     BASE_DELAY = 0.1    # [seconds]
     MAX_DELAY = 5       # [seconds]
-    ERROR_LOG_INTERVAL = 5
-    MAX_ERROR_THRESHOLD = 3 # consecutive erros before considering disconnected
-
-    # Status Codes
-    STATUS_RUNNING = 0x0006
+    ERROR_LOG_INTERVAL = 10 # [seconds]
+    MINOR_ERROR_THRESHOLD = 5 # show last good reading
+    MAJOR_ERROR_THRESHOLD = 30 # disconnected state
+    ERROR_RECOVERY_COUNT = 2 # Consequtive good readings to clear error 
 
     # Error states
     DISCONNECTED = -1
@@ -55,34 +56,10 @@ class DP16ProcessMonitor:
         self.response_lock = Lock()
         self.last_critical_error_time = 0
         
-        try:
-            # First establish connection
-            if not self.connect():
-                raise RuntimeError(f"Failed to connect to any DP16 Process Monitors on {port}")
-            
-            # Set configuration for each unit
-            configured_units = set()
-            for unit in self.unit_numbers:
-                if self._set_config(unit):
-                    configured_units.add(unit)
-                else:
-                    self.log(f"Failed to configure unit {unit}", LogLevel.WARNING)
-                    with self.response_lock:
-                        self.temperature_readings[unit] = self.SENSOR_ERROR
-
-            if not configured_units:
-                raise RuntimeError(f"Failed to configure any DP16 units")
-            
             # Start single background polling thread after successful connection and configuration
-            self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
-            self._thread.start()
-        
-        except Exception as e:
-            self._is_running = False # Ensure the thread won't start
-            self.disconnect()        # clean up resources
-            self.log(f"Failed to connect to DP16 Process Monitors on {port}", LogLevel.WARNING)
-            raise RuntimeError(f"Failed to connect to PMON: {str(e)}")
-
+        self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
+        self._thread.start()
+    
     def connect(self):
         """
         Establish a connection to the DP16 units.
