@@ -302,7 +302,7 @@ class DP16ProcessMonitor:
                 if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                     raise ValueError(f"Temperature out of range: {value}")
 
-                # Success! Clear error count and update reading
+                # Success. Clear error count and update reading
                 self.error_counts[unit] = 0
                 with self.response_lock:
                     self.temperature_readings[unit] = value
@@ -323,6 +323,43 @@ class DP16ProcessMonitor:
                     else:
                         # Default to disconnected state
                         self.temperature_readings[unit] = self.DISCONNECTED
+
+    def _handle_modbus_io_exception(self, exception: ModbusIOException, unit: int):
+        """ Differentiate between partial read, port closed, connection error, etc. """
+        err_str = str(exception).lower()
+        self.error_counts[unit] += 1 # incrementing for *any* modbusIOException
+
+        if "port is closed" in err_str or "could not open port" in err_str:
+            self.log(f"Hard port failure on DP16 unit {unit}: {exception}", LogLevel.ERROR)
+            self.client.close()
+            self.consecutive_connection_errors += 1
+
+        # Check for bus-level or handshake failures
+        elif "failed to connect" in err_str or "connection" in err_str:
+            self.log(f"Connection error on DP16 unit {unit}: {exception}", LogLevel.WARNING)
+            self.consecutive_connection_errors += 1
+
+        # Check for partial read or modbus read-failed strings
+        elif "status read failed" in err_str:
+            # Usually incomplete or invalid response for status register
+            self.log(f"Partial/incomplete status response for unit {unit}", LogLevel.DEBUG)
+
+        elif "temperature read failed" in err_str:
+            # Usually incomplete or invalid response for process value register
+            self.log(f"Partial/incomplete temperature response for unit {unit}", LogLevel.DEBUG)
+
+        else:
+            # Fallback: unknown modbus error
+            self.log(f"General Modbus IO error on unit {unit}: {exception}", LogLevel.ERROR)
+
+        # If we pass MAX threshold, forcibly disconnect that unit
+        if self.error_counts[unit] >= self.MAX_ERROR_THRESHOLD:
+            with self.response_lock:
+                if self.last_good_readings[unit] is not None:
+                    # Keep showing last good reading
+                    self.temperature_readings[unit] = self.last_good_readings[unit]
+                else:
+                    self.temperature_readings[unit] = self.DISCONNECTED
 
     def get_all_temperatures(self):
         """ Thread-safe access method """
