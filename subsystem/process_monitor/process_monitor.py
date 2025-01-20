@@ -9,10 +9,10 @@ class TemperatureBar(tk.Canvas):
     DISCONNECTED = -1
     SENSOR_ERROR = -2
     SCALE_LABELS = {
-        'Solenoids': [20 , 120, 24], 
-        'Chambers' : [20, 100, 20], 
-        'Air': [20, 50, 10],
-        None: [20, 100, 10]
+        'Solenoids': [15 , 120, 24], 
+        'Chambers' : [15, 100, 20], 
+        'Air': [15, 50, 10],
+        None: [15, 100, 10]
     } 
     ERROR_COLORS = {
         DISCONNECTED: '#808080',  # Grey for disconnected state
@@ -138,9 +138,6 @@ class TemperatureBar(tk.Canvas):
     def get_temperature_color(self, name, temp: float) -> str:
         """Return a color based on temperature value."""
         
-        if temp < 20:
-            return '#0000FF'  # Blue for cold
-        
         if name.startswith('Solenoid'): 
             if 20 <= temp < 70:
                 return '#00FF00'  # Green for normal 
@@ -192,7 +189,7 @@ class ProcessMonitorSubsystem:
         }
 
         self.setup_gui()
-        
+        self.monitor = None
         try:
             if not com_port:
                 raise ValueError("No COM port provided for ProcessMonitor")
@@ -226,23 +223,35 @@ class ProcessMonitorSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
-        """Update temperature readings with error handling and backoff"""
         current_time = time.time()
         try:
-            if not self.monitor or not self.monitor.client.is_socket_open():
+            if not self.monitor:
+                self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
                     self._adjust_update_interval(success=False)
             else:
-
-                # Retrieve the last responses from all units
                 temps = self.monitor.get_all_temperatures()
+                
+                # Format both valid readings and error states
+                formatted_temps = {}
+                for unit, value in temps.items():
+                    if isinstance(value, float):
+                        formatted_temps[unit] = f"{value:.2f}"
+                    elif value == self.monitor.DISCONNECTED:
+                        formatted_temps[unit] = "DISCONNECTED"
+                    elif value == self.monitor.SENSOR_ERROR:
+                        formatted_temps[unit] = "SENSOR_ERROR"
+                    else:
+                        formatted_temps[unit] = str(value)
+                        
+                self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
 
-                if all(temp is None or temp == -1 for temp in temps.values()):
+                if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):
-                        self._set_all_temps_error()
+                        self._set_all_temps_disconnected()
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                         self._adjust_update_interval(success=False)
@@ -250,19 +259,37 @@ class ProcessMonitorSubsystem:
                     # Update each temperature bar
                     for name, unit in self.thermometer_map.items():
                         temp = temps.get(unit)
-                        if temp is not None and temp != -1:
-                            self.temp_bars[name].update_value(name, temp)
-                            self.log(f"Temperature update - {name}: {temp:.1f}C", LogLevel.DEBUG)
+                        self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.VERBOSE)
+                        temp = temps.get(unit)
+                        if temp is None:
+                            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                        elif temp == self.monitor.SENSOR_ERROR:
+                            self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                        elif temp == self.monitor.DISCONNECTED:
+                            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                        elif isinstance(temp, (int, float)):
+                            try:
+                                temp_value = float(temp)
+                                if -90 <= temp_value <= 500:  # Valid temperature range
+                                    has_valid_reading = True
+                                    self.temp_bars[name].update_value(name, temp_value)
+                                    self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
+                                else:
+                                    self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                                    self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
+                            except (ValueError, TypeError):
+                                self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                                self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
                         else:
-                            self.temp_bars[name].update_value(name, -1)
-                            self.log(f"Temperature error - {name}", LogLevel.WARNING)
+                            self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                            self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
 
                     self._adjust_update_interval(success=True)
 
         except Exception as e:
+            self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
             if current_time - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error updating temperatures: {str(e)}", LogLevel.ERROR)
-                self._set_all_temps_error()
                 self.last_error_time = current_time
                 self._adjust_update_interval(success=False)
                 
