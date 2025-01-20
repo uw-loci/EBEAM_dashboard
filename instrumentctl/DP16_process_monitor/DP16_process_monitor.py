@@ -99,8 +99,8 @@ class DP16ProcessMonitor:
                         )
                     else:
                         self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
-                        with self.response_lock:
-                            self.temperature_readings[unit] = self.DISCONNECTED
+                        # with self.response_lock:
+                        #     self.temperature_readings[unit] = self.DISCONNECTED
 
                 if working_units:
                     self.log(
