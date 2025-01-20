@@ -209,7 +209,7 @@ class DP16ProcessMonitor:
                 if not self.client.is_socket_open():
                     self.consecutive_connection_errors += 1
                     # Mark all disconnected if we exceed major threshold
-                    if self.consecutive_connection_errors >= self.MAX_ERROR_THRESHOLD:
+                    if self.consecutive_connection_errors >= self.MAJOR_ERROR_THRESHOLD:
                         with self.response_lock:
                             for unit in self.unit_numbers:
                                 self.temperature_readings[unit] = self.DISCONNECTED
