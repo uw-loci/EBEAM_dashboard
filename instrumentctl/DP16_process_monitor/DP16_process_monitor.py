@@ -201,7 +201,7 @@ class DP16ProcessMonitor:
                 # Check if client is still connected
                 if not self.client.is_socket_open():
                     self.consecutive_connection_errors += 1
-                    # Mark all disconnected if we exceed major threshold
+                    # Mark all disconnected if we exceed error threshold
                     if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
                         with self.response_lock:
                             for unit in self.unit_numbers:
@@ -295,8 +295,8 @@ class DP16ProcessMonitor:
     
     def _handle_poll_error(self, unit: int, exception: Exception):
             """
-            Increments error counts, classifies the error for logging, and
-            updates self.temperature_readings according to minor/major thresholds.
+            Increments consecutive error counts, logs the error, and updates 
+            self.temperature_readings based on the single ERROR_THRESHOLD logic.
             """
             self.log(f"Poll error on unit {unit}: {exception}", LogLevel.VERBOSE)
             self.consecutive_error_counts[unit] += 1
