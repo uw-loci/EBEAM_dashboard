@@ -865,11 +865,14 @@ class CathodeHeatingSubsystem:
 
     def set_plot_color(self, index, error_type=None):
         """
-        Update the plot color based on error state.
+        Update plot colors based on system state.
         
         Args:
-            index (int): Index of the cathode/plot
-            error_type (str, optional): Type of error - 'communication', 'overtemp', or None for normal operation
+            index (int): Index of the plot to update (0-2)
+            error_type (str, optional): Type of error condition
+                - 'communication': Orange for communication errors
+                - 'overtemp': Red for over-temperature condition
+                - None: Blue for normal operation
         """
         ax = self.temperature_data[index][0].axes
         line = self.temperature_data[index][0]
@@ -1210,7 +1213,15 @@ class CathodeHeatingSubsystem:
         self.predicted_temperature_vars[index].set('--')
 
     def on_voltage_label_click(self, index):
-        """ Handle clicks on heater voltage label to manually set heater voltage """
+        """ 
+        Handler for user clicks on heater voltage label for manual voltage setting
+
+        Args:
+            index (int): Index of the clicked voltage label (0-2)
+
+        Shows a dialog for voltage input if output is disabled. 
+        Updates predictions and display values based on entered voltage.
+        """
         if self.toggle_states[index]:
             msgbox.showwarning("Warning", "Disable the output before setting a new voltage.")
             return # exit the method if the output is already on
@@ -1315,6 +1326,15 @@ class CathodeHeatingSubsystem:
             return False
 
     def get_ovp(self, index):
+        """
+        Get the current over-voltage protection setting.
+        
+        Args:
+            index (int): Index of the power supply (0-2)
+            
+        Returns:
+            float or None: Current OVP setting in volts, None if retrieval fails
+        """
         try:
             ovp = self.power_supplies[index].get_over_voltage_protection()
             if ovp is not None:
