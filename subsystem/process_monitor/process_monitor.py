@@ -305,7 +305,7 @@ class ProcessMonitorSubsystem:
             self.update_interval = 500  # Reset to default interval
         else:
             self.error_count = min(self.error_count + 1, 5)  # Cap error count
-            self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
+            self.update_interval = min(500 * (self.error_count), self.max_interval)
 
     def _set_all_temps_error(self):
         """Set all temperature bars to error state"""
