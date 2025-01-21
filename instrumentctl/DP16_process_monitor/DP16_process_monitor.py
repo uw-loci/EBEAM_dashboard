@@ -24,15 +24,8 @@ class DP16ProcessMonitor:
     BASE_DELAY = 0.1    # [seconds]
     MAX_DELAY = 5       # [seconds]
 
-    ###############################
-    # Short bursts of errors (e.g., 5 to 29 in a row) keep showing 
-    # last known good temperature, while really extended errors 
-    # (≥30 in a row) show as disconnected.
-    ###############################
-    ERROR_LOG_INTERVAL = 10 # [seconds] how often to log repeated errors
-    MINOR_ERROR_THRESHOLD = 5 # keep showing last good reading
-    MAJOR_ERROR_THRESHOLD = 30 # truly disconnected after this many consecutive erros
-    ERROR_RECOVERY_COUNT = 2 # Consequtive good readings to reset error
+    ERROR_THRESHOLD = 5
+    ERROR_LOG_INTERVAL = 10 # [seconds]
 
     # Error states
     DISCONNECTED = -1
@@ -53,7 +46,7 @@ class DP16ProcessMonitor:
         self.logger = logger
 
         self.temperature_readings = {unit: None for unit in unit_numbers}
-        self.error_counts = {unit: 0 for unit in self.unit_numbers}
+        self.consecutive_error_counts = {unit: 0 for unit in self.unit_numbers}
         self.last_good_readings = {unit: None for unit in self.unit_numbers}
         self.consecutive_connection_errors = 0
 
@@ -209,7 +202,7 @@ class DP16ProcessMonitor:
                 if not self.client.is_socket_open():
                     self.consecutive_connection_errors += 1
                     # Mark all disconnected if we exceed major threshold
-                    if self.consecutive_connection_errors >= self.MAJOR_ERROR_THRESHOLD:
+                    if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
                         with self.response_lock:
                             for unit in self.unit_numbers:
                                 self.temperature_readings[unit] = self.DISCONNECTED
@@ -225,11 +218,10 @@ class DP16ProcessMonitor:
                 # Poll each unit individually
                 for unit in sorted(self.unit_numbers):
                     try:
-                        self._poll_single_unit(unit) # Can raise ModbusIOException or ValueError
+                        self._poll_single_unit(unit) 
                         self.consecutive_connection_errors = 0  # Reset on successful poll
                         time.sleep(0.1)
                     except ModbusIOException as e:
-                        # Parse the exception message to figure out what to do
                         self._handle_poll_error(unit, e)
                         
                         # Rate limited error logging
@@ -253,7 +245,6 @@ class DP16ProcessMonitor:
             return
 
         with self.modbus_lock:
-
             # Clear any stale data
             if hasattr(self.client, 'serial'):
                 self.client.serial.reset_input_buffer()
@@ -265,7 +256,7 @@ class DP16ProcessMonitor:
                 slave=unit
             )
             if status.isError():
-                self.error_counts[unit] += 1
+                self.consecutive_error_counts[unit] += 1
                 raise ModbusIOException("Status read failed")
 
             # Warn if not in expected running state
@@ -294,8 +285,10 @@ class DP16ProcessMonitor:
             if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                 raise ValueError(f"Temperature out of range: {value}")
 
-            # If all good, reset error count and update reading
-            self.error_counts[unit] = 0
+            # All good, reset the consecutive error count
+            self.consecutive_error_counts[unit] = 0
+            
+            # Update reading for GUI availability
             with self.response_lock:
                 self.temperature_readings[unit] = value
                 self.last_good_readings[unit] = value
@@ -306,7 +299,7 @@ class DP16ProcessMonitor:
             updates self.temperature_readings according to minor/major thresholds.
             """
             self.log(f"Poll error on unit {unit}: {exception}", LogLevel.VERBOSE)
-            self.error_counts[unit] += 1
+            self.consecutive_error_counts[unit] += 1
 
             err_str = str(exception).lower()
             is_modbus_error = isinstance(exception, ModbusIOException)
@@ -331,21 +324,13 @@ class DP16ProcessMonitor:
             else:
                 self.log(f"Invalid reading on unit {unit}: {exception}", LogLevel.WARNING)
 
-            # Decide what to show in temperature_readings based on error_counts
             with self.response_lock:
-                if self.error_counts[unit] >= self.MAJOR_ERROR_THRESHOLD:
+                if self.consecutive_error_counts[unit] >= self.ERROR_THRESHOLD:
                     # Enough consecutive errors to declare full disconnection
                     self.temperature_readings[unit] = self.DISCONNECTED
-                elif self.error_counts[unit] >= self.MINOR_ERROR_THRESHOLD:
-                    # Mask the errors by holding last known value if it exists
-                    if self.last_good_readings[unit] is not None:
-                        self.temperature_readings[unit] = self.last_good_readings[unit]
-                    else:
-                        # If we never had a valid reading, show sensor error
-                        self.temperature_readings[unit] = self.SENSOR_ERROR
                 else:
-                    # Below minor threshold, but we still had an error
-                    # Try to show last good reading if any
+                    # 1-5 consecutive failures => show last known good reading if exists
+                    # Mark as SENSOR_ERROR if we never had a good reading
                     if self.last_good_readings[unit] is not None:
                         self.temperature_readings[unit] = self.last_good_readings[unit]
                     else:
@@ -354,7 +339,7 @@ class DP16ProcessMonitor:
     def get_all_temperatures(self):
         """ Thread-safe access method """
         with self.response_lock:
-            return dict(self.temperature_readings) # create new response dict while holding lock
+            return dict(self.temperature_readings)
 
     def disconnect(self):
         # Stop polling thread
