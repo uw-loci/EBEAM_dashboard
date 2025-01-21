@@ -304,7 +304,7 @@ class ProcessMonitorSubsystem:
             self.error_count = 0
             self.update_interval = 500  # Reset to default interval
         else:
-            self.error_count = min(self.error_count + 1, 5)  # Cap error count
+            self.error_count = min(self.error_count + 1, 3)  # Cap count
             self.update_interval = min(500 * (self.error_count), self.max_interval)
 
     def _set_all_temps_error(self):
