@@ -676,6 +676,16 @@ class CathodeHeatingSubsystem:
         return False
     
     def set_slew_rate(self, index, var):
+        """
+        Set the voltage slew rate for a 9104 power supply.
+
+        Args:
+            index (int): Index of the power supply (0-2)
+            var (tk.StringVar): Variable containing the new slew rate in V/s
+
+        Raises:
+            ValueError: If slew rate is invalid or negative
+        """
         try:
             new_slew_rate = float(var.get())
             if new_slew_rate <= 0:
