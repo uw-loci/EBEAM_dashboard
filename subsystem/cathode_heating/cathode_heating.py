@@ -756,20 +756,6 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
             msgbox.showerror("Error", "Invalid input for OCP limit. Please enter a valid number.")
 
-    def show_output_status(self, index):
-        if not self.power_supply_status[index]:
-            self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
-            return
-        
-        status = self.power_supplies[index].get_output_status()
-        self.log(f"Heater {['A', 'B', 'C'][index]} output status: {status}", LogLevel.INFO)
-
-        mismatch = self.verify_voltage(index)
-        if mismatch:
-            self.log(mismatch, LogLevel.CRITICAL)
-        else:
-            self.log(f"Voltage for Cathode {['A', 'B', 'C'][index]} matches set value.", LogLevel.INFO)
-
     def update_query_settings_button_states(self):
         for i, power_supply in enumerate(self.power_supplies):
             if i < len(self.query_settings_buttons):
