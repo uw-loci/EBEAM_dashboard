@@ -1227,7 +1227,22 @@ class CathodeHeatingSubsystem:
                 self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
     def update_predictions_from_voltage(self, index, voltage):
-        """Update predictions based on manually entered voltage."""
+        """
+        Calculate and update predicted values based on a manually set voltage.
+
+        Args:
+            index (int): Index of cathode (0-2)
+            voltage (float): Manually entered voltage value
+
+        Returns:
+            bool: True if update successful, False if failed
+
+        Updates:
+            - Heater current prediction
+            - Emission current prediction
+            - Temperature prediction
+            - Power supply settings
+        """
 
         try:
             current_ovp = self.get_ovp(index)
