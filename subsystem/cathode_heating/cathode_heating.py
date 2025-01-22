@@ -146,7 +146,6 @@ class CathodeHeatingSubsystem:
         # Temperature monitoring
         self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured temperatures
         self.clamp_temp_labels = []  # Labels for temperature display
-        self.previous_temperature = 20  # Initial temperature baseline
         
         # Plotting and timing variables
         self.last_plot_time = datetime.datetime.now()
