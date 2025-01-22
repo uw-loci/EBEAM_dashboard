@@ -76,10 +76,6 @@ class CathodeHeatingSubsystem:
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.query_settings_buttons = []
 
-        # Timing/tracking for voltage checks
-        self.voltage_check_interval = 5
-        self.last_voltage_check = [0, 0, 0]  # Last check time for each power supply
-
         # Temperature controller state tracking
         self.temp_controllers_connected = False
         self.temperature_controller = None
