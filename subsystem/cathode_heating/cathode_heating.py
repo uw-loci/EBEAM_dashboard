@@ -1024,31 +1024,32 @@ class CathodeHeatingSubsystem:
         
         time_data = self.time_data[index]
         temperature_data = self.temperature_data[index][0].get_data()[1]
-        
+
         # Update the data points
         self.temperature_data[index][0].set_data(time_data, temperature_data)
         ax = self.temperature_data[index][0].axes
         
-        # Filter out None values and check if we have valid data
+        DEFAULT_MIN = 15
+        DEFAULT_MAX = 80
+        MIN_SPAN = 10
+        PADDING_FACTOR = 0.1
+
         valid_temps = [t for t in temperature_data if t is not None]
-        
-        if valid_temps:  # If we have any valid temperature readings
+        if not valid_temps:
+            ax.set_ylim(DEFAULT_MIN, DEFAULT_MAX)
+        else:
             temp_min = min(valid_temps)
             temp_max = max(valid_temps)
-            span = temp_max - temp_min
-            
-            if span < 10:  # If span is less than 10°C
-                middle = (temp_max + temp_min) / 2
-                temp_min = middle - 5  # Extend 5°C below middle
-                temp_max = middle + 5  # Extend 5°C above middle
-            
-            # Add 10% padding
-            padding = (temp_max - temp_min) * 0.1
-            ax.set_ylim(temp_min - padding, temp_max + padding)
-        else:  # If no valid temperature readings
-            # Set default range
-            ax.set_ylim(15, 80)
-        
+
+            # Ensure minimum span and padding
+            if temp_max - temp_min < MIN_SPAN:
+                mid = (temp_max + temp_min) / 2
+                temp_min = mid - MIN_SPAN/2
+                temp_max = mid + MIN_SPAN/2
+                
+                padding = (temp_max - temp_min) * PADDING_FACTOR
+                ax.set_ylim(temp_min - padding, temp_max + padding)
+
         ax.relim()
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
