@@ -1413,7 +1413,7 @@ class CathodeHeatingSubsystem:
 
             # Perform the echoback test
             result = self.temperature_controller.perform_echoback_test(unit=unit)
-            self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.ERROR)
+            self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.INFO)
         except Exception as e:
             self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
