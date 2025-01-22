@@ -1116,6 +1116,10 @@ class CathodeHeatingSubsystem:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set target current.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
             return
+        
+        if entry_field is None:
+            self.log("Target current entry field is missing", LogLevel.ERROR)
+            return
 
         try:
             target_current_mA = float(entry_field.get())
