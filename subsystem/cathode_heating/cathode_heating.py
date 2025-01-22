@@ -1192,7 +1192,19 @@ class CathodeHeatingSubsystem:
             return
 
     def reset_related_variables(self, index):
-        """ Resets display variables when setting voltage/current fails. """
+        """
+        Reset display variables when configuration action fails.
+
+        Args:
+            index (int): Index of the cathode power supply (0-2)
+
+        Resets the following variables to '--':
+            - Predicted emission current
+            - Predicted grid current
+            - Predicted heater current
+            - Predicted temperature
+            - Heater voltage (if not previously set)
+        """
         self.predicted_emission_current_vars[index].set('--')
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
@@ -1201,7 +1213,17 @@ class CathodeHeatingSubsystem:
             self.heater_voltage_vars[index].set('--')
 
     def reset_power_supply(self, index):
-        """ Helper function to reset power supply voltage and current to zero """
+        """
+        Reset a power supply to zero voltage and current (UVL and UCL)
+
+        Args:
+            index (int): Index of the power supply to reset (0-2)
+
+        Side effects:
+            - Sets voltage and current to 0
+            - Resets all prediction variables to '--'
+            - Logs the reset action
+        """
         if self.power_supply_status[index]:
             self.power_supplies[index].set_voltage(3, 0.0)
             self.power_supplies[index].set_current(3, 0.0)
