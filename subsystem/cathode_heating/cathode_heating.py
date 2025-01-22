@@ -1093,6 +1093,25 @@ class CathodeHeatingSubsystem:
         self.toggle_buttons[index].config(image=current_image)
         
     def set_target_current(self, index, entry_field):
+        """
+        Set target beam current for a cathode and calculate required heater settings.
+
+        Uses the target beam current to calculate ideal emission current, then determines
+        the appropritate heater voltage and current using the ES440 cathode data model.
+
+        Args:
+            index (int): Index of the cathode (0-2)
+            entry_field (ttk.Entry): Entry widget containing target current value
+
+        Raises:
+            ValueError: If target current is negative or invalid
+
+        Side effects:
+            - programs power supply voltage and current settings
+            - updates predicted values displays (emission, grid current, temperature)
+            - Updates heater voltage display
+            - Logs actions and any errors
+        """
         if self.toggle_states[index]:
             # if the output toggle is enabled, show a warning message
             msgbox.showwarning("Warning", "Disable the output before setting a new target current.")
