@@ -175,7 +175,7 @@ class E5CNModbus:
                     
                     if response and not response.isError():
                         temperature = response.registers[1] / 10.0
-                        self.log(f"Temperature from unit {unit}: {temperature:.2f} °C", LogLevel.INFO)
+                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
