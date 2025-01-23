@@ -84,7 +84,7 @@ class E5CNModbus:
                 if temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                        self.log(f"Unit {unit} Temperature: {temperature} °C", LogLevel.INFO)
+                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
                 time.sleep(0.5)  # small delay between reads
             except Exception as e:
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
@@ -175,7 +175,7 @@ class E5CNModbus:
                     
                     if response and not response.isError():
                         temperature = response.registers[1] / 10.0
-                        self.log(f"Temperature from unit {unit}: {temperature:.2f} °C", LogLevel.INFO)
+                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)

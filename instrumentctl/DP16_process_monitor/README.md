@@ -1,7 +1,27 @@
 # DP16 Driver Documentation:
 
 
+
+
 The DP16PT process monitors are used to extract important temperature readings from various locations of the experimental setup. The PMON system monitors 6 different temperature points to display real-time information related to the Solenoids, top and bottom of the vacuum chamber, and air temperature. Communication is established over a RS-485 bus using Modbus RTU protocol.
+
+
+## Libraries / Imports:
+
+
+PyModbus (RS-485) - allows us to be able to send and receive packages in the standard Modbus (Master/Slave) communication protocol
+
+
+
+
+Threading - crucial to make sure the driver does not hinder the performance of the driver is non-blocking of the GUI
+
+
+
+
+LogLevel from utils - allows the ability for the driver to send errors or important information to the log for the user to see
+
+
 
 
 
@@ -15,6 +35,8 @@ The DP16PT process monitors are used to extract important temperature readings f
 - Reading Rate: 20 samples per second
 
 
+
+
 ### Serial Port Configuration
 | Setting | Value |
 |---------|-------|
@@ -23,6 +45,8 @@ The DP16PT process monitors are used to extract important temperature readings f
 | Parity | None |
 | Stop bits | 1 |
 | Slave Address | 1-6 (supports multiple units) |
+
+
 
 
 ### Basic Usage
@@ -40,10 +64,14 @@ The DP16PT process monitors are used to extract important temperature readings f
 ```
 
 
+
+
 ### Modbus communication
+
 
 0x03 - Read Holding Registers
 The `DP16ProcessMonitor` calls to .read_holding_registers() method on a pyModbus SerialClient object to read out the contents of a contiguous block of registers in the remote hardware device.
+
 
 ```python
 client.read_holding_registers(
@@ -53,8 +81,10 @@ client.read_holding_registers(
 )
 ```
 
+
 0x04 - Read Input Registers
 This code is used to read the input registers, which contain information regarding how the monitor is configured.
+
 
 ```python
 client.read_input_registers(
@@ -65,8 +95,11 @@ client.read_input_registers(
 ```
 
 
+
+
 0x10 - Write
 This is used to write to mutable registers. This is used to write the process value decimal configuration.
+
 
 ```python
 client.write_register(
@@ -77,7 +110,11 @@ client.write_register(
 ```
 
 
+
+
 ### Package Structure
+
+
 
 
 Modbus Request Format
@@ -92,6 +129,10 @@ Modbus Request Format
 
 
 
+
+
+
+
 Modbus Response Format
 | Byte Offset |  Size   | Description                          |
 |-------------|-------------------------|--------------------------------------|
@@ -102,14 +143,81 @@ Modbus Response Format
 | +4          |  2 byte |  CRC         |
 
 
+
+
 ### Interactions with Registers
+
 
 On start-up we write to register 0x0248 (the READING_CONFIG), to verify the decimal format. Following this, we write to the STATUS register at 0x0240 to make sure the monitor is in run mode.
 
 
+
+
 Two registers are polled repeatedly during Normal Operation:
+
 
 Firstly, we read what the STATUS register is, receiving a 0x0006 indicates that the monitor is in the running state and has not incurred any errors. If an error has occurred, such as a loss of connection with the sensor, the monitor will switch to the operating state, this is indicated with receiving a 0x000A. If this is the case this information is sent to the frontend and is indicated with an orange bar.
 
 
+
+
 After checking the STATUS register, we check the PROCCESS_VAL register. Which we have one of two outcomes, either the package is received and the information is sent to the frontend to update the thermometer, or the package is not received and will have to wait till the next clock cycle to retrieve the temperature data.
+
+### Flowcharts
+
+```mermaid
+flowchart TB
+    Start(["Initialize DP16ProcessMonitor"]) --> InitModbus["Initialize ModbusClient<br>Set unit numbers & locks"]
+    InitModbus --> Connect{"Attempt<br>Connection"}
+    Connect -->|Success| ConfigUnits["Configure Each Unit"]
+    Connect -->|Failure| Error1["Raise RuntimeError:<br>Failed to connect"]
+    
+    ConfigUnits --> ConfigCheck{"Any Units<br>Configured?"}
+    ConfigCheck -->|Yes| StartThread["Start Polling Thread"]
+    ConfigCheck -->|No| Error2["Raise RuntimeError:<br>No units configured"]
+    
+    StartThread --> Ready(["Driver Ready"])
+    
+    Error1 --> Cleanup["Cleanup:<br>Disconnect & Stop"]
+    Error2 --> Cleanup
+    Cleanup --> End(["Exit with Error"])
+```
+
+```mermaid
+flowchart TB
+    Start(["poll_all_units()"]) --> CheckConn{"Connection<br>open?"}
+    CheckConn -->|No| Reconnect{"Attempt<br>Reconnect"}
+    Reconnect -->|Success| PollUnits
+    Reconnect -->|Failure| SetDisconnected["Set all units as<br>DISCONNECTED"]
+    SetDisconnected --> Wait["Wait BASE_DELAY"]
+    Wait --> CheckConn
+    
+    CheckConn -->|Yes| PollUnits["Poll Each Unit"]
+    PollUnits --> ReadStatus["Read Status Register"]
+    
+    ReadStatus --> CheckStatus{"Status<br>Valid?"}
+    CheckStatus -->|Yes| CheckRunning{"Status =<br>RUNNING?"}
+    CheckStatus -->|No| ErrorCount["Increment Error Count"]
+    
+    CheckRunning -->|Yes| ReadTemp["Read Temperature<br>Registers"]
+    CheckRunning -->|No| SetError["Set SENSOR_ERROR"]
+    
+    ReadTemp --> ValidateTemp{"Temperature in<br>Valid Range?"}
+    ValidateTemp -->|Yes| UpdateReading["Update Temperature<br>Reading"]
+    ValidateTemp -->|No| ErrorCount
+    
+    ErrorCount --> CheckThreshold{"Error Count ><br>Threshold?"}
+    CheckThreshold -->|Yes| SetError
+    CheckThreshold -->|No| UseLast["Use Last Good Reading"]
+    
+    UpdateReading --> NextUnit{"More Units?"}
+    SetError --> NextUnit
+    UseLast --> NextUnit
+    
+    NextUnit -->|Yes| PollUnits
+    NextUnit -->|No| Wait2["Wait BASE_DELAY"]
+    Wait2 --> CheckConn
+```
+
+
+

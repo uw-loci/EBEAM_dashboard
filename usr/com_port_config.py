@@ -6,6 +6,8 @@ CONFIG_FILE = 'usr/usr_data/com_ports.json'
 
 def save_com_ports(com_ports, filepath=CONFIG_FILE):
     """Save COM port selections to a JSON file."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
     try:
         with open(filepath, 'w') as file:
             json.dump(com_ports, file, indent=4)

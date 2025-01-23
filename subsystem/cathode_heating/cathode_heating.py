@@ -39,7 +39,7 @@ def resource_path(relative_path):
 
 class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
-    OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in °C
+    OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     PLOT_COLORS = {
         'normal': 'blue',          # Normal operation
         'overtemp': 'red',        # Overtemperature condition
@@ -267,7 +267,7 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
 
-            ttk.Label(main_tab, text='Pred CathTemp (°C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
+            ttk.Label(main_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
 
             # Create entries and display labels
@@ -285,7 +285,7 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
-            ttk.Label(main_tab, text='Act ClampTemp (°C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
             clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
@@ -308,7 +308,7 @@ class CathodeHeatingSubsystem:
 
             ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
             # Overtemperature limit entry
-            overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (°C):', style='RightAlign.TLabel')
+            overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
             overtemp_label.grid(row=1, column=0, sticky='e')
 
             temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
@@ -894,7 +894,7 @@ class CathodeHeatingSubsystem:
                 # Attempt to read temperature from the connected temperature controller
                 temperature = self.temperature_controller.temperatures[index]
                 if temperature is not None:
-                    self.clamp_temperature_vars[index].set(f"{temperature:.2f} °C")
+                    self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
 
                     # Check for overtemperature condition
                     if temperature > self.overtemp_limit_vars[index].get():
@@ -915,7 +915,7 @@ class CathodeHeatingSubsystem:
             self.set_plot_color(index, 'communication')
 
         # Set temperature to zero as default
-        self.clamp_temperature_vars[index].set("-- °C")
+        self.clamp_temperature_vars[index].set("-- C")
         return None
 
     def update_data(self):
@@ -974,9 +974,9 @@ class CathodeHeatingSubsystem:
             temperature = self.read_temperature(i)
 
             if temperature is not None:
-                self.clamp_temperature_vars[i].set(f"{temperature:.2f} °C")
+                self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
             else:
-                self.clamp_temperature_vars[i].set("-- °C")
+                self.clamp_temperature_vars[i].set("-- C")
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
@@ -1050,6 +1050,10 @@ class CathodeHeatingSubsystem:
                 padding = (temp_max - temp_min) * PADDING_FACTOR
                 ax.set_ylim(temp_min - padding, temp_max + padding)
 
+        # setting min y - scale
+        ax.set_ylim(bottom=0.5)
+
+        # Adjust plot to new data
         ax.relim()
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
@@ -1196,7 +1200,7 @@ class CathodeHeatingSubsystem:
                         self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
                         self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} °C')
+                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
                         self.voltage_set[index] = True
@@ -1391,7 +1395,7 @@ class CathodeHeatingSubsystem:
         try:
             new_limit = float(temp_var.get())
             self.overtemp_limit_vars[index].set(new_limit)
-            self.log(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}°C", LogLevel.INFO)
+            self.log(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}C", LogLevel.INFO)
         except ValueError:
             self.log("Invalid input for overtemperature limit", LogLevel.ERROR)
 
@@ -1429,7 +1433,7 @@ class CathodeHeatingSubsystem:
 
             temperature = self.temperature_controller.read_temperature(unit=unit)
             if temperature is not None:
-                message = f"Temperature from Unit {unit}: {temperature:.2f} °C"
+                message = f"Temperature from Unit {unit}: {temperature:.2f} C"
                 self.log(message, LogLevel.VERBOSE)
             else:
                 raise Exception("Failed to read temperature")
