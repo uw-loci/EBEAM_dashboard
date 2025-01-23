@@ -247,6 +247,13 @@ class PowerSupply9104:
                 self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
                 if voltage is not None and current is not None:
+                    if abs(voltage) < 0.001:
+                        second_read = self.get_display_readings()
+                        v2, c2, m2 = self.parse_getd_response(second_read)
+                        if v2 is not None and abs(v2) > 0.001:
+                            # overwrite with second read if it's nonzero
+                            self.log(f"Replaced 9104 0.0 V reading with second read {v2:.2f} V", LogLevel.VERBOSE)
+                            voltage, current, mode = v2, c2, m2
                     return voltage, current, mode
             self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
             time.sleep(0.1)
