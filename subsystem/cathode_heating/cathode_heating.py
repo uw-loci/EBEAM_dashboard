@@ -910,6 +910,9 @@ class CathodeHeatingSubsystem:
         self.temperature_data[index][0].set_data(time_data, temperature_data)
         ax = self.temperature_data[index][0].axes
 
+        # setting min y - scale
+        ax.set_ylim(bottom=0.5)
+
         # Adjust plot to new data
         ax.relim()
         ax.autoscale_view()
