@@ -30,16 +30,25 @@ jobs:
           pip install pylint
 
       - name: Find Changed Files
+        shell: pwsh
         run: |
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-          echo "changed_files=$CHANGED_FILES" >> $GITHUB_ENV
+          $CHANGED_FILES = git diff --name-only HEAD~1 HEAD
+          Write-Host "Changed files:"
+          Write-Host $CHANGED_FILES
+          echo "changed_files=$CHANGED_FILES" >> $env:GITHUB_ENV
 
-      - name: Runing Pylint
+
+      - name: Running Pylint
+        shell: pwsh
         run: |
-          failed=0
-          for CHANGED_FILES in $(find . -name '*.py'); do
-            pylint --fail-under=8.5 "$file" || failed=1
-          done
-          exit $failed
+          $failed = $false
+          foreach ($file in (Get-ChildItem -Path . -Recurse -Filter *.py | ForEach-Object { $_.FullName })) {
+            pylint --fail-under=8.5 $file
+            if ($LASTEXITCODE -ne 0) {
+              $failed = $true
+            }
+          }
+          if ($failed) {
+            exit 1
+          }
+
