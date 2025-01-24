@@ -1,6 +1,7 @@
 matplotlib
 numpy
 pytest
+pylint
 picosdk==1.0
 pymodbus==3.7.3
 pyserial==3.5

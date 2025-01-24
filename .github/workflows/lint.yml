@@ -29,6 +29,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install flake8  # Install Flake8
 
-      - name: Run Flake8
+      - name: Get changed files
+        id: get_changed_files
         run: |
-          flake8 .  # Run Flake8 on the current directory
+          echo "::set-output name=files::$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.py$' | tr '\n' ' ')"
+
+      - name: Run Pylint
+        run: |
+          if [ -n "${{ steps.get_changed_files.outputs.files }}" ]; then
+            pylint ${{ steps.get_changed_files.outputs.files }}
+          else
+            echo "No Python files changed."
+          fi
