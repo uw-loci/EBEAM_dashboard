@@ -32,7 +32,8 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
-          echo "::set-output name=files::$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.py$' || true | tr '\n' ' ')"
+          files=$(git diff --name-only HEAD^ HEAD | grep '\.py$' || true | tr '\n' ' ')
+          echo "files=$files" >> $GITHUB_ENV
 
       - name: Run Pylint
         run: |
