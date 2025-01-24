@@ -171,7 +171,7 @@ Create a virtual environment:
 ```
 python -m venv venv
 ```
-Activate the virtual environment (assuming on Windows):
+Activate the virtual environment (assuming on Windows)*:
 ```
 venv\Scripts\activate
 ```
@@ -182,6 +182,11 @@ pip install -r requirements.txt
 Run the main application:
 ```
 python main.py
+```
+
+*Note: Due to the nature of the script, Windows may block execution, the following cmd is useful and should be run:
+```
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 Create a new branch from develop for your feature or bug fix:
