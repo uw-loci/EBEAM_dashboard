@@ -8,14 +8,15 @@ from usr.com_port_config import save_com_ports, load_com_ports
 
 
 SUBSYSTEMS = [
-    'VTRXSubsystem', 
-    'CathodeA PS', 
-    'CathodeB PS', 
-    'CathodeC PS', 
-    'TempControllers', 
-    'Interlocks', 
+    'VTRXSubsystem',
+    'CathodeA PS',
+    'CathodeB PS',
+    'CathodeC PS',
+    'TempControllers',
+    'Interlocks',
     'ProcessMonitors'
 ]
+
 
 def create_dummy_port_labels(subsystems):
     """
@@ -23,6 +24,7 @@ def create_dummy_port_labels(subsystems):
     for each subsystem. Example: ['DUMMY_COM1', 'DUMMY_COM2', ...]
     """
     return [f"DUMMY_COM{i+1}" for i, _ in enumerate(subsystems)]
+
 
 def create_dummy_ports(subsystems):
     """
@@ -34,7 +36,9 @@ def create_dummy_ports(subsystems):
         ...
     }
     """
-    return {subsystem: f"DUMMY_COM{i+1}" for i, subsystem in enumerate(subsystems)}
+    return {subsystem: f"DUMMY_COM{i+1}" 
+            for i, subsystem in enumerate(subsystems)}
+
 
 def start_main_app(com_ports):
     """
@@ -48,25 +52,25 @@ def start_main_app(com_ports):
 
     # Track fullscreen state
     fullscreen = False
-    
+
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             root.destroy()
         return "break"
-    
+
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
         fullscreen = not fullscreen
         root.attributes('-fullscreen', fullscreen)
         return "break"
-    
+
     def escape_handler(event=None):
         nonlocal fullscreen
         if fullscreen:
             fullscreen = False
             root.attributes('-fullscreen', False)
         return "break"
-    
+
     def toggle_maximize(event=None):
         if root.state() == 'zoomed':
             root.state('normal')
@@ -89,23 +93,20 @@ def start_main_app(com_ports):
         shortcuts_window = tk.Toplevel(root)
         shortcuts_window.title("Keyboard Shortcuts")
         shortcuts_window.geometry("280x300")
-        
+
         # Make the window modal (user must close it to continue)
         shortcuts_window.transient(root)
         shortcuts_window.grab_set()
-        
+
         # Create a frame with padding
         frame = ttk.Frame(shortcuts_window, padding="20 20 20 20")
         frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # Title
-        title_label = ttk.Label(
-            frame, 
-            text="Available Keyboard Shortcuts",
-            font=("Helvetica", 12, "bold")
-        )
+        title_label = ttk.Label(frame, text="Available Keyboard Shortcuts",
+                                font=("Helvetica", 12, "bold"))
         title_label.pack(pady=(0, 20))
-        
+
         # Shortcuts list
         shortcuts = [
             ("F1", "Show this help window"),
@@ -116,11 +117,11 @@ def start_main_app(com_ports):
             ("Ctrl + M", "Toggle maximize/restore"),
             ("Ctrl + S", "Save logs"),
         ]
-        
+
         # Create a frame for the shortcuts
         shortcuts_frame = ttk.Frame(frame)
         shortcuts_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # Add shortcuts to the frame in a grid
         for i, (key, description) in enumerate(shortcuts):
             key_label = ttk.Label(
@@ -130,14 +131,14 @@ def start_main_app(com_ports):
                 padding=(5, 2)
             )
             key_label.grid(row=i, column=0, sticky="e", padx=(0, 10))
-            
+
             desc_label = ttk.Label(
                 shortcuts_frame,
                 text=description,
                 padding=(5, 2)
             )
             desc_label.grid(row=i, column=1, sticky="w")
-        
+
         # Close button
         close_button = ttk.Button(
             frame,
@@ -145,10 +146,10 @@ def start_main_app(com_ports):
             command=shortcuts_window.destroy
         )
         close_button.pack(pady=(20, 0))
-        
+
         # Bind Escape key to close the window
         shortcuts_window.bind('<Escape>', lambda e: shortcuts_window.destroy())
-        
+
         # Center the window on the screen
         shortcuts_window.update_idletasks()
         width = shortcuts_window.winfo_width()
@@ -165,11 +166,12 @@ def start_main_app(com_ports):
     root.bind('<F11>', toggle_fullscreen)       # Toggle fullscreen
     root.bind('<F1>', show_shortcuts)            # Show keyboard shortcuts
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
-    root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
+    root.bind('<Control-m>', toggle_maximize)   # Toggle maximize
     root.bind('<Control-s>', save_logs)         # Save log file
 
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
+
 
 def config_com_ports(saved_com_ports):
     """
@@ -177,7 +179,7 @@ def config_com_ports(saved_com_ports):
     Users can choose from available real COM ports or dummy ports.
     If any subsystem is left blank, the user will be prompted to fill
     in dummy ports or return to the config window.
-    
+
     :param saved_com_ports: Dict of previously saved COM port settings.
     """
     # Close the PyInstaller splash if running as bundled executable
@@ -187,7 +189,7 @@ def config_com_ports(saved_com_ports):
             pyi_splash.close()
         except ImportError:
             pass
-    
+
     # Get real COM ports on the system
     real_ports = [port.device for port in serial.tools.list_ports.comports()]
     # Create a combined list of real + dummy port labels for user to pick
@@ -209,9 +211,9 @@ def config_com_ports(saved_com_ports):
         frame.pack(pady=5, anchor='center')
 
         label = tk.Label(
-            frame, 
-            text=f"{subsystem} COM Port:", 
-            width=25, 
+            frame,
+            text=f"{subsystem} COM Port:",
+            width=25,
             anchor='e'
         )
         label.pack(side=tk.LEFT, padx=(0, 10))
@@ -220,10 +222,10 @@ def config_com_ports(saved_com_ports):
         selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
 
         combobox = ttk.Combobox(
-            frame, 
-            values=combined_port_options, 
-            textvariable=selected_port, 
-            state='readonly', 
+            frame,
+            values=combined_port_options,
+            textvariable=selected_port,
+            state='readonly',
             width=15
         )
         combobox.pack(side=tk.LEFT)
@@ -235,8 +237,9 @@ def config_com_ports(saved_com_ports):
         selected. If not, offers to fill those with dummy ports. If the user
         refuses, they remain in the config window.
         """
-        selected_ports = {key: value.get() for key, value in selections.items()}
-        
+        selected_ports = {key: value.get() 
+                          for key, value in selections.items()}
+
         # check that all COM ports are selected
         if not all(selected_ports.values()):
             response = messagebox.askquestion(
@@ -251,19 +254,20 @@ def config_com_ports(saved_com_ports):
                     if not port_choice:
                         selected_ports[subsystem] = f"DUMMY_COM_{subsystem}"
             else:
-                # if the user doesn't want to use dummy ports, they must pick real ones
+                # if the user doesn't want to use dummy ports, they must 
+                # pick real ones
                 return  # Stay on the configuration window
-        
+
         # save final selections
         save_com_ports(selected_ports)
         config_root.destroy()
-        
+
         # Launch the main application
         start_main_app(selected_ports)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
-    
+
     config_root.bind('<Return>', lambda event: on_submit())
     config_root.mainloop()
 
