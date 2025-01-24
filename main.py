@@ -278,3 +278,13 @@ if __name__ == "__main__":
 
     # Prompt the user to confirm or change COM ports
     config_com_ports(old_ports)
+
+class testingsomeBADcode:
+
+    def __init__(self, time, arg1, arg3):
+        self.time = time
+        self.Arg1 = arg1
+    
+    def gettime(self):
+        self.gotted = True
+        return self.time
