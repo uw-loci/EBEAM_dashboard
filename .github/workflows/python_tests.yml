@@ -2,7 +2,7 @@ name: Python Tests
 
 on:
   push:
-    branches: [main, develop, feature/citesting]  
+    branches: [main, develop, feature/ciG9]  
   pull_request:
     branches: [develop, main]
 
