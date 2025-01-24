@@ -1,8 +1,8 @@
+"""main.py"""
 import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
-
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
 
@@ -36,7 +36,7 @@ def create_dummy_ports(subsystems):
         ...
     }
     """
-    return {subsystem: f"DUMMY_COM{i+1}" 
+    return {subsystem: f"DUMMY_COM{i+1}"
             for i, subsystem in enumerate(subsystems)}
 
 
@@ -83,7 +83,7 @@ def start_main_app(com_ports):
             app.messages_frame.export_log()
         else:
             messagebox.showwarning(
-                "Warning", 
+                "Warning",
                 "Message frame not initialized. Cannot save logs"
             )
         return "break"
@@ -173,14 +173,14 @@ def start_main_app(com_ports):
     root.mainloop()
 
 
-def config_com_ports(saved_com_ports):
+def config_com_ports(saved_ports):
     """
     Display a configuration GUI for selecting COM ports for each subsystem.
     Users can choose from available real COM ports or dummy ports.
     If any subsystem is left blank, the user will be prompted to fill
     in dummy ports or return to the config window.
 
-    :param saved_com_ports: Dict of previously saved COM port settings.
+    :param saved_ports: Dict of previously saved COM port settings.
     """
     # Close the PyInstaller splash if running as bundled executable
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -219,7 +219,7 @@ def config_com_ports(saved_com_ports):
         label.pack(side=tk.LEFT, padx=(0, 10))
 
         # Default to a previously saved port if available, otherwise blank
-        selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
+        selected_port = tk.StringVar(value=saved_ports.get(subsystem, ''))
 
         combobox = ttk.Combobox(
             frame,
@@ -237,7 +237,7 @@ def config_com_ports(saved_com_ports):
         selected. If not, offers to fill those with dummy ports. If the user
         refuses, they remain in the config window.
         """
-        selected_ports = {key: value.get() 
+        selected_ports = {key: value.get()
                           for key, value in selections.items()}
 
         # check that all COM ports are selected
@@ -254,7 +254,7 @@ def config_com_ports(saved_com_ports):
                     if not port_choice:
                         selected_ports[subsystem] = f"DUMMY_COM_{subsystem}"
             else:
-                # if the user doesn't want to use dummy ports, they must 
+                # if the user doesn't want to use dummy ports, they must
                 # pick real ones
                 return  # Stay on the configuration window
 
@@ -274,7 +274,7 @@ def config_com_ports(saved_com_ports):
 
 if __name__ == "__main__":
     # Load previously saved COM ports, if any
-    saved_com_ports = load_com_ports()
+    old_ports = load_com_ports()
 
     # Prompt the user to confirm or change COM ports
-    config_com_ports(saved_com_ports)
+    config_com_ports(old_ports)
