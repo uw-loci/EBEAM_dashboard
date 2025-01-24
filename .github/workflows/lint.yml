@@ -31,4 +31,8 @@ jobs:
 
       - name: Runing Pylint
         run: |
-          find . -name '*.py' -exec pylint --fail-under=8.5 {} \;
+          failed=0
+          for file in $(find . -name '*.py'); do
+            pylint --fail-under=8.5 "$file" || failed=1
+          done
+          exit $failed
