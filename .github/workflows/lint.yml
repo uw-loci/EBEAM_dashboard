@@ -29,10 +29,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install pylint
 
+      - name: Find Changed Files
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo "changed_files=$CHANGED_FILES" >> $GITHUB_ENV
+
       - name: Runing Pylint
         run: |
           failed=0
-          for file in $(find . -name '*.py'); do
+          for CHANGED_FILES in $(find . -name '*.py'); do
             pylint --fail-under=8.5 "$file" || failed=1
           done
           exit $failed
