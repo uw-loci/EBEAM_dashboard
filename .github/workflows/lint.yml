@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8  # Install Flake8
+          pip install darker
 
       - name: Get changed files
         id: get_changed_files
@@ -47,7 +47,7 @@ jobs:
       #     else
       #       echo "No Python files changed."
       #     fi
-      
+
       - name: Run Darker
         run: |
           if [ -n "${{ steps.get_changed_files.outputs.files }}" ]; then
