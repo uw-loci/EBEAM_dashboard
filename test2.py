@@ -1,9 +1,16 @@
-class testingsomeBADcode:
-    
-    def __init__(self, time, arg1, arg3):
+"""linter test file"""
+
+
+class TestingSomeGoodCode:
+    """test file"""
+    def __init__(self, time, arg1):
         self.time = time
-        self.Arg1 = arg1
-    #asdfasdf
-    def gettime(self):
-        self.gotted = True
+        self.arg1 = arg1
+
+    def get_time(self):
+        """returns time"""
         return self.time
+
+    def get_arg(self):
+        """returns arg1"""
+        return self.arg1
