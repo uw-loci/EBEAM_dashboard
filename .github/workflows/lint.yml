@@ -37,7 +37,13 @@ jobs:
       - name: Run Pylint
         run: |
           if [ -n "${{ steps.get_changed_files.outputs.files }}" ]; then
-            pylint ${{ steps.get_changed_files.outputs.files }}
+            pylint_output=$(pylint ${{ steps.get_changed_files.outputs.files }})
+            echo "$pylint_output"
+            score=$(echo "$pylint_output" | grep -oP '\d+\.\d+/\d+' | head -n 1 | cut -d'/' -f1)
+            if (( $(echo "$score < 9" | bc -l) )); then
+              echo "Pylint score is below 9: $score"
+              exit 1
+            fi
           else
             echo "No Python files changed."
           fi
