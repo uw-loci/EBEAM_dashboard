@@ -29,25 +29,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install pylint
 
-      - name: Get changed files
-        id: get_changed_files
+      # - name: Get changed files
+      #   id: get_changed_files
+      #   run: |
+      #     files=$(git diff --name-only HEAD^ HEAD | grep '\.py$' || true | tr '\n' ' ')
+      #     echo "files=$files" >> $GITHUB_ENV
+      - name: Runing Pylint
         run: |
-          files=$(git diff --name-only HEAD^ HEAD | grep '\.py$' || true | tr '\n' ' ')
-          echo "files=$files" >> $GITHUB_ENV
+          find . -name '*.py' -exec pylint {} \;
 
-      - name: Run Pylint
-        run: |
-          if [ -n "${{ steps.get_changed_files.outputs.files }}" ]; then
-            pylint_output=$(pylint ${{ steps.get_changed_files.outputs.files }})
-            echo "$pylint_output"
-            score=$(echo "$pylint_output" | grep -oP '\d+\.\d+/\d+' | head -n 1 | cut -d'/' -f1)
-            if (( $(echo "$score < 9" | bc -l) )); then
-              echo "Pylint score is below 9: $score"
-              exit 1
-            fi
-          else
-            echo "No Python files changed."
-          fi
+
+
+      # - name: Run Pylint
+      #   run: |
+      #     if [ -n "${{ steps.get_changed_files.outputs.files }}" ]; then
+      #       pylint_output=$(pylint ${{ steps.get_changed_files.outputs.files }})
+      #       echo "$pylint_output"
+      #       score=$(echo "$pylint_output" | grep -oP '\d+\.\d+/\d+' | head -n 1 | cut -d'/' -f1)
+      #       if (( $(echo "$score < 9" | bc -l) )); then
+      #         echo "Pylint score is below 9: $score"
+      #         exit 1
+      #       fi
+      #     else
+      #       echo "No Python files changed."
+      #     fi
 
       # - name: Run Darker
       #   run: |
