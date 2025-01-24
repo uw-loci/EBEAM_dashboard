@@ -39,12 +39,12 @@ jobs:
           Write-Host $CHANGED_FILES
           echo "changed_files=$CHANGED_FILES" >> $env:GITHUB_ENV
 
-
       - name: Running Pylint
         shell: pwsh
         run: |
           $failed = $false
-          foreach ($file in (Get-ChildItem -Path . -Recurse -Filter *.py | ForEach-Object { $_.FullName })) {
+          $files = $env:changed_files -split "`n"
+          foreach ($file in $files) {
             pylint --fail-under=8.5 $file
             if ($LASTEXITCODE -ne 0) {
               $failed = $true
