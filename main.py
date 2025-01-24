@@ -53,32 +53,32 @@ def start_main_app(com_ports):
     # Track fullscreen state
     fullscreen = False
 
-    def quit_app(event=None):
+    def quit_app():
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             root.destroy()
         return "break"
 
-    def toggle_fullscreen(event=None):
+    def toggle_fullscreen():
         nonlocal fullscreen
         fullscreen = not fullscreen
         root.attributes('-fullscreen', fullscreen)
         return "break"
 
-    def escape_handler(event=None):
+    def escape_handler():
         nonlocal fullscreen
         if fullscreen:
             fullscreen = False
             root.attributes('-fullscreen', False)
         return "break"
 
-    def toggle_maximize(event=None):
+    def toggle_maximize():
         if root.state() == 'zoomed':
             root.state('normal')
         else:
             root.state('zoomed')
         return "break"
 
-    def save_logs(event=None):
+    def save_logs():
         if hasattr(app, 'messages_frame'):
             app.messages_frame.export_log()
         else:
@@ -88,7 +88,7 @@ def start_main_app(com_ports):
             )
         return "break"
 
-    def show_shortcuts(event=None):
+    def show_shortcuts():
         """Display a window showing all keyboard shortcuts."""
         shortcuts_window = tk.Toplevel(root)
         shortcuts_window.title("Keyboard Shortcuts")
