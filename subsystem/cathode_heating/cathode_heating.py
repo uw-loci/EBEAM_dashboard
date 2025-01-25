@@ -918,6 +918,7 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars[index].set("-- C")
         return None
 
+    
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
@@ -975,8 +976,10 @@ class CathodeHeatingSubsystem:
 
             if temperature is not None:
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
+                self.clamp_temp_labels[i].config(foreground='black')
             else:
                 self.clamp_temperature_vars[i].set("-- C")
+                self.clamp_temp_labels[i].config(foreground='orange')
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
