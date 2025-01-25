@@ -187,6 +187,12 @@ class E5CNModbus:
                 time.sleep(0.1)  # Short delay between retries
 
         return None
+    
+    def is_connected(self):
+        """Check if the Modbus client is currently connected."""
+        with self.modbus_lock:
+            connected = self.client.is_socket_open()
+            return connected
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
