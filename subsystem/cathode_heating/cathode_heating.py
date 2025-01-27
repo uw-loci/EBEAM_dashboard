@@ -40,10 +40,11 @@ def resource_path(relative_path):
 class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
-    PLOT_COLORS = {
+    ERROR_COLORS = {
         'normal': 'blue',          # Normal operation
         'overtemp': 'red',        # Overtemperature condition
-        'communication': 'orange'  # Communication error
+        'communication': '#FFA500',  # Communication error
+        'connection': '#808080'        # connection error
     }
     
     def __init__(self, parent, com_ports, logger=None):
@@ -872,7 +873,7 @@ class CathodeHeatingSubsystem:
         ax = self.temperature_data[index][0].axes
         line = self.temperature_data[index][0]
         
-        color = self.PLOT_COLORS.get(error_type if error_type else 'normal')
+        color = self.ERROR_COLORS.get(error_type if error_type else 'normal')
         
         # Update plot elements
         for spine in ax.spines.values():
@@ -908,16 +909,23 @@ class CathodeHeatingSubsystem:
             except Exception as e:
                 self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
                 self.set_plot_color(index, 'communication')  # Set plot to orange for no data
+                self.clamp_temp_labels[index].config(self.ERROR_COLORS['communication'])
         else:
             if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
                 self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
                 self.last_no_conn_log_time[index] = current_time
-            self.set_plot_color(index, 'communication')
+            if self.temp_controllers_connected:
+                self.set_plot_color(index, 'communication') # set to orange (error)
+                self.clamp_temp_labels[index].config(self.ERROR_COLORS['communication'])
+            else:
+                self.set_plot_color(index, "connection") # set to gray (disconnected)
+                self.clamp_temp_labels[index].config(foreground=self.ERROR_COLORS['connection'])
 
         # Set temperature to zero as default
         self.clamp_temperature_vars[index].set("-- C")
         return None
 
+    
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
@@ -938,8 +946,14 @@ class CathodeHeatingSubsystem:
                             self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
                         else:
                             self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
+                            self.actual_heater_current_vars[i].config(self.ERROR_COLORS['connection'])
+                            self.actual_heater_voltage_vars[i].config(self.ERROR_COLORS['connection'])
+                            self.operation_mode_var[i].config(self.ERROR_COLORS['connection'])
                             continue
                     
+                    self.actual_heater_current_vars[i].config(foreground='black')
+                    self.actual_heater_voltage_vars[i].config(foreground='black')
+                    self.operation_mode_var[i].config(foreground='black')
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
@@ -966,17 +980,25 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_current_vars[i].set("-- A")
                     self.actual_heater_voltage_vars[i].set("-- V")
                     self.operation_mode_var[i].set("Mode: --")
+                    self.actual_heater_current_vars[i].config(self.ERROR_COLORS['communication'])
+                    self.actual_heater_voltage_vars[i].config(self.ERROR_COLORS['communication'])
+                    self.operation_mode_var[i].config(self.ERROR_COLORS['communication'])
             else:
                 self.actual_heater_current_vars[i].set("-- A")
                 self.actual_heater_voltage_vars[i].set("-- V")
                 self.actual_target_current_vars[i].set("-- mA")
+                self.actual_heater_current_vars[i].config(self.ERROR_COLORS['communication'])
+                self.actual_heater_voltage_vars[i].config(self.ERROR_COLORS['communication'])
+                self.operation_mode_var[i].config(self.ERROR_COLORS['communication'])
 
             temperature = self.read_temperature(i)
 
             if temperature is not None:
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
+                self.clamp_temp_labels[i].config(foreground='black')
             else:
                 self.clamp_temperature_vars[i].set("-- C")
+                
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
