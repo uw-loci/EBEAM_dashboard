@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 import unittest
 from unittest.mock import MagicMock, patch
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
+
 from utils import LogLevel
 import threading
 import time
@@ -28,8 +29,8 @@ class TestE5CNModbus(unittest.TestCase):
         self.assertTrue(self.device.debug_mode)
         self.assertIsInstance(self.device.stop_event, threading.Event)
         self.assertEqual(len(self.device.temperatures), 3)
-        self.assertIsInstance(self.device.temperatures_lock, threading.Lock.__class__)
-        self.assertIsInstance(self.device.modbus_lock, threading.Lock.__class__)
+        self.assertIsInstance(self.device.temperatures_lock, threading.Lock().__class__)
+        self.assertIsInstance(self.device.modbus_lock, threading.Lock().__class__)
 
     def test_connect_success(self):
         """Test successful connection"""
