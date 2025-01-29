@@ -55,6 +55,7 @@ class EBEAMSystemDashboard:
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
+        self.stop_threads = False
         self.root.title("EBEAM Control System Dashboard")
         
         # if save file exists call it and open it
@@ -75,6 +76,15 @@ class EBEAMSystemDashboard:
 
         # Set up different subsystems within their respective frames
         self.create_subsystems()
+
+    def cleanup(self):
+        """Clean up the dashboard before closing the application."""
+        self.stop_threads = True
+        self.root.quit()
+        for subsystem in self.subsystems.values():
+            if hasattr(subsystem, 'close'):
+                subsystem.close()
+        print("Cleaned up resources.")
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
