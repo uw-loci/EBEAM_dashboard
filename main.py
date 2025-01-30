@@ -51,13 +51,7 @@ def start_main_app(com_ports):
     
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            # Signal all threads to stop
-            # if hasattr(app, 'subsystems'):
-            #     for subsystem in app.subsystems.values():
-            #         if hasattr(subsystem, 'stop'):
-            #             subsystem.stop()
-            
-                # Destroy the root window
+            app.cleanup()
             root.destroy()
         return "break"
     
@@ -176,12 +170,7 @@ def start_main_app(com_ports):
     root.bind('<Control-s>', save_logs)         # Save log file
 
     app = EBEAMSystemDashboard(root, com_ports)
-    try:
-        root.mainloop()
-    except KeyboardInterrupt:
-        print("Application interrupted. Exiting...")
-        app.cleanup()
-        root.destroy()
+    root.mainloop()
 
 def config_com_ports(saved_com_ports):
     """

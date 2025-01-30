@@ -428,8 +428,9 @@ class PowerSupply9104:
 
     def close(self):
         """Close the serial connection."""
-        self.ser.close()
-        self.log("Serial connection closed", LogLevel.INFO)
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+            self.log(f"Closed serial port {self.port}", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
