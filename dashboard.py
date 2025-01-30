@@ -76,14 +76,14 @@ class EBEAMSystemDashboard:
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
-    def cleanup(self):
-        """Closes all open com ports before quitting the application."""
+    # def cleanup(self):
+    #     """s all open com ports before quitting the application."""
 
-        print("Cleaning up com ports...")
-        for subsystem in self.subsystems.values():
-            if hasattr(subsystem, 'close_com_ports'):
-                subsystem.close_com_ports()
-        print("Cleaned up com ports.")
+    #     print("Cleaning up com ports...")
+    #     for subsystem in self.subsystems.values():
+    #         if hasattr(subsystem, 'close_com_ports'):
+    #             subsystem.close_com_ports()
+    #     print("Cleaned up com ports.")
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
@@ -347,6 +347,7 @@ class EBEAMSystemDashboard:
                 dropdown.set(available_ports[0])
             else:
                 dropdown.set('')
+
 
     def apply_com_port_changes(self):
         new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
