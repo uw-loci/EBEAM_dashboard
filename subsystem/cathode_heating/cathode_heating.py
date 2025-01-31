@@ -177,8 +177,8 @@ class CathodeHeatingSubsystem:
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
         ## Power supply protection
-        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit
-        self.overcurrent_limit_vars = [tk.DoubleVar(value=8.5) for _ in range(3)]  # Default 8.5A limit
+        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (centivolts)
+        self.overcurrent_limit_vars = [tk.DoubleVar(value=8.5) for _ in range(3)]  # Default 8.5A limit (centiamps)
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -592,36 +592,36 @@ class CathodeHeatingSubsystem:
                         self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = self.overvoltage_limit_vars[idx].get()
-                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
-                    if ps.set_over_voltage_protection(ovp_value):
-                        self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
+                    ovp_value = int(round(self.overvoltage_limit_vars[idx].get() * 100)) # int(round(raw_value * 100))
+                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value / 100:.2f}", LogLevel.DEBUG)
+                    if ps.set_over_voltage_protection(f"{ovp_value:04d}"):
+                        self.log(f"Set OVP for cathode {cathode} to {ovp_value / 100:.2f}V", LogLevel.INFO)
                         
                         # Confirm the OVP setting
                         confirmed_ovp = ps.get_over_voltage_protection()
                         if confirmed_ovp is not None:
-                            if abs(confirmed_ovp - ovp_value) < 0.1:  # 0.1V tolerance
+                            if abs(confirmed_ovp - ovp_value / 100) < 0.1:  # 0.1V tolerance
                                 self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
                             else:
-                                self.log(f"OVP mismatch for cathode {cathode}. Set: {ovp_value:.2f}V, Got: {confirmed_ovp:.2f}V", LogLevel.WARNING)
+                                self.log(f"OVP mismatch for cathode {cathode}. Set: {ovp_value / 100:.2f}V, Got: {confirmed_ovp:.2f}V", LogLevel.WARNING)
                         else:
                             self.log(f"Failed to confirm OVP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = self.overcurrent_limit_vars[idx].get()
-                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
-                    if ps.set_over_current_protection(ocp_value):
-                        self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
+                    ocp_value = int(round(self.overcurrent_limit_vars[idx].get() * 100)) #int(round(raw_value * 100))
+                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value / 100:.2f}A", LogLevel.DEBUG)
+                    if ps.set_over_current_protection(f"{ocp_value:04d}"):
+                        self.log(f"Set OCP for cathode {cathode} to {ocp_value / 100:.2f}A", LogLevel.INFO)
                         
                         # Confirm the OCP setting
                         confirmed_ocp = ps.get_over_current_protection()
                         if confirmed_ocp is not None:
-                            if abs(confirmed_ocp - ocp_value) < 0.05:  # 0.05A tolerance
+                            if abs(confirmed_ocp - ocp_value / 100) < 0.05:  # 0.05A tolerance
                                 self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
                             else:
-                                self.log(f"OCP mismatch for cathode {cathode}. Set: {ocp_value:.2f}A, Got: {confirmed_ocp:.2f}A", LogLevel.WARNING)
+                                self.log(f"OCP mismatch for cathode {cathode}. Set: {ocp_value / 100:.2f}A, Got: {confirmed_ocp:.2f}A", LogLevel.WARNING)
                         else:
                             self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
