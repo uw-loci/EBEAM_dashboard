@@ -86,9 +86,6 @@ def start_main_app(com_ports):
             close_com_ports(open_com_ports)
         return "break"
     
-
-    open_com_ports = open_com_ports_connections(com_ports)
-    
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
         fullscreen = not fullscreen
@@ -203,6 +200,7 @@ def start_main_app(com_ports):
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
 
+    open_com_ports = com_ports
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
