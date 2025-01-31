@@ -592,7 +592,7 @@ class CathodeHeatingSubsystem:
                         self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = int(round(self.overvoltage_limit_vars[idx].get() * 100)) # int(round(raw_value * 100))
+                    ovp_value = int(round(self.overvoltage_limit_vars[idx].get() * 100)) # TODO: Do we need to round?
                     self.log(f"Setting OVP for cathode {cathode} to: {ovp_value / 100:.2f}", LogLevel.DEBUG)
                     if ps.set_over_voltage_protection(f"{ovp_value:04d}"):
                         self.log(f"Set OVP for cathode {cathode} to {ovp_value / 100:.2f}V", LogLevel.INFO)
@@ -610,7 +610,7 @@ class CathodeHeatingSubsystem:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = int(round(self.overcurrent_limit_vars[idx].get() * 100)) #int(round(raw_value * 100))
+                    ocp_value = int(round(self.overcurrent_limit_vars[idx].get() * 100)) #TODO: Do we need to round?
                     self.log(f"Setting OCP for cathode {cathode} to: {ocp_value / 100:.2f}A", LogLevel.DEBUG)
                     if ps.set_over_current_protection(f"{ocp_value:04d}"):
                         self.log(f"Set OCP for cathode {cathode} to {ocp_value / 100:.2f}A", LogLevel.INFO)
