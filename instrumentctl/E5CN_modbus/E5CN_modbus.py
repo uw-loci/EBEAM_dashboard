@@ -30,6 +30,7 @@ class E5CNModbus:
         self.modbus_lock = threading.Lock()
         self.is_initialized = threading.Event()
         self.port = port
+        self.connected = False
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -160,10 +161,12 @@ class E5CNModbus:
                                     self.client.socket.reset_input_buffer()
                             else:
                                 self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
+                                self.connected = False
                                 attempts -= 1
                                 continue
                         except Exception as e:
                             self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
+                            self.connected = False
                             attempts -= 1
                             continue
 
@@ -174,12 +177,14 @@ class E5CNModbus:
                     )
                     
                     if response and not response.isError():
+                        self.connected = True
                         temperature = response.registers[1] / 10.0
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
+                        return "ERROR"
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)

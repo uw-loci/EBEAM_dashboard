@@ -43,7 +43,8 @@ class CathodeHeatingSubsystem:
     ERROR_COLORS = {
         'normal': 'blue',          # Normal operation
         'overtemp': 'red',        # Overtemperature condition
-        'communication': 'orange'  # Communication error
+        'ERROR': '#FFA500',  # Communication error
+        'DISCONNECTED': '#808080'
     }
     
     def __init__(self, parent, com_ports, logger=None):
@@ -865,7 +866,8 @@ class CathodeHeatingSubsystem:
         Args:
             index (int): Index of the plot to update (0-2)
             error_type (str, optional): Type of error condition
-                - 'communication': Orange for communication errors
+                - 'ERROR': Orange for communication errors
+                - 'DISCONNECTED': Black getting/recieving packets
                 - 'overtemp': Red for over-temperature condition
                 - None: Blue for normal operation
         """
@@ -893,7 +895,7 @@ class CathodeHeatingSubsystem:
             try:
                 # Attempt to read temperature from the connected temperature controller
                 temperature = self.temperature_controller.temperatures[index]
-                if temperature is not None:
+                if isinstance(temperature, int):
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
 
                     # Check for overtemperature condition
@@ -903,16 +905,22 @@ class CathodeHeatingSubsystem:
                         self.set_plot_color(index, None) # set plot to blue for normal
 
                     return temperature
+                elif isinstance(temperature, str):
+                    self.clamp_temperature_vars[index].set("-- C")
+                    self.set_plot_color(index, 'ERROR')
+                    self.log(f"Reading temperature for cathode {index+1} returned an error",
+                              LogLevel.ERROR)
                 else:
                     self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
             except Exception as e:
-                self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
-                self.set_plot_color(index, 'communication')  # Set plot to orange for no data
+                self.log(f"Error reading temperature for cathode {index+1}: {str(e)}",
+                          LogLevel.ERROR)
+                self.set_plot_color(index, 'ERROR')  # Set plot to orange for no data
         else:
             # if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
             self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
             self.last_no_conn_log_time[index] = current_time
-            self.set_plot_color(index, 'communication')
+            self.set_plot_color(index, 'DISCONNECTED')
 
 
         # Set temperature to zero as default
