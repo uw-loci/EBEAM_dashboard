@@ -80,7 +80,7 @@ class CathodeHeatingSubsystem:
         self.temp_controllers_connected = False
         self.temperature_controller = None
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
-        self.log_interval = datetime.timedelta(seconds=10) # E5CN timeout message interval
+        self.log_interval = datetime.timedelta(seconds=3) # E5CN timeout message interval
 
         # Initialize GUI variables
         self._init_prediction_variables()    # Predicted values for cathode behavior
@@ -889,7 +889,7 @@ class CathodeHeatingSubsystem:
         Index corresponds to the cathode index (0-based).
         """
         current_time = datetime.datetime.now()
-        if self.temperature_controller and self.temp_controllers_connected:
+        if self.temperature_controller and self.temperature_controller.connected:
             try:
                 # Attempt to read temperature from the connected temperature controller
                 temperature = self.temperature_controller.temperatures[index]
@@ -909,9 +909,9 @@ class CathodeHeatingSubsystem:
                 self.log(f"Error reading temperature for cathode {index+1}: {str(e)}", LogLevel.ERROR)
                 self.set_plot_color(index, 'communication')  # Set plot to orange for no data
         else:
-            if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
-                self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
-                self.last_no_conn_log_time[index] = current_time
+            # if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
+            self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
+            self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'communication')
 
 
@@ -1050,30 +1050,28 @@ class CathodeHeatingSubsystem:
                 mid = (temp_max + temp_min) / 2
                 temp_min = mid - MIN_SPAN/2
                 temp_max = mid + MIN_SPAN/2
-                
+
                 padding = (temp_max - temp_min) * PADDING_FACTOR
                 ax.set_ylim(temp_min - padding, temp_max + padding)
 
-        # setting min y - scale
-        ax.set_ylim(bottom=0.5)
 
         # Adjust plot to new data
         ax.relim()
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
-    
+
     def toggle_output(self, index):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
-        
+
         new_state = not self.toggle_states[index]
-        
+
         if new_state:  # If turning output ON
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-                
+
             target_voltage = self.user_set_voltages[index]
             if target_voltage is not None:
                 slew_rate = self.slew_rates[index]
