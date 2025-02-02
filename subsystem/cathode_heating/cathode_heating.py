@@ -895,7 +895,7 @@ class CathodeHeatingSubsystem:
             try:
                 # Attempt to read temperature from the connected temperature controller
                 temperature = self.temperature_controller.temperatures[index]
-                if isinstance(temperature, int):
+                if isinstance(temperature, float):
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
 
                     # Check for overtemperature condition
@@ -983,9 +983,7 @@ class CathodeHeatingSubsystem:
 
             temperature = self.read_temperature(i)
 
-            self.log(f"{temperature}")
-
-            if isinstance(temperature, int) is not None:
+            if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
             elif isinstance(temperature, str):
                 self.clamp_temperature_vars[i].set("-- C")
@@ -993,8 +991,6 @@ class CathodeHeatingSubsystem:
             else:
                 self.clamp_temperature_vars[i].set("-- C")
                 self.clamp_temp_labels[i].config(foreground='black')
-
-                
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)

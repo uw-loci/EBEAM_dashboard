@@ -86,6 +86,8 @@ class E5CNModbus:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
                         self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                else:
+                    self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
                 time.sleep(0.5)  # small delay between reads
             except Exception as e:
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
