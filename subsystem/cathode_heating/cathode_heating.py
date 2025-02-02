@@ -983,11 +983,17 @@ class CathodeHeatingSubsystem:
 
             temperature = self.read_temperature(i)
 
-            if temperature is not None:
+            self.log(f"{temperature}")
+
+            if isinstance(temperature, int) is not None:
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
-            else:
+            elif isinstance(temperature, str):
                 self.clamp_temperature_vars[i].set("-- C")
                 self.clamp_temp_labels[i].config(foreground='oragne')
+            else:
+                self.clamp_temperature_vars[i].set("-- C")
+                self.clamp_temp_labels[i].config(foreground='black')
+
                 
 
             if plot_this_cycle:
