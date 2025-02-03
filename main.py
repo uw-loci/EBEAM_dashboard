@@ -48,7 +48,7 @@ def start_main_app(com_ports):
 
     # Track fullscreen state
     fullscreen = False
-    
+  
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             app.cleanup()
@@ -168,6 +168,9 @@ def start_main_app(com_ports):
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
+    
+    # Binding the close button to quit_app
+    root.protocol("WM_DELETE_WINDOW", quit_app)
 
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
