@@ -2,7 +2,6 @@ import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
-import signal
 
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
@@ -55,12 +54,6 @@ def start_main_app(com_ports):
             app.cleanup()
             root.destroy()
         return "break"
-    
-    def handle_termination(signum, frame):
-        """Handle forced termination (End Task, kill command, etc.)"""
-        print("Forced termination detected. Cleaning up...")
-        app.cleanup()
-        root.destroy()
     
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
@@ -178,9 +171,6 @@ def start_main_app(com_ports):
 
     # Bind close button (X) to quit_app
     root.protocol("WM_DELETE_WINDOW", quit_app)  
-
-    # Handle SIGTERM (Task Manager, kill command)
-    signal.signal(signal.SIGTERM, handle_termination)
 
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
