@@ -87,6 +87,14 @@ class PowerSupply9104:
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
         formatted_voltage = int(voltage * 100)
+        
+        # Voltage must be less than OVP!
+        is_voltage_valid = self.validate_voltage(voltage)
+        
+        # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
+        if not is_voltage_valid:
+            self.log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
+            return
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
@@ -97,6 +105,16 @@ class PowerSupply9104:
         else:
             error_message = "No response" if response is None else response
             self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
+            return False
+        
+    def validate_voltage(self, voltage):
+        """Check if the voltage is less than the OVP."""
+        ovp = self.get_over_voltage_protection()
+        if ovp is None:
+            self.log("Could not validate voltage. OVP unavailable.", LogLevel.ERROR)
+            return False
+        if voltage >= ovp:
+            self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
             return False
     
     def set_current(self, preset, current):
