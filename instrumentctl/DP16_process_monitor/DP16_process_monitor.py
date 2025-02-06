@@ -358,17 +358,17 @@ class DP16ProcessMonitor:
 
     def disconnect(self):
         # Stop polling thread
-        self._is_running = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join()
+        # self._is_running = False
+        # if self._thread and self._thread.is_alive():
+        #     self._thread.join()
         
         # Close connection
-        with self.modbus_lock:
-            if self.client.is_socket_open():
-                self.client.close()
-                self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
-            else:
-                self.log("No active connection to DP16 Process Monitors", LogLevel.DEBUG)
+        # with self.modbus_lock:
+        if self.client.is_socket_open():
+            self.client.close()
+            self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
+        else:
+            self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
