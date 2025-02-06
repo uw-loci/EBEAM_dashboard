@@ -547,4 +547,6 @@ class VTRXSubsystem:
         if self.ser and self.ser.is_open:
             self.ser.close()
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
+        else:
+            self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
           

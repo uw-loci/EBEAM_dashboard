@@ -291,4 +291,6 @@ class InterlocksSubsystem:
             if self.driver.ser and self.driver.ser.is_open:
                 self.driver.ser.close()
                 self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
+            else:
+                self.log(f"{self.com_port} is already closed", LogLevel.INFO)       
 

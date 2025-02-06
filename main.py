@@ -168,9 +168,7 @@ def start_main_app(com_ports):
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
-
-    # Bind close button (X) to quit_app
-    root.protocol("WM_DELETE_WINDOW", quit_app)  
+  
 
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()

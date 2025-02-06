@@ -1234,5 +1234,6 @@ class CathodeHeatingSubsystem:
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
                 self.temperature_controller.stop_reading()
+                self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
