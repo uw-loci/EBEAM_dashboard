@@ -138,7 +138,7 @@ class E5CNModbus:
 
     def disconnect(self):
         """Disconnect from the Modbus device with proper locking."""
-        with self.connection_lock:
+        with self.modbus_lock:
             try:
                 if self.client.is_socket_open():
                     self.client.close()
