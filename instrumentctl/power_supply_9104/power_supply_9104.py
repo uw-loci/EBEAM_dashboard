@@ -116,6 +116,7 @@ class PowerSupply9104:
         if voltage >= ovp:
             self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
             return False
+        return True
     
     def set_current(self, preset, current):
         """Set the output current."""
