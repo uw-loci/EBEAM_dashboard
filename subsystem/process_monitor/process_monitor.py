@@ -334,3 +334,5 @@ class ProcessMonitorSubsystem:
         if self.monitor and hasattr(self.monitor, 'disconnect'):
             self.monitor.disconnect()
             self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
+        else:
+            self.log("Connection to PMON already closed", LogLevel.INFO)
