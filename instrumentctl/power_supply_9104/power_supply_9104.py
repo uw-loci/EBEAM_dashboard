@@ -113,7 +113,7 @@ class PowerSupply9104:
         if ovp is None:
             self.log("Could not validate voltage. OVP unavailable.", LogLevel.ERROR)
             return False
-        if voltage >= ovp:
+        if voltage > ovp:
             self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
             return False
         return True
