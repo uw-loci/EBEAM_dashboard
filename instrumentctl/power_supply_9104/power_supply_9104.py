@@ -75,6 +75,7 @@ class PowerSupply9104:
         command = f"SOUT{state}"
         response = self.send_command(command)
         self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
+        self.set_preset_selection(3); # Set preset to 3
         return response and "OK" in response
 
     def get_output_status(self):
@@ -113,7 +114,7 @@ class PowerSupply9104:
         if ovp is None:
             self.log("Could not validate voltage. OVP unavailable.", LogLevel.ERROR)
             return False
-        if voltage >= ovp:
+        if voltage > ovp:
             self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
             return False
         return True
@@ -122,6 +123,15 @@ class PowerSupply9104:
         """Set the output current."""
         """ Expected return value: OK[CR] """
         formatted_current = int(current * 100)
+        
+        # Voltage must be less than OCP and less than MAX of 10A!
+        is_current_valid = self.validate_current(current)
+        
+        # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
+        if not is_current_valid:
+            self.log(f"Current not set!", LogLevel.ERROR)
+            return
+        
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
@@ -132,6 +142,20 @@ class PowerSupply9104:
             self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
             return False
 
+    def validate_current(self, current):
+        """Check if the current is less than the OCP & less than 10A PS maximum."""
+        ocp = self.get_over_current_protection()
+        if ocp is None:
+            self.log("Could not validate current. OCP unavailable.", LogLevel.ERROR)
+            return False
+        if current > ocp:
+            self.log(f"Voltage {current:.2f}A is greater than OCP {ocp:.2f}A", LogLevel.ERROR)
+            return False
+        if current > 10:
+            self.log(f"Voltage {current:.2f}A is greater than power supply maximum of 10A", LogLevel.ERROR)
+            return False
+        return True
+    
     def ramp_voltage(self, target_voltage, step_size=0.02, step_delay=2.0, preset=3, callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
