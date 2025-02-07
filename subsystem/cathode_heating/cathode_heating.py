@@ -1078,7 +1078,7 @@ class CathodeHeatingSubsystem:
         new_state = not self.toggle_states[index]
 
         if new_state:  # If turning output ON
-            if not self.power_supplies[index].set_output("1"):
+            if not self.power_supplies[index].set_output("1") & self.get_ovp(index) < self.user_set_voltages[index]:
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
 
