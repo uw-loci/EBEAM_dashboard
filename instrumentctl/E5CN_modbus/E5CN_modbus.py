@@ -138,13 +138,15 @@ class E5CNModbus:
 
     def disconnect(self):
         """Disconnect from the Modbus device with proper locking."""
-        with self.connection_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
-            except Exception as e:
-                self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
+       # with self.modbus_lock:
+        try:
+            if self.client.is_socket_open():
+                self.client.close()
+                self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+            else:
+                self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
+        except Exception as e:
+            self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
 
     def read_temperature(self, unit):
         attempts = 3

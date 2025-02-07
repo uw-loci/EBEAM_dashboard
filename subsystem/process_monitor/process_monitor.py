@@ -175,6 +175,7 @@ class ProcessMonitorSubsystem:
         self.logger = logger
         self.last_error_time = 0
         self.error_count = 0
+        self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
         self.max_interval = 5000    # Maximum update interval (ms)
 
@@ -325,3 +326,13 @@ class ProcessMonitorSubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
+
+    def close_com_ports(self):
+        """
+        Closes the serial port connection upon quitting the application.
+        """
+        if self.monitor and hasattr(self.monitor, 'disconnect'):
+            self.monitor.disconnect()
+            self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
+        else:
+            self.log("Connection to PMON already closed", LogLevel.INFO)

@@ -41,6 +41,7 @@ class InterlocksSubsystem:
         self.parent = parent
         self.logger = logger
         self.frames = frames
+        self.com_port = com_ports
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
         self.update_interval = 500  # Default update interval (ms)
@@ -281,4 +282,15 @@ class InterlocksSubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
+
+    def close_com_ports(self):
+        """
+        Closes the serial port connection upon quitting the application.
+        """
+        if self.driver and hasattr(self.driver, 'ser'):
+            if self.driver.ser and self.driver.ser.is_open:
+                self.driver.ser.close()
+                self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
+            else:
+                self.log(f"{self.com_port} is already closed", LogLevel.INFO)       
 
