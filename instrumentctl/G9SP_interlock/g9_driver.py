@@ -119,8 +119,14 @@ class G9Driver:
 
             except Exception as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
-                #TODO: this might be solved with the comport detection, but if not might what to define this somewhere else
-                #self._response_queue.queue[0] = ([0] * 13, [0] * 13, 0)
+                try:
+                    while not self._response_queue.empty():
+                        self._response_queue.get_nowait()
+
+                        # put a default error state
+                        self._response_queue.put(([0] * 13, [0] * 13, 0))
+                except queue.Full:
+                    self.log("Failed to put G9SP error state in response queue", LogLevel.ERROR)
                 time.sleep(0.5) # back off on errors
                 
             time.sleep(0.1)  # minimum sleep between successful reads
