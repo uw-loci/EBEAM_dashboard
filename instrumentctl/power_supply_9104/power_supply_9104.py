@@ -3,6 +3,7 @@ import threading
 import time
 from utils import LogLevel
 import os
+from queue import Queue
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
@@ -13,6 +14,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self.serial_lock = threading.Lock()
         self.setup_serial()
 
     def setup_serial(self):
@@ -47,27 +49,28 @@ class PowerSupply9104:
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        try:
-            self.ser.write(f"{command}\r\n".encode())
-            
-            response = self.ser.read_until(b'\r').decode()
+        with self.serial_lock:
+            try:
+                self.ser.write(f"{command}\r\n".encode())
+                
+                response = self.ser.read_until(b'\r').decode()
 
-            if 'OK' not in response:
-                additional = self.ser.read_until(b'\r').decode().strip()
-                response = f"{response}\r{additional}"
+                if 'OK' not in response:
+                    additional = self.ser.read_until(b'\r').decode().strip()
+                    response = f"{response}\r{additional}"
 
-            if not response:
-                raise ValueError("No response received from 9104 supply")
-            if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
+                if not response:
+                    raise ValueError("No response received from 9104 supply")
+                if 'OK' not in response:
+                    self.log(f"Acknowledgement not in 9104 supply response")
 
-            return response.strip()
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
+                return response.strip()
+            except serial.SerialException as e:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                return None
+            except ValueError as e:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                return None
 
     def set_output(self, state):
         """Set the output on/off."""
