@@ -2,8 +2,6 @@ import serial
 import threading
 import time
 from utils import LogLevel
-import os
-from queue import Queue
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
