@@ -138,7 +138,7 @@ class G9Driver:
         Returns None if no data is available or on error
         """
         try:
-            return self._response_queue.queue[0]
+            return self._response_queue.get_nowait()
         except queue.Empty:
             self.log(f"No interlock information is here; Queue is Empty", LogLevel.WARNING)
             return None
@@ -150,7 +150,7 @@ class G9Driver:
         Catch:
             SerialException: If sending messages throws an error
 
-        Raisw:
+        Raise:
             ConnectionError: Throws when sending message throws error
         """
         message = self.SNDHEADER + self.SNDDATA + self.SNDRES
