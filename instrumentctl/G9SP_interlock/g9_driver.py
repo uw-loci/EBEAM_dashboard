@@ -138,8 +138,10 @@ class G9Driver:
         Returns None if no data is available or on error
         """
         try:
-            if not self._response_queue.empty():
-                return self._response_queue.queue[0]
+            # peep the queue without removing the status
+            item = self._response_queue.get_nowait()
+            self._response_queue.put(item) # put it back
+            return item
         except queue.Empty:
             self.log(f"No interlock information is here; Queue is Empty", LogLevel.WARNING)
             return None
