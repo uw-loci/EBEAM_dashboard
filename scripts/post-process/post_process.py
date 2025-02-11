@@ -40,7 +40,7 @@ def get_patterns(data_types):
     
     if 'temperature' in data_types:
         patterns['cathode_temp'] = {
-            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Unit (\d) Temperature: ([\d.]+)\s*°?C',
+            'pattern': r'\[(\d{2}:\d{2}:\d{2})\] - INFO: Unit (\d) Temperature: ([\d.]+)\s*?C',
             'display_name': 'Cathode',
             'measurements': ['temperature']
         }

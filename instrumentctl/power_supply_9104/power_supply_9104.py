@@ -2,7 +2,6 @@ import serial
 import threading
 import time
 from utils import LogLevel
-import os
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
@@ -13,6 +12,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self.serial_lock = threading.Lock()
         self.setup_serial()
 
     def setup_serial(self):
@@ -47,27 +47,28 @@ class PowerSupply9104:
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        try:
-            self.ser.write(f"{command}\r\n".encode())
-            
-            response = self.ser.read_until(b'\r').decode()
+        with self.serial_lock:
+            try:
+                self.ser.write(f"{command}\r\n".encode())
+                
+                response = self.ser.read_until(b'\r').decode()
 
-            if 'OK' not in response:
-                additional = self.ser.read_until(b'\r').decode().strip()
-                response = f"{response}\r{additional}"
+                if 'OK' not in response:
+                    additional = self.ser.read_until(b'\r').decode().strip()
+                    response = f"{response}\r{additional}"
 
-            if not response:
-                raise ValueError("No response received from 9104 supply")
-            if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
+                if not response:
+                    raise ValueError("No response received from 9104 supply")
+                if 'OK' not in response:
+                    self.log(f"Acknowledgement not in 9104 supply response")
 
-            return response.strip()
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
+                return response.strip()
+            except serial.SerialException as e:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                return None
+            except ValueError as e:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                return None
 
     def set_output(self, state):
         """Set the output on/off."""
@@ -87,6 +88,14 @@ class PowerSupply9104:
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
         formatted_voltage = int(voltage * 100)
+        
+        # Voltage must be less than OVP!
+        is_voltage_valid = self.validate_voltage(voltage)
+        
+        # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
+        if not is_voltage_valid:
+            self.log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
+            return
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
@@ -98,6 +107,17 @@ class PowerSupply9104:
             error_message = "No response" if response is None else response
             self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
             return False
+        
+    def validate_voltage(self, voltage):
+        """Check if the voltage is less than the OVP."""
+        ovp = self.get_over_voltage_protection()
+        if ovp is None:
+            self.log("Could not validate voltage. OVP unavailable.", LogLevel.ERROR)
+            return False
+        if voltage > ovp:
+            self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
+            return False
+        return True
     
     def set_current(self, preset, current):
         """Set the output current."""
@@ -224,7 +244,7 @@ class PowerSupply9104:
     def set_over_voltage_protection(self, ovp_volts):
         """Set the over voltage protection value."""
         """ Expected response: OK[CR] """
-        ovp_centivolts = int(ovp_volts * 100)
+        ovp_centivolts = int(ovp_volts)
         command = f"SOVP{ovp_centivolts:04d}" # format as 4-digit string
         response = self.send_command(command)
 
@@ -247,6 +267,13 @@ class PowerSupply9104:
                 self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
                 if voltage is not None and current is not None:
+                    if abs(voltage) < 0.001:
+                        second_read = self.get_display_readings()
+                        v2, c2, m2 = self.parse_getd_response(second_read)
+                        if v2 is not None and abs(v2) > 0.001:
+                            # overwrite with second read if it's nonzero
+                            self.log(f"Replaced 9104 0.0 V reading with second read {v2:.2f} V", LogLevel.VERBOSE)
+                            voltage, current, mode = v2, c2, m2
                     return voltage, current, mode
             self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
             time.sleep(0.1)
@@ -257,7 +284,7 @@ class PowerSupply9104:
     def set_over_current_protection(self, ocp_amps):
         """Set the over current protection value."""
         """ Expected response: OK[CR] """
-        ocp_centiamps = int(ocp_amps * 100)
+        ocp_centiamps = int(ocp_amps)
         
         command = f"SOCP{ocp_centiamps:04d}"
         response = self.send_command(command) 

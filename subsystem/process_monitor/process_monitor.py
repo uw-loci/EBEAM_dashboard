@@ -119,7 +119,7 @@ class TemperatureBar(tk.Canvas):
                 fill=color,
                 tags='bar'
             )
-            value_text = f'{value:.1f}°'
+            value_text = f'{value:.1f}'
 
         # ensure labels are on top
         self.tag_raise('scale_labels')

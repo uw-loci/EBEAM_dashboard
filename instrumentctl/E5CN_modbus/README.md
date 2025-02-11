@@ -7,6 +7,7 @@
 - Communication interface: Modbus RTU over RS485
 - Resolution: 0.01 °C
 - Sampling cycle: 60 ms
+- Programming manual: [(link)](https://files.omron.eu/downloads/latest/manual/en/h159_e5_n-h_communications_manual_en.pdf?v=1)
 
 ### Serial Port Configuration Settings
 | Setting | Value |
