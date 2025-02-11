@@ -53,7 +53,7 @@ class EBEAMSystemDashboard:
     """
 
     PORT_INFO = {
-        "AD0K0ZIEA" : "Interlocks"
+        "AG0KLEQ8A" : "Interlocks"
     }
 
     def __init__(self, root, com_ports):
@@ -83,7 +83,7 @@ class EBEAMSystemDashboard:
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
-        self.__check_ports()
+        self._check_ports()
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -384,6 +384,7 @@ class EBEAMSystemDashboard:
         Finally:
             Calls itself to be check again
         """
+        print("checking com ports")
         current_ports = set(serial.tools.list_ports.comports())
 
         dif = self.set_com_ports - current_ports
@@ -392,6 +393,7 @@ class EBEAMSystemDashboard:
         try:
             # Process removed ports
             for port in dif:
+                self.logger.critical(f"mark {port.serial_number}" )
                 if port.serial_number in self.PORT_INFO:
                     self.logger.warning(
                         f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
@@ -414,6 +416,7 @@ class EBEAMSystemDashboard:
         """
         Calls to update subsystems with change in comport
         """
+        print("here, updating com port")
         if subsystem_str is None:
             raise ValueError("_update_com_ports was called with invalid args")
         str_port = port.device if port is not None else None
