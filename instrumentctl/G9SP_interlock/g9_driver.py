@@ -60,7 +60,8 @@ class G9Driver:
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.logger = logger
         self.debug_mode = debug_mode
-        self._setup_serial(port, baudrate, timeout)
+        self.ser = None
+        self.setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
         self._lock = threading.Lock()
@@ -69,7 +70,7 @@ class G9Driver:
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
         self._thread.start()
 
-    def _setup_serial(self, port, baudrate, timeout):
+    def setup_serial(self, port, baudrate=9600, timeout=0.5):
         """
         Attempts to make a serial connection
 
@@ -78,21 +79,30 @@ class G9Driver:
         """
         if port:
             try:
-                self.ser = serial.Serial(  
-                    port=port,  
-                    baudrate=baudrate,  
-                    parity=serial.PARITY_EVEN,  
-                    stopbits=serial.STOPBITS_ONE,  
-                    bytesize=serial.EIGHTBITS,  
-                    timeout=timeout  
-                    ) 
+                self.ser = serial.Serial(
+                    port=port,
+                    baudrate=baudrate,
+                    parity=serial.PARITY_EVEN,
+                    stopbits=serial.STOPBITS_ONE,
+                    bytesize=serial.EIGHTBITS,
+                    timeout=timeout
+                    )
                 self.log(f"Serial connection established on {port}", LogLevel.INFO)
             except serial.SerialException as e:
-                self.ser = None
+                self._close_serial()
                 self.log(f"Failed to open serial port {port}: {str(e)}", LogLevel.ERROR)
-        else:  
-            self.ser = None
+        else:
+            self._close_serial()
             self.log("No port specified", LogLevel.WARNING)
+
+    def _close_serial(self):
+        """ Attempt to close serial port """
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+            self.ser = None
+            self.log("Serial Connection was closed for G9", LogLevel.INFO)
+        else:
+            self.log("Serial connection is already close", LogLevel.DEBUG)
 
     def _communication_thread(self):
         """Background thread for handling serial communication"""
@@ -102,19 +112,19 @@ class G9Driver:
                     if not self.is_connected():
                         time.sleep(0.1)
                         continue
-                    
+
                     self._send_command()
                     response_data = self._read_response() # blocking until complete or timeout
                     if response_data:
-                        
+
                         result = self._process_response(response_data)
-                        
+
                         # clear queue if it has a old response
                         try:
                             self._response_queue.get_nowait()
                         except queue.Empty:
                             pass
-                                       
+
                         self._response_queue.put(result)
 
             except Exception as e:
@@ -128,7 +138,7 @@ class G9Driver:
                 except queue.Full:
                     self.log("Failed to put G9SP error state in response queue", LogLevel.ERROR)
                 time.sleep(0.5) # back off on errors
-                
+
             time.sleep(0.1)  # minimum sleep between successful reads
 
 
@@ -143,7 +153,7 @@ class G9Driver:
             self._response_queue.put(item) # put it back
             return item
         except queue.Empty:
-            self.log(f"No interlock information is here; Queue is Empty", LogLevel.WARNING)
+            self.log("No interlock information is here; Queue is Empty", LogLevel.WARNING)
             return None
 
     def _send_command(self):
@@ -164,8 +174,8 @@ class G9Driver:
             self.ser.write(full_message)
         except serial.SerialException as e:
             self.log(f"Error sending command: {str(e)}", LogLevel.ERROR)
-            raise ConnectionError(f"Failed to send command: {str(e)}")
-        
+            raise
+
     def _read_response(self):
         """
         Read and validate response from G9SP device.
@@ -187,45 +197,47 @@ class G9Driver:
 
             self._validate_response_format(data)
             self._validate_checksum(data)
-            
+
             return data
-            
+
         except serial.SerialException as e:
-            raise ConnectionError(f"Error reading response: {str(e)}")
+            self.log("Serial Error when reading G9 response", LogLevel.ERROR)
+            raise e
 
     def _process_response(self, data):
-            """
-            Process validated response and extract interlock data
+        """
+        Process validated response and extract interlock data
 
-            Return:
-                Bit representation of the I/O Data flags
-            """
-            if data == None:
-                raise ValueError("Invalid inputs to _process_response: Data is None")
-            # Extract status data
-            status_data = {
-                'unit_status': data[self.US_OFFSET:self.US_OFFSET + 2],
-                'sitdf': data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6],
-                'sitsf': data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6],
-                'sotdf': data[self.SOTDF_OFFSET:self.SOTDF_OFFSET + 4],
-                'sotsf': data[self.SOTSF_OFFSET:self.SOTSF_OFFSET + 4]
-            }
+        Return:
+            Bit representation of the I/O Data flags
+        """
+        if data is None:
+            raise ValueError("Invalid inputs to _process_response: Data is None")
+        # Extract status data
+        status_data = {
+            'unit_status': data[self.US_OFFSET:self.US_OFFSET + 2],
+            'sitdf': data[self.SITDF_OFFSET:self.SITDF_OFFSET + 6],
+            'sitsf': data[self.SITSF_OFFSET:self.SITSF_OFFSET + 6],
+            'sotdf': data[self.SOTDF_OFFSET:self.SOTDF_OFFSET + 4],
+            'sotsf': data[self.SOTSF_OFFSET:self.SOTSF_OFFSET + 4]
+        }
 
-            # Convert to binary strings
-            binary_data = {
-                'sitdf': self._extract_flags(status_data['sitdf'], self.NUMIN),
-                'sitsf': self._extract_flags(status_data['sitsf'], self.NUMIN),
-                'sotdf': self._extract_flags(status_data['sotdf'], 7),
-                'sotsf': self._extract_flags(status_data['sotsf'], 7)
-            }
-            self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
+        # Convert to binary strings
+        binary_data = {
+            'sitdf': self._extract_flags(status_data['sitdf'], self.NUMIN),
+            'sitsf': self._extract_flags(status_data['sitsf'], self.NUMIN),
+            'sotdf': self._extract_flags(status_data['sotdf'], 7),
+            'sotsf': self._extract_flags(status_data['sotsf'], 7)
+        }
+        self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
 
-            # Check for errors
-            self._check_unit_status(status_data['unit_status'])
-            self._check_safety_inputs(data)
-            self._check_safety_outputs(data)
+        # Check for errors
+        self._check_unit_status(status_data['unit_status'])
+        self._check_safety_inputs(data)
+        self._check_safety_outputs(data)
 
-            return binary_data['sitsf'], binary_data['sitdf'], binary_data['sotsf'][4] & binary_data['sotdf'][4]
+        return (binary_data['sitsf'], binary_data['sitdf'],
+                 binary_data['sotsf'][4] & binary_data['sotdf'][4])
 
     def _validate_response_format(self, data):
         """
@@ -255,7 +267,7 @@ class G9Driver:
         Return:
             bytes: Two-byte checksum value
         """
-        if data == None:
+        if data is None:
             raise ValueError("Invalid inputs to _calculate_checksum: Data is None")
         checksum = sum(data[0:bytes + 1]) & 0xFFFF
         return checksum.to_bytes(2, 'big')
@@ -267,7 +279,7 @@ class G9Driver:
         Raise:
             ValueError: Calculated check sum does not match
         """
-        if data == None:
+        if data is None:
             raise ValueError("Invalid inputs to _validate_checksum: Data is None")
 
         # Extract the received checksum (bytes 195-196)

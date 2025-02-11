@@ -47,15 +47,22 @@ class EBEAMSystemDashboard:
 
     Attributes:
         root: tkinter root window
-        com_ports: Dictionary mapping subsystem names to serial COM port assigments
+        com_ports: Dictionary mapping subsystem names to serial COM port assignments
         frames: Dictionary of tkinter frames for each subsystem
         subsystems: Dictionary of initialized subsystem objects
     """
+
+    PORT_INFO = {
+        "AD0K0ZIEA" : "Interlocks"
+    }
 
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
+
+        self.set_com_ports = set(serial.tools.list_ports.comports())
+        
         
         # if save file exists call it and open it
         if saveFileExists():
@@ -75,6 +82,8 @@ class EBEAMSystemDashboard:
 
         # Set up different subsystems within their respective frames
         self.create_subsystems()
+
+        self.__check_ports()
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -365,4 +374,52 @@ class EBEAMSystemDashboard:
                     subsystem.update_com_ports(new_com_ports)
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+        self.logger.info(f"COM ports updated: {self.com_ports}")
+
+
+    def _check_ports(self):
+        """
+        Compares the current available comports to the last set
+
+        Finally:
+            Calls itself to be check again
+        """
+        current_ports = set(serial.tools.list_ports.comports())
+
+        dif = self.set_com_ports - current_ports
+        added_ports = current_ports - self.set_com_ports
+
+        try:
+            # Process removed ports
+            for port in dif:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.warning(
+                        f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+
+            # Process added ports
+            for port in added_ports:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.info(
+                        f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], port)
+        except Exception as e:
+            self.logger.warning(f"Error was thrown when either removing or adding a comport: {e}")
+
+        finally:
+            self.set_com_ports = current_ports
+            self.root.after(500, self._check_ports)
+
+    def _update_com_ports(self, subsystem_str, port):
+        """
+        Calls to update subsystems with change in comport
+        """
+        if subsystem_str is None:
+            raise ValueError("_update_com_ports was called with invalid args")
+        str_port = port.device if port is not None else None
+        if subsystem_str in self.subsystems:
+            if subsystem_str == "Interlocks":
+                self.subsystems[subsystem_str].update_com_port(str_port)
+            #TODO: Need to add Vacuum system and Cathode Heating
+
         self.logger.info(f"COM ports updated: {self.com_ports}")

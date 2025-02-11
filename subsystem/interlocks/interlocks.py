@@ -12,7 +12,7 @@ class InterlocksSubsystem:
         1 : "E-STOP Int", # Chassis Estop
         2 : "E-STOP Ext", # Peripheral Estop
         3 : "E-STOP Ext", # Peripheral Estop
-        4 : "Door", # Door 
+        4 : "Door", # Door
         5 : "Door", # Door Lock
         6 : "Vacuum Power", # Vacuum Power
         7 : "Vacuum Pressure", # Vacuum Pressure
@@ -50,7 +50,7 @@ class InterlocksSubsystem:
         self.setup_gui()
 
         try:
-            if com_ports is not None:  # Better comparison
+            if com_ports is not None:
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
                     self.log("G9 driver initialized", LogLevel.INFO)
@@ -73,19 +73,22 @@ class InterlocksSubsystem:
         Update the COM port and reinitialize the driver
         
         Catch:
-            Expection: If inilizition throws an error
+            Exception: If inilizition throws an error
         """
         if com_port:
             try:
-                new_driver = g9_driv.G9Driver(com_port, logger=self.logger)
+                if not self.driver:
+                    self.driver = g9_driv.G9Driver(com_port, logger=self.logger)
+                else:
+                    self.driver.setup_serial(port=com_port)
                 # Test connection by getting status
-                new_driver.get_interlock_status()
-                self.driver = new_driver
+                self.driver.get_interlock_status()
                 self.log(f"G9 driver updated to port {com_port}", LogLevel.INFO)
             except Exception as e:
                 self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
         else:
+            self.driver.setup_serial(port=None)
             self._set_all_indicators('red')
             self.log("update_com_port is being called without a com port", LogLevel.ERROR)
 
