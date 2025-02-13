@@ -184,19 +184,8 @@ class DP16ProcessMonitor:
         
     def poll_all_units(self):
         """Single polling loop with each unit independent"""
-        last_connection_attempt = 0
-        CONNECTION_RETRY_DELAY = 5  # seconds
-        
         while self._is_running:
             current_time = time.time()
-            
-            # Rate limit connection attempts if we have bus-level errors
-            if self.consecutive_connection_errors > 0:
-                if current_time - last_connection_attempt < CONNECTION_RETRY_DELAY:
-                    time.sleep(0.5)
-                    continue
-                last_connection_attempt = current_time
-                
             try:
                 # Check if client is still connected
                 if not self.client.is_socket_open():
