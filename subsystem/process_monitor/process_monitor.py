@@ -174,9 +174,7 @@ class ProcessMonitorSubsystem:
         self.parent = parent
         self.logger = logger
         self.last_error_time = 0
-        self.error_count = 0
         self.update_interval = 500  # default update interval (ms)
-        self.max_interval = 5000    # Maximum update interval (ms)
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.thermometer_map = {
