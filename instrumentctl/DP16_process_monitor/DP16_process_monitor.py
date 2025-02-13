@@ -10,9 +10,9 @@ from typing import Dict
 class DP16ProcessMonitor:
     """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
 
-    PROCESS_VALUE_REG = 0x210   # Register 39 in Table 6.2
-    RDGCNF_REG = 0x248          # Register 8 in Table 6.2
-    STATUS_REG = 0x240
+    PROCESS_VALUE_REG = 0x210   # Page 8: CNPt Series Programming User's Guide Modbus Interface
+    RDGCNF_REG = 0x248          # Page 9: CNPt Series Programming User's Guide Modbus Interface
+    STATUS_REG = 0x240          # Page 9: CNPt Series Programming User's Guide Modbus Interface
 
     STATUS_RUNNING = 0x0006
 
@@ -55,7 +55,7 @@ class DP16ProcessMonitor:
         self.response_lock = Lock()
         self.last_critical_error_time = 0
         
-            # Start single background polling thread after successful connection and configuration
+        # Start single background polling thread after successful connection and configuration
         self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
         self._thread.start()
     
