@@ -104,6 +104,16 @@ class G9Driver:
         else:
             self.log("Serial connection is already close", LogLevel.DEBUG)
 
+    def _update_queue(self, response=None):
+        try:
+            data = response if response else ([0] * 13, [0] * 13, 0)
+            if self._response_queue.full():
+                self._response_queue.get_nowait()
+            self._response_queue.put(data)
+        except Exception as e:
+            self.log(f"Error storing response in queue {data=}: {e=}")
+
+
     def _communication_thread(self):
         """Background thread for handling serial communication"""
         while self._running:
@@ -116,28 +126,18 @@ class G9Driver:
                     self._send_command()
                     response_data = self._read_response() # blocking until complete or timeout
                     if response_data:
-
                         result = self._process_response(response_data)
+                        self._update_queue(result)
+           
+            except PermissionError as e:
+                self.log(f"PermissionError while reading from serial port: {str(e)}", LogLevel.ERROR)
+                self._update_queue()
+                self._running = False
+                self._close_serial()
 
-                        # clear queue if it has a old response
-                        try:
-                            self._response_queue.get_nowait()
-                        except queue.Empty:
-                            pass
-
-                        self._response_queue.put(result)
-
-            except Exception as e:
+            except serial.SerialException as e:
                 self.log(f"Communication thread error: {str(e)}", LogLevel.ERROR)
-                try:
-                    while not self._response_queue.empty():
-                        self._response_queue.get_nowait()
-
-                        # put a default error state
-                        self._response_queue.put(([0] * 13, [0] * 13, 0))
-                except queue.Full:
-                    self.log("Failed to put G9SP error state in response queue", LogLevel.ERROR)
-                time.sleep(0.5) # back off on errors
+                self._update_queue()
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
@@ -188,12 +188,26 @@ class G9Driver:
             ValueError: For various validation failures
         """
         try:
-            data = self.ser.read_until(self.FOOTER)
+            s, t = time.time(), .5
+            data = bytearray()
+            while time.time() - s < t:
+                chunk = self.ser.read(50)
+                if chunk:
+                    data.extend(chunk)
 
-            if len(data) != self.EXPECTED_DATA_LENGTH:
-                length_error_msg = f"Invalid response length: got: {len(data)}, expected 199 bytes"
-                self.log(length_error_msg, LogLevel.ERROR)
-                raise ValueError(length_error_msg)
+                    if data[-len(self.FOOTER):] == self.FOOTER:
+                        break
+                else:
+                    time.sleep(0.05)
+
+            # data = self.ser.read_until(self.FOOTER)
+            if not data:
+                self.log("No response received within timeout", LogLevel.WARNING)
+                return None
+
+            if len(data) < self.EXPECTED_DATA_LENGTH:
+                self.log(f"Incomplete response received: {len(data)} bytes", LogLevel.ERROR)
+                return None
 
             self._validate_response_format(data)
             self._validate_checksum(data)
