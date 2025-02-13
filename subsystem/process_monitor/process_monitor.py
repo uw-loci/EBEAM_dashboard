@@ -267,7 +267,6 @@ class ProcessMonitorSubsystem:
                             try:
                                 temp_value = float(temp)
                                 if -90 <= temp_value <= 500:  # Valid temperature range
-                                    has_valid_reading = True
                                     self.temp_bars[name].update_value(name, temp_value)
                                     self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
