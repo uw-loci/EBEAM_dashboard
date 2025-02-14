@@ -393,7 +393,6 @@ class EBEAMSystemDashboard:
         try:
             # Process removed ports
             for port in dif:
-                self.logger.critical(f"mark {port.serial_number}" )
                 if port.serial_number in self.PORT_INFO:
                     self.logger.warning(
                         f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
