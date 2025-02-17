@@ -73,10 +73,17 @@ class PowerSupply9104:
     def set_output(self, state):
         """Set the output on/off."""
         """ Expected return value: OK[CR] """
-        command = f"SOUT{state}"
-        response = self.send_command(command)
-        self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
-        return response and "OK" in response
+        
+        voltage, _ = self.get_settings(3)
+        
+        if not self.validate_voltage(voltage):
+            self.log(f"Cannot switch on output. Check voltage vs. OVP", LogLevel.ERROR)
+            return False
+        else:
+            command = f"SOUT{state}"
+            response = self.send_command(command)
+            self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
+            return response and "OK" in response
 
     def get_output_status(self):
         """Get the output status."""
@@ -95,7 +102,7 @@ class PowerSupply9104:
         # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
         if not is_voltage_valid:
             self.log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
-            return
+            return False
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)

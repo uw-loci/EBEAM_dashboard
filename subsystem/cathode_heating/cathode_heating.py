@@ -41,9 +41,9 @@ class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     ERROR_COLORS = {
-        'normal': 'blue',          # Normal operation
+        'normal': 'blue',         # Normal operation
         'overtemp': 'red',        # Overtemperature condition
-        'ERROR': '#FFA500',  # Communication error
+        'ERROR': '#FFA500',       # Communication error
         'DISCONNECTED': '#808080'
     }
     
@@ -89,11 +89,11 @@ class CathodeHeatingSubsystem:
         self._init_config_variables()        # Configuration and safety settings
 
         # System initialization sequence
-        self.init_cathode_model()            # Initialize cathode physics models
-        self.setup_gui()                     # Set up graphical interface
-        self.initialize_temperature_controllers()  # Connect to temperature controllers
-        self.initialize_power_supplies()      # Connect to power supplies
-        self.update_data()                   # Start the data update loop
+        self.init_cathode_model()                   # Initialize cathode physics models
+        self.setup_gui()                            # Set up graphical interface
+        self.initialize_temperature_controllers()   # Connect to temperature controllers
+        self.initialize_power_supplies()            # Connect to power supplies
+        self.update_data()                          # Start the data update loop
 
     def _init_prediction_variables(self):
         """
@@ -239,9 +239,10 @@ class CathodeHeatingSubsystem:
             config_tab.columnconfigure(1, minsize=70)
             config_tab.columnconfigure(2, minsize=20)
 
-            # Create voltage and current labels
-            set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
+            # Create target current (mA) and heater voltage labels
             
+            # Set target current (mA) label
+            set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
             set_target_label.grid(row=0, column=0, sticky='e')
             ToolTip(set_target_label, "Target current is predicted to be 72% of cathode emission current")
             entry_field = ttk.Entry(main_tab, width=7)
@@ -250,24 +251,31 @@ class CathodeHeatingSubsystem:
             set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_target_current(i, entry_field))
             set_button.grid(row=0, column=1, sticky='e')
 
+            # Set heater voltage (V) label
             ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
             voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
             voltage_label.grid(row=1, column=1, sticky='w')
             voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
             ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
 
+            # Create labels for predicted values
+            
+            # Predicted emission current (mA)
             pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
             pred_emission_label.grid(row=2, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
 
+            # Predicted grid current (mA)
             set_grid_label = ttk.Label(main_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
             set_grid_label.grid(row=3, column=0, sticky='e')
             ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
             ttk.Label(main_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
             
+            # Predicted heater current (A)
             ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
 
+            # Predicted cathode temperature (C)
             ttk.Label(main_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
 
@@ -280,12 +288,20 @@ class CathodeHeatingSubsystem:
             self.toggle_buttons.append(toggle_button)
 
             # Create measured values labels
+            
+            # Actual heater current (A)
             ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            
+            # Actual heater voltage (V)
             ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
+            
+            # Actual target current (mA)
             ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            
+            # Temperature monitoring (C)
             ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
             clamp_temp_label.grid(row=10, column=1, sticky='w')
@@ -308,6 +324,7 @@ class CathodeHeatingSubsystem:
             canvas.get_tk_widget().grid(row=11, column=0, columnspan=3, pady=0.1)
 
             ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
+            
             # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
             overtemp_label.grid(row=1, column=0, sticky='e')
@@ -326,6 +343,7 @@ class CathodeHeatingSubsystem:
             overvoltage_entry.grid(row=2, column=1, sticky='w')
             set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
             set_overvoltage_button.grid(row=2, column=2, sticky='e')
+            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
             # Overcurrent limit entry
             overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
@@ -334,15 +352,17 @@ class CathodeHeatingSubsystem:
             overcurrent_entry.grid(row=3, column=1, sticky='w')
             set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
             set_overcurrent_button.grid(row=3, column=2, sticky='e')
+            ToolTip(overcurrent_label, "OCP must be a value greater than 0.1 A and less than or equal to 10 A")
 
             # Slew Rate setting
-            ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            slew_rate_label = ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
             slew_rate_var = tk.StringVar(value='0.01')  # Default value
             slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
             slew_rate_entry.grid(row=4, column=1, sticky='w')
             set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
             self.slew_rate_vars.append(slew_rate_var) # store user variable
+            ToolTip(slew_rate_label, "Rate of change for voltage output")
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
@@ -592,36 +612,36 @@ class CathodeHeatingSubsystem:
                         self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = int(round(self.overvoltage_limit_vars[idx].get() * 100)) # TODO: Do we need to round?
-                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value / 100:.2f}", LogLevel.DEBUG)
+                    ovp_value = int(round(self.overvoltage_limit_vars[idx].get()))
+                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
                     if ps.set_over_voltage_protection(f"{ovp_value:04d}"):
-                        self.log(f"Set OVP for cathode {cathode} to {ovp_value / 100:.2f}V", LogLevel.INFO)
+                        self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
                         
                         # Confirm the OVP setting
                         confirmed_ovp = ps.get_over_voltage_protection()
                         if confirmed_ovp is not None:
-                            if abs(confirmed_ovp - ovp_value / 100) < 0.1:  # 0.1V tolerance
+                            if abs(confirmed_ovp - ovp_value) < 0.1:  # 0.1V tolerance
                                 self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
                             else:
-                                self.log(f"OVP mismatch for cathode {cathode}. Set: {ovp_value / 100:.2f}V, Got: {confirmed_ovp:.2f}V", LogLevel.WARNING)
+                                self.log(f"OVP mismatch for cathode {cathode}. Set: {ovp_value:.2f}V, Got: {confirmed_ovp:.2f}V", LogLevel.WARNING)
                         else:
                             self.log(f"Failed to confirm OVP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = int(round(self.overcurrent_limit_vars[idx].get() * 100)) #TODO: Do we need to round?
-                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value / 100:.2f}A", LogLevel.DEBUG)
+                    ocp_value = int(round(self.overcurrent_limit_vars[idx].get()))
+                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
                     if ps.set_over_current_protection(f"{ocp_value:04d}"):
-                        self.log(f"Set OCP for cathode {cathode} to {ocp_value / 100:.2f}A", LogLevel.INFO)
+                        self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
                         
                         # Confirm the OCP setting
                         confirmed_ocp = ps.get_over_current_protection()
                         if confirmed_ocp is not None:
-                            if abs(confirmed_ocp - ocp_value / 100) < 0.05:  # 0.05A tolerance
+                            if abs(confirmed_ocp - ocp_value) < 0.05:  # 0.05A tolerance
                                 self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
                             else:
-                                self.log(f"OCP mismatch for cathode {cathode}. Set: {ocp_value / 100:.2f}A, Got: {confirmed_ocp:.2f}A", LogLevel.WARNING)
+                                self.log(f"OCP mismatch for cathode {cathode}. Set: {ocp_value:.2f}A, Got: {confirmed_ocp:.2f}A", LogLevel.WARNING)
                         else:
                             self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
@@ -703,7 +723,7 @@ class CathodeHeatingSubsystem:
             if raw_value < 0 or raw_value > 60:
                 raise ValueError("OVP out of valid range (0-60 V).")
             
-            ovp_value = int(round(raw_value * 100))  # Convert to centivolts
+            ovp_value = int(round(raw_value * 100))  # Convert to centivolts for 9104 command
             if ovp_value < 0 or ovp_value > 6000:
                 raise ValueError("OVP out of valid range (0-60.00).")
             
@@ -719,18 +739,18 @@ class CathodeHeatingSubsystem:
                 self.log("OVP readback is None--possible comm issue", LogLevel.WARNING)
             else:
                 # compare with actual float value
-                if abs(ovp_get_response - (ovp_value / 100.0)) > 0.01:
+                if abs(ovp_get_response - raw_value) > 0.01:
                     self.log(
                         f"OVP mismatch for Cathode {['A','B','C'][index]}. "
-                        f"Set: {ovp_value/100:.2f}, Got: {ovp_get_response:.2f}",
+                        f"Set: {raw_value:.2f}, Got: {ovp_get_response:.2f}",
                         LogLevel.WARNING
                     )
                 else:
                     self.log(
                         f"OVP successfully set and confirmed for Cathode {['A','B','C'][index]}: "
-                        f"{ovp_value/100:.2f} V", LogLevel.INFO
+                        f"{raw_value:.2f} V", LogLevel.INFO
                     )
-                    msgbox.showinfo("Success", f"OVP set to {ovp_value/100:.2f} V for Cathode {['A','B','C'][index]}")
+                    msgbox.showinfo("Success", f"OVP set to {raw_value:.2f} V for Cathode {['A','B','C'][index]}")
 
         except ValueError as e:
             self.log(f"Invalid input for OVP limit for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
@@ -743,7 +763,14 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            ocp_value = int(self.overcurrent_limit_vars[index].get() * 100)  # Convert to centiamps
+            raw_value = self.overcurrent_limit_vars[index].get()
+            if raw_value < 0 or raw_value > 10:
+                raise ValueError("OCP out of valid range (0-10 A).")
+            
+            ocp_value = int(round(raw_value * 100))  # Convert to centiamps
+            if ocp_value < 0 or ocp_value > 1000:
+                raise ValueError("OCP out of valid range (0-10.00).")
+            
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {ocp_value:04d}", LogLevel.DEBUG)
             ocp_set_response = self.power_supplies[index].set_over_current_protection(f"{ocp_value:04d}")
             if not ocp_set_response:
@@ -752,11 +779,11 @@ class CathodeHeatingSubsystem:
 
             # Verify the set value
             ocp_get_response = self.power_supplies[index].get_over_current_protection()
-            if ocp_get_response is None or abs(ocp_get_response - (ocp_value / 100.0)) > 0.01:
-                self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {ocp_value:04d}, Got: {ocp_get_response}", LogLevel.WARNING)
+            if ocp_get_response is None or abs(ocp_get_response - raw_value) > 0.01:
+                self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:04d}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
-                self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {ocp_value/100:.2f}A", LogLevel.INFO)
-                msgbox.showinfo("Success", f"OCP set to {ocp_value/100:.2f}A for Cathode {['A', 'B', 'C'][index]}")
+                self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {raw_value:.2f}A", LogLevel.INFO)
+                msgbox.showinfo("Success", f"OCP set to {raw_value:.2f}A for Cathode {['A', 'B', 'C'][index]}")
 
         except ValueError:
             self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
