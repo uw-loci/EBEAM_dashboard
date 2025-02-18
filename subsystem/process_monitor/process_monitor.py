@@ -177,7 +177,6 @@ class ProcessMonitorSubsystem:
         self.error_count = 0
         self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
-        self.max_interval = 5000    # Maximum update interval (ms)
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.thermometer_map = {
@@ -232,7 +231,6 @@ class ProcessMonitorSubsystem:
                     self._set_all_temps_disconnected()
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
-                    self._adjust_update_interval(success=False)
             else:
                 temps = self.monitor.get_all_temperatures()
                 
@@ -255,7 +253,6 @@ class ProcessMonitorSubsystem:
                         self._set_all_temps_disconnected()
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
-                        self._adjust_update_interval(success=False)
                 else:
                     # Update each temperature bar
                     for name, unit in self.thermometer_map.items():
@@ -272,7 +269,6 @@ class ProcessMonitorSubsystem:
                             try:
                                 temp_value = float(temp)
                                 if -90 <= temp_value <= 500:  # Valid temperature range
-                                    has_valid_reading = True
                                     self.temp_bars[name].update_value(name, temp_value)
                                     self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
@@ -285,28 +281,16 @@ class ProcessMonitorSubsystem:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                             self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
 
-                    self._adjust_update_interval(success=True)
-
         except Exception as e:
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
             if current_time - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error updating temperatures: {str(e)}", LogLevel.ERROR)
                 self.last_error_time = current_time
-                self._adjust_update_interval(success=False)
                 
         finally:
             # Schedule next update
             if self.monitor:
                 self.parent.after(self.update_interval, self.update_temperatures)
-
-    def _adjust_update_interval(self, success=True):
-        """Adjust the polling interval based on connection success/failure"""
-        if success:
-            self.error_count = 0
-            self.update_interval = 500  # Reset to default interval
-        else:
-            self.error_count = min(self.error_count + 1, 5)  # Cap error count
-            self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
 
     def _set_all_temps_error(self):
         """Set all temperature bars to error state"""
