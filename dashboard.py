@@ -76,6 +76,15 @@ class EBEAMSystemDashboard:
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
+    def cleanup(self):
+        """Closes all open com ports before quitting the application."""
+
+        print("Cleaning up com ports...")
+        for subsystem in self.subsystems.values():
+            if hasattr(subsystem, 'close_com_ports'):
+                subsystem.close_com_ports()
+        print("Cleaned up com ports.")
+
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)

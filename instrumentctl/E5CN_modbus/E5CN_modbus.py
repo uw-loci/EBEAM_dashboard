@@ -30,6 +30,7 @@ class E5CNModbus:
         self.modbus_lock = threading.Lock()
         self.is_initialized = threading.Event()
         self.port = port
+        self.connected = False
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -84,7 +85,9 @@ class E5CNModbus:
                 if temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                        self.log(f"Unit {unit} Temperature: {temperature} °C", LogLevel.INFO)
+                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                else:
+                    self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
                 time.sleep(0.5)  # small delay between reads
             except Exception as e:
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
@@ -123,10 +126,12 @@ class E5CNModbus:
         with self.modbus_lock:
             try:
                 if self.client.is_socket_open():
+                    self.connected = True
                     self.log("Modbus client already connected.", LogLevel.DEBUG)
                     return True
 
                 if self.client.connect():
+                    self.connected = True
                     self.log(f"E5CN Connected to port {self.port}.", LogLevel.INFO)
                     return True
                 else:
@@ -138,13 +143,15 @@ class E5CNModbus:
 
     def disconnect(self):
         """Disconnect from the Modbus device with proper locking."""
-        with self.connection_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
-            except Exception as e:
-                self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
+       # with self.modbus_lock:
+        try:
+            if self.client.is_socket_open():
+                self.client.close()
+                self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+            else:
+                self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
+        except Exception as e:
+            self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
 
     def read_temperature(self, unit):
         attempts = 3
@@ -160,10 +167,12 @@ class E5CNModbus:
                                     self.client.socket.reset_input_buffer()
                             else:
                                 self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
+                                self.connected = False
                                 attempts -= 1
                                 continue
                         except Exception as e:
                             self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
+                            self.connected = False
                             attempts -= 1
                             continue
 
@@ -174,12 +183,14 @@ class E5CNModbus:
                     )
                     
                     if response and not response.isError():
+                        self.connected = True
                         temperature = response.registers[1] / 10.0
-                        self.log(f"Temperature from unit {unit}: {temperature:.2f} °C", LogLevel.INFO)
+                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
+                        return "ERROR"
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)

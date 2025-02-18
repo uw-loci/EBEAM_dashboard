@@ -119,7 +119,7 @@ class TemperatureBar(tk.Canvas):
                 fill=color,
                 tags='bar'
             )
-            value_text = f'{value:.1f}°'
+            value_text = f'{value:.1f}'
 
         # ensure labels are on top
         self.tag_raise('scale_labels')
@@ -174,6 +174,8 @@ class ProcessMonitorSubsystem:
         self.parent = parent
         self.logger = logger
         self.last_error_time = 0
+        self.error_count = 0
+        self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
@@ -308,3 +310,13 @@ class ProcessMonitorSubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
+
+    def close_com_ports(self):
+        """
+        Closes the serial port connection upon quitting the application.
+        """
+        if self.monitor and hasattr(self.monitor, 'disconnect'):
+            self.monitor.disconnect()
+            self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
+        else:
+            self.log("Connection to PMON already closed", LogLevel.INFO)
