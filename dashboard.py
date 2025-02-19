@@ -5,7 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from utils import MessagesFrame, SetupScripts, LogLevel
+from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
@@ -32,6 +32,9 @@ frames_config = [
     # Row 4
     ("Process Monitor", 4, 250, 450),
     ("Cathode Heating", 4, 980, 450),
+
+    # Row 5
+    ("Machine Status", 5, None, 50)
 ]
 
 class EBEAMSystemDashboard:
@@ -73,6 +76,9 @@ class EBEAMSystemDashboard:
         # Initialize all the frames within the main pane
         self.create_frames()
 
+        # Set up a frame for displaying machine status information
+        self.create_machine_status_frame()
+
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
@@ -91,7 +97,7 @@ class EBEAMSystemDashboard:
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
+        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(6)]
         for row_pane in self.rows:
             self.main_pane.add(row_pane, stretch='always')
 
@@ -109,7 +115,7 @@ class EBEAMSystemDashboard:
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
             self.rows[row].add(frame, stretch='always')
-            if title != "Interlocks":
+            if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
             self.frames[title] = frame
             if title == "Setup Script":
@@ -295,6 +301,10 @@ class EBEAMSystemDashboard:
         """Create a scrollable frame for displaying system messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[4])
         self.logger = self.messages_frame.logger
+
+    def create_machine_status_frame(self):
+        """Create a frame for displaying machine status information."""
+        self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
 
     def create_com_port_frame(self, parent_frame):
         """
