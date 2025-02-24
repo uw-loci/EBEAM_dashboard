@@ -284,7 +284,8 @@ class EBEAMSystemDashboard:
                 self.frames['Interlocks'],
                 com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
-                frames = self.frames
+                frames = self.frames,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
@@ -296,6 +297,9 @@ class EBEAMSystemDashboard:
                 logger=self.logger
             )
         }
+
+        # Updates machine status progress bar
+        self.machine_status_frame.update_status()
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""

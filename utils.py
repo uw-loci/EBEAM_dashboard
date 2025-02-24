@@ -413,4 +413,4 @@ class MachineStatus():
                     new_color = "#57cce7" if is_active else "#dbd9d9"
                     self.status_labels[name].config(bg=new_color)
 
-        self.parent.after(0, update_labels)
+        self.parent.after(500, update_labels)
