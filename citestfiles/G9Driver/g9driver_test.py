@@ -1,10 +1,19 @@
+"""Test file for G9 driver"""
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
 import unittest
-from unittest.mock import MagicMock, patch
+import json
+import base64
+from unittest.mock import MagicMock
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from instrumentctl.G9SP_interlock.g9_driver import G9Driver
+
+with open('g9_test_cases.json', 'r') as json_file:
+    json_data = json.load(json_file)
+    
+for k,v in json_data.items():
+    json_data[k] = base64.b64decode(v)
+
 
 class TestG9Driver(unittest.TestCase):
         # Sample response data - modified versions for different test cases
@@ -23,8 +32,9 @@ class TestG9Driver(unittest.TestCase):
     ] + [0x00] * 145 + [0x2A, 0x0D])  # Padding + Footer
 
     def setUp(self):
+        self.mock_serial = MagicMock()
         self.driver = G9Driver()
-        self.driver.ser = MagicMock()
+        self.driver.ser = self.mock_serial
         # Set normal operation status in BASE_RESPONSE
         self.BASE_RESPONSE[self.driver.US_OFFSET:self.driver.US_OFFSET + 2] = b'\x00\x01'
         
@@ -61,7 +71,6 @@ class TestG9Driver(unittest.TestCase):
         # Put error code 3 (Internal circuit error) at start of last 10 bytes
         msg[self.driver.SITEC_OFFSET + 14] = 0x30  # Position error at start of last 10 bytes
         msg_with_checksum = self.create_response_with_checksum(bytes(msg))
-        
         with self.assertRaises(ValueError) as context:
             self.driver._process_response(msg_with_checksum)
         self.assertIn("Internal circuit error", str(context.exception))
@@ -74,7 +83,6 @@ class TestG9Driver(unittest.TestCase):
         # Set error code 2 (Overcurrent detection) at start of last 10 bytes
         msg[self.driver.SOTEC_OFFSET + 6] = 0x20
         msg_with_checksum = self.create_response_with_checksum(bytes(msg))
-        
         with self.assertRaises(ValueError) as context:
             self.driver._process_response(msg_with_checksum)
         self.assertIn("Overcurrent detection", str(context.exception))
@@ -85,7 +93,6 @@ class TestG9Driver(unittest.TestCase):
         msg = bytearray(self.BASE_RESPONSE)
         msg[0] = 0x41  # Wrong start byte
         msg_with_checksum = self.create_response_with_checksum(bytes(msg))
-        
         with self.assertRaises(ValueError) as context:
             self.driver._validate_response_format(msg_with_checksum)
         self.assertIn("Invalid start byte", str(context.exception))
@@ -97,7 +104,6 @@ class TestG9Driver(unittest.TestCase):
         msg_with_checksum = self.create_response_with_checksum(msg)
         corrupted_msg = bytearray(msg_with_checksum)
         corrupted_msg[10] = 0xFF  # Change a byte in the message
-        
         with self.assertRaises(ValueError) as context:
             self.driver._validate_checksum(corrupted_msg)
         self.assertIn("Checksum failed", str(context.exception))
@@ -111,7 +117,7 @@ class TestG9Driver(unittest.TestCase):
             (0x40, "Discrepancy error"),
             (0x50, "Failure of the associated dual-channel input")
         ]
-        
+
         for error_code, expected_message in test_cases:
             msg = bytearray(self.BASE_RESPONSE)
             # Fill with zeros first
@@ -135,7 +141,7 @@ class TestG9Driver(unittest.TestCase):
             (0x60, "Internal circuit error"),
             (0x80, "Dual channel violation")
         ]
-        
+
         for error_code, expected_message in test_cases:
             msg = bytearray(self.BASE_RESPONSE)
             # Fill with zeros first
@@ -144,7 +150,7 @@ class TestG9Driver(unittest.TestCase):
             msg[self.driver.SOTEC_OFFSET + 15] = error_code
             msg_with_checksum = self.create_response_with_checksum(bytes(msg))
             msg_with_checksum = self.create_response_with_checksum(bytes(msg))
-            
+
             with self.assertRaises(ValueError) as context:
                 self.driver._process_response(msg_with_checksum)
             self.assertIn(expected_message, str(context.exception))
@@ -152,17 +158,48 @@ class TestG9Driver(unittest.TestCase):
     def test_calculate_checksum(self):
         """Test the checksum calculation for a known data message."""
         # Create a sample message with known bytes
-        test_data = b'@\x00\x00\xc3\x00\x00\xcb\x00\x00\x00\x00\xfc\x0f\x00\x00\x00\x00E\x00\x00\x00\xff\xff\x0f\x00\x00\x00\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x12\x00\x9a\x08~\x15\x00\x0020000012X17M\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x00\x00\x00\x00\n\n?\x00\x15~?\x00\x15l?\x00\x15f?\x00\x15`?\x00\x15`?\x00\x15`?\x00\x15H?\x00\x15H?\x00\x15H?\x00\x15B\x06\x00\x15f\x01\x00\x15f\x06\x00\x15`\x01\x00\x15`\x06\x00\x15B\x01\x00\x15B\x06\x00\x15B\x01\x00\x15B\x06\x00\x15\x1e\x01\x00\x15\x1e\x14\xf6*\r'
-        
         # Verify that the calculated checksum is correct
+        test_data = json_data["expected"]
         cal = self.driver._calculate_checksum(test_data, 194)
         self.assertEqual(test_data[-4:-2], cal,
                          f"""
-                         Checksum calculation did not match expected value: calculated {self.driver._calculate_checksum(test_data, 194)};
+                         Checksum calculation did not match expected value: calculated 
+                         {self.driver._calculate_checksum(test_data, 194)};
                            expected {test_data[-4:-2]}
                             """)
+                  
+    def test_read_response_success(self):
+        """Test _read_response reads complete and valid response in chunks."""
+        mock_response = json_data["expected"]
+        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        self.assertEqual(self.driver._read_response(), mock_response)
 
+    def test_read_response_without_footer(self):
+        """Test _read_response detects when no footer is available"""
+        mock_response = json_data["noend"]
+        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        with self.assertRaises(ValueError):
+            self.driver._read_response()
 
+    def test_read_response_timeout(self):
+        """Test _read_response handles timeout correctly."""
+        self.mock_serial.return_value = []
+        with self.assertRaises(TimeoutError):
+            self.driver._read_response()
+
+    def test_read_response_too_long(self):
+        """Test _read_response detects when no footer is available"""
+        mock_response = json_data["long"]
+        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        with self.assertRaises(ValueError):
+            self.driver._read_response()
+            
+    def test_read_response_too_short(self):
+        """Test _read_response detects when no footer is available"""
+        mock_response = json_data["short"]
+        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        with self.assertRaises(ValueError):
+            self.driver._read_response()
 
 if __name__ == '__main__':
     unittest.main()

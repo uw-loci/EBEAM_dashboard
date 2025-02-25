@@ -55,7 +55,7 @@ class G9Driver:
         9: "Output Power Supply Error Flag",
         10: "Safety I/O Terminal Error Flag",
         13: "Function Block Error Flag"
-    }  
+    }
 
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.logger = logger
@@ -128,6 +128,9 @@ class G9Driver:
                     if response_data:
                         result = self._process_response(response_data)
                         self._update_queue(result)
+
+            except (ValueError, TimeoutError) as e:
+                self.log(f"Error was throw while getting package from G9: {e}", LogLevel.CRITICAL)
            
             except PermissionError as e:
                 self.log(f"PermissionError while reading from serial port: {str(e)}", LogLevel.ERROR)
@@ -188,11 +191,10 @@ class G9Driver:
             ValueError: For various validation failures
         """
         try:
-            s, t = time.time(), .5
             data = bytearray()
-            while time.time() - s < t:
+            for _ in range(10):
                 chunk = self.ser.read(50)
-                if chunk:
+                if chunk is not None:
                     data.extend(chunk)
 
                     if data[-len(self.FOOTER):] == self.FOOTER:
@@ -200,14 +202,17 @@ class G9Driver:
                 else:
                     time.sleep(0.05)
 
-            # data = self.ser.read_until(self.FOOTER)
-            if not data:
+            if data == bytearray(b''):
                 self.log("No response received within timeout", LogLevel.WARNING)
-                return None
+                raise TimeoutError("No response received within timeout")
 
             if len(data) < self.EXPECTED_DATA_LENGTH:
                 self.log(f"Incomplete response received: {len(data)} bytes", LogLevel.ERROR)
-                return None
+                raise ValueError(f"Incomplete response received: {len(data)} bytes")
+
+            if len(data) > self.EXPECTED_DATA_LENGTH:
+                self.log(f"Invalid response received: {len(data)} bytes", LogLevel.ERROR)
+                raise ValueError(f"Invalid response received: {len(data)} bytes")
 
             self._validate_response_format(data)
             self._validate_checksum(data)
@@ -315,20 +320,20 @@ class G9Driver:
         Raise:
             ValueError: When Error Flag is found in unit status
         """
-        if status == None:
+        if status is None:
             raise ValueError("Invalid inputs to _check_unit_status: status is None")
         if status != b'\x01\x00':
             bits = self._extract_flags(status, 16)
             self.log(f"Unit status bits: {bits}", LogLevel.VERBOSE)
-            for k in self.US_STATUS.keys():
+            for k, v in self.US_STATUS.items():
                 if bits[k] == 1:
-                    self.log(f"Unit State Error: {self.US_STATUS[k]}", LogLevel.CRITICAL)
+                    self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
             if bits[0] == 0:
                 self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
 
     def _check_safety_inputs(self, data):
         """Check safety input status"""
-        if data == None:
+        if data is None:
             raise ValueError("Invalid inputs to _check_safety_inputs: Data is None")
         self._check_terminal_status(
             data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],
@@ -338,7 +343,7 @@ class G9Driver:
 
     def _check_safety_outputs(self, data):
         """Check safety output status"""
-        if data == None:
+        if data is None:
             raise ValueError("Invalid inputs to _check_safety_outputs: Data is None")
         self._check_terminal_status(
             data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:],
@@ -353,13 +358,12 @@ class G9Driver:
         Raise:
             ValueError: If an error is found in the Error Cause Data or with invalid inputs
         """
-        if data == None or status_dict == None or terminal_type == None or terminal_type == "":
+        if data is None or status_dict is None or terminal_type is None or terminal_type == "":
             raise ValueError(f"_check_terminal_status is being called with invalid inputs {data} {status_dict} {terminal_type}")
-        
         for i, byte in enumerate(reversed(data[:self.NUMIN])):
             msb = byte >> 4
             lsb = byte & 0x0F
-            
+
             for nibble, position in [(msb, 'H'), (lsb, 'L')]:
                 if nibble in status_dict and nibble != 0:
                     raise ValueError(
@@ -375,11 +379,11 @@ class G9Driver:
 
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
+        """returns if serial connection is set up"""
         return self.ser is not None and self.ser.is_open
-    
+
     def _extract_flags(self, byte_string, num_bits):
-        """
-        Extracts num_bits from the data
+        """Extracts num_bits from the data
         the bytes are order in big-endian meaning the first 8 are on top 
         but the bits in the bye are ordered in little-endian 7 MSB and 0 LSB
         
@@ -389,9 +393,9 @@ class G9Driver:
             num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit (aka little endian)
         """
         num_bytes = (num_bits + 7) // 8
-        
+
         if len(byte_string) < num_bytes:
-            raise ValueError(f"Input must contain at least {num_bytes} bytes; recieved {len(byte_string)}")
+            raise ValueError(f"Input must contain at least {num_bytes} bytes; received {len(byte_string)}")
 
         extracted_bits = []
         for byte_index in range(num_bytes):
@@ -400,7 +404,7 @@ class G9Driver:
             extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
 
         return extracted_bits[:num_bits]
-        
+
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
         if self.logger:
