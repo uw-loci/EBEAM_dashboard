@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from instrumentctl.G9SP_interlock.g9_driver import G9Driver
 
-with open('g9_test_cases.json', 'r') as json_file:
+with open('citestfiles/G9Driver/g9_test_cases.json', 'r') as json_file:
     json_data = json.load(json_file)
-    
+
 for k,v in json_data.items():
     json_data[k] = base64.b64decode(v)
 
