@@ -170,7 +170,7 @@ class TemperatureBar(tk.Canvas):
 
 
 class ProcessMonitorSubsystem:
-    def __init__(self, parent, com_port, logger=None, active = None):
+    def __init__(self, parent, com_port, active, logger=None):
         self.parent = parent
         self.logger = logger
         self.active = active
