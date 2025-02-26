@@ -79,6 +79,7 @@ class G9Driver:
         """
         if port:
             try:
+                
                 self.ser = serial.Serial(
                     port=port,
                     baudrate=baudrate,
@@ -87,6 +88,7 @@ class G9Driver:
                     bytesize=serial.EIGHTBITS,
                     timeout=timeout
                     )
+                            
                 self.log(f"Serial connection established on {port}", LogLevel.INFO)
             except serial.SerialException as e:
                 self._close_serial()
@@ -99,10 +101,10 @@ class G9Driver:
         """ Attempt to close serial port """
         if self.ser and self.ser.is_open:
             self.ser.close()
-            self.ser = None
             self.log("Serial Connection was closed for G9", LogLevel.INFO)
         else:
             self.log("Serial connection is already close", LogLevel.DEBUG)
+        self.ser = None
 
     def _update_queue(self, response=None):
         try:

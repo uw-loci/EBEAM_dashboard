@@ -4,6 +4,7 @@ import os
 import unittest
 import json
 import base64
+import serial
 from unittest.mock import MagicMock
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from instrumentctl.G9SP_interlock.g9_driver import G9Driver
@@ -200,6 +201,21 @@ class TestG9Driver(unittest.TestCase):
         self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
         with self.assertRaises(ValueError):
             self.driver._read_response()
+
+    def test_comport_connection_none(self):
+        """Testing with passing none to the method"""
+        self.driver.ser = serial.Serial(port=None)
+        self.assertIsNotNone(self.driver.ser)
+        self.driver.setup_serial(None)
+        self.assertIsNone(self.driver.ser)
+
+    def test_comport_connection_not_real(self):
+        """Testing with not real port"""
+        self.driver.ser = serial.Serial(port=None)
+        self.assertIsNotNone(self.driver.ser)
+        self.driver.setup_serial("NOT A REAL PORT")
+        self.assertIsNone(self.driver.ser)
+
 
 if __name__ == '__main__':
     unittest.main()
