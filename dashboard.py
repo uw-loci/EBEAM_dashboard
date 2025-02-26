@@ -274,7 +274,8 @@ class EBEAMSystemDashboard:
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'], 
                 com_port=self.com_ports['ProcessMonitors'],
-                logger=self.logger
+                logger=self.logger,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
                 self.frames['Visualization Gas Control'], 
@@ -299,7 +300,7 @@ class EBEAMSystemDashboard:
         }
 
         # Updates machine status progress bar
-        self.machine_status_frame.update_status()
+        self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
