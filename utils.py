@@ -369,6 +369,8 @@ class MachineStatus():
         self.parent = parent
         self.status_labels = {}  # Store labels for updates
         self.setup_gui()
+        self.update_interval = 500  # Update interval in milliseconds
+        self.update_status()  # Start the perpetual update loop
 
     def setup_gui(self):
         """Setup the GUI for the Machine Status Panel"""
@@ -406,11 +408,11 @@ class MachineStatus():
         """
         if status_dict is None:
             status_dict = self.MACHINE_STATUS
+        self.update_labels(status_dict)
+        self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
 
-        def update_labels():
+    def update_labels(self, status_dict):
             for name, is_active in status_dict.items():
                 if name in self.status_labels and name != "Machine Status":  # Don't change main label
                     new_color = "#57cce7" if is_active else "#dbd9d9"
                     self.status_labels[name].config(bg=new_color)
-
-        self.parent.after(500, update_labels)
