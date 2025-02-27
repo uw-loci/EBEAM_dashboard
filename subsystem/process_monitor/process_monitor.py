@@ -263,10 +263,13 @@ class ProcessMonitorSubsystem:
                         temp = temps.get(unit)
                         if temp is None:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                            self.active['Environment Pass'] = False
                         elif temp == self.monitor.SENSOR_ERROR:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                            self.active['Environment Pass'] = False
                         elif temp == self.monitor.DISCONNECTED:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                            self.active['Environment Pass'] = False
                         elif isinstance(temp, (int, float)):
                             try:
                                 temp_value = float(temp)
@@ -277,12 +280,15 @@ class ProcessMonitorSubsystem:
                                 else:
                                     self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                     self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
+                                    self.active['Environment Pass'] = False
                             except (ValueError, TypeError):
                                 self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                 self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
+                                self.active['Environment Pass'] = False
                         else:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                             self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
+                            self.active['Environment Pass'] = False
 
         except Exception as e:
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
