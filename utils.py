@@ -356,7 +356,7 @@ class MachineStatus():
         'High Voltage Permitted': None, 
         'Solenoids Pass': None,
         'Beam Extraction': None,
-        'Cathode Heathing': None,
+        'Cathode Heating': None,
         'Focus Voltage': None,
         'Shield Voltage': None,
         'Target Voltage': None,

@@ -290,12 +290,13 @@ class EBEAMSystemDashboard:
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
-                logger=self.logger
+                logger=self.logger,
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
-                logger=self.logger
+                logger=self.logger,
+                active = self.machine_status_frame.MACHINE_STATUS
             )
         }
 
