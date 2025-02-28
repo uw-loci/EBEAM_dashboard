@@ -368,6 +368,7 @@ class MachineStatus():
     def __init__(self, parent):
         self.parent = parent
         self.status_labels = {}  # Store labels for updates
+        self._previous_labels = {}
         self.setup_gui()
         self.update_interval = 500  # Update interval in milliseconds
         self.update_status()  # Start the perpetual update loop
@@ -408,7 +409,22 @@ class MachineStatus():
         """
         if status_dict is None:
             status_dict = self.MACHINE_STATUS
-        self.update_labels(status_dict)
+
+        any_change = False
+        if not self._previous_status:
+            # first run
+            any_change = True
+        else:
+            for name, status in status_dict.items():
+                if name in self._previous_status and self._previous_status[name] != status:
+                    any_change = True
+                    break
+        
+        if any_change:
+            self.update_labels(status_dict)
+        
+        self._previous_status = status_dict.copy()
+
         self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
 
     def update_labels(self, status_dict):
