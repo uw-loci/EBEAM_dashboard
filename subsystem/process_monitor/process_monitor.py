@@ -170,9 +170,10 @@ class TemperatureBar(tk.Canvas):
 
 
 class ProcessMonitorSubsystem:
-    def __init__(self, parent, com_port, logger=None):
+    def __init__(self, parent, com_port, active, logger=None):
         self.parent = parent
         self.logger = logger
+        self.active = active
         self.last_error_time = 0
         self.error_count = 0
         self.com_port = com_port
@@ -251,6 +252,7 @@ class ProcessMonitorSubsystem:
                 if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):
                         self._set_all_temps_disconnected()
+                        self.active['Environment Pass'] = False
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                 else:
@@ -261,25 +263,32 @@ class ProcessMonitorSubsystem:
                         temp = temps.get(unit)
                         if temp is None:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                            self.active['Environment Pass'] = False
                         elif temp == self.monitor.SENSOR_ERROR:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                            self.active['Environment Pass'] = False
                         elif temp == self.monitor.DISCONNECTED:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                            self.active['Environment Pass'] = False
                         elif isinstance(temp, (int, float)):
                             try:
                                 temp_value = float(temp)
                                 if -90 <= temp_value <= 500:  # Valid temperature range
                                     self.temp_bars[name].update_value(name, temp_value)
+                                    self.active['Environment Pass'] = True # Update Machine Status Progress Bar
                                     self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
                                     self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                     self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
+                                    self.active['Environment Pass'] = False
                             except (ValueError, TypeError):
                                 self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                 self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
+                                self.active['Environment Pass'] = False
                         else:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                             self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
+                            self.active['Environment Pass'] = False
 
         except Exception as e:
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)

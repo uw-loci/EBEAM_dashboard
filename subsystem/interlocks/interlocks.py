@@ -37,10 +37,11 @@ class InterlocksSubsystem:
         'HVolt ON': None
     }
 
-    def __init__(self, parent, com_ports, logger=None, frames=None):
+    def __init__(self, parent, com_ports, logger=None, frames=None, active=None):
         self.parent = parent
         self.logger = logger
         self.frames = frames
+        self.active = active
         self.com_port = com_ports
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
@@ -256,6 +257,10 @@ class InterlocksSubsystem:
                 # Checks all 11 first interlocks
                 all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
                 self.update_interlock("All Interlocks", True, all_good)
+
+                # Updates progress bar on dashboard if all interlocks pass
+                if self.active:
+                    self.active['Interlocks Pass'] = all_good
 
                 # High Voltage Interlock (unrelated to All interlocks)
                 if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:

@@ -345,3 +345,90 @@ class ToolTip(object):
         if self.tip_window:
             self.tip_window.destroy()
             self.tip_window = None
+
+class MachineStatus():
+     
+    MACHINE_STATUS = {
+        'Machine Status': False,
+        'Script Status' : False,
+        'Environment Pass': False,
+        'Interlocks Pass': False,
+        'High Voltage Permitted': False, 
+        'Solenoids Pass': False,
+        'Beam Extraction': False,
+        'Cathode Heating': False,
+        'Focus Voltage': False,
+        'Shield Voltage': False,
+        'Target Voltage': False,
+        'Preparing Beamlines': False,
+        'Beamlines Ready': False,
+        'Running Experiment': False,
+     }
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.status_labels = {}  # Store labels for updates
+        self._previous_status = {}
+        self.setup_gui()
+        self.update_interval = 500  # Update interval in milliseconds
+        self.update_status()  # Start the perpetual update loop
+
+    def setup_gui(self):
+        """Setup the GUI for the Machine Status Panel"""
+        self.machine_status_frame = tk.Frame(self.parent, bg="#dbd9d9")
+        self.machine_status_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Configure columns for each individual machine status
+        num_columns = len(self.MACHINE_STATUS)
+        for i in range(num_columns):
+            self.machine_status_frame.grid_columnconfigure(i * 2, weight=1)  # Status box
+            self.machine_status_frame.grid_columnconfigure(i * 2 + 1, weight=0)  # Thin separator line
+        
+        for i, (name, _) in enumerate(self.MACHINE_STATUS.items()):
+            bg_color = "black" if name == "Machine Status" else "#dbd9d9"
+            fg_color = "white" if name == "Machine Status" else "black"
+
+            label = tk.Label(
+                self.machine_status_frame, text=name, anchor="w", padx=5,
+                bg=bg_color, fg=fg_color, width=12, height=2,
+                wraplength=80, justify="left"
+            )
+            label.grid(row=0, column=i * 2, sticky='ew')
+
+            self.status_labels[name] = label
+
+            # Add a **very thin** black separator frame (1px wide)
+            if i < len(self.MACHINE_STATUS) - 1:
+                separator = tk.Frame(self.machine_status_frame, bg="black", width=1)  # 1px width black separator
+                separator.grid(row=0, column=i * 2 + 1, sticky="ns")
+
+    def update_status(self, status_dict=None):
+        """
+        Update the status of each machine indicator.
+        :param status_dict: Dictionary with status names and their boolean state.
+        """
+        if status_dict is None:
+            status_dict = self.MACHINE_STATUS
+
+        any_change = False
+        if not self._previous_status:
+            # first run
+            any_change = True
+        else:
+            for name, status in status_dict.items():
+                if name in self._previous_status and self._previous_status[name] != status:
+                    any_change = True
+                    break
+        
+        if any_change:
+            self.update_labels(status_dict)
+        
+        self._previous_status = status_dict.copy()
+
+        self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
+
+    def update_labels(self, status_dict):
+            for name, is_active in status_dict.items():
+                if name in self.status_labels and name != "Machine Status":  # Don't change main label
+                    new_color = "#57cce7" if is_active else "#dbd9d9"
+                    self.status_labels[name].config(bg=new_color)
