@@ -349,20 +349,20 @@ class ToolTip(object):
 class MachineStatus():
      
     MACHINE_STATUS = {
-        'Machine Status': None,
-        'Script Status' : None,
-        'Environment Pass': None,
-        'Interlocks Pass': None,
-        'High Voltage Permitted': None, 
-        'Solenoids Pass': None,
-        'Beam Extraction': None,
-        'Cathode Heating': None,
-        'Focus Voltage': None,
-        'Shield Voltage': None,
-        'Target Voltage': None,
-        'Preparing Beamlines': None,
-        'Beamlines Ready': None,
-        'Running Experiment': None,
+        'Machine Status': False,
+        'Script Status' : False,
+        'Environment Pass': False,
+        'Interlocks Pass': False,
+        'High Voltage Permitted': False, 
+        'Solenoids Pass': False,
+        'Beam Extraction': False,
+        'Cathode Heating': False,
+        'Focus Voltage': False,
+        'Shield Voltage': False,
+        'Target Voltage': False,
+        'Preparing Beamlines': False,
+        'Beamlines Ready': False,
+        'Running Experiment': False,
      }
 
     def __init__(self, parent):
