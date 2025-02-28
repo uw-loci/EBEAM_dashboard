@@ -48,7 +48,7 @@ class OilSubsystem:
         frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
         
         tk.Label(frame, text=title, font=("Helvetica", 10, "bold")).pack()
-        label = tk.Label(frame, text=default_text, font=('Helvetica', 10), bg = "#F8E473", fg = "black", padx = 5, pady = 2)
+        label = tk.Label(frame, text=default_text, font=('Helvetica', 10), bg = "#d3d3d3", fg = "black", padx = 5, pady = 2)
         label.pack()
         
         # Dynamically assign label reference to update later
