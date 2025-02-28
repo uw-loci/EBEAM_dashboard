@@ -6,6 +6,7 @@
 - Firmware version: 1.30
 - Datasheet [(link)](https://www.mouser.com/datasheet/2/43/9103_9104_series_datasheet-1131399.pdf)
 - Communication interface: UART over RS485
+- Programming manual: [(link)](https://bkpmedia.s3.us-west-1.amazonaws.com/downloads/programming_manuals/en-us/9103_9104_programming_manual.pdf)
 
 ### Serial Port Configuration Settings
 | Setting | Value |

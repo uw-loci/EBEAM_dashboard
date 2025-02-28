@@ -538,7 +538,6 @@ class VTRXSubsystem:
             self.stop_serial_thread()
             if self.ser and self.ser.is_open:
                 self.ser.close()
-
     def close_com_ports(self):
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.
@@ -547,4 +546,6 @@ class VTRXSubsystem:
         if self.ser and self.ser.is_open:
             self.ser.close()
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
+        else:
+            self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
           
