@@ -10,15 +10,15 @@ class OilSubsystem:
         """Initializes the OilSubsystem inside the given parent (Frame or Main Window)."""
         self.parent = parent
         self.logger = logger
-        self.pressure = 3.5  # Mock initial value
-        self.temperature = 50.0  # Mock initial value
-        self.flow_rate = 10.0  # Mock value
-        self.pump_status = False  # Default pump status to True or False
-        self.stop_event = threading.Event()  # For stopping the thread
+        self.pressure = 3.5  
+        self.temperature = 50.0  
+        self.flow_rate = 10.0  
+        self.pump_status = False  
+        self.stop_event = threading.Event()  
 
-        self.setup_gui()  # Setup UI inside the provided parent
-        self.start_sensor_thread()  # Start the background sensor simulation
-        self.update_display()  # Start UI update loop
+        self.setup_gui()  
+        self.start_sensor_thread()  
+        self.update_display()  
 
 
 
@@ -59,18 +59,18 @@ class OilSubsystem:
     def generate_sensor_data(self):
         """Continuously generates new sensor data in a separate thread."""
         while not self.stop_event.is_set():
-            self.pressure += random.uniform(-0.5, 0.5)  # Simulated pressure change
-            self.pressure = max(0, min(30, self.pressure))  # Clamp values to 0-30 PSI
+            self.pressure += random.uniform(-0.5, 0.5)  
+            self.pressure = max(0, min(30, self.pressure))  
             
-            self.temperature += random.uniform(-1.0, 1.0)  # Simulated temperature change
-            self.temperature = max(50, min(90, self.temperature))  # Clamp values to 50-90°C
+            self.temperature += random.uniform(-1.0, 1.0) 
+            self.temperature = max(50, min(90, self.temperature))  
 
-            self.flow_rate += random.uniform(-0.2, 0.2)  # Simulated flow rate change
-            self.flow_rate = max(0, min(50, self.flow_rate))  # Clamp values to 0-50 L/min
+            self.flow_rate += random.uniform(-0.2, 0.2)  
+            self.flow_rate = max(0, min(50, self.flow_rate))  
             
-            self.pump_status = random.choice([True, False])  # Randomly switch between True and False
+            self.pump_status = random.choice([True, False]) 
 
-            time.sleep(0.1)  # Update every 100ms for high-frequency generation
+            time.sleep(0.1)  
 
 
 
