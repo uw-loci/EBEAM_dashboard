@@ -34,7 +34,7 @@ frames_config = [
     ("Cathode Heating", 4, 980, 450),
 
     # Row 5
-    ("Machine Status", 5, None, 50)
+    ("Machine Status", 5, None, 55)
 ]
 
 class EBEAMSystemDashboard:
