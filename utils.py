@@ -384,18 +384,24 @@ class MachineStatus():
             self.machine_status_frame.grid_columnconfigure(i * 2, weight=1)  # Status box
             self.machine_status_frame.grid_columnconfigure(i * 2 + 1, weight=0)  # Thin separator line
         
+        self.machine_status_frame.grid_rowconfigure(0, weight=1)
+
         for i, (name, _) in enumerate(self.MACHINE_STATUS.items()):
             bg_color = "black" if name == "Machine Status" else "#dbd9d9"
             fg_color = "white" if name == "Machine Status" else "black"
 
+            container = tk.Frame(self.machine_status_frame, bg=bg_color)
+            container.grid(row=0, column=i * 2, sticky='nsew')
+
             label = tk.Label(
-                self.machine_status_frame, text=name, anchor="w", padx=5,
-                bg=bg_color, fg=fg_color, width=12, height=2,
+                container,
+                text=name, anchor="w", padx=5,
+                bg=bg_color, fg=fg_color,
                 wraplength=80, justify="left"
             )
-            label.grid(row=0, column=i * 2, sticky='ew')
+            label.pack(fill=tk.BOTH, expand=True, pady=3)  # Add small padding for text breathing room
 
-            self.status_labels[name] = label
+            self.status_labels[name] = container
 
             # Add a **very thin** black separator frame (1px wide)
             if i < len(self.MACHINE_STATUS) - 1:
@@ -432,3 +438,8 @@ class MachineStatus():
                 if name in self.status_labels and name != "Machine Status":  # Don't change main label
                     new_color = "#57cce7" if is_active else "#dbd9d9"
                     self.status_labels[name].config(bg=new_color)
+
+                    # Update label color inside container
+                    for child in self.status_labels[name].winfo_children():
+                        if isinstance(child, tk.Label):
+                            child.config(bg=new_color)

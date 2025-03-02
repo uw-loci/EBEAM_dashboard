@@ -34,7 +34,7 @@ frames_config = [
     ("Cathode Heating", 4, 980, 450),
 
     # Row 5
-    ("Machine Status", 5, None, 50)
+    ("Machine Status", 5, None, None)
 ]
 
 class EBEAMSystemDashboard:
@@ -118,11 +118,23 @@ class EBEAMSystemDashboard:
         global frames_config
 
         for title, row, width, height in frames_config:
+            # If both width and height are present, set them
             if width and height and title:
                 frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
+                # Check if only width or only height was given
+                dimension_set = False
+                if width and title:
+                    frame.configure(width=width)
+                    dimension_set = True
+                if height and title:
+                    frame.configure(height=height)
+                    dimension_set = True
+                # If we set either width or height, turn off propogation so dims stick
+                if dimension_set:
+                    frame.pack_propagate(False)
             self.rows[row].add(frame, stretch='always')
             if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
