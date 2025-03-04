@@ -32,6 +32,7 @@ frames_config = [
     # Row 4
     ("Process Monitor", 4, 250, 450),
     ("Cathode Heating", 4, 980, 450),
+    ("Messages Frame", 4, None, None),
 
     # Row 5
     ("Machine Status", 5, None, 50)
@@ -123,16 +124,19 @@ class EBEAMSystemDashboard:
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
-            self.rows[row].add(frame, stretch='always')
             if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
+            if title == "Messages Frame":
+                continue
             self.frames[title] = frame
+            self.rows[row].add(frame, stretch='always')
             if title == "Setup Script":
                 SetupScripts(frame)
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
         self.rows[4].add(self.messages_frame.frame, stretch='always')
+        self.frames['Messages Frame'] = self.messages_frame.frame
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -315,6 +319,7 @@ class EBEAMSystemDashboard:
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[4])
+        print(self.rows[4])
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
