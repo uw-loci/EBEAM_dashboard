@@ -15,26 +15,26 @@ frames_config = [
     
     # Row 1
     ("Oil System", 1, 50, 150),
-    ("Visualization Gas Control", 2, 50, 150),
-    ("System Checks", 1, None, None),
+    # ("Visualization Gas Control", 2, 50, 150),
+    ("Energy", 1, None, None),
     
     # Row 2
-    ("Beam Extraction", 1, None, None),
+    # ("Beam Extraction", 1, None, None),
     ("Vacuum System", 2, 150, 300),
-    ("Deflection Monitor", 2, None, None),
-    ("Beam Pulse", 2, None, None),
+    ("Beam Controller", 2, None, None),
+    # ("Beam Pulse", 2, None, None),
     ("Main Control", 2, 50, 300),
     
     # Row 3
-    ("Setup Script", 3, None, 25),
-    ("High Voltage Warning", 3, None, 25),
+    # ("Setup Script", 3, None, 25),
+    # ("High Voltage Warning", 3, None, 25),
     
     # Row 4
-    ("Process Monitor", 4, 250, 450),
-    ("Cathode Heating", 4, 980, 450),
+    ("Process Monitor", 3, 250, 450),
+    ("Cathode Heating", 3, 980, 450),
 
     # Row 5
-    ("Machine Status", 5, None, 50)
+    ("Machine Status", 4, None, 50)
 ]
 
 class EBEAMSystemDashboard:
@@ -106,7 +106,7 @@ class EBEAMSystemDashboard:
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(6)]
+        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
         for row_pane in self.rows:
             self.main_pane.add(row_pane, stretch = "always")
 
@@ -127,12 +127,12 @@ class EBEAMSystemDashboard:
             if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
             self.frames[title] = frame
-            if title == "Setup Script":
-                SetupScripts(frame)
+            # if title == "Setup Script":
+            #     SetupScripts(frame)
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
-        self.rows[4].add(self.messages_frame.frame, stretch='always')
+        self.rows[3].add(self.messages_frame.frame, stretch='always')
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -145,6 +145,9 @@ class EBEAMSystemDashboard:
         notebook.add(config_tab, text='Config')
 
         # TODO: add main control buttons to main tab here
+
+        main_frame = ttk.Frame(main_tab, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -167,6 +170,8 @@ class EBEAMSystemDashboard:
         # 4. Log Level dropdown
         self.create_log_level_dropdown(config_frame)
 
+        self.setup_scripts = SetupScripts(main_frame)
+
         # Add F1 help hint
         help_label = ttk.Label(
             config_frame,
@@ -174,6 +179,7 @@ class EBEAMSystemDashboard:
             font=("Helvetica", 8, "italic"),
             foreground="gray"
         )
+
         help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
 
     def create_post_processor_button(self, parent_frame):
@@ -286,10 +292,10 @@ class EBEAMSystemDashboard:
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             ),
-            'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
-                self.frames['Visualization Gas Control'], 
-                logger=self.logger
-            ),
+            # 'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
+            #     self.frames['Visualization Gas Control'], 
+            #     logger=self.logger
+            # ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'],
                 com_ports = self.com_ports['Interlocks'],
@@ -314,7 +320,7 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[4])
+        self.messages_frame = MessagesFrame(self.rows[3])
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
