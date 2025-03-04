@@ -41,7 +41,7 @@ class DP16ProcessMonitor:
             stopbits=1,
             timeout=0.2
         )
-        self.set_com_port(port)
+        
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
@@ -56,6 +56,7 @@ class DP16ProcessMonitor:
         self.response_lock = Lock()
         self.last_critical_error_time = 0
         
+        self.set_com_port(port)
         # Start single background polling thread after successful connection and configuration
         self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
         self._thread.start()

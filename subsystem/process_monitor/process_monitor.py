@@ -190,8 +190,11 @@ class ProcessMonitorSubsystem:
         }
 
         self.setup_gui()
-        self.monitor = None
-        self.update_com_port(com_port)
+        self.monitor = DP16ProcessMonitor(
+                port=com_port,
+                unit_numbers=list(self.thermometer_map.values()),
+                logger=logger
+            )
         
         # start the callback method
         self.update_temperatures()
