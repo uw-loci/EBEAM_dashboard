@@ -34,13 +34,14 @@ class DP16ProcessMonitor:
     def __init__(self, port, unit_numbers=(1,2,3,4,5), baudrate=9600, logger=None):
         """ Initialize Modbus settings """
         self.client = ModbusClient(
-            port=port,
+            port=None,
             baudrate=baudrate,
             bytesize=8,
             parity='N',
             stopbits=1,
             timeout=0.2
         )
+        self.set_com_port(port)
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
@@ -58,6 +59,12 @@ class DP16ProcessMonitor:
         # Start single background polling thread after successful connection and configuration
         self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
         self._thread.start()
+
+    def set_com_port(self, com_port=None):
+        self.disconnect()
+        self.client.port = com_port
+        if com_port is not None:
+            self.connect()
     
     def connect(self):
         """

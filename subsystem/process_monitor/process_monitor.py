@@ -191,22 +191,20 @@ class ProcessMonitorSubsystem:
 
         self.setup_gui()
         self.monitor = None
+        self.update_com_port(com_port)
+        
+        # start the callback method
+        self.update_temperatures()
+
+    def update_com_port(self, com_port=None):
+        print("PM")
         try:
-            if not com_port:
-                raise ValueError("No COM port provided for ProcessMonitor")
-            # Instantiate PMON driver
-            self.monitor = DP16ProcessMonitor(
-                port=com_port,
-                unit_numbers=list(self.thermometer_map.values()),
-                logger=logger
-            )
+            self.monitor.set_com_port(com_port)
+        
         except Exception as e:
             self.monitor = None
             self.log(f"Failed to initialize DP16ProcessMonitor: {str(e)}", LogLevel.ERROR)
             self._set_all_temps_error()
-        
-        # start the callback method
-        self.update_temperatures()
 
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)

@@ -65,15 +65,15 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
-        
-        
+
+
         # if save file exists call it and open it
         if saveFileExists():
-             self.load_saved_pane_state()
+            self.load_saved_pane_state()
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
-        
+
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
@@ -180,7 +180,7 @@ class EBEAMSystemDashboard:
         """Create a button to launch the standalone post-processor application"""
         post_processor_frame = ttk.Frame(parent_frame)
         post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        
+
         ttk.Button(
             post_processor_frame,
             text="Launch Log Post-processor",
@@ -209,11 +209,11 @@ class EBEAMSystemDashboard:
             else:
                 # On other platforms
                 subprocess.Popen([sys.executable, post_processor_path])
-                
+
             self.logger.info("Log post-processor launched successfully")
         except Exception as e:
             self.logger.error(f"Failed to launch log post-processor: {str(e)}")
-            messagebox.showerror("Error", 
+            messagebox.showerror("Error",
                             f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
@@ -252,14 +252,14 @@ class EBEAMSystemDashboard:
         self.log_level_var = tk.StringVar()
         log_levels = [level.name for level in LogLevel]
         log_level_dropdown = ttk.Combobox(
-            log_level_frame, 
-            textvariable=self.log_level_var, 
-            values=log_levels, 
-            state="readonly", 
+            log_level_frame,
+            textvariable=self.log_level_var,
+            values=log_levels,
+            state="readonly",
             width=15
         )
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
+
         current_level = self.messages_frame.get_log_level()
         log_level_dropdown.set(current_level.name) 
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
@@ -277,17 +277,17 @@ class EBEAMSystemDashboard:
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
-                serial_port=self.com_ports['VTRXSubsystem'], 
+                serial_port=self.com_ports['VTRXSubsystem'],
                 logger=self.logger
             ),
-            'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
-                self.frames['Process Monitor'], 
+            'Process Monitor [C]': subsystem.ProcessMonitorSubsystem(
+                self.frames['Process Monitor'],
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
-                self.frames['Visualization Gas Control'], 
+                self.frames['Visualization Gas Control'],
                 logger=self.logger
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
@@ -339,7 +339,7 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']:
+        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'Process Monitor [C]', 'Interlocks', 'ProcessMonitors']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
@@ -363,34 +363,38 @@ class EBEAMSystemDashboard:
     def update_available_ports(self):
         """Scan for available COM ports and update dropdown menus."""
         available_ports = [port.device for port in serial.tools.list_ports.comports()]
+        self.logger.info(available_ports)
         for dropdown in self.port_dropdowns.values():
             current_value = dropdown.get()
             dropdown['values'] = available_ports
             if current_value in available_ports:
                 dropdown.set(current_value)
-            elif available_ports:
-                dropdown.set(available_ports[0])
             else:
                 dropdown.set('')
 
     def apply_com_port_changes(self):
         new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
-        self.update_com_ports(new_com_ports)
+        for sub, port in new_com_ports.items():
+            if port:
+                self._update_com_ports(sub, port)
+
         self.toggle_com_port_menu()
 
-    def update_com_ports(self, new_com_ports):
-        self.com_ports = new_com_ports
-        # TODO: update the COM ports for each subsystem
+    # def update_com_ports(self, new_com_ports):
+    #     self.com_ports = new_com_ports
+    #     # TODO: update the COM ports for each subsystem
 
-        for subsystem_name, subsystem in self.subsystems.items():
-            if hasattr(subsystem, 'update_com_port'):
-                if subsystem_name == 'Vacuum System':
-                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
-                elif subsystem_name == 'Cathode Heating':
-                    subsystem.update_com_ports(new_com_ports)
-            else:
-                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
-        self.logger.info(f"COM ports updated: {self.com_ports}")
+    #     self.logger.info(f"________________________________ here : {new_com_ports=}")
+
+    #     for subsystem_name, subsystem in self.subsystems.items():
+    #         if hasattr(subsystem, 'update_com_port'):
+    #             if subsystem_name == 'Vacuum System':
+    #                 subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
+    #             elif subsystem_name == 'Cathode Heating':
+    #                 subsystem.update_com_ports(new_com_ports)
+    #         else:
+    #             self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+    #     self.logger.info(f"COM ports updated: {self.com_ports}")
 
 
     def _check_ports(self):
@@ -400,7 +404,6 @@ class EBEAMSystemDashboard:
         Finally:
             Calls itself to be check again
         """
-        print("checking com ports")
         current_ports = set(serial.tools.list_ports.comports())
 
         dif = self.set_com_ports - current_ports
@@ -431,13 +434,18 @@ class EBEAMSystemDashboard:
         """
         Calls to update subsystems with change in comport
         """
-        print("here, updating com port")
+        
         if subsystem_str is None:
             raise ValueError("_update_com_ports was called with invalid args")
-        str_port = port.device if port is not None else None
+        if not isinstance(port, str):
+            str_port = port.device if port is not None else None
+        else:
+            str_port = port
         if subsystem_str in self.subsystems:
-            if subsystem_str == "Interlocks":
+            if subsystem_str in set(["Interlocks", 'Vacuum System', 'Process Monitor [C]']):
                 self.subsystems[subsystem_str].update_com_port(str_port)
+            # elif subsystem_str == 'Cathode Heating':
+            #         self.subsystems[subsystem_str].update_com_ports(new_com_ports)
             #TODO: Need to add Vacuum system and Cathode Heating
 
         self.logger.info(f"COM ports updated: {self.com_ports}")
