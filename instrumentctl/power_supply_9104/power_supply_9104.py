@@ -16,12 +16,13 @@ class PowerSupply9104:
         self.setup_serial()
 
     def setup_serial(self):
-        try:
-            self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
-            self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
-        except serial.SerialException as e:
-            self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
-            self.ser = None
+        with self.serial_lock:
+            try:
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+                self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
+            except serial.SerialException as e:
+                self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
+                self.ser = None
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
@@ -43,7 +44,9 @@ class PowerSupply9104:
         return self.ser is not None and self.ser.is_open
 
     def flush_serial(self):
-        self.ser.reset_input_buffer()    
+        with self.serial_lock:
+            if self.ser:
+                self.ser.reset_input_buffer()    
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
@@ -217,10 +220,11 @@ class PowerSupply9104:
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
         # Example corresponds to 05.00V, 01.00A, supply in CV mode
-        self.flush_serial()
-        command = "GETD"
-        self.log(f"Sent command:{command}", LogLevel.DEBUG)
-        return self.send_command(command)
+        with self.serial_lock:
+            self.flush_serial()
+            command = "GETD"
+            self.log(f"Sent command:{command}", LogLevel.DEBUG)
+            return self.send_command(command)
     
     def parse_getd_response(self, response):
         try:
