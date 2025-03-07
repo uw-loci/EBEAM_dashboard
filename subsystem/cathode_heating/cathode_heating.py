@@ -355,14 +355,25 @@ class CathodeHeatingSubsystem:
             ToolTip(overcurrent_label, "OCP must be a value greater than 0.1 A and less than or equal to 10 A")
 
             # Slew Rate setting
-            slew_rate_label = ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            slew_rate_label = ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel')
+            slew_rate_label.grid(row=4, column=0, sticky='e')
+            
             slew_rate_var = tk.StringVar(value='0.01')  # Default value
             slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
             slew_rate_entry.grid(row=4, column=1, sticky='w')
             set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
-            self.slew_rate_vars.append(slew_rate_var) # store user variable
             ToolTip(slew_rate_label, "Rate of change for voltage output")
+            
+            # Slew Rate setting
+            # ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            # slew_rate_var = tk.StringVar(value='0.01')  # Default value
+            # slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
+            # slew_rate_entry.grid(row=4, column=1, sticky='w')
+            # set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
+            # set_slew_rate_button.grid(row=4, column=2, sticky='e')
+            # self.slew_rate_vars.append(slew_rate_var) # store user variable
+            # ToolTip(slew_rate_label, "Rate of change for voltage output")
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
