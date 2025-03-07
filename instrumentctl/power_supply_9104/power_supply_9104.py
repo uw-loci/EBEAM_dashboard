@@ -251,7 +251,7 @@ class PowerSupply9104:
     def set_over_voltage_protection(self, ovp_volts):
         """Set the over voltage protection value."""
         """ Expected response: OK[CR] """
-        ovp_centivolts = int(ovp_volts)
+        ovp_centivolts = int(ovp_volts) * 100
         command = f"SOVP{ovp_centivolts:04d}" # format as 4-digit string
         response = self.send_command(command)
 
@@ -291,7 +291,7 @@ class PowerSupply9104:
     def set_over_current_protection(self, ocp_amps):
         """Set the over current protection value."""
         """ Expected response: OK[CR] """
-        ocp_centiamps = int(ocp_amps)
+        ocp_centiamps = int(ocp_amps) * 100
         
         command = f"SOCP{ocp_centiamps:04d}"
         response = self.send_command(command) 
