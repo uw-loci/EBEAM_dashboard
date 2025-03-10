@@ -34,7 +34,7 @@ class DP16ProcessMonitor:
     def __init__(self, port, unit_numbers=(1,2,3,4,5), baudrate=9600, logger=None):
         """ Initialize Modbus settings """
         self.client = ModbusClient(
-            port=None,
+            port=port,
             baudrate=baudrate,
             bytesize=8,
             parity='N',
@@ -51,21 +51,31 @@ class DP16ProcessMonitor:
         self.last_good_readings = {unit: None for unit in self.unit_numbers}
         self.consecutive_connection_errors = 0
 
-        self._is_running = True
+        self._is_running = False
         self._thread = None
         self.response_lock = Lock()
         self.last_critical_error_time = 0
         
-        self.set_com_port(port)
         # Start single background polling thread after successful connection and configuration
-        self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
-        self._thread.start()
+        self.start_thread()
+        
 
     def set_com_port(self, com_port=None):
+        self.log(f"{com_port=} ____________________________", LogLevel.INFO)
         self.disconnect()
         self.client.port = com_port
         if com_port is not None:
             self.connect()
+            self.start_thread()
+        self.log(f"successful _____________________________ : {self._thread.is_alive()}", LogLevel.INFO)
+
+
+    def start_thread(self):
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._is_running = True
+        self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
+        self._thread.start()
     
     def connect(self):
         """
@@ -340,9 +350,10 @@ class DP16ProcessMonitor:
 
     def disconnect(self):
         # Stop polling thread
-        # self._is_running = False
-        # if self._thread and self._thread.is_alive():
-        #     self._thread.join()
+        self._is_running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join()
+        self._thread = None
         
         # Close connection
         # with self.modbus_lock:

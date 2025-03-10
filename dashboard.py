@@ -280,7 +280,7 @@ class EBEAMSystemDashboard:
                 serial_port=self.com_ports['VTRXSubsystem'],
                 logger=self.logger
             ),
-            'Process Monitor [C]': subsystem.ProcessMonitorSubsystem(
+            'ProcessMonitors': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'],
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
@@ -339,7 +339,7 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'Process Monitor [C]', 'Interlocks', 'ProcessMonitors']:
+        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
@@ -435,14 +435,16 @@ class EBEAMSystemDashboard:
         Calls to update subsystems with change in comport
         """
         
-        if subsystem_str is None:
-            raise ValueError("_update_com_ports was called with invalid args")
+        # if subsystem_str is None:
+        #     raise ValueError("_update_com_ports was called with invalid args")
         if not isinstance(port, str):
             str_port = port.device if port is not None else None
         else:
             str_port = port
+
+        self.logger.info(f"{subsystem_str=} : {port=} ________________________________")
         if subsystem_str in self.subsystems:
-            if subsystem_str in set(["Interlocks", 'Vacuum System', 'Process Monitor [C]']):
+            if subsystem_str in set(["Interlocks", 'Vacuum System', 'ProcessMonitors']):
                 self.subsystems[subsystem_str].update_com_port(str_port)
             # elif subsystem_str == 'Cathode Heating':
             #         self.subsystems[subsystem_str].update_com_ports(new_com_ports)
