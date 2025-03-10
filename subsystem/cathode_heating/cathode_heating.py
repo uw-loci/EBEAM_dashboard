@@ -177,8 +177,8 @@ class CathodeHeatingSubsystem:
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
         ## Power supply protection
-        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (centivolts)
-        self.overcurrent_limit_vars = [tk.DoubleVar(value=8.5) for _ in range(3)]  # Default 8.5A limit (centiamps)
+        self.overvoltage_limit_vars = [tk.StringVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (centivolts)
+        self.overcurrent_limit_vars = [tk.StringVar(value=8.5) for _ in range(3)]  # Default 8.5A limit (centiamps)
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -339,8 +339,11 @@ class CathodeHeatingSubsystem:
             # Overvoltage limit entry
             overvoltage_label = ttk.Label(config_tab, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
             overvoltage_label.grid(row=2, column=0, sticky='e')
-            overvoltage_entry = ttk.Entry(config_tab, textvariable=self.overvoltage_limit_vars[i], width=7)
+
+            temp_overvoltage_var = self.overvoltage_limit_vars[i]
+            overvoltage_entry = ttk.Entry(config_tab, textvariable=temp_overvoltage_var, width=7)
             overvoltage_entry.grid(row=2, column=1, sticky='w')
+
             set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
             set_overvoltage_button.grid(row=2, column=2, sticky='e')
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
@@ -348,7 +351,9 @@ class CathodeHeatingSubsystem:
             # Overcurrent limit entry
             overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
             overcurrent_label.grid(row=3, column=0, sticky='e')
-            overcurrent_entry = ttk.Entry(config_tab, textvariable=self.overcurrent_limit_vars[i], width=7)
+
+            temp_overcurrent_var = self.overcurrent_limit_vars[i]
+            overcurrent_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
             overcurrent_entry.grid(row=3, column=1, sticky='w')
             set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
             set_overcurrent_button.grid(row=3, column=2, sticky='e')
@@ -623,9 +628,9 @@ class CathodeHeatingSubsystem:
                         self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = self.overvoltage_limit_vars[idx].get()
+                    ovp_value = float(self.overvoltage_limit_vars[idx].get())
                     self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
-                    if ps.set_over_voltage_protection(f"{ovp_value:.2f}"):
+                    if ps.set_over_voltage_protection(ovp_value):
                         self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
                         
                         # Confirm the OVP setting
@@ -641,9 +646,9 @@ class CathodeHeatingSubsystem:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = self.overcurrent_limit_vars[idx].get()
+                    ocp_value = float(self.overcurrent_limit_vars[idx].get())
                     self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
-                    if ps.set_over_current_protection(f"{ocp_value:.2f}"):
+                    if ps.set_over_current_protection(ocp_value):
                         self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
                         
                         # Confirm the OCP setting
@@ -730,12 +735,12 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            raw_value = self.overvoltage_limit_vars[index].get()
+            raw_value = float(self.overvoltage_limit_vars[index].get())
             if raw_value < 0 or raw_value > 60:
                 raise ValueError("OVP out of valid range (0-60 V).")
             
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
-            ovp_set_response = self.power_supplies[index].set_over_voltage_protection(f"{raw_value:.2f}")
+            ovp_set_response = self.power_supplies[index].set_over_voltage_protection(raw_value)
             if not ovp_set_response:
                 self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.WARNING)
                 return
@@ -770,12 +775,12 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            raw_value = self.overcurrent_limit_vars[index].get()
+            raw_value = float(self.overcurrent_limit_vars[index].get())
             if raw_value < 0 or raw_value > 10:
                 raise ValueError("OCP out of valid range (0-10 A).")
             
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
-            ocp_set_response = self.power_supplies[index].set_over_current_protection(f"{raw_value:.2f}")
+            ocp_set_response = self.power_supplies[index].set_over_current_protection(raw_value)
             if not ocp_set_response:
                 self.log(f"Failed to set OCP for Cathode {['A', 'B', 'C'][index]}. Response: {ocp_set_response}", LogLevel.WARNING)
                 return
