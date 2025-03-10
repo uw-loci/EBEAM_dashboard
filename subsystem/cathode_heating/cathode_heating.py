@@ -72,9 +72,11 @@ class CathodeHeatingSubsystem:
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
+        self.ramp_toggle_buttons = []
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
+        self.ramp_status = [True, True, True]
         self.query_settings_buttons = []
 
         # Temperature controller state tracking
@@ -220,6 +222,7 @@ class CathodeHeatingSubsystem:
         self.cathode_frames = []
         self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
+        ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
@@ -282,29 +285,36 @@ class CathodeHeatingSubsystem:
             # Create entries and display labels
             ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel').grid(row=6, column=0, sticky='w')
 
-            # Create toggle switch
+            ttk.Label(main_tab, text=ramp_labels[i], style='Bold.TLabel').grid(row=7, column=0, sticky='w')
+
+            # Create toggle switch for output
             toggle_button = ttk.Button(main_tab, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_output(i))
             toggle_button.grid(row=6, column=1, columnspan=1)
             self.toggle_buttons.append(toggle_button)
 
+            # Create toggle switch for ramp_status
+            toggle_button = ttk.Button(main_tab, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_ramp(i))
+            toggle_button.grid(row=7, column=1, columnspan=1)
+            self.ramp_toggle_buttons.append(toggle_button)
+
             # Create measured values labels
             
             # Actual heater current (A)
-            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             
             # Actual heater voltage (V)
-            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
+            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             
             # Actual target current (mA)
-            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
             
             # Temperature monitoring (C)
-            ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=11, column=0, sticky='e')
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
-            clamp_temp_label.grid(row=10, column=1, sticky='w')
+            clamp_temp_label.grid(row=11, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
 
             # Create plot for each cathode
@@ -1105,6 +1115,15 @@ class CathodeHeatingSubsystem:
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
 
+    def toggle_ramp(self, index):
+        "updates status of toggle to refer to if we are using ramping or not"
+        if not self.power_supplies_initialized or not self.power_supplies:
+            self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+            return
+        self.ramp_status[index] =  not self.ramp_status[index] # flips status
+        current_image = self.toggle_on_image if self.ramp_status[index] else self.toggle_off_image
+        self.ramp_toggle_buttons[index].config(image=current_image)
+
     def toggle_output(self, index):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
@@ -1116,20 +1135,24 @@ class CathodeHeatingSubsystem:
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-
-            target_voltage = self.user_set_voltages[index]
-            if target_voltage is not None:
-                slew_rate = self.slew_rates[index]
-                step_delay = 1.0  # seconds
-                step_size = slew_rate * step_delay
+            if self.ramp_status[index]:
+                target_voltage = self.user_set_voltages[index]
+                if target_voltage is not None:
+                    slew_rate = self.slew_rates[index]
+                    step_delay = 1.0  # seconds
+                    step_size = slew_rate * step_delay
+                    
+                    self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.power_supplies[index].ramp_voltage(
+                        target_voltage,
+                        step_size=step_size,
+                        step_delay=step_delay,
+                        preset=3
+                    )
+            else: # ramp is off; just set output voltage
+                if not self.power_supplies[index].set_voltage(preset=3, target=target_voltage):
+                    self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
                 
-                self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
-                self.power_supplies[index].ramp_voltage(
-                    target_voltage,
-                    step_size=step_size,
-                    step_delay=step_delay,
-                    preset=3
-                )
         else:
             # turning off the output
             self.power_supplies[index].set_output("0")
