@@ -106,7 +106,7 @@ class MessagesFrame:
         # Pack the frame into the parent
         self.frame.pack(fill=tk.NONE)  
 
-        # Reduce font size for the title label
+        # Add a title to the Messages & Errors frame
         label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 8, "bold"))
         label.grid(row=0, column=0, columnspan=4, sticky="ew", padx=5, pady=5)  # Reduce padding
 
@@ -117,11 +117,11 @@ class MessagesFrame:
         self.frame.columnconfigure(3, weight=0)
         self.frame.rowconfigure(1, weight=1)  # Allow text widget to expand
 
-        # Create a smaller Text widget for logs
+        # Create a Text widget for logs
         self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 7), width=(width // 10 if width else 30), height=(height // 30 if height else 10))
         self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=5, pady=5)
 
-        # Create smaller buttons
+        # Create a button to clear the text widget
         self.clear_button = tk.Button(self.frame, text="Clear", command=self.confirm_clear, font=("Helvetica", 7))
         self.clear_button.grid(row=2, column=0, sticky="ew", padx=2, pady=5)
 
