@@ -293,9 +293,10 @@ class CathodeHeatingSubsystem:
             self.toggle_buttons.append(toggle_button)
 
             # Create toggle switch for ramp_status
-            toggle_button = ttk.Button(main_tab, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_ramp(i))
+            toggle_button = ttk.Button(main_tab, image=self.toggle_on_image, style='Flat.TButton', command=lambda i=i: self.toggle_ramp(i))
             toggle_button.grid(row=7, column=1, columnspan=1)
             self.ramp_toggle_buttons.append(toggle_button)
+
 
             # Create measured values labels
             
@@ -1120,7 +1121,10 @@ class CathodeHeatingSubsystem:
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
+        
         self.ramp_status[index] =  not self.ramp_status[index] # flips status
+        print(self.ramp_status[index])
+
         current_image = self.toggle_on_image if self.ramp_status[index] else self.toggle_off_image
         self.ramp_toggle_buttons[index].config(image=current_image)
 
@@ -1135,8 +1139,8 @@ class CathodeHeatingSubsystem:
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
+            target_voltage = self.user_set_voltages[index]
             if self.ramp_status[index]:
-                target_voltage = self.user_set_voltages[index]
                 if target_voltage is not None:
                     slew_rate = self.slew_rates[index]
                     step_delay = 1.0  # seconds
@@ -1150,7 +1154,7 @@ class CathodeHeatingSubsystem:
                         preset=3
                     )
             else: # ramp is off; just set output voltage
-                if not self.power_supplies[index].set_voltage(preset=3, target=target_voltage):
+                if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
                     self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
                 
         else:
