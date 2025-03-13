@@ -86,43 +86,56 @@ class Logger:
             except Exception as e:
                 print(f"Error closing log file {str(e)}")
 
+import tkinter as tk
+import sys
+
+import tkinter as tk
+import sys
+
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
 
-    def __init__(self, parent):
-        self.frame = tk.Frame(parent, borderwidth=2, relief="solid")
-        self.frame.pack(fill=tk.BOTH, expand=True) 
+    def __init__(self, parent, width=300, height=200):
+        # Create the frame with a strict size
+        self.frame = tk.Frame(parent, borderwidth=2, relief="solid", width=width, height=height)
+        
+        # Prevent resizing of frame contents
+        self.frame.pack_propagate(False)
+        self.frame.grid_propagate(False)
+
+        # Pack the frame into the parent
+        self.frame.pack(fill=tk.NONE)  
 
         # Add a title to the Messages & Errors frame
-        label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 10, "bold"))
-        label.grid(row=0, column=0, columnspan=4, sticky="ew", padx=10, pady=10)
+        label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 8, "bold"))
+        label.grid(row=0, column=0, columnspan=4, sticky="ew", padx=5, pady=5)  # Reduce padding
 
-        # Configure the grid layout to allow the text widget to expand
+        # Configure grid so that widgets can resize proportionally
         self.frame.columnconfigure(0, weight=1)
         self.frame.columnconfigure(1, weight=1)
         self.frame.columnconfigure(2, weight=1)
         self.frame.columnconfigure(3, weight=0)
-        self.frame.rowconfigure(1, weight=1)
+        self.frame.rowconfigure(1, weight=1)  # Allow text widget to expand
 
         # Create a Text widget for logs
-        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 8))
-        self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=10, pady=0)
+        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 7), width=(width // 10 if width else 30), height=(height // 30 if height else 10))
+        self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=5, pady=5)
 
         # Create a button to clear the text widget
-        self.clear_button = tk.Button(self.frame, text="Clear Messages", command=self.confirm_clear)
-        self.clear_button.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
+        self.clear_button = tk.Button(self.frame, text="Clear", command=self.confirm_clear, font=("Helvetica", 7))
+        self.clear_button.grid(row=2, column=0, sticky="ew", padx=2, pady=5)
 
-        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log)
-        self.export_button.grid(row=2, column=1, sticky="ew", padx=5, pady=10)
+        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log, font=("Helvetica", 7))
+        self.export_button.grid(row=2, column=1, sticky="ew", padx=2, pady=5)
 
-        self.toggle_file_logging_button = tk.Button(self.frame, text="Record Log: ON", command=self.toggle_file_logging)
-        self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=5, pady=10)
+        self.toggle_file_logging_button = tk.Button(self.frame, text="Log: ON", command=self.toggle_file_logging, font=("Helvetica", 7))
+        self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=2, pady=5)
 
-        # circular indicator for log writing state
-        self.logging_indicator_canvas = tk.Canvas(self.frame, width=16, height=16, highlightthickness=0)
-        self.logging_indicator_canvas.grid(row=2, column=3, padx=(0, 10), pady=10)
+        # Circular indicator for log writing state (unchanged size)
+        self.logging_indicator_canvas = tk.Canvas(self.frame, width=12, height=12, highlightthickness=0)
+        self.logging_indicator_canvas.grid(row=2, column=3, padx=(2, 5), pady=5)
         self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(
-            2, 2, 14, 14, fill="#00FF24", outline="black"
+            2, 2, 10, 10, fill="#00FF24", outline="black"
         )
 
         self.file_logging_enabled = True
