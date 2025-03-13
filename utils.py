@@ -118,7 +118,7 @@ class MessagesFrame:
         self.frame.rowconfigure(1, weight=1)  # Allow text widget to expand
 
         # Create a smaller Text widget for logs
-        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 7), width=width//10, height=height//30)
+        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 7), width=(width // 10 if width else 30), height=(height // 30 if height else 10))
         self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=5, pady=5)
 
         # Create smaller buttons
