@@ -86,29 +86,39 @@ class Logger:
             except Exception as e:
                 print(f"Error closing log file {str(e)}")
 
+import tkinter as tk
+import sys
+
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
 
-    def __init__(self, parent):
-        self.frame = tk.Frame(parent, borderwidth=2, relief="solid")
-        self.frame.pack(fill=tk.BOTH, expand=True) 
+    def __init__(self, parent, width=300, height=200):
+        # Create the frame with a strict size
+        self.frame = tk.Frame(parent, borderwidth=2, relief="solid", width=width, height=height)
+        
+        # Prevent resizing
+        self.frame.pack_propagate(False)
+        self.frame.grid_propagate(False)  # Ensures internal widgets don't resize the frame
 
-        # Add a title to the Messages & Errors frame
+        # Pack the frame into the parent
+        self.frame.pack(fill=tk.NONE)  # Use fill=None to keep size fixed
+
+        # Add a title label
         label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 10, "bold"))
         label.grid(row=0, column=0, columnspan=4, sticky="ew", padx=10, pady=10)
 
-        # Configure the grid layout to allow the text widget to expand
-        self.frame.columnconfigure(0, weight=1)
-        self.frame.columnconfigure(1, weight=1)
-        self.frame.columnconfigure(2, weight=1)
+        # Ensure the frame layout does not expand
+        self.frame.columnconfigure(0, weight=0)
+        self.frame.columnconfigure(1, weight=0)
+        self.frame.columnconfigure(2, weight=0)
         self.frame.columnconfigure(3, weight=0)
-        self.frame.rowconfigure(1, weight=1)
+        self.frame.rowconfigure(1, weight=0)
 
         # Create a Text widget for logs
-        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 8))
+        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 8), width=width-40, height=height//20)
         self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=10, pady=0)
 
-        # Create a button to clear the text widget
+        # Create buttons
         self.clear_button = tk.Button(self.frame, text="Clear Messages", command=self.confirm_clear)
         self.clear_button.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
 
@@ -118,7 +128,7 @@ class MessagesFrame:
         self.toggle_file_logging_button = tk.Button(self.frame, text="Record Log: ON", command=self.toggle_file_logging)
         self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=5, pady=10)
 
-        # circular indicator for log writing state
+        # Circular indicator for log writing state
         self.logging_indicator_canvas = tk.Canvas(self.frame, width=16, height=16, highlightthickness=0)
         self.logging_indicator_canvas.grid(row=2, column=3, padx=(0, 10), pady=10)
         self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(

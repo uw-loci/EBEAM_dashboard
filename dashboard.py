@@ -244,10 +244,6 @@ class EBEAMSystemDashboard:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
         savedData = load_pane_states()
 
-        for i in range(len(frames_config)):
-            if frames_config[i][0] in savedData:
-                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
-
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
         log_level_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
@@ -318,8 +314,7 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[4])
-        print(self.rows[4])
+        self.messages_frame = MessagesFrame(self.rows[4], width = frames_config[-2][2], height = frames_config[-2][3])
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
