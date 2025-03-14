@@ -284,7 +284,7 @@ class PowerSupply9104:
                             voltage, current, mode = v2, c2, m2
                     return voltage, current, mode
             self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
-            time.sleep(0.5) # Delay before retry
+            time.sleep(0.1)
 
         self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
         return None, None, "Err"
