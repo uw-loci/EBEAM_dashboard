@@ -1299,9 +1299,6 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
-        if self.toggle_states[index]:
-            msgbox.showwarning("Warning", "Disable the output before setting a new voltage.")
-            return # exit the method if the output is already on
 
         new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
         if new_voltage is not None:
@@ -1333,11 +1330,16 @@ class CathodeHeatingSubsystem:
         """
 
         try:
-            voltage_less_OVP = self.validate_voltage(voltage)  # Ensure voltage is within valid range
+            current_ovp = self.get_ovp(index)
             
-            if voltage_less_OVP is False:
-                self.log(f"Invalid voltage setting for Cathode {['A', 'B', 'C'][index]}. Aborting update.", LogLevel.ERROR)
-                return False
+            if current_ovp is None:
+                self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                return
+
+            if voltage > current_ovp:
+                self.log(f"Calculated voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                return
 
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
