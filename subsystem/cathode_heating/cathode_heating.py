@@ -1121,7 +1121,7 @@ class CathodeHeatingSubsystem:
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
-        
+
         self.ramp_status[index] =  not self.ramp_status[index] # flips status
         print(self.ramp_status[index])
 
