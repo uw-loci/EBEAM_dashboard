@@ -227,10 +227,17 @@ class CathodeHeatingSubsystem:
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
             self.cathode_frames.append(frame)
-            
-            # Create a notebook for each cathode
+
+            frame.columnconfigure(1, weight=1)  # Allow notebook to expand
+            frame.columnconfigure(2, weight=0)
+
             notebook = ttk.Notebook(frame)
-            notebook.grid(row=0, column=0, columnspan=2, sticky='nsew')
+            notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
+
+            toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
+            toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
+            self.ramp_toggle_buttons.append(toggle_button)
+
             # Create the main tab
             main_tab = ttk.Frame(notebook)
             notebook.add(main_tab, text='Main')
@@ -293,29 +300,26 @@ class CathodeHeatingSubsystem:
             self.toggle_buttons.append(toggle_button)
 
             # Create toggle switch for ramp_status
-            toggle_button = ttk.Button(main_tab, image=self.toggle_on_image, style='Flat.TButton', command=lambda i=i: self.toggle_ramp(i))
-            toggle_button.grid(row=7, column=1, columnspan=1)
-            self.ramp_toggle_buttons.append(toggle_button)
 
 
             # Create measured values labels
             
             # Actual heater current (A)
-            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
+            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             
             # Actual heater voltage (V)
-            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             
             # Actual target current (mA)
-            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
+            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             
             # Temperature monitoring (C)
-            ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=11, column=0, sticky='e')
+            ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
-            clamp_temp_label.grid(row=11, column=1, sticky='w')
+            clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
 
             # Create plot for each cathode
@@ -1123,10 +1127,9 @@ class CathodeHeatingSubsystem:
             return
 
         self.ramp_status[index] =  not self.ramp_status[index] # flips status
-        print(self.ramp_status[index])
 
-        current_image = self.toggle_on_image if self.ramp_status[index] else self.toggle_off_image
-        self.ramp_toggle_buttons[index].config(image=current_image)
+        current_state = "green" if self.ramp_status[index] else "red"
+        self.ramp_toggle_buttons[index].config(background=current_state)
 
     def toggle_output(self, index):
         if not self.power_supplies_initialized or not self.power_supplies:
