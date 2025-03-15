@@ -47,7 +47,7 @@ class CathodeHeatingSubsystem:
         'DISCONNECTED': '#808080'
     }
     
-    def __init__(self, parent, com_ports, logger=None):
+    def __init__(self, parent, com_ports, active, logger=None):
         """
         Initialize the cathode heating subsystem.
         
@@ -65,6 +65,7 @@ class CathodeHeatingSubsystem:
         self.parent = parent
         self.com_ports = com_ports
         self.logger = logger
+        self.active = active
 
         # Power supply state tracking
         self.power_supplies_initialized = False
@@ -575,9 +576,11 @@ class CathodeHeatingSubsystem:
             self.initialize_temperature_controllers()
             if not self.temp_controllers_connected:
                 self.log("Failed to initialize temperature controllers with new port", LogLevel.ERROR)
+                self.active["Cathode Heating"] = False
                 return False
                 
             self.log(f"Successfully updated temperature controllers to port {new_port}", LogLevel.INFO)
+            self.active["Cathode Heating"] = True # Update machine status bar
             return True
             
         except Exception as e:

@@ -5,7 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from utils import MessagesFrame, SetupScripts, LogLevel
+from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
@@ -32,6 +32,10 @@ frames_config = [
     # Row 4
     ("Process Monitor", 4, 250, 450),
     ("Cathode Heating", 4, 980, 450),
+    ("Messages Frame", 4, None, None),
+
+    # Row 5
+    ("Machine Status", 5, None, 50)
 ]
 
 class EBEAMSystemDashboard:
@@ -47,15 +51,22 @@ class EBEAMSystemDashboard:
 
     Attributes:
         root: tkinter root window
-        com_ports: Dictionary mapping subsystem names to serial COM port assigments
+        com_ports: Dictionary mapping subsystem names to serial COM port assignments
         frames: Dictionary of tkinter frames for each subsystem
         subsystems: Dictionary of initialized subsystem objects
     """
+
+    PORT_INFO = {
+        "AG0KLEQ8A" : "Interlocks"
+    }
 
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
+
+        self.set_com_ports = set(serial.tools.list_ports.comports())
+        
         
         # if save file exists call it and open it
         if saveFileExists():
@@ -73,8 +84,13 @@ class EBEAMSystemDashboard:
         # Initialize all the frames within the main pane
         self.create_frames()
 
+        # Set up a frame for displaying machine status information
+        self.create_machine_status_frame()
+
         # Set up different subsystems within their respective frames
         self.create_subsystems()
+
+        self._check_ports()
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -91,7 +107,7 @@ class EBEAMSystemDashboard:
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
+        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(6)]
         for row_pane in self.rows:
             self.main_pane.add(row_pane, stretch='always')
 
@@ -108,16 +124,19 @@ class EBEAMSystemDashboard:
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
-            self.rows[row].add(frame, stretch='always')
-            if title != "Interlocks":
+            if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
+            if title == "Messages Frame":
+                continue
             self.frames[title] = frame
+            self.rows[row].add(frame, stretch='always')
             if title == "Setup Script":
                 SetupScripts(frame)
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
         self.rows[4].add(self.messages_frame.frame, stretch='always')
+        self.frames['Messages Frame'] = self.messages_frame.frame
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -225,10 +244,6 @@ class EBEAMSystemDashboard:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
         savedData = load_pane_states()
 
-        for i in range(len(frames_config)):
-            if frames_config[i][0] in savedData:
-                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
-
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
         log_level_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
@@ -268,7 +283,8 @@ class EBEAMSystemDashboard:
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'], 
                 com_port=self.com_ports['ProcessMonitors'],
-                logger=self.logger
+                logger=self.logger,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
                 self.frames['Visualization Gas Control'], 
@@ -278,23 +294,32 @@ class EBEAMSystemDashboard:
                 self.frames['Interlocks'],
                 com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
-                frames = self.frames
+                frames = self.frames,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
-                logger=self.logger
+                logger=self.logger,
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
-                logger=self.logger
+                logger=self.logger,
+                active = self.machine_status_frame.MACHINE_STATUS
             )
         }
 
+        # Updates machine status progress bar
+        self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
+
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[4])
+        self.messages_frame = MessagesFrame(self.rows[4], width = frames_config[-2][2], height = frames_config[-2][3])
         self.logger = self.messages_frame.logger
+
+    def create_machine_status_frame(self):
+        """Create a frame for displaying machine status information."""
+        self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
 
     def create_com_port_frame(self, parent_frame):
         """
@@ -365,4 +390,54 @@ class EBEAMSystemDashboard:
                     subsystem.update_com_ports(new_com_ports)
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+        self.logger.info(f"COM ports updated: {self.com_ports}")
+
+
+    def _check_ports(self):
+        """
+        Compares the current available comports to the last set
+
+        Finally:
+            Calls itself to be check again
+        """
+        print("checking com ports")
+        current_ports = set(serial.tools.list_ports.comports())
+
+        dif = self.set_com_ports - current_ports
+        added_ports = current_ports - self.set_com_ports
+
+        try:
+            # Process removed ports
+            for port in dif:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.warning(
+                        f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+
+            # Process added ports
+            for port in added_ports:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.info(
+                        f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], port)
+        except Exception as e:
+            self.logger.warning(f"Error was thrown when either removing or adding a comport: {e}")
+
+        finally:
+            self.set_com_ports = current_ports
+            self.root.after(500, self._check_ports)
+
+    def _update_com_ports(self, subsystem_str, port):
+        """
+        Calls to update subsystems with change in comport
+        """
+        print("here, updating com port")
+        if subsystem_str is None:
+            raise ValueError("_update_com_ports was called with invalid args")
+        str_port = port.device if port is not None else None
+        if subsystem_str in self.subsystems:
+            if subsystem_str == "Interlocks":
+                self.subsystems[subsystem_str].update_com_port(str_port)
+            #TODO: Need to add Vacuum system and Cathode Heating
+
         self.logger.info(f"COM ports updated: {self.com_ports}")
