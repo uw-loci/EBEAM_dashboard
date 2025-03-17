@@ -622,9 +622,11 @@ class CathodeHeatingSubsystem:
                         self.log(f"Asserted preset mode 3 (normal mode) for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = Decimal(self.overvoltage_limit_vars[idx].get())
+                    stored_ovp = self.overvoltage_limit_vars[idx].get()
+                    ovp_value = float(stored_ovp)
+                    ovp_set   = Decimal(stored_ovp).quantize(Decimal('0.01'))  # Round to 2 decimal places
                     self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
-                    if ps.set_over_voltage_protection(ovp_value):
+                    if ps.set_over_voltage_protection(ovp_set):
                         self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
                         
                         # Confirm the OVP setting
@@ -640,9 +642,11 @@ class CathodeHeatingSubsystem:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = Decimal(self.overcurrent_limit_vars[idx].get())
+                    stored_ocp = self.overcurrent_limit_vars[idx].get()
+                    ocp_value = float(stored_ocp)
+                    ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
                     self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
-                    if ps.set_over_current_protection(ocp_value):
+                    if ps.set_over_current_protection(ocp_set):
                         self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
                         
                         # Confirm the OCP setting
@@ -713,7 +717,7 @@ class CathodeHeatingSubsystem:
             ValueError: If slew rate is invalid or negative
         """
         try:
-            new_slew_rate = Decimal(var.get())
+            new_slew_rate = float(var.get())
             if new_slew_rate <= 0:
                 raise ValueError("Slew rate must be positive.")
             self.slew_rates[index] = new_slew_rate
@@ -729,12 +733,14 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            raw_value = Decimal(self.overvoltage_limit_vars[index].get())
+            stored_ovp = self.overvoltage_limit_vars[index].get()
+            raw_value = float(stored_ovp)
+            ovp_set   = Decimal(stored_ovp).quantize(Decimal('0.01'))  # Round to 2 decimal places
             if raw_value < 0 or raw_value > 60:
                 raise ValueError("OVP out of valid range (0-60 V).")
             
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
-            ovp_set_response = self.power_supplies[index].set_over_voltage_protection(raw_value)
+            ovp_set_response = self.power_supplies[index].set_over_voltage_protection(ovp_set)
             if not ovp_set_response:
                 self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.WARNING)
                 return
@@ -769,12 +775,15 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            raw_value = Decimal(self.overcurrent_limit_vars[index].get())
+            stored_ocp = self.overcurrent_limit_vars[index].get()
+            raw_value = float(stored_ocp)
+            ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
+            raw_value = float(self.overcurrent_limit_vars[index].get())
             if raw_value < 0 or raw_value > 10:
                 raise ValueError("OCP out of valid range (0-10 A).")
             
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
-            ocp_set_response = self.power_supplies[index].set_over_current_protection(raw_value)
+            ocp_set_response = self.power_supplies[index].set_over_current_protection(ocp_set)
             if not ocp_set_response:
                 self.log(f"Failed to set OCP for Cathode {['A', 'B', 'C'][index]}. Response: {ocp_set_response}", LogLevel.WARNING)
                 return
@@ -1163,7 +1172,7 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            target_current_mA = Decimal(entry_field.get())
+            target_current_mA = float(entry_field.get())
             ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
             if ideal_emission_current < 0:
                 raise ValueError("Target current must be positive")
@@ -1206,7 +1215,7 @@ class CathodeHeatingSubsystem:
                 # Set Upper Voltage Limit and Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
                     self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
-                    voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
+                    voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
                     
                     if voltage_set_success:
                         self.user_set_voltages[index] = heater_voltage
@@ -1415,7 +1424,7 @@ class CathodeHeatingSubsystem:
 
     def set_overtemp_limit(self, index, temp_var):
         try:
-            new_limit = Decimal(temp_var.get())
+            new_limit = float(temp_var.get())
             self.overtemp_limit_vars[index].set(new_limit)
             self.log(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}C", LogLevel.INFO)
         except ValueError:
