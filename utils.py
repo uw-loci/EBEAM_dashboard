@@ -261,7 +261,7 @@ class SetupScripts:
         self.frame.pack(pady=10, fill=tk.X)
 
         # Label
-        tk.Label(self.frame, text="Select Config Script:").pack(side=tk.LEFT)
+        tk.Label(self.frame, text="Script:").pack(side=tk.LEFT)
 
         # Dropdown Menu for selecting a script
         self.script_var = tk.StringVar()
