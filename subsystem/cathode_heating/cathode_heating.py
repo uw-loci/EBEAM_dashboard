@@ -136,7 +136,7 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
         self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
         
@@ -169,18 +169,18 @@ class CathodeHeatingSubsystem:
         Implements system defaults and safety thresholds.
         """
         # Power supply status display variables
-        self.current_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current readings
-        self.voltage_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Voltage readings
-        self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]  # CV/CC mode
+        self.current_display_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Current readings
+        self.voltage_display_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Voltage readings
+        self.operation_mode_var   = [tk.StringVar(value='Mode: --') for _ in range(3)]  # CV/CC mode
         
         # Safety limit variables
         ## Temperature protection
-        self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
+        self.overtemp_limit_vars  = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
         ## Power supply protection
-        self.overvoltage_limit_vars = [tk.StringVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
-        self.overcurrent_limit_vars = [tk.StringVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
+        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
+        self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
