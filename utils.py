@@ -49,7 +49,8 @@ class Logger:
             formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
             
             # Write to text widget
-            self.text_widget.insert(tk.END, formatted_message)
+            self.text_widget.insert(tk.END, formatted_message, ("log",))
+            self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
 
             # write to log flie if enabled
@@ -122,13 +123,13 @@ class MessagesFrame:
         self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=5, pady=5)
 
         # Create a button to clear the text widget
-        self.clear_button = tk.Button(self.frame, text="Clear", command=self.confirm_clear, font=("Helvetica", 7))
+        self.clear_button = tk.Button(self.frame, text="Clear", command=self.confirm_clear, font=("Helvetica", 10))
         self.clear_button.grid(row=2, column=0, sticky="ew", padx=2, pady=5)
 
-        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log, font=("Helvetica", 7))
+        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log, font=("Helvetica", 10))
         self.export_button.grid(row=2, column=1, sticky="ew", padx=2, pady=5)
 
-        self.toggle_file_logging_button = tk.Button(self.frame, text="Log: ON", command=self.toggle_file_logging, font=("Helvetica", 7))
+        self.toggle_file_logging_button = tk.Button(self.frame, text="Log: ON", command=self.toggle_file_logging, font=("Helvetica", 10))
         self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=2, pady=5)
 
         # Circular indicator for log writing state (unchanged size)

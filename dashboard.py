@@ -11,25 +11,25 @@ import serial.tools.list_ports
 
 frames_config = [
     # Row 0
-    ("Interlocks", 0, None, 2),
+    ("Interlocks", 0, 1916, 41),
     
     # Row 1
-    ("Oil System", 1, 50, 150),
-    ("Beam Steering", 1, 50, 150),
-    ("Beam Energy", 1, None, None),
+    ("Oil System", 1, 604, 130),
+    ("Beam Steering", 1, 778, 130),
+    ("Beam Energy", 1, 528, 130),
     
     # Row 2
-    ("Vacuum System", 2, 150, 300),
-    ("Beam Pulse", 2, None, None),
-    ("Main Control", 2, 50, 300),
+    ("Vacuum System", 2, 604, 438),
+    ("Beam Pulse", 2, 777, 438),
+    ("Main Control", 2, 529, 438),
     
     # Row 4
-    ("Process Monitor", 3, 250, 450),
-    ("Cathode Heating", 3, 980, 450),
-    ("Messages Frame", 3, None, None),
+    ("Process Monitor", 3, 339, 458),
+    ("Cathode Heating", 3, 1041, 458),
+    ("Messages Frame", 3, 539, 458),
 
     # Row 5
-    ("Machine Status", 4, None, 50)
+    ("Machine Status", 4, 1916, 38)
 ]
 
 class EBEAMSystemDashboard:
