@@ -11,30 +11,25 @@ import serial.tools.list_ports
 
 frames_config = [
     # Row 0
-    ("Interlocks", 0, None, 2),
+    ("Interlocks", 0, 1916, 41),
     
     # Row 1
-    ("Oil System", 1, 50, 150),
-    # ("Visualization Gas Control", 2, 50, 150),
-    ("Energy", 1, None, None),
+    ("Oil System", 1, 604, 130),
+    ("Beam Steering", 1, 778, 130),
+    ("Beam Energy", 1, 528, 130),
     
     # Row 2
-    # ("Beam Extraction", 1, None, None),
-    ("Vacuum System", 2, 150, 300),
-    ("Beam Controller", 2, None, None),
-    # ("Beam Pulse", 2, None, None),
-    ("Main Control", 2, 50, 300),
-    
-    # Row 3
-    # ("Setup Script", 3, None, 25),
-    # ("High Voltage Warning", 3, None, 25),
+    ("Vacuum System", 2, 604, 438),
+    ("Beam Pulse", 2, 777, 438),
+    ("Main Control", 2, 529, 438),
     
     # Row 4
-    ("Process Monitor", 3, 250, 450),
-    ("Cathode Heating", 3, 980, 450),
+    ("Process Monitor", 3, 339, 458),
+    ("Cathode Heating", 3, 1041, 458),
+    ("Messages Frame", 3, 539, 458),
 
     # Row 5
-    ("Machine Status", 4, None, 50)
+    ("Machine Status", 4, 1916, 38)
 ]
 
 class EBEAMSystemDashboard:
@@ -123,16 +118,17 @@ class EBEAMSystemDashboard:
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
-            self.rows[row].add(frame, stretch='always')
             if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
+            if title == "Messages Frame":
+                continue
             self.frames[title] = frame
-            # if title == "Setup Script":
-            #     SetupScripts(frame)
+            self.rows[row].add(frame, stretch='always')
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
         self.rows[3].add(self.messages_frame.frame, stretch='always')
+        self.frames['Messages Frame'] = self.messages_frame.frame
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -145,9 +141,11 @@ class EBEAMSystemDashboard:
         notebook.add(config_tab, text='Config')
 
         # TODO: add main control buttons to main tab here
-
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Script dropdown
+        self.create_script_dropdown(main_frame)
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -181,6 +179,9 @@ class EBEAMSystemDashboard:
         )
 
         help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
+
+    def create_script_dropdown(self, parent_frame):
+        SetupScripts(parent_frame)
 
     def create_post_processor_button(self, parent_frame):
         """Create a button to launch the standalone post-processor application"""
@@ -246,10 +247,6 @@ class EBEAMSystemDashboard:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
         savedData = load_pane_states()
 
-        for i in range(len(frames_config)):
-            if frames_config[i][0] in savedData:
-                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
-
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
         log_level_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
@@ -292,10 +289,6 @@ class EBEAMSystemDashboard:
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             ),
-            # 'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
-            #     self.frames['Visualization Gas Control'], 
-            #     logger=self.logger
-            # ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'],
                 com_ports = self.com_ports['Interlocks'],
@@ -320,7 +313,7 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3])
+        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):

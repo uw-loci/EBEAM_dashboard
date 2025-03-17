@@ -73,10 +73,17 @@ class PowerSupply9104:
     def set_output(self, state):
         """Set the output on/off."""
         """ Expected return value: OK[CR] """
-        command = f"SOUT{state}"
-        response = self.send_command(command)
-        self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
-        return response and "OK" in response
+        
+        voltage, _ = self.get_settings(3)
+        
+        if not self.validate_voltage(voltage):
+            self.log(f"Cannot switch on output. Check voltage vs. OVP", LogLevel.ERROR)
+            return False
+        else:
+            command = f"SOUT{state}"
+            response = self.send_command(command)
+            self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
+            return response and "OK" in response
 
     def get_output_status(self):
         """Get the output status."""
@@ -95,7 +102,7 @@ class PowerSupply9104:
         # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
         if not is_voltage_valid:
             self.log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
-            return
+            return False
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
@@ -210,9 +217,10 @@ class PowerSupply9104:
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
         # Example corresponds to 05.00V, 01.00A, supply in CV mode
-        self.flush_serial()
-        command = "GETD"
-        self.log(f"Sent command:{command}", LogLevel.DEBUG)
+        with self.serial_lock:
+            self.flush_serial()
+            command = "GETD"
+            self.log(f"Sent command:{command}", LogLevel.DEBUG)
         return self.send_command(command)
     
     def parse_getd_response(self, response):
@@ -244,7 +252,7 @@ class PowerSupply9104:
     def set_over_voltage_protection(self, ovp_volts):
         """Set the over voltage protection value."""
         """ Expected response: OK[CR] """
-        ovp_centivolts = int(ovp_volts)
+        ovp_centivolts = int(ovp_volts * 100)
         command = f"SOVP{ovp_centivolts:04d}" # format as 4-digit string
         response = self.send_command(command)
 
@@ -284,7 +292,7 @@ class PowerSupply9104:
     def set_over_current_protection(self, ocp_amps):
         """Set the over current protection value."""
         """ Expected response: OK[CR] """
-        ocp_centiamps = int(ocp_amps)
+        ocp_centiamps = int(ocp_amps * 100)
         
         command = f"SOCP{ocp_centiamps:04d}"
         response = self.send_command(command) 
