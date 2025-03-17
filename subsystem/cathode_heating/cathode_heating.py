@@ -1215,6 +1215,17 @@ class CathodeHeatingSubsystem:
                 # Set Upper Voltage Limit and Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
                     self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
+                    
+                    current_ovp = self.get_ovp(index)
+                    
+                    if current_ovp is None:
+                        self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                        return
+                    if heater_voltage > current_ovp:
+                        self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                        msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                        return
+                    # Set the voltage and current on the power supply
                     voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
                     
                     if voltage_set_success:
@@ -1228,6 +1239,7 @@ class CathodeHeatingSubsystem:
                                 self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
                                 if voltage_mismatch:
                                     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                                    return
                                 # GUI is updated with actual voltage
                                 self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
                             else:
