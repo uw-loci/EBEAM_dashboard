@@ -190,6 +190,8 @@ class CathodeHeatingSubsystem:
         style.configure('Bold.TLabel', font=('Helvetica', 10, 'bold'))
         style.configure('RightAlign.TLabel', font=('Helvetica', 9), anchor='e')
         style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
+        style.configure('RampOn.TButton', background='green', foreground='black', font=('Helvetica', 8, 'bold'))
+        style.configure('RampOff.TButton', background='red', foreground='black', font=('Helvetica', 8, 'bold')) # Ramp button style
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -221,6 +223,7 @@ class CathodeHeatingSubsystem:
 
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
+        self.ramp_mode_vars = []
         self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
@@ -235,9 +238,9 @@ class CathodeHeatingSubsystem:
             notebook = ttk.Notebook(frame)
             notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
 
-            toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
-            toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
-            self.ramp_toggle_buttons.append(toggle_button)
+            # toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
+            # toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
+            # self.ramp_toggle_buttons.append(toggle_button)
 
             # Create the main tab
             main_tab = ttk.Frame(notebook)
@@ -291,17 +294,44 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
 
             # Create entries and display labels
-            ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel').grid(row=6, column=0, sticky='w')
+            heater_label = ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel')
+            heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
 
-            ttk.Label(main_tab, text=ramp_labels[i], style='Bold.TLabel').grid(row=7, column=0, sticky='w')
+            control_frame = ttk.Frame(main_tab)
+            control_frame.grid(row=6, column=1, sticky='w')
+
+            # Create a label frame for radio buttons with title
+            ramp_frame = ttk.Frame(control_frame)
+            ramp_frame.grid(row=0, column=0, padx=(0, 10))
+
+            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
+            gradual_radio = ttk.Radiobutton(
+                ramp_frame, 
+                text="Ramp Mode",
+                value="gradual",
+                variable=ramp_var,
+                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, True)
+            )
+            immediate_radio = ttk.Radiobutton(
+                ramp_frame,
+                text="Immediate Set",
+                value="immediate",
+                variable=ramp_var,
+                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, False)
+            )
+            gradual_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
+            immediate_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
+            
+            self.ramp_mode_vars.append(ramp_var)
 
             # Create toggle switch for output
-            toggle_button = ttk.Button(main_tab, image=self.toggle_off_image, style='Flat.TButton', command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=6, column=1, columnspan=1)
+            toggle_button = ttk.Button(control_frame, image=self.toggle_off_image, style='Flat.TButton', 
+                                       command=lambda i=i: self.toggle_output(i))
+            toggle_button.grid(row=0, column=1)
+
             self.toggle_buttons.append(toggle_button)
-
-            # Create toggle switch for ramp_status
-
+            
+            ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
             # Create measured values labels
             
@@ -746,6 +776,22 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
 
+    def set_ramp_mode(self, index, is_gradual):
+        """
+        Set the ramping mode for the specified power supply.
+        
+        Args:
+            index (int): Index of the cathode (0-2)
+            is_gradual (bool): True for gradual ramping, False for immediate changes
+        """
+        self.ramp_status[index] = is_gradual
+        
+        mode_str = "Gradual" if is_gradual else "Immediate"
+        self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
+        
+        if not is_gradual:
+            self.log(f"Immediate set voltage change mode for Cathode {index}", LogLevel.WARNING)
+
     def set_overvoltage_limit(self, index):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OVP.", LogLevel.ERROR)
@@ -1124,15 +1170,27 @@ class CathodeHeatingSubsystem:
         ax.figure.canvas.draw()
 
     def toggle_ramp(self, index):
-        "updates status of toggle to refer to if we are using ramping or not"
+        """
+        Toggle ramping mode for voltage changes.
+        
+        When enabled (default), voltage changes occur gradually at the configured slew rate.
+        When disabled, voltage changes occur immediately.
+        
+        Args:
+            index (int): Index of the cathode (0-2)
+        """
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
 
         self.ramp_status[index] =  not self.ramp_status[index] # flips status
 
-        current_state = "green" if self.ramp_status[index] else "red"
-        self.ramp_toggle_buttons[index].config(background=current_state)
+        if self.ramp_status[index]:
+            self.ramp_toggle_buttons[index].config(text="RAMP", style='RampOn.TButton')
+            self.log(f"Enabled voltage ramping for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+        else:
+            self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
+            self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
     def toggle_output(self, index):
         if not self.power_supplies_initialized or not self.power_supplies:
@@ -1162,6 +1220,7 @@ class CathodeHeatingSubsystem:
             else: # ramp is off; just set output voltage
                 if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
                     self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
+                    msgbox.showerror("Error", f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}")
                 
         else:
             # turning off the output
