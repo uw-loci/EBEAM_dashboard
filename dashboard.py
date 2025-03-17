@@ -168,8 +168,6 @@ class EBEAMSystemDashboard:
         # 4. Log Level dropdown
         self.create_log_level_dropdown(config_frame)
 
-        self.setup_scripts = SetupScripts(main_frame)
-
         # Add F1 help hint
         help_label = ttk.Label(
             config_frame,
