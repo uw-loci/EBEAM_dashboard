@@ -396,7 +396,7 @@ class EBEAMSystemDashboard:
         Finally:
             Calls itself to be check again
         """
-        print("checking com ports")
+        self.logger.info("checking com ports")
         current_ports = set(serial.tools.list_ports.comports())
 
         dif = self.set_com_ports - current_ports
