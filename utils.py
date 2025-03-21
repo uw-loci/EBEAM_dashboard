@@ -377,6 +377,9 @@ class MachineStatus():
         """Setup the GUI for the Machine Status Panel"""
         self.machine_status_frame = tk.Frame(self.parent, bg="#dbd9d9")
         self.machine_status_frame.pack(fill=tk.BOTH, expand=True)
+        screen_width = self.parent.winfo_screenwidth()
+
+        font_size = max(8, min(12, int(screen_width / 180)))
 
         # Configure columns for each individual machine status
         num_columns = len(self.MACHINE_STATUS)
@@ -395,9 +398,14 @@ class MachineStatus():
 
             label = tk.Label(
                 container,
-                text=name, anchor="w", padx=5,
-                bg=bg_color, fg=fg_color,
-                wraplength=80, justify="left"
+                text=name, 
+                anchor="w", 
+                padx=5,
+                bg=bg_color, 
+                fg=fg_color,
+                font=("Helvetica", font_size),
+                wraplength=80, 
+                justify="left"
             )
             label.pack(fill=tk.BOTH, expand=True, pady=3)  # Add small padding for text breathing room
 
@@ -405,7 +413,7 @@ class MachineStatus():
 
             # Add a **very thin** black separator frame (1px wide)
             if i < len(self.MACHINE_STATUS) - 1:
-                separator = tk.Frame(self.machine_status_frame, bg="black", width=1)  # 1px width black separator
+                separator = tk.Frame(self.machine_status_frame, bg="black", width=1)
                 separator.grid(row=0, column=i * 2 + 1, sticky="ns")
 
     def update_status(self, status_dict=None):
