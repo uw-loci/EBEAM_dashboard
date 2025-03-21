@@ -18,8 +18,6 @@ SUBSYSTEMS = [
 ]
 
 """Dictionary storing all open serial connections"""
-open_com_ports = {}
-
 
 # def open_com_ports_connections(com_ports):
 #     """ Open the serial connections for the subsystems and store them in open_com_ports"""
