@@ -21,29 +21,29 @@ SUBSYSTEMS = [
 open_com_ports = {}
 
 
-def open_com_ports_connections(com_ports):
-    """ Open the serial connections for the subsystems and store them in open_com_ports"""
-    global open_com_ports
+# def open_com_ports_connections(com_ports):
+#     """ Open the serial connections for the subsystems and store them in open_com_ports"""
+#     global open_com_ports
 
-    for subsystem, port in com_ports.items():
-        try:
-            if "DUMMY_COM" not in port:
-                ser = serial.Serial(port, baudrate=9600, timeout=1)
-                open_com_ports[subsystem] = ser 
-        except serial.SerialException as e:
-            print(f"Could not open {port}: {e}") 
+#     for subsystem, port in com_ports.items():
+#         try:
+#             if "DUMMY_COM" not in port:
+#                 ser = serial.Serial(port, baudrate=9600, timeout=1)
+#                 open_com_ports[subsystem] = ser 
+#         except serial.SerialException as e:
+#             print(f"Could not open {port}: {e}") 
 
 
-def close_com_ports():
-    """
-    Close all open serial connections stored in `open_com_ports`.
-    """
-    global open_com_ports
-    for subsystem, ser in open_com_ports.items():
-        if ser.is_open:
-            ser.close()
-            print(f"Closed {subsystem} ({ser.port})")
-    open_com_ports.clear()
+# def close_com_ports():
+#     """
+#     Close all open serial connections stored in `open_com_ports`.
+#     """
+#     global open_com_ports
+#     for subsystem, ser in open_com_ports.items():
+#         if ser.is_open:
+#             ser.close()
+#             print(f"Closed {subsystem} ({ser.port})")
+#     open_com_ports.clear()
 
 
 
