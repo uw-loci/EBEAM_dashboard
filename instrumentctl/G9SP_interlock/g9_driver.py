@@ -147,16 +147,6 @@ class G9Driver:
             time.sleep(0.1)  # minimum sleep between successful reads
 
 
-    # To handle the misleading initialization log message
-
-    # def wait_for_connection(self, timeout):
-    #     start_time = time.time()
-    #     while time.time() - start_time < timeout:
-    #         if self.is_connected():
-    #             return True
-    #     return False
-
-
     def get_interlock_status(self):
         """
         Non-blocking method to get the latest interlock status
