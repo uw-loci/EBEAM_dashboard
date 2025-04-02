@@ -13,6 +13,7 @@ from instrumentctl.power_supply_9104.power_supply_9104 import PowerSupply9104
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
+import pandas as pd
 import numpy as np
 from utils import LogLevel
 
@@ -46,6 +47,13 @@ class CathodeHeatingSubsystem:
         'ERROR': '#FFA500',       # Communication error
         'DISCONNECTED': '#808080'
     }
+
+    current_options = {
+        "Cathode A" : pd.read_csv('./subsystem/cathode_heating/powersupply_A.csv').to_dict(),
+        "Cathode B" : pd.read_csv('./subsystem/cathode_heating/powersupply_B.csv').to_dict(),
+        "Cathode C" : pd.read_csv('./subsystem/cathode_heating/powersupply_C.csv').to_dict(),
+        # "Interpolate" : ES440_cathode().interpolate()
+    }
     
     def __init__(self, parent, com_ports, active, logger=None):
         """
@@ -78,6 +86,9 @@ class CathodeHeatingSubsystem:
         self.user_set_voltages = [None, None, None]
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
+        self.interpolate_setting = [self.current_options["Cathode A"], 
+                                    self.current_options["Cathode B"], 
+                                    self.current_options["Cathode C"]]
         self.query_settings_buttons = []
 
         # Temperature controller state tracking
@@ -461,6 +472,15 @@ class CathodeHeatingSubsystem:
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
             read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+
+            # Add dropdown for interpolate_setting
+            interpolate_label = ttk.Label(config_tab, text='Select Interpolation Setting:', style='RightAlign.TLabel')
+            interpolate_label.grid(row=5, column=0, sticky='e')
+
+            interpolate_options = list(self.current_options.keys())
+            self.interpolate_combobox = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
+            self.interpolate_combobox.grid(row=5, column=1, sticky='w')
+            self.interpolate_combobox.set("Select an option")  # Default text
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
