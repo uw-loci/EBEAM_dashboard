@@ -480,7 +480,10 @@ class CathodeHeatingSubsystem:
             interpolate_options = list(self.current_options.keys())
             self.interpolate_combobox = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
             self.interpolate_combobox.grid(row=5, column=1, sticky='w')
-            self.interpolate_combobox.set("Select an option")  # Default text
+            self.interpolate_combobox.set(f"Cathode {["A", "B", "C"][i]}")  # Default text
+
+            # Bind the selection change to the on_interp_change method with the current index
+            self.interpolate_combobox.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -1189,6 +1192,11 @@ class CathodeHeatingSubsystem:
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
 
+    def update_interp_func(self, val, index):
+        if val in self.current_options:
+            self.log(f"Updating powersupply {index=} current interpulation from {self.interpolate_setting[index]} to {self.current_options[index]}")
+            self.interpolate_setting[index] = self.current_options[val]
+        
     def toggle_ramp(self, index):
         """
         Toggle ramping mode for voltage changes.
@@ -1615,3 +1623,26 @@ class CathodeHeatingSubsystem:
                 self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
+
+    def on_interp_change(self, event, index):
+        """
+        Handle changes in the interpolation setting dropdown.
+
+        Args:
+            event: The event triggered by changing the selection in the combobox.
+            index: The index of the power supply to update.
+        """
+        selected_value = self.interpolate_combobox.get()  # Get the selected value from the combobox
+        
+        # Show a message box with the selected value
+        msgbox.showinfo("Interpolation Setting Changed", f"Selected: {selected_value}")
+
+        if selected_value in self.current_options:
+            self.log(f"Updating interpolation setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
+            self.interpolate_setting[index] = self.current_options[selected_value]
+            # Show confirmation message
+            msgbox.showinfo("Update Successful", f"Updated Cathode {['A', 'B', 'C'][index]} to {selected_value}")
+        else:
+            self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
+            # Show error message
+            msgbox.showerror("Invalid Selection", f"{selected_value} is not a valid option.")
