@@ -48,12 +48,7 @@ class CathodeHeatingSubsystem:
         'DISCONNECTED': '#808080'
     }
 
-    current_options = {
-        "Cathode A" : pd.read_csv('./subsystem/cathode_heating/powersupply_A.csv').to_dict(),
-        "Cathode B" : pd.read_csv('./subsystem/cathode_heating/powersupply_B.csv').to_dict(),
-        "Cathode C" : pd.read_csv('./subsystem/cathode_heating/powersupply_C.csv').to_dict(),
-        # "Interpolate" : ES440_cathode().interpolate()
-    }
+    
     
     def __init__(self, parent, com_ports, active, logger=None):
         """
@@ -86,10 +81,18 @@ class CathodeHeatingSubsystem:
         self.user_set_voltages = [None, None, None]
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
+        self.current_options = {
+            "Cathode A" : pd.read_csv('./subsystem/cathode_heating/powersupply_A.csv').to_dict(),
+            "Cathode B" : pd.read_csv('./subsystem/cathode_heating/powersupply_B.csv').to_dict(),
+            "Cathode C" : pd.read_csv('./subsystem/cathode_heating/powersupply_C.csv').to_dict(),
+            "Interpolate" : self.interpolate
+        }
         self.interpolate_setting = [self.current_options["Cathode A"], 
                                     self.current_options["Cathode B"], 
-                                    self.current_options["Cathode C"]]
+                                    self.current_options["Cathode C"],
+                                    self.current_options["Interpolate"]]
         self.query_settings_buttons = []
+        self.interpolate_comboboxes = []
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -478,12 +481,12 @@ class CathodeHeatingSubsystem:
             interpolate_label.grid(row=5, column=0, sticky='e')
 
             interpolate_options = list(self.current_options.keys())
-            self.interpolate_combobox = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
-            self.interpolate_combobox.grid(row=5, column=1, sticky='w')
-            self.interpolate_combobox.set(f"Cathode {["A", "B", "C"][i]}")  # Default text
+            interp_box = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
+            interp_box.grid(row=5, column=1, sticky='w')
+            interp_box.set(f"Cathode {['A', 'B', 'C'][i]}")
+            interp_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
 
-            # Bind the selection change to the on_interp_change method with the current index
-            self.interpolate_combobox.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
+            self.interpolate_comboboxes.append(interp_box)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -1191,11 +1194,6 @@ class CathodeHeatingSubsystem:
         ax.relim()
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
-
-    def update_interp_func(self, val, index):
-        if val in self.current_options:
-            self.log(f"Updating powersupply {index=} current interpulation from {self.interpolate_setting[index]} to {self.current_options[index]}")
-            self.interpolate_setting[index] = self.current_options[val]
         
     def toggle_ramp(self, index):
         """
@@ -1479,10 +1477,11 @@ class CathodeHeatingSubsystem:
                 return False
 
             # Use the ES440_cathode model to interpolate current from voltage
-            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                                        log_transform=False)
-            heater_current = cathode_model.interpolate(voltage, inverse=True)
+            # cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+            #                             [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+            #                             log_transform=False)
+            # heater_current = cathode_model.interpolate(voltage, inverse=True)
+            heater_current = self.heater_current(index, voltage)
 
 
             # Check if the interpolated current is within the model's range
@@ -1632,17 +1631,39 @@ class CathodeHeatingSubsystem:
             event: The event triggered by changing the selection in the combobox.
             index: The index of the power supply to update.
         """
-        selected_value = self.interpolate_combobox.get()  # Get the selected value from the combobox
-        
-        # Show a message box with the selected value
-        msgbox.showinfo("Interpolation Setting Changed", f"Selected: {selected_value}")
+        selected_value = self.interpolate_comboboxes[index].get()
 
         if selected_value in self.current_options:
             self.log(f"Updating interpolation setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
             self.interpolate_setting[index] = self.current_options[selected_value]
-            # Show confirmation message
-            msgbox.showinfo("Update Successful", f"Updated Cathode {['A', 'B', 'C'][index]} to {selected_value}")
         else:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
-            # Show error message
-            msgbox.showerror("Invalid Selection", f"{selected_value} is not a valid option.")
+
+    def current_finder(self, index, volt):
+        assert 0 <= index <= 3
+
+        if type(self.interpolate_setting[index]) == type(dict()):
+            return self.interpolate_setting[index][volt]
+        else:
+           return self.interpolate(volt)
+
+    def interpolate(self, voltage):
+        """
+        Interpolate the heater current based on the provided voltage.
+
+        Args:
+            voltage (float): The voltage to interpolate.
+
+        Returns:
+            float: The interpolated heater current.
+        """
+        try:
+            # Use the existing heater_voltage_model
+            if hasattr(self, 'heater_voltage_model'):
+                return self.heater_voltage_model.interpolate(voltage, inverse=True)
+            else:
+                self.log("Heater voltage model not initialized", LogLevel.ERROR)
+                return None
+        except Exception as e:
+            self.log(f"Interpolation error: {str(e)}", LogLevel.ERROR)
+            return None
