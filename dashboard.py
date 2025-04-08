@@ -103,7 +103,7 @@ class EBEAMSystemDashboard:
         self.root.grid_rowconfigure(0, weight=1)
         self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
         for row_pane in self.rows:
-            self.main_pane.add(row_pane, stretch = "always")
+            self.main_pane.add(row_pane, stretch="always")
 
     def create_frames(self):
         """
@@ -175,7 +175,6 @@ class EBEAMSystemDashboard:
             font=("Helvetica", 8, "italic"),
             foreground="gray"
         )
-
         help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
 
     def create_script_dropdown(self, parent_frame):
@@ -370,7 +369,6 @@ class EBEAMSystemDashboard:
             else:
                 dropdown.set('')
 
-
     def apply_com_port_changes(self):
         new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
         self.update_com_ports(new_com_ports)
@@ -398,7 +396,7 @@ class EBEAMSystemDashboard:
         Finally:
             Calls itself to be check again
         """
-        print("checking com ports")
+        self.logger.info("checking com ports")
         current_ports = set(serial.tools.list_ports.comports())
 
         dif = self.set_com_ports - current_ports

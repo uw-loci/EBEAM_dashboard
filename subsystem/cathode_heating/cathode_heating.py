@@ -1490,6 +1490,7 @@ class CathodeHeatingSubsystem:
         except Exception as e:
             self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
+    
     def close_com_ports(self):
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.

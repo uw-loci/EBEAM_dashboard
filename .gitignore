@@ -1,6 +1,7 @@
 __pycache__/
 usr/usr_data/
 venv/
+usr/usr_data/
 build/
 dist/
 EBEAM-Dashboard-Logs/

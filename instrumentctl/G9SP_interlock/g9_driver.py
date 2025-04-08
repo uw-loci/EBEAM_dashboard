@@ -146,6 +146,7 @@ class G9Driver:
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
+
     def get_interlock_status(self):
         """
         Non-blocking method to get the latest interlock status
