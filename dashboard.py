@@ -103,7 +103,7 @@ class EBEAMSystemDashboard:
         self.root.grid_rowconfigure(0, weight=1)
         self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
         for row_pane in self.rows:
-            self.main_pane.add(row_pane, stretch='always')
+            self.main_pane.add(row_pane, stretch="always")
 
     def create_frames(self):
         """
