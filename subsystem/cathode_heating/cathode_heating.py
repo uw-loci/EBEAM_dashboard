@@ -82,9 +82,9 @@ class CathodeHeatingSubsystem:
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
         self.current_options = {
-            "Cathode A" : pd.read_csv('./subsystem/cathode_heating/powersupply_A.csv').to_dict(),
-            "Cathode B" : pd.read_csv('./subsystem/cathode_heating/powersupply_B.csv').to_dict(),
-            "Cathode C" : pd.read_csv('./subsystem/cathode_heating/powersupply_C.csv').to_dict(),
+            "Cathode A" : dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Current'])),
+            "Cathode B" : dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Current'])),
+            "Cathode C" : dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Current'])),
             "Interpolate" : self.interpolate
         }
         self.interpolate_setting = [self.current_options["Cathode A"], 
