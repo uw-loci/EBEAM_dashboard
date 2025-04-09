@@ -1477,11 +1477,12 @@ class CathodeHeatingSubsystem:
                 return False
 
             # Use the ES440_cathode model to interpolate current from voltage
-            # cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-            #                             [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-            #                             log_transform=False)
+            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+                                        log_transform=False)
             # heater_current = cathode_model.interpolate(voltage, inverse=True)
-            heater_current = self.heater_current(index, voltage)
+            heater_current = self.current_finder(index, voltage)
+            # heater_current = self.heater_current(index, voltage)
 
 
             # Check if the interpolated current is within the model's range
@@ -1642,10 +1643,14 @@ class CathodeHeatingSubsystem:
     def current_finder(self, index, volt):
         assert 0 <= index <= 3
 
-        if type(self.interpolate_setting[index]) == type(dict()):
-            return self.interpolate_setting[index][volt]
+        if isinstance(self.interpolate_setting[index], dict):
+            current =  self.interpolate_setting[index][volt]
         else:
-           return self.interpolate(volt)
+           current = self.interpolate(volt)
+
+        msgbox.showinfo("Current Value", f"The current for index {index} at voltage {volt} is: {current:.2f} A")
+
+        return current
 
     def interpolate(self, voltage):
         """
