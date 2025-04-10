@@ -53,7 +53,6 @@ def start_main_app(com_ports):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             app.cleanup()
             root.destroy()
-            close_com_ports(open_com_ports)
         return "break"
     
     def toggle_fullscreen(event=None):
