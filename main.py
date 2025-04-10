@@ -170,7 +170,6 @@ def start_main_app(com_ports):
     root.bind('<Control-s>', save_logs)         # Save log file
   
 
-    open_com_ports = com_ports
     app = EBEAMSystemDashboard(root, com_ports)
     root.mainloop()
 
