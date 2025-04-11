@@ -66,9 +66,8 @@ class InterlocksSubsystem:
             self.driver = None
             self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
             self._set_all_indicators('red')
-            
+        
         self.parent.after(self.update_interval, self.update_data)
-
 
     def update_com_port(self, com_port):
         """
