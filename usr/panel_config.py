@@ -26,7 +26,7 @@ def load_pane_states(filepath=CONFIG_FILE):
         print("No previous pane state saved.")
     except Exception as e:
         print(f"Failed to load pane states: {e}")
-       
+
 # checks to see if that config file exists
 def saveFileExists(filepath=CONFIG_FILE):
     try:
