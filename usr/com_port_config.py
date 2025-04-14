@@ -24,6 +24,9 @@ def load_com_ports(filepath=CONFIG_FILE):
         with open(filepath, 'r') as file:
             com_ports = json.load(file)
         print(f"COM ports loaded from {filepath}.")
+        for subsystem in list(com_ports):
+            if com_ports[subsystem].startswith("DUMMY_COM"):
+                del com_ports[subsystem]
         return com_ports
     except Exception as e:
         print(f"Error loading COM ports: {e}")
