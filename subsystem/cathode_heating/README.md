@@ -166,7 +166,7 @@ flowchart TB
     CheckOVP -->|Yes| CheckOCP{"Current < OCP Limit?"}
 
     CheckOCP -->|No| OCPWarn["Show OCP Warning"]
-    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage"]
+    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage & Current"]
     
     SetPS --> Confirm{"Confirm Settings"}
     
@@ -199,7 +199,7 @@ flowchart TB
     CheckOVP -->|Yes| CheckOCP{"Current < OCP Limit?"}
 
     CheckOCP -->|No| OCPWarn["Show OCP Warning"]
-    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage"]
+    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage & Current"]
     
     SetPS --> Confirm{"Confirm<b> Settings"}
     

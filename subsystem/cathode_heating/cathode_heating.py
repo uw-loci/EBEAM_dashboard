@@ -1316,18 +1316,22 @@ class CathodeHeatingSubsystem:
                         return
                     # Set the voltage and current on the power supply
                     voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
+                    current_set_success = self.power_supplies[index].set_current(3, heater_current)
                     
-                    if voltage_set_success:
+                    if voltage_set_success and current_set_success:
                         self.user_set_voltages[index] = heater_voltage
                         # Confirm the set values
                         set_voltage, set_current = self.power_supplies[index].get_settings(3)
                         if set_voltage is not None and set_current is not None:
                             voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
+                            current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
                             
-                            if voltage_mismatch:
+                            if voltage_mismatch or current_mismatch:
                                 self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
                                 if voltage_mismatch:
                                     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                                if current_mismatch:
+                                    self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                                     return
                                 # GUI is updated with actual voltage
                                 self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
@@ -1386,13 +1390,13 @@ class CathodeHeatingSubsystem:
             index (int): Index of the power supply to reset (0-2)
 
         Side effects:
-            - Sets voltage to 0 and current to 9.0
+            - Sets voltage to 0 and current to 0.0
             - Resets all prediction variables to '--'
             - Logs the reset action
         """
         if self.power_supply_status[index]:
             self.power_supplies[index].set_voltage(3, 0.0)
-            self.power_supplies[index].set_current(3, 9.0)
+            self.power_supplies[index].set_current(3, 0.0)
             self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
         self.predicted_emission_current_vars[index].set('--')
         self.predicted_grid_current_vars[index].set('--')
@@ -1461,24 +1465,27 @@ class CathodeHeatingSubsystem:
             # Set voltage on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
                 voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
-                if not voltage_set_success:
-                    self.log(f"Unable to set voltage: {voltage} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                    return False
+                current_set_success = self.power_supplies[index].set_current(3, heater_current)
+                if not voltage_set_success or not current_set_success:
+                    self.log(f"Unable to set voltage: {voltage} or current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 
                 # Confirm the set values
                 set_voltage, set_current = self.power_supplies[index].get_settings(3)
                 if set_voltage is not None and set_current is not None:    
                     voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
-                    
-                    if voltage_mismatch:
-                        self.log(f"Mismatch in set value for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
+                    current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
+
+                    if voltage_mismatch or current_mismatch:
+                        self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
                         if voltage_mismatch:
                             self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                        if current_mismatch:
+                            self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                         return False
                     else:
-                        self.log(f"Value confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V", LogLevel.INFO)
+                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
                 else:
-                    self.log(f"Failed to confirm set value for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
+                    self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
                     return False
                 
                 self.user_set_voltages[index] = voltage
