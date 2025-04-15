@@ -1661,14 +1661,14 @@ class CathodeHeatingSubsystem:
 
         Returns:
             float: The interpolated heater current.
+            
         """
+
+        cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+                            [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+                            log_transform=False)
         try:
-            # Use the existing heater_voltage_model
-            if hasattr(self, 'heater_voltage_model'):
-                return self.heater_voltage_model.interpolate(voltage, inverse=True)
-            else:
-                self.log("Heater voltage model not initialized", LogLevel.ERROR)
-                return None
+            return cathode_model.interpolate(voltage, inverse=True)
         except Exception as e:
             self.log(f"Interpolation error: {str(e)}", LogLevel.ERROR)
             return None
