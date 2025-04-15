@@ -303,7 +303,7 @@ class EBEAMSystemDashboard:
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
-                com_ports=self.com_ports,
+                com_ports={k: self.valid_port(self.com_ports[k]) for k in self.com_ports},
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             )
