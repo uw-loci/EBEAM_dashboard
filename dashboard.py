@@ -269,6 +269,10 @@ class EBEAMSystemDashboard:
         self.messages_frame.set_log_level(selected_level)
         print(f"Log level changed to: {selected_level.name}")
 
+    """Helper method to check for dummy ports"""
+    def valid_port(self, port):
+        return None if isinstance(port, str) and port.startswith("DUMMY_COM") else port
+
     def create_subsystems(self):
         """
         Initialize all subsystem objects with their respective frames and settings.
@@ -277,18 +281,18 @@ class EBEAMSystemDashboard:
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
-                serial_port=self.com_ports['VTRXSubsystem'], 
+                serial_port=self.valid_port(self.com_ports['VTRXSubsystem']), 
                 logger=self.logger
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'], 
-                com_port=self.com_ports['ProcessMonitors'],
+                com_port=self.valid_port(self.com_ports['ProcessMonitors']),
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'],
-                com_ports = self.com_ports['Interlocks'],
+                com_ports = self.valid_port(self.com_ports['Interlocks']),
                 logger=self.logger,
                 frames = self.frames,
                 active = self.machine_status_frame.MACHINE_STATUS

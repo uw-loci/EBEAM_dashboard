@@ -208,7 +208,7 @@ class MessagesFrame:
                 # If running as a bundled executable
                 base_path = os.path.expanduser("~")  # Gets the home directory
             else:
-                # If running as a script (e.g., python main.py)
+                # If running as a script (e.g., python )
                 base_path = os.path.abspath(".")
 
             self.log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
