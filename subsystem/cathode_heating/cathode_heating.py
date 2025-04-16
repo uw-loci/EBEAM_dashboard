@@ -1324,7 +1324,7 @@ class CathodeHeatingSubsystem:
                         self.user_set_voltages[index] = heater_voltage
                         
                         # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                        if self.toggle_states[index]:
+                        if self.power_supplies[index].get_output_status[0]:
                             if self.ramp_status[index]:
                                 self.power_supplies[index].ramp_voltage(
                                     heater_voltage,
@@ -1490,7 +1490,7 @@ class CathodeHeatingSubsystem:
                     self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     
                 # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                if self.toggle_states[index]:
+                if self.power_supplies[index].get_output_status[0]:
                     if self.ramp_status[index]:
                         self.power_supplies[index].ramp_voltage(
                             voltage,

@@ -47,7 +47,6 @@ class PowerSupply9104:
     def flush_serial(self):
         if self.ser and self.ser.is_open:
             self.log("Flushing serial input buffer", LogLevel.DEBUG)
-            self.ser.reset_output_buffer()
             self.ser.reset_input_buffer()
         else:
             self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
@@ -71,8 +70,7 @@ class PowerSupply9104:
                     raise ValueError("No response received from 9104 supply")
                 if 'OK' not in response:
                     self.log(f"Acknowledgement not in 9104 supply response")
-        
-                time.sleep(0.1)  # Small delay to allow for processing
+                    
                 return response.strip()
             except serial.SerialException as e:
                 self.log(f"Serial error: {e}", LogLevel.ERROR)
@@ -171,7 +169,13 @@ class PowerSupply9104:
             args=(target_voltage, step_size, step_delay, preset, callback),
             daemon=True
         )
-        self.ramp_thread.start()
+        try:
+            self.ramp_thread.start()
+            self.log(f"Ramping voltage to {target_voltage:.2f}V started.", LogLevel.INFO)
+        except Exception as e:
+            self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
+            if callback:
+                callback(False)
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
