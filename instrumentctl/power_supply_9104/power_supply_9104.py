@@ -14,6 +14,8 @@ class PowerSupply9104:
         self.debug_mode = debug_mode
         self.serial_lock = threading.Lock()
         self.setup_serial()
+        self.stop_event = threading.Event()  # Stop flag for threads
+        self.ramp_thread = None  # Track the ramping thread
 
     def setup_serial(self):
         try:
@@ -43,12 +45,20 @@ class PowerSupply9104:
         return self.ser is not None and self.ser.is_open
 
     def flush_serial(self):
-        self.ser.reset_input_buffer()    
+        if self.ser and self.ser.is_open:
+            self.log("Flushing serial input buffer", LogLevel.DEBUG)
+            self.ser.reset_output_buffer()
+            self.ser.reset_input_buffer()
+        else:
+            self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
         with self.serial_lock:
             try:
+                self.flush_serial()
+                
+                self.log(f"Sending command: {command}", LogLevel.DEBUG)
                 self.ser.write(f"{command}\r\n".encode())
                 
                 response = self.ser.read_until(b'\r').decode()
@@ -61,7 +71,8 @@ class PowerSupply9104:
                     raise ValueError("No response received from 9104 supply")
                 if 'OK' not in response:
                     self.log(f"Acknowledgement not in 9104 supply response")
-
+        
+                time.sleep(0.1)  # Small delay to allow for processing
                 return response.strip()
             except serial.SerialException as e:
                 self.log(f"Serial error: {e}", LogLevel.ERROR)
@@ -150,12 +161,17 @@ class PowerSupply9104:
             ramp_rate (float): The rate at which to change the voltage in volts per second.
             callback (function): Optional function to call when ramping is complete.
         """        
-        thread = threading.Thread(
+        if self.ramp_thread and self.ramp_thread.is_alive():
+            self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
+            return
+
+        self.stop_event.clear()  # Clear the stop flag before starting
+        self.ramp_thread = threading.Thread(
             target=self._ramp_voltage_thread,
             args=(target_voltage, step_size, step_delay, preset, callback),
-            daemon=True # daemon thread should exit when main program exits
+            daemon=True
         )
-        thread.start()
+        self.ramp_thread.start()
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
@@ -176,6 +192,18 @@ class PowerSupply9104:
             
             # Simple ramping loop
             for step in range(num_steps):
+                if self.stop_event.is_set():  # Check if stop is requested
+                    self.log("Ramping thread stopped.", LogLevel.INFO)
+                    if callback:
+                        callback(False)
+                    return
+            
+                if not self.is_connected():
+                    self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
+                    if callback:
+                        callback(False)
+                    return
+            
                 next_voltage = current_voltage + voltage_step
                 if voltage_step > 0:
                     next_voltage = min(next_voltage, target_voltage)
@@ -183,8 +211,17 @@ class PowerSupply9104:
                     next_voltage = max(next_voltage, target_voltage)
                 
                 # Set new voltage
-                if not self.set_voltage(preset, next_voltage):
-                    self.log(f"Failed to set voltage to {next_voltage:.2f}V", LogLevel.WARNING)
+                try:
+                    if not self.set_voltage(preset, next_voltage):
+                        self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp.", LogLevel.ERROR)
+                        if callback:
+                            callback(False)
+                        return
+                except Exception as e:
+                    self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
+                    if callback:
+                        callback(False)
+                    return
                     
                 # Update tracking voltage without querying device
                 current_voltage = next_voltage
@@ -217,10 +254,8 @@ class PowerSupply9104:
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
         # Example corresponds to 05.00V, 01.00A, supply in CV mode
-        with self.serial_lock:
-            self.flush_serial()
-            command = "GETD"
-            self.log(f"Sent command:{command}", LogLevel.DEBUG)
+        command = "GETD"
+        self.log(f"Sent command:{command}", LogLevel.DEBUG)
         return self.send_command(command)
     
     def parse_getd_response(self, response):
@@ -460,14 +495,33 @@ class PowerSupply9104:
         """Configure presets for voltage, current, and SW time."""
         command = f"SETM{setv1:04}{seti1:04}{swtime1:03}{setv2:04}{seti2:04}{swtime2:03}{setv3:04}{seti3:04}{swtime3:03}"
         return self.send_command(command)
-
+    
     def close(self):
-        """Close the serial connection."""
+        """Close the serial connection and stop threads."""
+        self.log("Stopping threads and closing serial connection.", LogLevel.INFO)
+
+        # Signal threads to stop
+        self.stop_event.set()
+
+        # Wait for the ramping thread to finish
+        if self.ramp_thread and self.ramp_thread.is_alive():
+            self.ramp_thread.join()
+            self.log("Ramping thread terminated.", LogLevel.INFO)
+
+        # Close the serial connection
         if self.ser and self.ser.is_open:
             self.ser.close()
             self.log(f"Closed serial port {self.port}", LogLevel.INFO)
-        else: 
+        else:
             self.log(f"{self.port} port already closed", LogLevel.INFO)
+
+    # def close(self):
+    #     """Close the serial connection."""
+    #     if self.ser and self.ser.is_open:
+    #         self.ser.close()
+    #         self.log(f"Closed serial port {self.port}", LogLevel.INFO)
+    #     else:
+    #         self.log(f"{self.port} port already closed", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
