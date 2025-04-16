@@ -77,7 +77,7 @@ class CathodeHeatingSubsystem:
         self.ramp_toggle_buttons = []
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
-        self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
+        self.slew_rates = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.ramp_status = [True, True, True]
         self.query_settings_buttons = []
 
@@ -410,7 +410,7 @@ class CathodeHeatingSubsystem:
             slew_rate_label = ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel')
             slew_rate_label.grid(row=4, column=0, sticky='e')
             
-            slew_rate_var = tk.StringVar(value='0.01')  # Default value
+            slew_rate_var = tk.StringVar(value='0.02')  # Default value
             slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
             slew_rate_entry.grid(row=4, column=1, sticky='w')
             set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
@@ -1301,7 +1301,7 @@ class CathodeHeatingSubsystem:
                 #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
                 #     return
 
-                # Set Upper Voltage Limit and Upper Current Limit on the power supply
+                # Set Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
                     self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
                     
@@ -1314,29 +1314,46 @@ class CathodeHeatingSubsystem:
                         self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
                         msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
                         return
-                    # Set the voltage and current on the power supply
-                    voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
+                    # Set the upper current limit on the power supply
+                    
+                    # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
                     
-                    if voltage_set_success and current_set_success:
+                    
+                    if current_set_success:
                         self.user_set_voltages[index] = heater_voltage
+                        
+                        # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
+                        if self.toggle_states[index]:
+                            if self.ramp_status[index]:
+                                self.power_supplies[index].ramp_voltage(
+                                    heater_voltage,
+                                    step_size=self.slew_rates[index],
+                                    step_delay=1.0,
+                                    preset=3
+                                )
+                                self.voltage_set[index] = True
+                            else:
+                                self.power_supplies[index].set_voltage(3, heater_voltage)
+                                self.voltage_set[index] = True
+                                
                         # Confirm the set values
-                        set_voltage, set_current = self.power_supplies[index].get_settings(3)
-                        if set_voltage is not None and set_current is not None:
-                            voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
+                        _ , set_current = self.power_supplies[index].get_settings(3)
+                        if set_current is not None:
+                            # voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
                             current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
                             
-                            if voltage_mismatch or current_mismatch:
+                            if current_mismatch:
                                 self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                                if voltage_mismatch:
-                                    self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                                # if voltage_mismatch:
+                                #     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
                                 if current_mismatch:
                                     self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                                     return
                                 # GUI is updated with actual voltage
-                                self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
+                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f}")
                             else:
-                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
                         else:
                             self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
                         
@@ -1350,7 +1367,7 @@ class CathodeHeatingSubsystem:
                         self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
-                        self.voltage_set[index] = True
+                        
                         self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
                     else:
                         self.reset_related_variables(index)
@@ -1455,6 +1472,9 @@ class CathodeHeatingSubsystem:
                 self.log(f"Calculated voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
                 msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
                 return
+            
+            if voltage < 0:
+                raise ValueError("Voltage must be positive")
 
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
@@ -1462,28 +1482,42 @@ class CathodeHeatingSubsystem:
                                         log_transform=False)
             heater_current = cathode_model.interpolate(voltage, inverse=True)
 
-            # Set voltage on the power supply
+            # Set Upper Current Limit on the power supply. Voltage is set in the power supply class when toggle_output is called
             if self.power_supplies and len(self.power_supplies) > index:
-                voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
+                # voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
                 current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                if not voltage_set_success or not current_set_success:
-                    self.log(f"Unable to set voltage: {voltage} or current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                if not current_set_success:
+                    self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    
+                # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
+                if self.toggle_states[index]:
+                    if self.ramp_status[index]:
+                        self.power_supplies[index].ramp_voltage(
+                            voltage,
+                            step_size=self.slew_rates[index],
+                            step_delay=1.0,
+                            preset=3
+                        )
+                        self.voltage_set[index] = True
+                    else:
+                        self.power_supplies[index].set_voltage(3, voltage)
+                        self.voltage_set[index] = True
                 
                 # Confirm the set values
-                set_voltage, set_current = self.power_supplies[index].get_settings(3)
-                if set_voltage is not None and set_current is not None:    
-                    voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
+                _ , set_current = self.power_supplies[index].get_settings(3)
+                if set_current is not None:    
+                    # voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
                     current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
 
-                    if voltage_mismatch or current_mismatch:
+                    if current_mismatch:
                         self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                        if voltage_mismatch:
-                            self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                        # if voltage_mismatch:
+                        #     self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
                         if current_mismatch:
                             self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                         return False
                     else:
-                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
                 else:
                     self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
                     return False
