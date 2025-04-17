@@ -1,5 +1,6 @@
 # cathode_heating.py
 import tkinter as tk
+from bidict import bidict
 from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
@@ -82,9 +83,9 @@ class CathodeHeatingSubsystem:
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
         self.current_options = {
-            "Cathode A" : dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Current'])),
-            "Cathode B" : dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Current'])),
-            "Cathode C" : dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Current'])),
+            "Cathode A" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Current']))),
+            "Cathode B" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Current']))),
+            "Cathode C" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Current']))),
             "Interpolate" : self.interpolate
         }
         self.interpolate_setting = [self.current_options["Cathode A"], 
@@ -1481,7 +1482,7 @@ class CathodeHeatingSubsystem:
                                         [data[0] for data in ES440_cathode.heater_voltage_current_data], 
                                         log_transform=False)
             # heater_current = cathode_model.interpolate(voltage, inverse=True)
-            heater_current = self.current_finder(index, voltage)
+            heater_current = self.cur_vlt_converter(index, voltage)
             # heater_current = self.heater_current(index, voltage)
 
 
@@ -1640,19 +1641,25 @@ class CathodeHeatingSubsystem:
         else:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
 
-    def current_finder(self, index, volt):
+    def cur_vlt_converter(self, index, val, vltToCur=True):
         assert 0 <= index <= 3
 
         if isinstance(self.interpolate_setting[index], dict):
-            current =  self.interpolate_setting[index][volt]
+            if vltToCur:
+                ret =  self.interpolate_setting[index][val] # getting current
+            else:
+                ret = self.interpolate_setting[index].inverse[val]
         else:
-           current = self.interpolate(volt)
+            if vltToCur:
+                ret = self.interpolate(val) # calculating cur
+            else:
+                ret = self.interpolate(val, vltToCur=False) # calculating vlt
 
-        msgbox.showinfo("Current Value", f"The current for index {index} at voltage {volt} is: {current:.2f} A")
+        # msgbox.showinfo("Current Value", f"The current for index {index} at voltage {val} is: {current:.2f} A")
 
-        return current
+        return ret
 
-    def interpolate(self, voltage):
+    def interpolate(self, val, vltToCur=True):
         """
         Interpolate the heater current based on the provided voltage.
 
@@ -1663,12 +1670,14 @@ class CathodeHeatingSubsystem:
             float: The interpolated heater current.
             
         """
-
-        cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                            [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                            log_transform=False)
-        try:
-            return cathode_model.interpolate(voltage, inverse=True)
-        except Exception as e:
-            self.log(f"Interpolation error: {str(e)}", LogLevel.ERROR)
+        if vltToCur:
+            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+                                [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+                                log_transform=False)
+            try:
+                return cathode_model.interpolate(val, inverse=True)
+            except Exception as e:
+                self.log(f"Interpolation error: {str(e)}", LogLevel.ERROR)
+                return None
+        else:
             return None
