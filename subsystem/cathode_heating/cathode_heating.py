@@ -1319,10 +1319,6 @@ class CathodeHeatingSubsystem:
                 self.heater_voltage_vars[index].set('0.00')
                 self.predicted_temperature_vars[index].set('0.00')
             else:
-                # Calculate heater current from the ES440 model
-                # heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
-                # heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-
                 heater_current, heater_voltage = self.interpolate(log_ideal_emission_current, False)
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
@@ -1483,18 +1479,11 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning("Voltage Exceeds OVP", f"The requested voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower voltage.")
                 return False
 
-            # Use the ES440_cathode model to interpolate current from voltage
-            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                                        log_transform=False)
-            # heater_current = cathode_model.interpolate(voltage, inverse=True)
             heater_current = self.cur_vlt_converter(index, voltage)
-            # heater_current = self.heater_current(index, voltage)
-
 
             # Check if the interpolated current is within the model's range
-            if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
-                self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
+            if not min(self.cur_cathode_model.x_data) <= heater_current <= max(self.cur_cathode_model.x_data):
+                self.log(f"Heater current {heater_current:.3f} is out of range [{min(self.cur_cathode_model.x_data):.3f}, {max(self.cur_cathode_model.x_data):.3f}]", LogLevel.WARNING)
 
             # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
@@ -1648,12 +1637,12 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
 
     def cur_vlt_converter(self, index, val, vltToCur=True):
-        assert 0 <= index <= 3
-
         if isinstance(self.interpolate_setting[index], dict):
             if vltToCur:
+                val = round(val, 2)
                 ret =  self.interpolate_setting[index][val] # getting current
             else:
+                # from (mA) to A and V
                 heater_current = self.emission_current_model.interpolate(val, inverse=True)
                 return heater_current, self.interpolate_setting[index].inverse[heater_current]
         else:
@@ -1665,27 +1654,9 @@ class CathodeHeatingSubsystem:
         return ret
 
     def interpolate(self, val, vltToCur=True):
-        """
-        Interpolate the heater current based on the provided voltage.
-
-        Args:
-            voltage (float): The voltage to interpolate.
-
-        Returns:
-            float: The interpolated heater current.
-            
-        """
         if vltToCur:
-            try:
-                return self.cur_cathode_model.interpolate(val, inverse=True)
-            except Exception as e:
-                self.log(f"Interpolation error: {str(e)}", LogLevel.ERROR)
-                return None
+            return self.cur_cathode_model.interpolate(val, inverse=True)
         else:
-            # ideal_emission_current = val / 0.72
-            # log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-
             heater_current = self.emission_current_model.interpolate(val, inverse=True)
             heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-
             return heater_current, heater_voltage
