@@ -1681,3 +1681,8 @@ class CathodeHeatingSubsystem:
                 return None
         else:
             return None
+        
+
+            # heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
+            # emission_current = [data[1] for data in ES440_cathode.heater_current_emission_current_data]
+            # self.emission_current_model = ES440_cathode(heater_current_emission, emission_current, log_transform=True)
