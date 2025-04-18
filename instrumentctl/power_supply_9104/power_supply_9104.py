@@ -12,7 +12,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
-        self.serial_lock = threading.Lock()
+        # self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
@@ -53,31 +53,35 @@ class PowerSupply9104:
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        with self.serial_lock:
-            try:
-                self.flush_serial()
-                
-                self.log(f"Sending command: {command}", LogLevel.DEBUG)
-                self.ser.write(f"{command}\r\n".encode())
-                
-                response = self.ser.read_until(b'\r').decode()
+        # with self.serial_lock:
+        try:
+            self.flush_serial()
+            
+            self.log(f"Sending command: {command}", LogLevel.DEBUG)
+            self.ser.write(f"{command}\r\n".encode())
+            
+            response = self.ser.read_until(b'\r').decode()
 
-                if 'OK' not in response:
-                    additional = self.ser.read_until(b'\r').decode().strip()
-                    response = f"{response}\r{additional}"
+            if 'OK' not in response:
+                additional = self.ser.read_until(b'\r').decode().strip()
+                response = f"{response}\r{additional}"
 
-                if not response:
-                    raise ValueError("No response received from 9104 supply")
-                if 'OK' not in response:
-                    self.log(f"Acknowledgement not in 9104 supply response")
-                    
-                return response.strip()
-            except serial.SerialException as e:
-                self.log(f"Serial error: {e}", LogLevel.ERROR)
-                return None
-            except ValueError as e:
-                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-                return None
+            if not response:
+                raise ValueError("No response received from 9104 supply")
+            if 'OK' not in response:
+                self.log(f"Acknowledgement not in 9104 supply response")
+
+            self.log(f"Response: {response}", LogLevel.DEBUG)
+                
+            return response.strip()
+        except serial.SerialException as e:
+            self.log(f"Serial error: {e}", LogLevel.ERROR)
+            return None
+        except ValueError as e:
+            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+            return None
+        except Exception as e:
+            self.log(f"Critical Error", LogLevel.ERROR)
 
     def set_output(self, state):
         """Set the output on/off."""
@@ -115,8 +119,9 @@ class PowerSupply9104:
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
+        
         self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
-        if response and response.strip() == "OK":
+        if response and response.strip().startswith("OK"):
             self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
@@ -215,18 +220,23 @@ class PowerSupply9104:
                     next_voltage = max(next_voltage, target_voltage)
                 
                 # Set new voltage
-                try:
-                    if not self.set_voltage(preset, next_voltage):
-                        self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp.", LogLevel.ERROR)
+                for attempt in range(self.MAX_RETRIES):
+                    try:
+                        if not self.set_voltage(preset, next_voltage):
+                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
+
+                    except Exception as e:
+                        self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
                         if callback:
                             callback(False)
                         return
-                except Exception as e:
-                    self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
+                    
+                if attempt > self.MAX_RETRIES:
+                    self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp", LogLevel.ERROR)
                     if callback:
                         callback(False)
                     return
-                    
+
                 # Update tracking voltage without querying device
                 current_voltage = next_voltage
                 
@@ -309,21 +319,24 @@ class PowerSupply9104:
         (voltage, current, mode)
         """
         for attempt in range(self.MAX_RETRIES):
-            reading = self.get_display_readings()
-            if reading:
-                self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
-                voltage, current, mode = self.parse_getd_response(reading)
-                if voltage is not None and current is not None:
-                    if abs(voltage) < 0.001:
-                        second_read = self.get_display_readings()
-                        v2, c2, m2 = self.parse_getd_response(second_read)
-                        if v2 is not None and abs(v2) > 0.001:
-                            # overwrite with second read if it's nonzero
-                            self.log(f"Replaced 9104 0.0 V reading with second read {v2:.2f} V", LogLevel.VERBOSE)
-                            voltage, current, mode = v2, c2, m2
-                    return voltage, current, mode
-            self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
-            time.sleep(0.1)
+            try:
+                reading = self.get_display_readings()
+                if reading:
+                    self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
+                    voltage, current, mode = self.parse_getd_response(reading)
+                    if voltage is not None and current is not None:
+                        if abs(voltage) < 0.001:
+                            second_read = self.get_display_readings()
+                            v2, c2, m2 = self.parse_getd_response(second_read)
+                            if v2 is not None and abs(v2) > 0.001:
+                                # overwrite with second read if it's nonzero
+                                self.log(f"Replaced 9104 0.0 V reading with second read {v2:.2f} V", LogLevel.VERBOSE)
+                                voltage, current, mode = v2, c2, m2
+                        return voltage, current, mode
+                self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+                time.sleep(0.1)
+            except Exception as e:
+                self.log(f"Error getting voltage mode", LogLevel.ERROR)
 
         self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
         return None, None, "Err"
@@ -348,20 +361,21 @@ class PowerSupply9104:
         command = "GOVP"
         response = self.send_command(command)
 
-        if response:
-            try:
-                # split the response and take the part before 'OK'
-                ovp_str = response.split('\r')[0]
-                # convert to integer, then to a float
-                ovp_volts = int(ovp_str) / 100.0
-                self.log(f"OVP value: {ovp_volts:.2f}")
-                return ovp_volts
-            except (ValueError, IndexError) as e:
-                self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
-                return None
-        else:
-            self.log("Failed to get OVP value", LogLevel.ERROR)
-            return None
+        for attempt in range(self.MAX_RETRIES):
+            if "OK" in response:
+                try:
+                    # split the response and take the part before 'OK'
+                    ovp_str = response.split('\r')[0]
+                    # convert to integer, then to a float
+                    ovp_volts = int(ovp_str) / 100.0
+                    self.log(f"OVP value: {ovp_volts:.2f}")
+                    return ovp_volts
+                except (ValueError, IndexError) as e:
+                    self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
+                    return None
+            
+        self.log("Failed to get OVP value", LogLevel.ERROR)
+        return None
 
 
     def get_over_current_protection(self):

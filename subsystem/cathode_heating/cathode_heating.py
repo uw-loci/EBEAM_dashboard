@@ -1207,7 +1207,7 @@ class CathodeHeatingSubsystem:
             if self.ramp_status[index]:
                 if target_voltage is not None:
                     slew_rate = self.slew_rates[index]
-                    step_delay = 1.0  # seconds
+                    step_delay = 2.0  # seconds
                     step_size = slew_rate * step_delay
                     
                     self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
@@ -1324,12 +1324,12 @@ class CathodeHeatingSubsystem:
                         self.user_set_voltages[index] = heater_voltage
                         
                         # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                        if self.power_supplies[index].get_output_status().startswith('1'):
+                        if self.toggle_states[index]:
                             if self.ramp_status[index]:
                                 self.power_supplies[index].ramp_voltage(
                                     heater_voltage,
                                     step_size=self.slew_rates[index],
-                                    step_delay=1.0,
+                                    step_delay=2.0,
                                     preset=3
                                 )
                                 self.voltage_set[index] = True
@@ -1490,12 +1490,12 @@ class CathodeHeatingSubsystem:
                     self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     
                 # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                if self.power_supplies[index].get_output_status().startswith('1'):
+                if self.toggle_states[index]:
                     if self.ramp_status[index]:
                         self.power_supplies[index].ramp_voltage(
                             voltage,
                             step_size=self.slew_rates[index],
-                            step_delay=1.0,
+                            step_delay=2.0,
                             preset=3
                         )
                         self.voltage_set[index] = True
@@ -1536,7 +1536,7 @@ class CathodeHeatingSubsystem:
             self.predicted_grid_current_vars[index].set("--")
             self.predicted_temperature_vars[index].set("--")
 
-            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
+            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A", LogLevel.INFO)
             return True
         except ValueError as e:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
