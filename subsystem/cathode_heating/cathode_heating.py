@@ -935,6 +935,10 @@ class CathodeHeatingSubsystem:
             heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
             emission_current = [data[1] for data in ES440_cathode.heater_current_emission_current_data]
             self.emission_current_model = ES440_cathode(heater_current_emission, emission_current, log_transform=True)
+
+            self.cur_cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+                    [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+                    log_transform=False)
         
             # Initialize true temperature model
             heater_current_temp = [data[0] for data in ES440_cathode.heater_current_true_temperature_data]
@@ -1316,8 +1320,10 @@ class CathodeHeatingSubsystem:
                 self.predicted_temperature_vars[index].set('0.00')
             else:
                 # Calculate heater current from the ES440 model
-                heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
-                heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+                # heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
+                # heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+
+                heater_current, heater_voltage = self.interpolate(log_ideal_emission_current, False)
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
@@ -1648,14 +1654,13 @@ class CathodeHeatingSubsystem:
             if vltToCur:
                 ret =  self.interpolate_setting[index][val] # getting current
             else:
-                ret = self.interpolate_setting[index].inverse[val]
+                heater_current = self.emission_current_model.interpolate(val, inverse=True)
+                return heater_current, self.interpolate_setting[index].inverse[heater_current]
         else:
             if vltToCur:
                 ret = self.interpolate(val) # calculating cur
             else:
                 ret = self.interpolate(val, vltToCur=False) # calculating vlt
-
-        # msgbox.showinfo("Current Value", f"The current for index {index} at voltage {val} is: {current:.2f} A")
 
         return ret
 
@@ -1671,16 +1676,19 @@ class CathodeHeatingSubsystem:
             
         """
         if vltToCur:
-            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                                [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                                log_transform=False)
             try:
-                return cathode_model.interpolate(val, inverse=True)
+                return self.cur_cathode_model.interpolate(val, inverse=True)
             except Exception as e:
                 self.log(f"Interpolation error: {str(e)}", LogLevel.ERROR)
                 return None
         else:
-            return None
+            # ideal_emission_current = val / 0.72
+            # log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
+
+            heater_current = self.emission_current_model.interpolate(val, inverse=True)
+            heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+
+            return heater_current, heater_voltage
         
 
             # heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
