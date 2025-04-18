@@ -1479,7 +1479,21 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning("Voltage Exceeds OVP", f"The requested voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower voltage.")
                 return False
 
-            heater_current = self.cur_vlt_converter(index, voltage)
+            while True:
+                try:
+                    heater_current = self.cur_vlt_converter(index, voltage)
+                    break
+                except ValueError:
+                    # Show dialog with current voltage and allow user to enter new value
+                    new_voltage = tksd.askfloat(
+                        "Invalid Voltage",
+                        f"Voltage {voltage:.2f}V is not in the lookup table.\nPlease enter a valid voltage:",
+                        parent=self.parent,
+                        initialvalue=voltage
+                    )
+                    if new_voltage is None:  # User clicked cancel
+                        return False
+                    voltage = new_voltage
 
             # Check if the interpolated current is within the model's range
             if not min(self.cur_cathode_model.x_data) <= heater_current <= max(self.cur_cathode_model.x_data):
@@ -1639,8 +1653,11 @@ class CathodeHeatingSubsystem:
     def cur_vlt_converter(self, index, val, vltToCur=True):
         if isinstance(self.interpolate_setting[index], dict):
             if vltToCur:
+                
                 val = round(val, 2)
-                ret =  self.interpolate_setting[index][val] # getting current
+                if val not in self.interpolate_setting[index]:
+                    raise ValueError
+                ret = self.interpolate_setting[index][val] # getting current
             else:
                 # from (mA) to A and V
                 heater_current = self.emission_current_model.interpolate(val, inverse=True)
