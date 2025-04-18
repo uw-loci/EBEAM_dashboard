@@ -1208,7 +1208,7 @@ class CathodeHeatingSubsystem:
             if self.ramp_status[index]:
                 if target_voltage is not None:
                     slew_rate = self.slew_rates[index]
-                    step_delay = 2.0  # seconds
+                    step_delay = 1.0  # seconds
                     step_size = slew_rate * step_delay
                     
                     self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
@@ -1330,7 +1330,7 @@ class CathodeHeatingSubsystem:
                                 self.power_supplies[index].ramp_voltage(
                                     heater_voltage,
                                     step_size=self.slew_rates[index],
-                                    step_delay=2.0,
+                                    step_delay=1.0,
                                     preset=3
                                 )
                                 self.voltage_set[index] = True
@@ -1496,7 +1496,7 @@ class CathodeHeatingSubsystem:
                         self.power_supplies[index].ramp_voltage(
                             voltage,
                             step_size=self.slew_rates[index],
-                            step_delay=2.0,
+                            step_delay=1.0,
                             preset=3
                         )
                         self.voltage_set[index] = True
