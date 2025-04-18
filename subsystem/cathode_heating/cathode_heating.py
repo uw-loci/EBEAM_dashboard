@@ -1204,6 +1204,7 @@ class CathodeHeatingSubsystem:
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
             target_voltage = self.user_set_voltages[index]
+            
             if self.ramp_status[index]:
                 if target_voltage is not None:
                     slew_rate = self.slew_rates[index]
