@@ -1207,6 +1207,11 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]:
                 if target_voltage is not None:
+                    # Set voltage to 0 before starting the ramp-up
+                    self.power_supplies[index].set_voltage(3, 0.0)
+                    self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
+                    
+                    # Ramp up to the target voltage
                     slew_rate = self.slew_rates[index]
                     step_delay = 1.0  # seconds
                     step_size = slew_rate * step_delay
