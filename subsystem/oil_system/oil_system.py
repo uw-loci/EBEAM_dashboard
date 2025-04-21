@@ -8,7 +8,7 @@ class OilSubsystem:
         self.pressure = 0.0  
         self.temperature = 0.0  
         self.flow_rate = 0.0 
-        self.pump_status = False  
+        self.pump_status = "OFF"  
 
         self.setup_gui()  
         self.update_display()  
