@@ -275,15 +275,13 @@ class InterlocksSubsystem:
                 sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
 
                 # parse unit status
-                if unit_status != b'\x01\x00':
-                    print(f"{unit_status= } : {type(unit_status)}")
-                    bits = self.extract_flags(status, 16)
-                    print(bits)
-                #     for k, v in self.driver.US_STATUS.items():
-                #         if bits[k] == 1:
-                #             self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
-                #     if bits[0] == 0:
-                #         self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
+                for k, v in unit_status.items():
+                    if k != "Normal":
+                        if v == 1:
+                            self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
+                    else:
+                        if v == 0:
+                            self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
 
                 # check input terms
                 self._check_terminal_status(

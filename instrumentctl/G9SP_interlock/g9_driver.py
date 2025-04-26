@@ -51,6 +51,7 @@ class G9Driver:
     }
 
     US_STATUS = {
+        0: "Normal",
         9: "Output Power Supply Error Flag",
         10: "Safety I/O Terminal Error Flag",
         13: "Function Block Error Flag"
@@ -224,9 +225,13 @@ class G9Driver:
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
 
+        unit_status_flags = self._extract_flags(status_data['unit_status'], 16)
+
+        unit_flags = {self.US_STATUS[k] : unit_status_flags[k] for k in self.US_STATUS.keys()}
+
         return (binary_data['sitsf'], binary_data['sitdf'],                 # sitsf_bits , sitdf_bits
                     binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_active
-                    data[self.US_OFFSET:self.US_OFFSET + 2],                # unit_status
+                    unit_flags,                                             # unit_status
                     data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input 
                     data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:])   # output 
 
