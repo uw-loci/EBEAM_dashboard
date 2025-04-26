@@ -3,7 +3,6 @@ import serial
 import threading
 import queue
 import time
-from utils import LogLevel
 
 class G9Driver:
     NUMIN = 13
@@ -406,13 +405,6 @@ class G9Driver:
             extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
 
         return extracted_bits[:num_bits]
-
-    def log(self, message, level=LogLevel.INFO):
-        """Log a message with the specified level if a logger is configured."""
-        if self.logger:
-            self.logger.log(message, level)
-        elif self.debug_mode:
-            print(f"{level.name}: {message}")
 
 
     #TODO: Figure out how to handle all the errors (end task)
