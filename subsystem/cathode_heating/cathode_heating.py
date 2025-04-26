@@ -83,9 +83,9 @@ class CathodeHeatingSubsystem:
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
         self.current_options = {
-            "Cathode A" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Current']))),
-            "Cathode B" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Current']))),
-            "Cathode C" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Current']))),
+            "Cathode A" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Emission_Current']))),
+            "Cathode B" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Emission_Current']))),
+            "Cathode C" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Emission_Current']))),
             "Interpolate" : self.interpolate
         }
         self.interpolate_setting = [self.current_options["Cathode A"], 
@@ -1319,7 +1319,8 @@ class CathodeHeatingSubsystem:
                 self.heater_voltage_vars[index].set('0.00')
                 self.predicted_temperature_vars[index].set('0.00')
             else:
-                heater_current, heater_voltage = self.interpolate(log_ideal_emission_current, False)
+                heater_voltage = self.emission_cur_vlt_converter(target_current_mA)
+                # heater_current, heater_voltage = self.interpolate(log_ideal_emission_current, False)
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
@@ -1481,7 +1482,7 @@ class CathodeHeatingSubsystem:
 
             while True:
                 try:
-                    heater_current = self.cur_vlt_converter(index, voltage)
+                    heater_current = self.emission_cur_vlt_converter(index, voltage)
                     break
                 except ValueError:
                     # Show dialog with current voltage and allow user to enter new value
@@ -1650,24 +1651,28 @@ class CathodeHeatingSubsystem:
         else:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
 
-    def cur_vlt_converter(self, index, val, vltToCur=True):
+    def emission_cur_vlt_converter(self, index, val, vltToCur=True):
         if isinstance(self.interpolate_setting[index], dict):
             if vltToCur:
-                
                 val = round(val, 2)
                 if val not in self.interpolate_setting[index]:
                     raise ValueError
                 ret = self.interpolate_setting[index][val] # getting current
             else:
-                # from (mA) to A and V
-                heater_current = self.emission_current_model.interpolate(val, inverse=True)
-                return heater_current, self.interpolate_setting[index].inverse[heater_current]
+                # from (mA) to V
+                return self.interpolate_setting[index].inverse[round(val, 2)]
         else:
             if vltToCur:
                 ret = self.interpolate(val) # calculating cur
             else:
-                ret = self.interpolate(val, vltToCur=False) # calculating vlt
 
+                ideal_emission_current = val / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
+                if ideal_emission_current < 0:
+                    raise ValueError("Target current must be positive")
+                
+                log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
+
+                ret = self.interpolate(log_ideal_emission_current, vltToCur=False) # calculating vlt
         return ret
 
     def interpolate(self, val, vltToCur=True):
@@ -1676,4 +1681,4 @@ class CathodeHeatingSubsystem:
         else:
             heater_current = self.emission_current_model.interpolate(val, inverse=True)
             heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-            return heater_current, heater_voltage
+            return heater_voltage
