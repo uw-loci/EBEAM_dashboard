@@ -135,10 +135,15 @@ class G9Driver:
         Non-blocking method to get the latest interlock status
         Returns None if no data is available or on error
         """
-        # peep the queue without removing the status
-        item = self._response_queue.get_nowait()
-        self._response_queue.put(item) # put it back
-        return item
+        try:
+            # Try to get an item from the queue without removing it
+            item = self._response_queue.get_nowait()
+            # Put it back since we just wanted to peek
+            self._response_queue.put(item)
+            return item
+        except queue.Empty:
+            # Queue is empty, return None
+            return None
 
     def _send_command(self):
         """
@@ -219,10 +224,11 @@ class G9Driver:
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
 
-        return (binary_data['sitsf'], binary_data['sitdf'], # sitsf_bits , sitdf_bits
-                 binary_data['sotsf'][4] & binary_data['sotdf'][4], # g9_active
-                  data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:], # input 
-                  data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:]) # output 
+        return (binary_data['sitsf'], binary_data['sitdf'],                 # sitsf_bits , sitdf_bits
+                    binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_active
+                    data[self.US_OFFSET:self.US_OFFSET + 2],                # unit_status
+                    data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input 
+                    data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:])   # output 
 
     def _validate_response_format(self, data):
         """
