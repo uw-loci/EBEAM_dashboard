@@ -58,7 +58,6 @@ class G9Driver:
     }
 
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
-        self.logger = logger
         self.debug_mode = debug_mode
         self.ser = None
         self.setup_serial(port, baudrate, timeout)
