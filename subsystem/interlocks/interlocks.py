@@ -4,6 +4,7 @@ import os, sys
 import instrumentctl.G9SP_interlock.g9_driver as g9_driv
 from utils import LogLevel
 import time
+import queue
 
 class InterlocksSubsystem:
     # the bit poistion for each interlock
@@ -198,6 +199,44 @@ class InterlocksSubsystem:
                     canvas.itemconfig(oval_id, fill=color)
                     self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
 
+    def _check_terminal_status(self, data, status_dict, terminal_type):
+        """
+        Generic terminal status checker
+        
+        Raise:
+            ValueError: If an error is found in the Error Cause Data or with invalid inputs
+        """
+        for i, byte in enumerate(reversed(data[:self.driver.NUMIN])):
+            msb = byte >> 4
+            lsb = byte & 0x0F
+
+            for nibble, position in [(msb, 'H'), (lsb, 'L')]:
+                if nibble in status_dict and nibble != 0:
+                    self.log(f"{terminal_type} error at byte {i}{position}: {status_dict[nibble]} (code {nibble})", LogLevel.ERROR)
+
+    def extract_flags(self, byte_string, num_bits):
+        """Extracts num_bits from the data
+        the bytes are order in big-endian meaning the first 8 are on top 
+        but the bits in the bye are ordered in little-endian 7 MSB and 0 LSB
+        
+        Raise:
+            ValueError: When called requesting more bits than in the bytes
+        Return:
+            num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit (aka little endian)
+        """
+        num_bytes = (num_bits + 7) // 8
+
+        if len(byte_string) < num_bytes:
+            self.log(f"Input must contain at least {num_bytes} bytes; received {len(byte_string)}", LogLevel.ERROR)
+
+        extracted_bits = []
+        for byte_index in range(num_bytes):
+            byte = byte_string[byte_index]
+            bits_to_extract = min(8, num_bits - (byte_index * 8))
+            extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
+
+        return extracted_bits[:num_bits]
+    
     def update_data(self):
         """
         Update interlock status
@@ -222,55 +261,79 @@ class InterlocksSubsystem:
                     self._adjust_update_interval(success=False)
             else:
                 # Get interlock status from driver
-                status = self.driver.get_interlock_status()
-                
-                if status is None:
-                    self._set_all_indicators('red')
-                    if current_time - self.last_error_time > (self.update_interval / 1000):
-                        self.log("No data available from G9", LogLevel.CRITICAL)
-                        self.last_error_time = current_time
-                        self._adjust_update_interval(success=False)
-                        self.parent.after(self.update_interval, self.update_data)
-                        return
+                try:
+                    status = self.driver.get_interlock_status()
                     
-                sitsf_bits, sitdf_bits, g9_active = status
+                    if status is None:
+                        self._set_all_indicators('red')
+                        if current_time - self.last_error_time > (self.update_interval / 1000):
+                            self.log("No data available from G9", LogLevel.CRITICAL)
+                            self.last_error_time = current_time
+                            self._adjust_update_interval(success=False)
+                            self.parent.after(self.update_interval, self.update_data)
+                            return
+                        
+                    sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
 
-                # Process dual-input interlocks (first 3 pairs)
-                for i in range(3):
-                    safety = (sitsf_bits[i*2] & 
-                            sitsf_bits[i*2+1])
-                    data = (sitdf_bits[i*2] & 
-                        sitdf_bits[i*2+1])
+                    # parse unit status
+                    if unit_status != b'\x01\x00':
+                        bits = self.extract_flags(status, 16)
+                        for k, v in self.driver.US_STATUS.items():
+                            if bits[k] == 1:
+                                self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
+                        if bits[0] == 0:
+                            self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
+
+                    # check input terms
+                    self._check_terminal_status(
+                        input_terms,
+                        self.driver.IN_STATUS,
+                        "Input")
                     
-                    self.update_interlock(self.INPUTS[i*2], safety, data)
-                
-                # Process single-input interlocks
-                for i in range(6, 11):
-                    safety = sitsf_bits[i]
-                    data = sitdf_bits[i]
-                    self.update_interlock(self.INPUTS[i], safety, data)
+                    # check output terms
+                    self._check_terminal_status(
+                        output_terms,
+                        self.driver.OUT_STATUS,
+                        "Output")
 
-                # Checks all 11 first interlocks
-                all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
-                self.update_interlock("All Interlocks", True, all_good)
+                    # Process dual-input interlocks (first 3 pairs)
+                    for i in range(3):
+                        safety = (sitsf_bits[i*2] & 
+                                sitsf_bits[i*2+1])
+                        data = (sitdf_bits[i*2] & 
+                            sitdf_bits[i*2+1])
+                        
+                        self.update_interlock(self.INPUTS[i*2], safety, data)
+                    
+                    # Process single-input interlocks
+                    for i in range(6, 11):
+                        safety = sitsf_bits[i]
+                        data = sitdf_bits[i]
+                        self.update_interlock(self.INPUTS[i], safety, data)
 
-                # Updates progress bar on dashboard if all interlocks pass
-                if self.active:
-                    self.active['Interlocks Pass'] = all_good
+                    # Checks all 11 first interlocks
+                    all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
+                    self.update_interlock("All Interlocks", True, all_good)
 
-                # High Voltage Interlock (unrelated to All interlocks)
-                if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:
-                    self.update_interlock(self.INPUTS[11], True, True)
-                else:
-                    self.update_interlock(self.INPUTS[11], True, False)
+                    # Updates progress bar on dashboard if all interlocks pass
+                    if self.active:
+                        self.active['Interlocks Pass'] = all_good
 
-                # make sure that the data output indicates button and been pressed and the input is not off/error
-                if g9_active == sitsf_bits[12] == 1:
-                    self.update_interlock("G9SP Active", True, all_good)
-                else:
-                    self.update_interlock("G9SP Active", False, all_good)
+                    # High Voltage Interlock (unrelated to All interlocks)
+                    if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:
+                        self.update_interlock(self.INPUTS[11], True, True)
+                    else:
+                        self.update_interlock(self.INPUTS[11], True, False)
 
-                self._adjust_update_interval(success=True)
+                    # make sure that the data output indicates button and been pressed and the input is not off/error
+                    if g9_active == sitsf_bits[12] == 1:
+                        self.update_interlock("G9SP Active", True, all_good)
+                    else:
+                        self.update_interlock("G9SP Active", False, all_good)
+
+                    self._adjust_update_interval(success=True)
+                except queue.Empty:
+                    self.log("G9 Driver No Data - Queue is empty", LogLevel.CRITICAL)
 
         except Exception as e:
             if time.time() - self.last_error_time > (self.update_interval / 1000):
