@@ -261,79 +261,78 @@ class InterlocksSubsystem:
                     self._adjust_update_interval(success=False)
             else:
                 # Get interlock status from driver
-                try:
-                    status = self.driver.get_interlock_status()
+                status = self.driver.get_interlock_status()
+                
+                if status is None:
+                    self._set_all_indicators('red')
+                    if current_time - self.last_error_time > (self.update_interval / 1000):
+                        self.log("No data available from G9", LogLevel.CRITICAL)
+                        self.last_error_time = current_time
+                        self._adjust_update_interval(success=False)
+                        self.parent.after(self.update_interval, self.update_data)
+                        return
+                
+                sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
+
+                # parse unit status
+                if unit_status != b'\x01\x00':
+                    print(f"{unit_status= } : {type(unit_status)}")
+                    bits = self.extract_flags(status, 16)
+                    print(bits)
+                #     for k, v in self.driver.US_STATUS.items():
+                #         if bits[k] == 1:
+                #             self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
+                #     if bits[0] == 0:
+                #         self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
+
+                # check input terms
+                self._check_terminal_status(
+                    input_terms,
+                    self.driver.IN_STATUS,
+                    "Input")
+                
+                # check output terms
+                self._check_terminal_status(
+                    output_terms,
+                    self.driver.OUT_STATUS,
+                    "Output")
+
+                # Process dual-input interlocks (first 3 pairs)
+                for i in range(3):
+                    safety = (sitsf_bits[i*2] & 
+                            sitsf_bits[i*2+1])
+                    data = (sitdf_bits[i*2] & 
+                        sitdf_bits[i*2+1])
                     
-                    if status is None:
-                        self._set_all_indicators('red')
-                        if current_time - self.last_error_time > (self.update_interval / 1000):
-                            self.log("No data available from G9", LogLevel.CRITICAL)
-                            self.last_error_time = current_time
-                            self._adjust_update_interval(success=False)
-                            self.parent.after(self.update_interval, self.update_data)
-                            return
-                        
-                    sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
+                    self.update_interlock(self.INPUTS[i*2], safety, data)
+                
+                # Process single-input interlocks
+                for i in range(6, 11):
+                    safety = sitsf_bits[i]
+                    data = sitdf_bits[i]
+                    self.update_interlock(self.INPUTS[i], safety, data)
 
-                    # parse unit status
-                    if unit_status != b'\x01\x00':
-                        bits = self.extract_flags(status, 16)
-                        for k, v in self.driver.US_STATUS.items():
-                            if bits[k] == 1:
-                                self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
-                        if bits[0] == 0:
-                            self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
+                # Checks all 11 first interlocks
+                all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
+                self.update_interlock("All Interlocks", True, all_good)
 
-                    # check input terms
-                    self._check_terminal_status(
-                        input_terms,
-                        self.driver.IN_STATUS,
-                        "Input")
-                    
-                    # check output terms
-                    self._check_terminal_status(
-                        output_terms,
-                        self.driver.OUT_STATUS,
-                        "Output")
+                # Updates progress bar on dashboard if all interlocks pass
+                if self.active:
+                    self.active['Interlocks Pass'] = all_good
 
-                    # Process dual-input interlocks (first 3 pairs)
-                    for i in range(3):
-                        safety = (sitsf_bits[i*2] & 
-                                sitsf_bits[i*2+1])
-                        data = (sitdf_bits[i*2] & 
-                            sitdf_bits[i*2+1])
-                        
-                        self.update_interlock(self.INPUTS[i*2], safety, data)
-                    
-                    # Process single-input interlocks
-                    for i in range(6, 11):
-                        safety = sitsf_bits[i]
-                        data = sitdf_bits[i]
-                        self.update_interlock(self.INPUTS[i], safety, data)
+                # High Voltage Interlock (unrelated to All interlocks)
+                if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:
+                    self.update_interlock(self.INPUTS[11], True, True)
+                else:
+                    self.update_interlock(self.INPUTS[11], True, False)
 
-                    # Checks all 11 first interlocks
-                    all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
-                    self.update_interlock("All Interlocks", True, all_good)
+                # make sure that the data output indicates button and been pressed and the input is not off/error
+                if g9_active == sitsf_bits[12] == 1:
+                    self.update_interlock("G9SP Active", True, all_good)
+                else:
+                    self.update_interlock("G9SP Active", False, all_good)
 
-                    # Updates progress bar on dashboard if all interlocks pass
-                    if self.active:
-                        self.active['Interlocks Pass'] = all_good
-
-                    # High Voltage Interlock (unrelated to All interlocks)
-                    if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:
-                        self.update_interlock(self.INPUTS[11], True, True)
-                    else:
-                        self.update_interlock(self.INPUTS[11], True, False)
-
-                    # make sure that the data output indicates button and been pressed and the input is not off/error
-                    if g9_active == sitsf_bits[12] == 1:
-                        self.update_interlock("G9SP Active", True, all_good)
-                    else:
-                        self.update_interlock("G9SP Active", False, all_good)
-
-                    self._adjust_update_interval(success=True)
-                except queue.Empty:
-                    self.log("G9 Driver No Data - Queue is empty", LogLevel.CRITICAL)
+                self._adjust_update_interval(success=True)
 
         except Exception as e:
             if time.time() - self.last_error_time > (self.update_interval / 1000):
