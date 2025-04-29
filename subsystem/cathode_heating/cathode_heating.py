@@ -83,9 +83,9 @@ class CathodeHeatingSubsystem:
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
         self.current_options = {
-            "Cathode A" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_A.csv')['Emission_Current']))),
-            "Cathode B" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_B.csv')['Emission_Current']))),
-            "Cathode C" : bidict(dict(zip(pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Voltage'], pd.read_csv('subsystem/cathode_heating/powersupply_C.csv')['Emission_Current']))),
+            "Cathode A" : pd.read_csv('subsystem/cathode_heating/powersupply_A.csv'),
+            "Cathode B" : pd.read_csv('subsystem/cathode_heating/powersupply_B.csv'),
+            "Cathode C" : pd.read_csv('subsystem/cathode_heating/powersupply_C.csv'),
             "Interpolate" : self.interpolate
         }
         self.interpolate_setting = [self.current_options["Cathode A"], 
@@ -1302,8 +1302,8 @@ class CathodeHeatingSubsystem:
             if ideal_emission_current < 0:
                 raise ValueError("Target current must be positive")
             
-            log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
+            # log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
+            # self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
             
             if ideal_emission_current == 0:
                 # Set all related variables to zero
@@ -1319,8 +1319,7 @@ class CathodeHeatingSubsystem:
                 self.heater_voltage_vars[index].set('0.00')
                 self.predicted_temperature_vars[index].set('0.00')
             else:
-                heater_voltage = self.emission_cur_vlt_converter(target_current_mA)
-                # heater_current, heater_voltage = self.interpolate(log_ideal_emission_current, False)
+                heater_voltage, target_current_mA, heater_current = self.emission_cur_vlt_converter(index, target_current_mA, False)
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
@@ -1482,7 +1481,7 @@ class CathodeHeatingSubsystem:
 
             while True:
                 try:
-                    heater_current = self.emission_cur_vlt_converter(index, voltage)
+                    voltage, heater_current, ideal_emission_current = self.emission_cur_vlt_converter(index, voltage)
                     break
                 except ValueError:
                     # Show dialog with current voltage and allow user to enter new value
@@ -1495,6 +1494,8 @@ class CathodeHeatingSubsystem:
                     if new_voltage is None:  # User clicked cancel
                         return False
                     voltage = new_voltage
+
+            # self.log(f"{emission_voltage=} : {heater_current=} : {predicted_current=} ___________________", LogLevel.ERROR)
 
             # Check if the interpolated current is within the model's range
             if not min(self.cur_cathode_model.x_data) <= heater_current <= max(self.cur_cathode_model.x_data):
@@ -1530,16 +1531,15 @@ class CathodeHeatingSubsystem:
                 self.user_set_voltages[index] = voltage
 
             # Calculate dependent variables
-            ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
             predicted_grid_current = 0.28 * ideal_emission_current
             predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
             predicted_temperature_C = predicted_temperature_K - 273.15
 
             # Update GUI with new values
             self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-            self.predicted_emission_current_vars[index].set("--")
-            self.predicted_grid_current_vars[index].set("--")
-            self.predicted_temperature_vars[index].set("--")
+            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+            self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
 
             self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
             return True
@@ -1652,30 +1652,60 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
 
     def emission_cur_vlt_converter(self, index, val, vltToCur=True):
-        if isinstance(self.interpolate_setting[index], dict):
+        """
+        Convert between voltage and current using the DataFrame lookup or interpolation.
+        
+        Args:
+            index (int): Index of the cathode (0-2)
+            val (float): Input value (voltage or current)
+            vltToCur (bool): True if converting voltage to current, False if current to voltage
+            
+        Returns:
+            tuple: (emission_voltage, emission_current, predicted_current)
+        """
+        if isinstance(self.interpolate_setting[index], pd.DataFrame):
+            df = self.interpolate_setting[index]
             if vltToCur:
-                val = round(val, 2)
-                if val not in self.interpolate_setting[index]:
-                    raise ValueError
-                ret = self.interpolate_setting[index][val] # getting current
+                # Find closest voltage in DataFrame
+                closest_voltage = df.iloc[(df['voltage'] - val).abs().argsort()[0]]
+                emission_voltage = closest_voltage['voltage']
+                emission_current = closest_voltage['target_current']
+                predicted_current = closest_voltage['predicted_current']
             else:
-                # from (mA) to V
-                return self.interpolate_setting[index].inverse[round(val, 2)]
+                # Find closest current in DataFrame
+                closest_current = df.iloc[(df['target_current'] - val).abs().argsort()[0]]
+                emission_voltage = closest_current['voltage']
+                emission_current = closest_current['target_current']
+                predicted_current = closest_current['predicted_current']
         else:
             if vltToCur:
-                ret = self.interpolate(val) # calculating cur
+                # Use interpolation for voltage to current conversion
+                heater_current = self.interpolate(val)
+                emission_voltage = val
+                emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
+                predicted_current = emission_current * 0.72  # 72% of emission current hits target
             else:
-
-                ideal_emission_current = val / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
-                if ideal_emission_current < 0:
-                    raise ValueError("Target current must be positive")
-                
+                # Use interpolation for current to voltage conversion
+                ideal_emission_current = val / 0.72
                 log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-
-                ret = self.interpolate(log_ideal_emission_current, vltToCur=False) # calculating vlt
-        return ret
+                heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
+                emission_voltage = self.heater_voltage_model.interpolate(heater_current)
+                emission_current = ideal_emission_current
+                predicted_current = val
+                
+        return (emission_voltage, emission_current, predicted_current)
 
     def interpolate(self, val, vltToCur=True):
+        """
+        Interpolate between voltage and current using the physics models.
+        
+        Args:
+            val (float): Input value
+            vltToCur (bool): True if converting voltage to current, False if current to voltage
+            
+        Returns:
+            float: Interpolated value
+        """
         if vltToCur:
             return self.cur_cathode_model.interpolate(val, inverse=True)
         else:
