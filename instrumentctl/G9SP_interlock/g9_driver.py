@@ -75,7 +75,7 @@ class G9Driver:
         Attempts to make a serial connection
 
         Catch:
-            SerialException: If initizlization of serial port fails
+            SerialException: If initialization of serial port fails
         """
         if port:
             try:
