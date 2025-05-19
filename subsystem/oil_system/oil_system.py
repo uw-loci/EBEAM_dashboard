@@ -47,6 +47,7 @@ class OilSubsystem:
         self.temp_label.config(text=f"{self.temperature:.1f}°C")
         self.pressure_label.config(text=f"{self.pressure:.1f} PSI")
         self.flow_label.config(text=f"{self.flow_rate:.1f} GPM")
+        self.pumpStat.config(text=f"{self.pump_status}")
         self.parent.after(200, self.update_display)  
 
 
