@@ -73,7 +73,6 @@ class InterlocksSubsystem:
             
         self.parent.after(self.update_interval, self.update_data)
 
-
     def update_com_port(self, com_port):
         """
         Update the COM port and reinitialize the driver
