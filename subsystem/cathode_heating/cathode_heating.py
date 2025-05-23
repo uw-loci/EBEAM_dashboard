@@ -1462,33 +1462,35 @@ class CathodeHeatingSubsystem:
             #     self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
 
             # # Set voltage and current on the power supply
-            # if self.power_supplies and len(self.power_supplies) > index:
-            #     voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
-            #     current_set_success = self.power_supplies[index].set_current(3, heater_current)
-            #     if not voltage_set_success or not current_set_success:
-            #         self.log(f"Unable to set voltage: {voltage} or current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-            #         return False
+            if self.power_supplies and len(self.power_supplies) > index:
+                 voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
+            #    current_set_success = self.power_supplies[index].set_current(3, heater_current)
+                 if not voltage_set_success: # or not current_set_success:
+            #       self.log(f"Unable to set voltage: {voltage} or current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    self.log(f"Unable to set voltage: {voltage} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR) 
+                    return False
                 
-            #     # Confirm the set values
-            #     set_voltage, set_current = self.power_supplies[index].get_settings(3)
-            #     if set_voltage is not None and set_current is not None:    
-            #         voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
+            # Confirm the set values
+                 set_voltage, set_current = self.power_supplies[index].get_settings(3)
+                 if set_voltage is not None: # and set_current is not None:    
+                    voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
             #         current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
                     
-            #         if voltage_mismatch or current_mismatch:
-            #             self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-            #             if voltage_mismatch:
-            #                 self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                    if voltage_mismatch: # or current_mismatch:
+                         self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
+                         if voltage_mismatch:
+                            self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
             #             if current_mismatch:
             #                 self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
-            #             return False
-            #         else:
+                         return False
+                    else:
             #             self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
-            #     else:
-            #         self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
-            #         return False
+                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V", LogLevel.INFO)
+                 else:
+                     self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
+                     return False
                 
-            #     self.user_set_voltages[index] = voltage
+                 self.user_set_voltages[index] = voltage
 
             # Calculate dependent variables
             # ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
@@ -1502,7 +1504,7 @@ class CathodeHeatingSubsystem:
             self.predicted_grid_current_vars[index].set("--")
             self.predicted_temperature_vars[index].set("--")
 
-            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
+            # self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
             return True
         except ValueError as e:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
