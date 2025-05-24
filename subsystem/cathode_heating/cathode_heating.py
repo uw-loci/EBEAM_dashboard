@@ -1461,6 +1461,8 @@ class CathodeHeatingSubsystem:
             # if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
             #     self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
 
+
+            '''
             # # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
                  voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
@@ -1472,11 +1474,11 @@ class CathodeHeatingSubsystem:
                 
             # Confirm the set values
                  set_voltage, set_current = self.power_supplies[index].get_settings(3)
-                 if set_voltage is not None: # and set_current is not None:    
+                 if set_voltage is not None: and set_current is not None:    
                     voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
             #         current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
                     
-                    if voltage_mismatch: # or current_mismatch:
+                    if voltage_mismatch: or current_mismatch:
                          self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
                          if voltage_mismatch:
                             self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
@@ -1490,6 +1492,32 @@ class CathodeHeatingSubsystem:
                      self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
                      return False
                 
+                 self.user_set_voltages[index] = voltage
+            '''
+
+
+            # # Set voltage on the power supply
+            if self.power_supplies and len(self.power_supplies) > index: # why does this?
+                 voltage_set_success = self.power_supplies[index].set_voltage(3, voltage) # IMPORTANT
+                 if not voltage_set_success:
+                    self.log(f"Unable to set voltage: {voltage} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR) 
+                    return False
+                
+                # Confirm the set values
+                 set_voltage, set_current = self.power_supplies[index].get_settings(3)
+                 if set_voltage is not None: # and set_current is not None:    
+                    voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
+                    
+                    if voltage_mismatch:
+                         self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
+                         if voltage_mismatch:
+                            self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                         return False
+                    else:
+                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V", LogLevel.INFO)
+                 else:
+                     self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
+                     return False
                  self.user_set_voltages[index] = voltage
 
             # Calculate dependent variables
