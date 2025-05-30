@@ -68,9 +68,9 @@ class VTRXSubsystem:
         
         current_time = datetime.datetime.now()
         self.full_history_x = [current_time]
-        self.full_history_y = [1e3]
+        self.full_history_y = [float('nan')] # ARBITRARY initial pressure value of 1e3 replaced with NaN
         self.x_data = [current_time]
-        self.y_data = [1e3]
+        self.y_data = [float('nan')] # ARBITRARY initial pressure value of 1e3 replaced with NaN
         
         self.setup_serial()
         self.setup_gui()
