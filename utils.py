@@ -24,6 +24,7 @@ class Logger:
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
+        self.log_start_time = None
         if log_to_file:
             self.setup_log_file()
 
@@ -37,7 +38,13 @@ class Logger:
             
             # Create the log file with the old naming pattern
             log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+
+            # close the existing log file at intervals of 8 hours and create a new one
+            if self.log_file != None:
+                self.log_file.close()
+
             self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+            self.log_start_time = datetime.datetime.now()
             print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
@@ -54,12 +61,18 @@ class Logger:
             self.text_widget.see(tk.END)
 
             # write to log flie if enabled
-            if self.log_to_file and self.log_file:
-                try:
-                    self.log_file.write(formatted_message)
-                    self.log_file.flush()
-                except Exception as e:
-                    print(f"Error writing to log file: {str(e)}")
+            if self.log_to_file:
+                now = now = datetime.datetime.now()
+                # if self.log_start_time == None or (now - self.log_start_time > datetime.timedelta(hours=8)):
+                if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+                    self.setup_log_file()
+
+                if self.log_file:
+                    try:
+                        self.log_file.write(formatted_message)
+                        self.log_file.flush()
+                    except Exception as e:
+                        print(f"Error writing to log file: {str(e)}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
