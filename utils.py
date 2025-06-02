@@ -63,7 +63,6 @@ class Logger:
             # write to log flie if enabled
             if self.log_to_file:
                 now = now = datetime.datetime.now()
-                # if self.log_start_time == None or (now - self.log_start_time > datetime.timedelta(hours=8)):
                 if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                     self.setup_log_file()
 
