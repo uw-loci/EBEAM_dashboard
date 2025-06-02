@@ -60,6 +60,10 @@ class Logger:
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
 
+            # ensure log file is set up
+            if self.log_to_file and self.log_file is None:
+                self.setup_log_file()
+
             # write to log flie if enabled
             if self.log_to_file:
                 now = now = datetime.datetime.now()
