@@ -67,10 +67,10 @@ class VTRXSubsystem:
         self.last_gui_update_time = time.time()
         
         current_time = datetime.datetime.now()
-        self.full_history_x = [current_time]
-        self.full_history_y = [float('nan')] # ARBITRARY initial pressure value of 1e3 replaced with NaN
-        self.x_data = [current_time]
-        self.y_data = [float('nan')] # ARBITRARY initial pressure value of 1e3 replaced with NaN
+        self.full_history_x = [] # all initial values were removed so the lengths of each matched
+        self.full_history_y = [] # ARBITRARY initial pressure value of 1e3 removed, now empty
+        self.x_data = []
+        self.y_data = [] # ARBITRARY initial pressure value of 1e3 removed, now empty
         
         self.setup_serial()
         self.setup_gui()
