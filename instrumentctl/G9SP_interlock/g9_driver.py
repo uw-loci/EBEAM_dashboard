@@ -74,7 +74,7 @@ class G9Driver:
         Attempts to make a serial connection
 
         Catch:
-            SerialException: If initizlization of serial port fails
+            SerialException: If initialization of serial port fails
         """
         if port:
             try:
@@ -90,7 +90,7 @@ class G9Driver:
                 self._close_serial()
         else:
             self._close_serial()
-            raise ConnectionError
+            raise ConnectionError("No port specified for G9SP connection")
 
     def _close_serial(self):
         """ Attempt to close serial port """
