@@ -65,13 +65,6 @@ class VTRXSubsystem:
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
         self.last_gui_update_time = time.time()
-        
-        current_time = datetime.datetime.now()
-        self.full_history_x = [] # all initial values were removed so the lengths of each matched
-        self.full_history_y = [] # ARBITRARY initial pressure value of 1e3 removed, now empty
-        self.x_data = []
-        self.y_data = [] # ARBITRARY initial pressure value of 1e3 removed, now empty
-        
         self.setup_serial()
         self.setup_gui()
         
@@ -386,7 +379,7 @@ class VTRXSubsystem:
         self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-7, 1e3)  
+        self.ax.set_ylim(1e-7, 1e-2)  # tightened y-axis limits so initial plot is more readable
         self.ax.tick_params(axis='x', labelsize=6, pad=1)
         self.ax.grid(True)
 
