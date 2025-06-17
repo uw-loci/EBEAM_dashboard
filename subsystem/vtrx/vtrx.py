@@ -451,7 +451,9 @@ class VTRXSubsystem:
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
-            
+
+            subsystem_bits = ''.join(str(bit) for bit in switch_states)
+            self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
     def update_plot(self):
