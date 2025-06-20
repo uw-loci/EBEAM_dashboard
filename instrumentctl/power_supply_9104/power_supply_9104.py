@@ -21,10 +21,12 @@ class PowerSupply9104:
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
+            self.sleep(1)  # Allow time for the device to initialize
+            self.flush_serial()  # Clear any initial data in the buffer
         except serial.SerialException as e:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
-
+ 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
         
@@ -222,17 +224,15 @@ class PowerSupply9104:
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
                     try:
-                        if not self.set_voltage(preset, next_voltage):
-                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
-
+                        if self.set_voltage(preset, next_voltage):
+                            break # Success, exit retry loop
+                        else:
+                            self.log(f"Attempt: {attempt + 1} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.WARNING)
                     except Exception as e:
-                        self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
-                        if callback:
-                            callback(False)
-                        return
-                    
-                if attempt > self.MAX_RETRIES:
-                    self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp", LogLevel.ERROR)
+                        self.log(f"Error during ramping step: {str(e)}. Retrying.", LogLevel.WARNING)
+                        time.sleep(.1) # Short delay before retrying
+                else:
+                    self.log(f"Failed to set voltage to {next_voltage:.2f}V after {self.MAX_RETRIES} attempts. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
                     return
