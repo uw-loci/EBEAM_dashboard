@@ -262,6 +262,25 @@ class PowerSupply9104:
             if callback:
                 callback(False)
 
+    def stop_ramp(self, block=False, timeout=5.0):
+        """Stop the voltage ramping thread."""
+        if self.ramp_thread and self.ramp_thread.is_alive():
+            self.stop_event.set()
+
+            if block:
+                self.log("Waiting for ramping thread to finish...", LogLevel.INFO)
+                self.ramp_thread.join(timeout=timeout)
+                if self.ramp_thread.is_alive():
+                    # Thread ignored the stop request or is stuck
+                    self.log(f"Ramp thread did not terminate within {timeout:.1f}s", LogLevel.WARNING,)
+                else:
+                    self.log("Ramp thread stopped successfully.", LogLevel.INFO)
+            
+            # Reset the ramp thread reference
+            if not self.ramp_thread.is_alive():
+                self.ramp_thread = None
+                self.stop_event.clear()
+
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """

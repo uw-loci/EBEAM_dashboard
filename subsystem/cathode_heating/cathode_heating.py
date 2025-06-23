@@ -785,6 +785,7 @@ class CathodeHeatingSubsystem:
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
         
         if not is_gradual:
+            self.power_supplies[index].stop_ramping()
             self.log(f"Immediate set voltage change mode for Cathode {index}", LogLevel.WARNING)
 
     def set_overvoltage_limit(self, index):
@@ -1190,6 +1191,7 @@ class CathodeHeatingSubsystem:
             self.log(f"Enabled voltage ramping for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
         else:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
+            self.power_supplies[index].stop_ramp(block=True)  # Stop any ongoing ramp
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
     def toggle_output(self, index):
@@ -1207,6 +1209,9 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]:
                 if target_voltage is not None:
+                    # Check and kill any existing ramp before starting a new one
+                    self.power_supplies[index].stop_ramp(block=True)
+                    
                     # Set voltage to 0 before starting the ramp-up
                     self.power_supplies[index].set_voltage(3, 0.0)
                     self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
@@ -1230,6 +1235,7 @@ class CathodeHeatingSubsystem:
                 
         else:
             # turning off the output
+            self.power_supplies[index].stop_ramp()  # Stop any ongoing ramp, no wait
             self.power_supplies[index].set_output("0")
 
         # Update the toggle state and button image
