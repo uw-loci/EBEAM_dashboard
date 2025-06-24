@@ -21,7 +21,7 @@ class PowerSupply9104:
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
-            self.flush_serial()
+            # self.flush_serial()
         except serial.SerialException as e:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None

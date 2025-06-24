@@ -1443,17 +1443,19 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
-
-        new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
-        if new_voltage is not None:
-            success = self.update_predictions_from_voltage(index, new_voltage)
-            if success:
-                self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
-                setattr(self, f'last_set_voltage_{index}', new_voltage)
-                self.voltage_set[index] = True
-                self.entry_fields[index].delete(0, tk.END)
-            else:
-                self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        if(self.toggle_states[index] and self.ramp_status[index]):
+            msgbox.showwarning("Voltage is LOCKED during ramp", "Disable output or wait for ramp to finish")
+        else:
+            new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
+            if new_voltage is not None:
+                success = self.update_predictions_from_voltage(index, new_voltage)
+                if success:
+                    self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+                    setattr(self, f'last_set_voltage_{index}', new_voltage)
+                    self.voltage_set[index] = True
+                    self.entry_fields[index].delete(0, tk.END)
+                else:
+                    self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
     def update_predictions_from_voltage(self, index, voltage):
         """
