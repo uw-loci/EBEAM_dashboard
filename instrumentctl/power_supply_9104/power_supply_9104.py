@@ -12,7 +12,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
-        # self.serial_lock = threading.Lock()
+        self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
@@ -21,6 +21,7 @@ class PowerSupply9104:
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
+            self.flush_serial()
         except serial.SerialException as e:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
@@ -46,42 +47,42 @@ class PowerSupply9104:
 
     def flush_serial(self):
         if self.ser and self.ser.is_open:
-            self.log("Flushing serial input buffer", LogLevel.DEBUG)
-            self.ser.reset_input_buffer()
+            with self.serial_lock():
+                self.log("Flushing serial input buffer", LogLevel.DEBUG)
+                self.ser.reset_input_buffer()
         else:
             self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        # with self.serial_lock:
-        try:
-            self.flush_serial()
-            
-            self.log(f"Sending command: {command}", LogLevel.DEBUG)
-            self.ser.write(f"{command}\r\n".encode())
-            
-            response = self.ser.read_until(b'\r').decode()
-
-            if 'OK' not in response:
-                additional = self.ser.read_until(b'\r').decode().strip()
-                response = f"{response}\r{additional}"
-
-            if not response:
-                raise ValueError("No response received from 9104 supply")
-            if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
-
-            self.log(f"Response: {response}", LogLevel.DEBUG)
+        with self.serial_lock:
+            try: 
+                self.log(f"Sending command: {command}", LogLevel.DEBUG)
+                self.ser.write(f"{command}\r\n".encode())
                 
-            return response.strip()
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
-        except Exception as e:
-            self.log(f"Critical Error", LogLevel.ERROR)
+                response = self.ser.read_until(b'\r').decode()
+
+                if 'OK' not in response:
+                    additional = self.ser.read_until(b'\r').decode().strip()
+                    response = f"{response}\r{additional}"
+
+                if not response:
+                    raise ValueError("No response received from 9104 supply")
+                if 'OK' not in response:
+                    self.log(f"Acknowledgement not in 9104 supply response")
+
+                self.log(f"Response: {response}", LogLevel.DEBUG)
+                    
+                return response.strip()
+            except serial.SerialException as e:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                return None
+            except ValueError as e:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                return None
+            except Exception as e:
+                self.log(f"Critical Error", LogLevel.ERROR)
+                return None
 
     def set_output(self, state):
         """Set the output on/off."""
