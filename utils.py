@@ -19,7 +19,7 @@ class LogLevel(enum.IntEnum):
     CRITICAL = 5
 
 class Logger:
-    def __init__(self, text_widget, file_log_level = LogLevel.DEBUG, log_level=LogLevel.INFO, log_to_file=False):
+    def __init__(self, text_widget, file_log_level = LogLevel.DEBUG, log_level=LogLevel.DEBUG, log_to_file=False):
         self.text_widget = text_widget
         self.file_log_level = file_log_level
         self.log_level = log_level
