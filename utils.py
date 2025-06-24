@@ -55,7 +55,7 @@ class Logger:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         
-        if self.log_level >= LogLevel:
+        if self.log_level <= level:
             # Write to text widget
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
