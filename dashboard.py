@@ -288,16 +288,13 @@ class EBEAMSystemDashboard:
     def on_log_level_change(self, event):
         selected_level = LogLevel[self.log_level_var.get()]
         self.messages_frame.set_log_level(selected_level)
-        print(f"Log level changed to: {selected_level.name}")
 
     def on_file_log_level_change(self, event):
         selected_level = self.file_log_level_var.get()
         if selected_level == "DEBUG":
             self.messages_frame.logger.file_log_level = LogLevel.DEBUG
-            self.messages_frame.logger.info("File log level set to DEBUG.")
         elif selected_level == "VERBOSE":
             self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
-            self.messages_frame.logger.info("File log level set to VERBOSE.")
 
     def create_subsystems(self):
         """
