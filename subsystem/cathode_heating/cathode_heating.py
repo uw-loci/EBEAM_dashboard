@@ -1235,8 +1235,10 @@ class CathodeHeatingSubsystem:
                 
         else:
             # turning off the output
-            self.power_supplies[index].stop_ramp()  # Stop any ongoing ramp, no wait
-            self.power_supplies[index].set_output("0")
+            self.power_supplies[index].stop_ramp(block=True)  # Stop any ongoing ramp, waits for thread to stop
+            if not self.power_supplies[index].set_output("0"):
+                self.log("Failed to disable output …", LogLevel.ERROR)
+                return
 
         # Update the toggle state and button image
         self.toggle_states[index] = new_state

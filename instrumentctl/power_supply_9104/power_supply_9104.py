@@ -21,7 +21,7 @@ class PowerSupply9104:
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
-            # self.flush_serial()
+            self.flush_serial()
         except serial.SerialException as e:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
@@ -47,7 +47,7 @@ class PowerSupply9104:
 
     def flush_serial(self):
         if self.ser and self.ser.is_open:
-            with self.serial_lock():
+            with self.serial_lock:
                 self.log("Flushing serial input buffer", LogLevel.DEBUG)
                 self.ser.reset_input_buffer()
         else:
@@ -222,6 +222,11 @@ class PowerSupply9104:
                 
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
+                    if self.stop_event.is_set():  # Check if stop is requested
+                        self.log("Ramping thread stopped.", LogLevel.INFO)
+                        if callback:
+                            callback(False)
+                        return
                     try:
                         if self.set_voltage(preset, next_voltage):
                             break # Success, exit retry loop
@@ -247,7 +252,7 @@ class PowerSupply9104:
                 time.sleep(step_delay)
             
             # Final verification after settling
-            time.sleep(1.0)  # Extra settling time
+            # time.sleep(.5)  # Extra settling time
             final_voltage, _, _ = self.get_voltage_current_mode()
             
             if final_voltage is not None:
@@ -263,7 +268,7 @@ class PowerSupply9104:
             if callback:
                 callback(False)
 
-    def stop_ramp(self, block=False, timeout=5.0):
+    def stop_ramp(self, block=False, timeout=3.0):
         """Stop the voltage ramping thread."""
         if self.ramp_thread and self.ramp_thread.is_alive():
             self.stop_event.set()
@@ -275,7 +280,7 @@ class PowerSupply9104:
                     # Thread ignored the stop request or is stuck
                     self.log(f"Ramp thread did not terminate within {timeout:.1f}s", LogLevel.WARNING,)
                 else:
-                    self.log("Ramp thread stopped successfully.", LogLevel.INFO)
+                    self.log(f"Ramp thread stopped successfully.", LogLevel.INFO)
             
             # Reset the ramp thread reference
             if not self.ramp_thread.is_alive():
