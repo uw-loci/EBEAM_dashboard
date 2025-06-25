@@ -785,7 +785,6 @@ class CathodeHeatingSubsystem:
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
         
         if not is_gradual:
-            self.power_supplies[index].stop_ramping()
             self.log(f"Immediate set voltage change mode for Cathode {index}", LogLevel.WARNING)
 
     def set_overvoltage_limit(self, index):
@@ -1209,9 +1208,12 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]:
                 if target_voltage is not None:
-                    # Check and kill any existing ramp before starting a new one
-                    self.power_supplies[index].stop_ramp(block=True)
-                    
+                    # Check and kill any existing ramp before starting a new one; may be unnecessary
+                    ramp_stopped = self.power_supplies[index].stop_ramp(block=True)
+                    if not ramp_stopped:
+                        msgbox.showwarning("Busy", "Ramp thread still finishing. Try again in a few seconds.")
+                        return
+                
                     # Set voltage to 0 before starting the ramp-up
                     self.power_supplies[index].set_voltage(3, 0.0)
                     self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)

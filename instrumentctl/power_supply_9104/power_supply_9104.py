@@ -6,11 +6,12 @@ from utils import LogLevel
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
 
-    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1.0, logger=None, debug_mode=False):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.logger = logger
+        self.log_lock = threading.Lock()
         self.debug_mode = debug_mode
         self.serial_lock = threading.Lock()
         self.setup_serial()
@@ -57,6 +58,7 @@ class PowerSupply9104:
         """Send a command to the power supply and read the response."""
         with self.serial_lock:
             try: 
+                self.flush_serial()  # Ensure the buffer is clear before sending a command
                 self.log(f"Sending command: {command}", LogLevel.DEBUG)
                 self.ser.write(f"{command}\r\n".encode())
                 
@@ -564,6 +566,7 @@ class PowerSupply9104:
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
-            self.logger.log(message, level)
+            with self.log_lock: 
+                self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
