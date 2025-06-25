@@ -6,7 +6,7 @@ from utils import LogLevel
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
 
-    def __init__(self, port, baudrate=9600, timeout=1.0, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
@@ -58,7 +58,7 @@ class PowerSupply9104:
         """Send a command to the power supply and read the response."""
         with self.serial_lock:
             try: 
-                self.flush_serial()  # Ensure the buffer is clear before sending a command
+                #self.flush_serial()  # Ensure the buffer is clear before sending a command
                 self.log(f"Sending command: {command}", LogLevel.DEBUG)
                 self.ser.write(f"{command}\r\n".encode())
                 
