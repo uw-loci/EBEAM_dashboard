@@ -50,24 +50,24 @@ class Logger:
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
         
-    def log(self, msg, level=LogLevel.DEBUG, FileLevel = LogLevel.DEBUG):
+    def log(self, msg, level=LogLevel.DEBUG):
         """ Log a message to the text widget and optionally to local file """
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         
-        if self.log_level <= level:
+        if level >= self.log_level:
             # Write to text widget
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
 
         # write to log file if enabled
-        if self.log_to_file and FileLevel >= self.file_log_level:
+        if self.log_to_file and level >= self.file_log_level:
             now = datetime.datetime.now()
             if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                 self.setup_log_file()
             try:
-                file_formatted_message = f"[{timestamp}] - {FileLevel.name}: {msg}\n"
+                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
             except Exception as e:
@@ -75,6 +75,9 @@ class Logger:
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
+
+    def verbose(self, message):
+        self.log(message, LogLevel.VERBOSE)
 
     def info(self, message):
         self.log(message, LogLevel.INFO)
