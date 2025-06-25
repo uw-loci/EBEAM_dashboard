@@ -1235,7 +1235,10 @@ class CathodeHeatingSubsystem:
                 
         else:
             # turning off the output
-            self.power_supplies[index].stop_ramp(block=True)  # Stop any ongoing ramp, waits for thread to stop
+            ramp_stopped = self.power_supplies[index].stop_ramp(block=True)  # Stop any ongoing ramp, waits for thread to stop
+            if not ramp_stopped:
+                msgbox.showwarning("Busy", "Ramp thread still finishing. Try again in a few seconds.")
+                return
             if not self.power_supplies[index].set_output("0"):
                 self.log("Failed to disable output …", LogLevel.ERROR)
                 return
