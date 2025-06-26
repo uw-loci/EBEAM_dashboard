@@ -76,9 +76,6 @@ class Logger:
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
 
-    def verbose(self, message):
-        self.log(message, LogLevel.VERBOSE)
-
     def info(self, message):
         self.log(message, LogLevel.INFO)
 
@@ -155,7 +152,7 @@ class MessagesFrame:
         )
 
         self.file_logging_enabled = True
-        self.logger = Logger(self.text_widget, file_log_level=LogLevel.DEBUG, log_to_file=True)
+        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, file_log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
