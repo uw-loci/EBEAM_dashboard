@@ -10,16 +10,26 @@ class ES440_cathode:
             self.y_data = np.log10(self.y_data)
 
     def interpolate(self, x, inverse=False):
+        # We can optionally apply a log transform to the y_data for interpolation
+        # as it tends to have better accuracy with exponential data.
         if self.log_transform:
+            # For normal interpolation (x_data to y_data), log-transform the input x.
+            # For inverse interpolation, x is already in log space.
             x = np.log10(x) if not inverse else x
         if inverse:
+            # Interpolate in the reverse direction: y_data to x_data (or log(y_data) to x_data if log_transform).
+            # Swap x and y axes for interpolation.
             x_index, y_index = (self.y_data, self.x_data) if self.log_transform else (self.x_data, self.y_data)
+            # Clamp x to the valid range.
             if x < min(x_index) or x > max(x_index):
                 x = max(min(x_index), min(max(x_index), x))
             return np.interp(x, x_index, y_index)
         else:
+            # Interpolate normally: x_data to y_data (or x_data to log(y_data) if log_transform).
+            # Clamp x to the valid range.
             if x < min(self.x_data) or x > max(self.x_data):
                 x = max(min(self.x_data), min(max(self.x_data), x))
+            # If log_transform, exponentiate the result back to linear space.
             return np.exp10(np.interp(x, self.x_data, self.y_data)) if self.log_transform else np.interp(x, self.x_data, self.y_data)
     
     # Data: tuple of (heater current [A], heater voltage [V])
