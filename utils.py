@@ -49,7 +49,6 @@ class Logger:
             print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
-        
     def log(self, msg, level=LogLevel.DEBUG):
         """ Log a message to the text widget and optionally to local file """
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
