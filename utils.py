@@ -51,10 +51,10 @@ class Logger:
             print(f"Error creating log file: {str(e)}")
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-        
         if level >= self.log_level:
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+            formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+        
             # Write to text widget
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
