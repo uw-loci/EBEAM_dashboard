@@ -1,6 +1,7 @@
 import serial
 import threading
 import time
+import _tkinter  # For tkinter error handling
 from utils import LogLevel
 
 class PowerSupply9104:
@@ -16,6 +17,8 @@ class PowerSupply9104:
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
+
+        self.tkinter_error_cnt = 0  # Track tkinter errors
 
     def setup_serial(self):
         try:
@@ -246,8 +249,11 @@ class PowerSupply9104:
                 
                 # Only log every few steps
                 if step % 5 == 0:
-                    self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
-                    
+                    try:
+                        self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
+                    except _tkinter.TclError as e:
+                        self.tkinter_error_cnt += 1
+                        print(self.tkinter_error_cnt, e)
                 # Longer delay between steps
                 time.sleep(step_delay)
             
