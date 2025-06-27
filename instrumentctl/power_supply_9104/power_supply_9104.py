@@ -253,7 +253,7 @@ class PowerSupply9104:
                         self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
                     except _tkinter.TclError as e:
                         self.tkinter_error_cnt += 1
-                        print(self.tkinter_error_cnt, e)
+                        self.log(f"Tkinter error during ramping: {str(e)}. Count: {self.tkinter_error_cnt}", LogLevel.ERROR)
                 # Longer delay between steps
                 time.sleep(step_delay)
             
