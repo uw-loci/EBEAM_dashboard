@@ -254,7 +254,7 @@ class PowerSupply9104:
                 time.sleep(step_delay)
             
             # Final verification after settling
-            # time.sleep(.5)  # Extra settling time
+            time.sleep(1.0)  # Extra settling time
             final_voltage, _, _ = self.get_voltage_current_mode()
             
             if final_voltage is not None:
@@ -269,7 +269,8 @@ class PowerSupply9104:
             self.push_ramp_log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
-
+    '''
+    Was implemented for potential fix, not needed for now.
     def stop_ramp(self, block=False, timeout=3.0) -> bool:
         """Stop the voltage ramping thread."""
         if self.ramp_thread and self.ramp_thread.is_alive():
@@ -286,7 +287,7 @@ class PowerSupply9104:
                 self.log(f"Ramp thread still running after {timeout}s", LogLevel.WARNING)
             return finished      
         return True
-    
+    '''
     def push_ramp_log(self, msg, level=LogLevel.INFO):
         """Push a log message to the ramping log queue, preventing Tkinter threading issues."""
         try:
