@@ -2,6 +2,7 @@ import time
 import threading
 from threading import Lock
 import struct
+import queue
 from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
@@ -55,6 +56,9 @@ class DP16ProcessMonitor:
         self.response_lock = Lock()
         self.last_critical_error_time = 0
         
+        # Queue for thread-safe logging
+        self.log_queue = queue.Queue(maxsize=100)
+
         # Start single background polling thread after successful connection and configuration
         self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
         self._thread.start()
@@ -344,9 +348,31 @@ class DP16ProcessMonitor:
         else:
             self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
 
+    def push_log(self, message, level=LogLevel.INFO):
+        """Push a log message to the queue for thread-safe logging."""
+        try:
+            if self.log_queue.full():
+                self.log_queue.get_nowait()  # Remove oldest message if full
+            # Put the new message in the queue
+            self.log_queue.put_nowait((message, level))
+        except queue.Full:
+            pass  # Ignore if the queue is full
+
+    def get_log_msg(self):
+        """ Public method to retrieve log messages from the queue. """
+        try:
+            return self.log_queue.get_nowait()
+        except queue.Empty:
+            return None
+
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
-        if self.logger:
-            self.logger.log(message, level)
+        if threading.current_thread() is threading.main_thread():
+            # If we're in the main thread, use the logger directly
+            if self.logger:
+                self.logger.log(message, level)
+            else:
+                print(f"{level.name}: {message}")
         else:
-            print(f"{level.name}: {message}")
+            # If we're in a background thread, push to the queue
+            self.push_log(message, level)        

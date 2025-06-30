@@ -205,6 +205,9 @@ class ProcessMonitorSubsystem:
             self.log(f"Failed to initialize DP16ProcessMonitor: {str(e)}", LogLevel.ERROR)
             self._set_all_temps_error()
         
+        # Start polling PMON log messages in a background thread
+        self.parent.after(200, self.poll_pmon_log)
+
         # start the callback method
         self.update_temperatures()
 
@@ -312,6 +315,16 @@ class ProcessMonitorSubsystem:
         if hasattr(self, 'temp_bars'):
             for name in self.temp_bars:
                 self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+
+    def poll_pmon_log(self):
+        """ Continuously poll the PMON log for new messages in a background thread. """
+        if self.monitor:
+            event = self.monitor.get_log_msg()
+            while event:
+                msg, level = event
+                self.log(msg, level)
+                event = self.monitor.get_log_msg()
+        self.parent.after(200, self._poll_pmon_events)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
