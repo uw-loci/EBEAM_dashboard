@@ -1,7 +1,7 @@
 import serial
 import threading
 import time
-import _tkinter  # For tkinter error handling
+import queue
 from utils import LogLevel
 
 class PowerSupply9104:
@@ -18,7 +18,7 @@ class PowerSupply9104:
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
 
-        self.tkinter_error_cnt = 0  # Track tkinter errors
+        self._ramp_log_queue = queue.Queue(maxsize=100) # Queue for ramping log messages
 
     def setup_serial(self):
         try:
@@ -60,7 +60,7 @@ class PowerSupply9104:
         """Send a command to the power supply and read the response."""
         with self.serial_lock:
             try: 
-                self.log(f"Sending command: {command}", LogLevel.DEBUG)
+                self.push_ramp_log(f"Sending command: {command}", LogLevel.DEBUG)
                 self.ser.write(f"{command}\r\n".encode())
                 
                 response = self.ser.read_until(b'\r').decode()
@@ -72,19 +72,19 @@ class PowerSupply9104:
                 if not response:
                     raise ValueError("No response received from 9104 supply")
                 if 'OK' not in response:
-                    self.log(f"Acknowledgement not in 9104 supply response")
+                    self.push_ramp_log(f"Acknowledgement not in 9104 supply response")
 
-                self.log(f"Response: {response}", LogLevel.DEBUG)
+                self.push_ramp_log(f"Response: {response}", LogLevel.DEBUG)
                     
                 return response.strip()
             except serial.SerialException as e:
-                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                self.push_ramp_log(f"Serial error: {e}", LogLevel.ERROR)
                 return None
             except ValueError as e:
-                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                self.push_ramp_log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
                 return None
             except Exception as e:
-                self.log(f"Critical Error", LogLevel.ERROR)
+                self.push_ramp_log(f"Critical Error", LogLevel.ERROR)
                 return None
 
     def set_output(self, state):
@@ -118,29 +118,29 @@ class PowerSupply9104:
         
         # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
         if not is_voltage_valid:
-            self.log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
+            self.push_ramp_log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
             return False
         command = f"VOLT {preset}{formatted_voltage:04d}"
     
         response = self.send_command(command)
         
-        self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
+        self.push_ramp_log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip().startswith("OK"):
-            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
+            self.push_ramp_log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
             return True
         else:
             error_message = "No response" if response is None else response
-            self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
+            self.push_ramp_log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
             return False
         
     def validate_voltage(self, voltage):
         """Check if the voltage is less than the OVP."""
         ovp = self.get_over_voltage_protection()
         if ovp is None:
-            self.log("Could not validate voltage. OVP unavailable.", LogLevel.ERROR)
+            self.push_ramp_log("Could not validate voltage. OVP unavailable.", LogLevel.ERROR)
             return False
         if voltage > ovp:
-            self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
+            self.push_ramp_log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
             return False
         return True
     
@@ -192,11 +192,11 @@ class PowerSupply9104:
             # Get initial voltage
             voltage, _, _ = self.get_voltage_current_mode()
             if voltage is None:
-                self.log("Could not get initial voltage reading, using 0V", LogLevel.WARNING)
+                self.push_ramp_log(f"Could not get initial voltage reading, using 0V", LogLevel.WARNING)
                 voltage = 0.0
                 
             current_voltage = voltage
-            self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
+            self.push_ramp_log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
             
             # Calculate steps
             voltage_difference = target_voltage - current_voltage
@@ -206,13 +206,13 @@ class PowerSupply9104:
             # Simple ramping loop
             for step in range(num_steps):
                 if self.stop_event.is_set():  # Check if stop is requested
-                    self.log("Ramping thread stopped.", LogLevel.INFO)
+                    self.push_ramp_log("Ramping thread stopped.", LogLevel.INFO)
                     if callback:
                         callback(False)
                     return
             
                 if not self.is_connected():
-                    self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
+                    self.push_ramp_log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
                     return
@@ -226,7 +226,7 @@ class PowerSupply9104:
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
                     if self.stop_event.is_set():  # Check if stop is requested
-                        self.log("Ramping thread stopped.", LogLevel.INFO)
+                        self.push_ramp_log("Ramping thread stopped.", LogLevel.INFO)
                         if callback:
                             callback(False)
                         return
@@ -234,12 +234,12 @@ class PowerSupply9104:
                         if self.set_voltage(preset, next_voltage):
                             break # Success, exit retry loop
                         else:
-                            self.log(f"Attempt: {attempt + 1} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.WARNING)
+                            self.push_ramp_log(f"Attempt: {attempt + 1} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.WARNING)
                     except Exception as e:
-                        self.log(f"Error during ramping step: {str(e)}. Retrying.", LogLevel.WARNING)
+                        self.push_ramp_log(f"Error during ramping step: {str(e)}. Retrying.", LogLevel.WARNING)
                         time.sleep(.1) # Short delay before retrying
                 else:
-                    self.log(f"Failed to set voltage to {next_voltage:.2f}V after {self.MAX_RETRIES} attempts. Aborting ramp.", LogLevel.ERROR)
+                    self.push_ramp_log(f"Failed to set voltage to {next_voltage:.2f}V after {self.MAX_RETRIES} attempts. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
                     return
@@ -249,11 +249,7 @@ class PowerSupply9104:
                 
                 # Only log every few steps
                 if step % 5 == 0:
-                    try:
-                        self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
-                    except _tkinter.TclError as e:
-                        self.tkinter_error_cnt += 1
-                        self.log(f"Tkinter error during ramping: {str(e)}. Count: {self.tkinter_error_cnt}", LogLevel.ERROR)
+                    self.push_ramp_log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
                 # Longer delay between steps
                 time.sleep(step_delay)
             
@@ -262,15 +258,15 @@ class PowerSupply9104:
             final_voltage, _, _ = self.get_voltage_current_mode()
             
             if final_voltage is not None:
-                self.log(f"Ramp complete. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V", LogLevel.INFO)
+                self.push_ramp_log(f"Ramp complete. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V", LogLevel.INFO)
             else:
-                self.log(f"Ramp complete but could not verify final voltage", LogLevel.WARNING)
+                self.push_ramp_log(f"Ramp complete but could not verify final voltage", LogLevel.WARNING)
                 
             if callback:
                 callback(True)
                 
         except Exception as e:
-            self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
+            self.push_ramp_log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
 
@@ -290,6 +286,22 @@ class PowerSupply9104:
                 self.log(f"Ramp thread still running after {timeout}s", LogLevel.WARNING)
             return finished      
         return True
+    
+    def push_ramp_log(self, msg, level):
+        """Push a log message to the ramping log queue, preventing Tkinter threading issues."""
+        try:
+            if self._ramp_log_queue.full():
+                self._ramp_log_queue.get_nowait()
+            self._ramp_log_queue.put_nowait((msg, level))
+        except queue.Full:
+            pass  # prevents blocking if queue is full
+
+    def get_ramp_log(self):
+        """Get the ramping log messages."""
+        try:
+            return self._ramp_log_queue.get_nowait()
+        except queue.Empty:
+            return None
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
@@ -395,13 +407,13 @@ class PowerSupply9104:
                     ovp_str = response.split('\r')[0]
                     # convert to integer, then to a float
                     ovp_volts = int(ovp_str) / 100.0
-                    self.log(f"OVP value: {ovp_volts:.2f}")
+                    self.push_ramp_log(f"OVP value: {ovp_volts:.2f}")
                     return ovp_volts
                 except (ValueError, IndexError) as e:
-                    self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
+                    self.push_ramp_log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
                     return None
             
-        self.log("Failed to get OVP value", LogLevel.ERROR)
+        self.push_ramp_log("Failed to get OVP value", LogLevel.ERROR)
         return None
 
 

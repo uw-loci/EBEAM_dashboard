@@ -98,6 +98,7 @@ class CathodeHeatingSubsystem:
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
         self.update_data()                          # Start the data update loop
+        self.parent.after(200, self.poll_ramp_events)  # Start polling for ramp logs
 
     def _init_prediction_variables(self):
         """
@@ -1634,7 +1635,20 @@ class CathodeHeatingSubsystem:
         except Exception as e:
             self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
-    
+
+    def poll_ramp_events(self):
+        """
+        Continuously polls for ramp events from all power supplies and logs them.
+        Runs in Tk main thread avoiding threading issues with Tkinter.
+        """
+        for ps in filter(None, self.power_supplies):
+            event = ps.get_ramp_log()
+            while event:
+                msg, level = event
+                self.log(msg, level)
+                event = ps.get_ramp_log()
+        self.parent.after(200, self.poll_ramp_events)
+
     def close_com_ports(self):
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.
