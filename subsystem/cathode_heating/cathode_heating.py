@@ -1191,7 +1191,6 @@ class CathodeHeatingSubsystem:
             self.log(f"Enabled voltage ramping for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
         else:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
-            self.power_supplies[index].stop_ramp(block=True)  # Stop any ongoing ramp
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
     def toggle_output(self, index):
@@ -1209,12 +1208,6 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]:
                 if target_voltage is not None:
-                    # Check and kill any existing ramp before starting a new one; may be unnecessary
-                    ramp_stopped = self.power_supplies[index].stop_ramp(block=True)
-                    if not ramp_stopped:
-                        msgbox.showwarning("Busy", "Ramp thread still finishing. Try again in a few seconds.")
-                        return
-                
                     # Set voltage to 0 before starting the ramp-up
                     self.power_supplies[index].set_voltage(3, 0.0)
                     self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
@@ -1238,10 +1231,6 @@ class CathodeHeatingSubsystem:
                 
         else:
             # turning off the output
-            ramp_stopped = self.power_supplies[index].stop_ramp()  # Stop any ongoing ramp, no wait
-            if not ramp_stopped:
-                msgbox.showwarning("Busy", "Ramp thread still finishing. Try again in a few seconds.")
-                return
             if not self.power_supplies[index].set_output("0"):
                 self.log("Failed to disable output …", LogLevel.ERROR)
                 return
@@ -1309,17 +1298,6 @@ class CathodeHeatingSubsystem:
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
-
-                # set_voltage handles these checks now
-                # current_ovp = self.get_ovp(index)
-                # if current_ovp is None:
-                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                #     return
-
-                # if heater_voltage > current_ovp:
-                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                #     return
 
                 # Set Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:

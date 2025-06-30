@@ -287,7 +287,7 @@ class PowerSupply9104:
             return finished      
         return True
     
-    def push_ramp_log(self, msg, level):
+    def push_ramp_log(self, msg, level=LogLevel.INFO):
         """Push a log message to the ramping log queue, preventing Tkinter threading issues."""
         try:
             if self._ramp_log_queue.full():
