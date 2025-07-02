@@ -1,5 +1,6 @@
 # cathode_heating.py
 import tkinter as tk
+from bidict import bidict
 from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
@@ -13,6 +14,7 @@ from instrumentctl.power_supply_9104.power_supply_9104 import PowerSupply9104
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
+import pandas as pd
 import numpy as np
 from utils import LogLevel
 
@@ -46,6 +48,8 @@ class CathodeHeatingSubsystem:
         'ERROR': '#FFA500',       # Communication error
         'DISCONNECTED': '#808080'
     }
+
+    
     
     def __init__(self, parent, com_ports, active, logger=None):
         """
@@ -78,7 +82,19 @@ class CathodeHeatingSubsystem:
         self.user_set_voltages = [None, None, None]
         self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
         self.ramp_status = [True, True, True]
+        self.current_options = {
+            "Cathode A" : pd.read_csv('subsystem/cathode_heating/powersupply_A.csv'),
+            "Cathode B" : pd.read_csv('subsystem/cathode_heating/powersupply_B.csv'),
+            "Cathode C" : pd.read_csv('subsystem/cathode_heating/powersupply_C.csv'),
+            # "Interpolate" : self.interpolate
+        }
+        self.interpolate_setting = [self.current_options["Cathode A"], 
+                                    self.current_options["Cathode B"], 
+                                    self.current_options["Cathode C"],
+                                    # self.current_options["Interpolate"]
+                                    ]
         self.query_settings_buttons = []
+        self.interpolate_comboboxes = []
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -461,6 +477,18 @@ class CathodeHeatingSubsystem:
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
             read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+
+            # Add dropdown for interpolate_setting
+            interpolate_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
+            interpolate_label.grid(row=5, column=0, sticky='e')
+
+            interpolate_options = list(self.current_options.keys())
+            interp_box = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
+            interp_box.grid(row=5, column=1, sticky='w')
+            interp_box.set(f"Cathode {['A', 'B', 'C'][i]}")
+            interp_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
+
+            self.interpolate_comboboxes.append(interp_box)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -908,6 +936,10 @@ class CathodeHeatingSubsystem:
             heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
             emission_current = [data[1] for data in ES440_cathode.heater_current_emission_current_data]
             self.emission_current_model = ES440_cathode(heater_current_emission, emission_current, log_transform=True)
+
+            self.cur_cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
+                    [data[0] for data in ES440_cathode.heater_voltage_current_data], 
+                    log_transform=False)
         
             # Initialize true temperature model
             heater_current_temp = [data[0] for data in ES440_cathode.heater_current_true_temperature_data]
@@ -1168,7 +1200,7 @@ class CathodeHeatingSubsystem:
         ax.relim()
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
-
+        
     def toggle_ramp(self, index):
         """
         Toggle ramping mode for voltage changes.
@@ -1271,8 +1303,8 @@ class CathodeHeatingSubsystem:
             if ideal_emission_current < 0:
                 raise ValueError("Target current must be positive")
             
-            log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
+            # log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
+            # self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
             
             if ideal_emission_current == 0:
                 # Set all related variables to zero
@@ -1288,9 +1320,7 @@ class CathodeHeatingSubsystem:
                 self.heater_voltage_vars[index].set('0.00')
                 self.predicted_temperature_vars[index].set('0.00')
             else:
-                # Calculate heater current from the ES440 model
-                heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
-                heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+                heater_voltage, target_current_mA, heater_current = self.emission_cur_vlt_converter(index, target_current_mA, False)
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
@@ -1450,16 +1480,27 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning("Voltage Exceeds OVP", f"The requested voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower voltage.")
                 return False
 
-            # Use the ES440_cathode model to interpolate current from voltage
-            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                                        log_transform=False)
-            heater_current = cathode_model.interpolate(voltage, inverse=True)
+            while True:
+                try:
+                    voltage, heater_current, ideal_emission_current = self.emission_cur_vlt_converter(index, voltage)
+                    break
+                except ValueError:
+                    # Show dialog with current voltage and allow user to enter new value
+                    new_voltage = tksd.askfloat(
+                        "Invalid Voltage",
+                        f"Voltage {voltage:.2f}V is not in the lookup table.\nPlease enter a valid voltage:",
+                        parent=self.parent,
+                        initialvalue=voltage
+                    )
+                    if new_voltage is None:  # User clicked cancel
+                        return False
+                    voltage = new_voltage
 
+            # self.log(f"{emission_voltage=} : {heater_current=} : {predicted_current=} ___________________", LogLevel.ERROR)
 
             # Check if the interpolated current is within the model's range
-            if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
-                self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
+            if not min(self.cur_cathode_model.x_data) <= heater_current <= max(self.cur_cathode_model.x_data):
+                self.log(f"Heater current {heater_current:.3f} is out of range [{min(self.cur_cathode_model.x_data):.3f}, {max(self.cur_cathode_model.x_data):.3f}]", LogLevel.WARNING)
 
             # Set voltage and current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
@@ -1491,16 +1532,15 @@ class CathodeHeatingSubsystem:
                 self.user_set_voltages[index] = voltage
 
             # Calculate dependent variables
-            ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
             predicted_grid_current = 0.28 * ideal_emission_current
             predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
             predicted_temperature_C = predicted_temperature_K - 273.15
 
             # Update GUI with new values
             self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-            self.predicted_emission_current_vars[index].set("--")
-            self.predicted_grid_current_vars[index].set("--")
-            self.predicted_temperature_vars[index].set("--")
+            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+            self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
 
             self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
             return True
@@ -1595,3 +1635,81 @@ class CathodeHeatingSubsystem:
                 self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
+
+    def on_interp_change(self, event, index):
+        """
+        Handle changes in the interpolation setting dropdown.
+
+        Args:
+            event: The event triggered by changing the selection in the combobox.
+            index: The index of the power supply to update.
+        """
+        selected_value = self.interpolate_comboboxes[index].get()
+
+        if selected_value in self.current_options:
+            self.log(f"Updating interpolation setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
+            self.interpolate_setting[index] = self.current_options[selected_value]
+        else:
+            self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
+
+    def emission_cur_vlt_converter(self, index, val, vltToCur=True):
+        """
+        Convert between voltage and current using the DataFrame lookup or interpolation.
+        
+        Args:
+            index (int): Index of the cathode (0-2)
+            val (float): Input value (voltage or current)
+            vltToCur (bool): True if converting voltage to current, False if current to voltage
+            
+        Returns:
+            tuple: (emission_voltage, emission_current, predicted_current)
+        """
+        if isinstance(self.interpolate_setting[index], pd.DataFrame):
+            df = self.interpolate_setting[index]
+            if vltToCur:
+                # Find closest voltage in DataFrame
+                closest_voltage = df.iloc[(df['voltage'] - val).abs().argsort()[0]]
+                emission_voltage = closest_voltage['voltage']
+                emission_current = closest_voltage['target_current']
+                predicted_current = closest_voltage['predicted_current']
+            else:
+                # Find closest current in DataFrame
+                closest_current = df.iloc[(df['target_current'] - val).abs().argsort()[0]]
+                emission_voltage = closest_current['voltage']
+                emission_current = closest_current['target_current']
+                predicted_current = closest_current['predicted_current']
+        # else:
+        #     if vltToCur:
+        #         # Use interpolation for voltage to current conversion
+        #         heater_current = self.interpolate(val)
+        #         emission_voltage = val
+        #         emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
+        #         predicted_current = emission_current * 0.72  # 72% of emission current hits target
+        #     else:
+        #         # Use interpolation for current to voltage conversion
+        #         ideal_emission_current = val / 0.72
+        #         log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
+        #         heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
+        #         emission_voltage = self.heater_voltage_model.interpolate(heater_current)
+        #         emission_current = ideal_emission_current
+        #         predicted_current = val
+                
+        return (emission_voltage, emission_current, predicted_current)
+
+    # def interpolate(self, val, vltToCur=True):
+    #     """
+    #     Interpolate between voltage and current using the physics models.
+        
+    #     Args:
+    #         val (float): Input value
+    #         vltToCur (bool): True if converting voltage to current, False if current to voltage
+            
+    #     Returns:
+    #         float: Interpolated value
+    #     """
+    #     if vltToCur:
+    #         return self.cur_cathode_model.interpolate(val, inverse=True)
+    #     else:
+    #         heater_current = self.emission_current_model.interpolate(val, inverse=True)
+    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+    #         return heater_voltage
