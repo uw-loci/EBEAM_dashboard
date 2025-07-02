@@ -1,33 +1,67 @@
+import subprocess
+import sys
+import os
 import subsystem
 import tkinter as tk
 from tkinter import ttk
-from utils import MessagesFrame, SetupScripts, LogLevel
+from tkinter import messagebox
+from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
 frames_config = [
-    ("Oil System", 0, 50, 150),
-    ("Visualization Gas Control", 0, 50, 150),
-    ("System Checks", 0, None, None),
-    ("Beam Extraction", 0, None, None),
-    ("Vacuum System", 1, 150, 300),
-    ("Deflection Monitor", 1, None, None),
-    ("Beam Pulse", 1, None, None),
-    ("Main Control", 1, 50, 300),
-    ("Setup Script", 2, None, 25),
-    ("Interlocks", 2, None, 25),
-    ("High Voltage Warning", 2, None, 25),
-    ("Environmental", 3, 150, 450),
-    ("Cathode Heating", 3, 960, 450),
+    # Row 0
+    ("Interlocks", 0, 1916, 41),
+    
+    # Row 1
+    ("Oil System", 1, 604, 130),
+    ("Beam Steering", 1, 778, 130),
+    ("Beam Energy", 1, 528, 130),
+    
+    # Row 2
+    ("Vacuum System", 2, 604, 438),
+    ("Beam Pulse", 2, 777, 438),
+    ("Main Control", 2, 529, 438),
+    
+    # Row 4
+    ("Process Monitor", 3, 339, 458),
+    ("Cathode Heating", 3, 1041, 458),
+    ("Messages Frame", 3, 539, 458),
+
+    # Row 5
+    ("Machine Status", 4, 1916, 38)
 ]
 
 class EBEAMSystemDashboard:
+    """
+    Main dashboard class that manages the EBEAM System Control Dashboard interface.
+
+    Manages the layout and visualization of multiple hardware subsystems including:
+    - Interlocks and safety systems
+    - Vacuum and pressure monitoring
+    - Temperature monitoring
+    - Cathode heating control
+    - System status monitoring and logging
+
+    Attributes:
+        root: tkinter root window
+        com_ports: Dictionary mapping subsystem names to serial COM port assignments
+        frames: Dictionary of tkinter frames for each subsystem
+        subsystems: Dictionary of initialized subsystem objects
+    """
+
+    PORT_INFO = {
+        "AG0KLEQ8A" : "Interlocks"
+    }
+
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
 
-
+        self.set_com_ports = set(serial.tools.list_ports.comports())
+        
+        
         # if save file exists call it and open it
         if saveFileExists():
              self.load_saved_pane_state()
@@ -38,17 +72,31 @@ class EBEAMSystemDashboard:
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
+        # Set up a frame for displaying messages and errors
+        self.create_messages_frame()
+
         # Initialize all the frames within the main pane
         self.create_frames()
 
-        # Set up a frame for displaying messages and errors
-        self.create_messages_frame()
+        # Set up a frame for displaying machine status information
+        self.create_machine_status_frame()
 
         # Set up different subsystems within their respective frames
         self.create_subsystems()
 
+        self._check_ports()
+
+    def cleanup(self):
+        """Closes all open com ports before quitting the application."""
+
+        print("Cleaning up com ports...")
+        for subsystem in self.subsystems.values():
+            if hasattr(subsystem, 'close_com_ports'):
+                subsystem.close_com_ports()
+        print("Cleaned up com ports.")
+
     def setup_main_pane(self):
-        """Initialize the main layout pane and its rows."""
+        """Initialize the main layout pane and its rows for subsystem organization."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
@@ -58,7 +106,10 @@ class EBEAMSystemDashboard:
             self.main_pane.add(row_pane, stretch='always')
 
     def create_frames(self):
-        """Create frames for different systems and controls within the dashboard."""
+        """
+        Create and configure frames for all subsystems based on frames_config.
+        Each frame is added to its designated row in the main pane.
+        """
         global frames_config
 
         for title, row, width, height in frames_config:
@@ -67,13 +118,17 @@ class EBEAMSystemDashboard:
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
-            self.rows[row].add(frame, stretch='always')
-            self.add_title(frame, title)
+            if title not in ["Interlocks", "Machine Status"]:
+                self.add_title(frame, title)
+            if title == "Messages Frame":
+                continue
             self.frames[title] = frame
-            if title == "Setup Script":
-                SetupScripts(frame)
+            self.rows[row].add(frame, stretch='always')
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
+
+        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        self.frames['Messages Frame'] = self.messages_frame.frame
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -86,15 +141,93 @@ class EBEAMSystemDashboard:
         notebook.add(config_tab, text='Config')
 
         # TODO: add main control buttons to main tab here
+        main_frame = ttk.Frame(main_tab, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Add stuff to Config tab
-        self.create_com_port_frame(config_tab)
-        self.create_log_level_dropdown(config_tab)
-        save_layout_button = tk.Button(config_tab, text="Save Layout", command=self.save_current_pane_state)
-        save_layout_button.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=5)
+        # Script dropdown
+        self.create_script_dropdown(main_frame)
+
+        config_frame = ttk.Frame(config_tab, padding="10")
+        config_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 1. COM Port Configuration
+        self.create_com_port_frame(config_frame)
+
+        # 2. Save Layout button
+        save_layout_frame = ttk.Frame(config_frame)
+        save_layout_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        ttk.Button(
+            save_layout_frame,
+            text="Save Layout",
+            command=self.save_current_pane_state
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 3. Post Processor button
+        self.create_post_processor_button(config_frame)
+
+        # 4. Log Level dropdown
+        self.create_log_level_dropdown(config_frame)
+
+        # Add F1 help hint
+        help_label = ttk.Label(
+            config_frame,
+            text="Press F1 for keyboard shortcuts",
+            font=("Helvetica", 8, "italic"),
+            foreground="gray"
+        )
+        help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
+
+    def create_script_dropdown(self, parent_frame):
+        SetupScripts(parent_frame)
+
+    def create_post_processor_button(self, parent_frame):
+        """Create a button to launch the standalone post-processor application"""
+        post_processor_frame = ttk.Frame(parent_frame)
+        post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        
+        ttk.Button(
+            post_processor_frame,
+            text="Launch Log Post-processor",
+            command=self.launch_post_processor
+        ).pack(side=tk.LEFT, padx=5)
+
+    def launch_post_processor(self):
+        """Launch the post-processor as a separate process"""
+        try:
+            # Get the directory where the current script is located
+            if getattr(sys, 'frozen', False):
+                # If running as a bundled executable
+                base_path = sys._MEIPASS # type: ignore
+            else:
+                # If running as a script
+                base_path = os.path.dirname(os.path.abspath(__file__))
+
+            # Path to the post processor script
+            post_processor_path = os.path.join(base_path, 'scripts/post-process/post_process_gui.py')
+
+            # Launch the post-processor script
+            if sys.platform.startswith('win'):
+                # On Windows, use pythonw to avoid console window
+                subprocess.Popen([sys.executable, post_processor_path], 
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                # On other platforms
+                subprocess.Popen([sys.executable, post_processor_path])
+                
+            self.logger.info("Log post-processor launched successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to launch log post-processor: {str(e)}")
+            messagebox.showerror("Error", 
+                            f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
-        """Add a title label to a frame."""
+        """
+        Add a formatted title label to a frame.
+        
+        Args:
+            frame: Frame to add title to
+            title: Title text to display
+        """
         label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
         label.pack(pady=0, fill=tk.X)
 
@@ -109,6 +242,7 @@ class EBEAMSystemDashboard:
         for i in range(len(frames_config)):
             if frames_config[i][0] in savedData:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
+        savedData = load_pane_states()
 
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
@@ -117,9 +251,17 @@ class EBEAMSystemDashboard:
 
         self.log_level_var = tk.StringVar()
         log_levels = [level.name for level in LogLevel]
-        log_level_dropdown = ttk.Combobox(log_level_frame, textvariable=self.log_level_var, values=log_levels, state="readonly")
+        log_level_dropdown = ttk.Combobox(
+            log_level_frame, 
+            textvariable=self.log_level_var, 
+            values=log_levels, 
+            state="readonly", 
+            width=15
+        )
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        log_level_dropdown.set(LogLevel.INFO.name) 
+        
+        current_level = self.messages_frame.get_log_level()
+        log_level_dropdown.set(current_level.name) 
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
     def on_log_level_change(self, event):
@@ -128,43 +270,58 @@ class EBEAMSystemDashboard:
         print(f"Log level changed to: {selected_level.name}")
 
     def create_subsystems(self):
-        """Initialize subsystems in their designated frames using component settings."""
+        """
+        Initialize all subsystem objects with their respective frames and settings.
+        Each subsystem is configured with appropriate COM ports and logging.
+        """
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
                 serial_port=self.com_ports['VTRXSubsystem'], 
                 logger=self.logger
             ),
-            'Environmental [°C]': subsystem.EnvironmentalSubsystem(
-                self.frames['Environmental'], 
-                logger=self.logger
-            ),
-            'Visualization Gas Control': subsystem.VisualizationGasControlSubsystem(
-                self.frames['Visualization Gas Control'], 
-                logger=self.logger
+            'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
+                self.frames['Process Monitor'], 
+                com_port=self.com_ports['ProcessMonitors'],
+                logger=self.logger,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
-                self.frames['Interlocks'], 
-                logger=self.logger
+                self.frames['Interlocks'],
+                com_ports = self.com_ports['Interlocks'],
+                logger=self.logger,
+                frames = self.frames,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Oil System': subsystem.OilSubsystem(
-                self.frames['Oil System'], 
-                logger=self.logger
+                self.frames['Oil System'],
+                logger=self.logger,
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
-                logger=self.logger
+                logger=self.logger,
+                active = self.machine_status_frame.MACHINE_STATUS
             )
         }
 
+        # Updates machine status progress bar
+        self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
+
     def create_messages_frame(self):
-        """Create a frame for displaying messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3])
-        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        """Create a scrollable frame for displaying system messages and errors."""
+        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
         self.logger = self.messages_frame.logger
 
+    def create_machine_status_frame(self):
+        """Create a frame for displaying machine status information."""
+        self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
+
     def create_com_port_frame(self, parent_frame):
+        """
+        Create the COM port configuration interface.
+        Allows dynamic assignment of COM ports to different subsystems.
+        """
         self.com_port_frame = ttk.Frame(parent_frame)
         self.com_port_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
@@ -178,7 +335,7 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers']:
+        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
@@ -200,6 +357,7 @@ class EBEAMSystemDashboard:
             self.com_port_button.config(text="Hide COM Port Configuration")
 
     def update_available_ports(self):
+        """Scan for available COM ports and update dropdown menus."""
         available_ports = [port.device for port in serial.tools.list_ports.comports()]
         for dropdown in self.port_dropdowns.values():
             current_value = dropdown.get()
@@ -219,9 +377,63 @@ class EBEAMSystemDashboard:
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
         # TODO: update the COM ports for each subsystem
-        # reinitializing componnents
 
         for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'update_com_port'):
-                subsystem.update_com_port(new_com_ports.get(subsystem_name))
+                if subsystem_name == 'Vacuum System':
+                    subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
+                elif subsystem_name == 'Cathode Heating':
+                    subsystem.update_com_ports(new_com_ports)
+            else:
+                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
+        self.logger.info(f"COM ports updated: {self.com_ports}")
+
+
+    def _check_ports(self):
+        """
+        Compares the current available comports to the last set
+
+        Finally:
+            Calls itself to be check again
+        """
+        self.logger.info("checking com ports")
+        current_ports = set(serial.tools.list_ports.comports())
+
+        dif = self.set_com_ports - current_ports
+        added_ports = current_ports - self.set_com_ports
+
+        try:
+            # Process removed ports
+            for port in dif:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.warning(
+                        f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+
+            # Process added ports
+            for port in added_ports:
+                if port.serial_number in self.PORT_INFO:
+                    self.logger.info(
+                        f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
+                    self._update_com_ports(self.PORT_INFO[port.serial_number], port)
+        except Exception as e:
+            self.logger.warning(f"Error was thrown when either removing or adding a comport: {e}")
+
+        finally:
+            self.set_com_ports = current_ports
+            self.root.after(500, self._check_ports)
+
+    def _update_com_ports(self, subsystem_str, port):
+        """
+        Calls to update subsystems with change in comport
+        """
+        print("here, updating com port")
+        if subsystem_str is None:
+            raise ValueError("_update_com_ports was called with invalid args")
+        str_port = port.device if port is not None else None
+        if subsystem_str in self.subsystems:
+            if subsystem_str == "Interlocks":
+                self.subsystems[subsystem_str].update_com_port(str_port)
+            #TODO: Need to add Vacuum system and Cathode Heating
+
         self.logger.info(f"COM ports updated: {self.com_ports}")
