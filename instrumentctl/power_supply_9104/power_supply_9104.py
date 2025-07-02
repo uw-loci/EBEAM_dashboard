@@ -364,6 +364,7 @@ class PowerSupply9104:
                 if not reading:
                     # Nothing came back - very likely no device on the port.
                     # Bail out immediately so the GUI thread is not blocked.
+                    self.log(f"No data on GETD; skipping remaining retries", LogLevel.DEBUG)
                     break
                 self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
@@ -377,7 +378,7 @@ class PowerSupply9104:
                             voltage, current, mode = v2, c2, m2
                     return voltage, current, mode
                 self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
-                time.sleep(0.1)
+                time.sleep(0.05)
             except Exception as e:
                 self.log(f"Error getting voltage mode", LogLevel.ERROR)
 
