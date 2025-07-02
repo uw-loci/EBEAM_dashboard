@@ -15,6 +15,7 @@ from utils import ToolTip
 import os, sys
 import numpy as np
 from utils import LogLevel
+from decimal import Decimal
 
 def resource_path(relative_path):
     """
@@ -76,7 +77,7 @@ class CathodeHeatingSubsystem:
         self.ramp_toggle_buttons = []
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
-        self.slew_rates = [0.01, 0.01, 0.01] # Default slew rates in V/s
+        self.slew_rates = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.ramp_status = [True, True, True]
         self.query_settings_buttons = []
 
@@ -137,7 +138,7 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
         self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
         
@@ -170,18 +171,18 @@ class CathodeHeatingSubsystem:
         Implements system defaults and safety thresholds.
         """
         # Power supply status display variables
-        self.current_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current readings
-        self.voltage_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Voltage readings
-        self.operation_mode_var = [tk.StringVar(value='Mode: --') for _ in range(3)]  # CV/CC mode
+        self.current_display_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Current readings
+        self.voltage_display_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Voltage readings
+        self.operation_mode_var   = [tk.StringVar(value='Mode: --') for _ in range(3)]  # CV/CC mode
         
         # Safety limit variables
         ## Temperature protection
-        self.overtemp_limit_vars = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
+        self.overtemp_limit_vars  = [tk.DoubleVar(value=self.OVERTEMP_THRESHOLD) for _ in range(3)]
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
         ## Power supply protection
-        self.overvoltage_limit_vars = [tk.StringVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (centivolts)
-        self.overcurrent_limit_vars = [tk.StringVar(value=8.5) for _ in range(3)]  # Default 8.5A limit (centiamps)
+        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
+        self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
 
     def setup_gui(self):
         cathode_labels = ['A', 'B', 'C']
@@ -336,19 +337,19 @@ class CathodeHeatingSubsystem:
             # Create measured values labels
             
             # Actual heater current (A)
-            ttk.Label(main_tab, text='Act Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            ttk.Label(main_tab, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             
             # Actual heater voltage (V)
-            ttk.Label(main_tab, text='Act Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(main_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             
             # Actual target current (mA)
-            ttk.Label(main_tab, text='Act Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             
             # Temperature monitoring (C)
-            ttk.Label(main_tab, text='Act ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            ttk.Label(main_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
             clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
@@ -409,22 +410,12 @@ class CathodeHeatingSubsystem:
             slew_rate_label = ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel')
             slew_rate_label.grid(row=4, column=0, sticky='e')
             
-            slew_rate_var = tk.StringVar(value='0.01')  # Default value
+            slew_rate_var = tk.StringVar(value='0.02')  # Default value
             slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
             slew_rate_entry.grid(row=4, column=1, sticky='w')
             set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
             ToolTip(slew_rate_label, "Rate of change for voltage output")
-            
-            # Slew Rate setting
-            # ttk.Label(config_tab, text='Slew Rate (V/s):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
-            # slew_rate_var = tk.StringVar(value='0.01')  # Default value
-            # slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
-            # slew_rate_entry.grid(row=4, column=1, sticky='w')
-            # set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var))
-            # set_slew_rate_button.grid(row=4, column=2, sticky='e')
-            # self.slew_rate_vars.append(slew_rate_var) # store user variable
-            # ToolTip(slew_rate_label, "Rate of change for voltage output")
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
@@ -659,26 +650,28 @@ class CathodeHeatingSubsystem:
 
                     ps = self.power_supplies[idx]
 
-                    # Set preset mode to 3
+                    # Set preset mode to 3 (normal mode)
                     set_preset_response = ps.set_preset_selection(3)
                     if set_preset_response:
-                        self.log(f"Set preset mode for {cathode} to 3.", LogLevel.INFO)
+                        self.log(f"Set preset mode for {cathode} to 3 (normal mode).", LogLevel.INFO)
                     else:
-                        self.log(f"Failed to set preset mode for {cathode} to 3. Response: {set_preset_response}", LogLevel.WARNING)
+                        self.log(f"Failed to set preset mode for {cathode} to 3 (normal mode). Response: {set_preset_response}", LogLevel.WARNING)
                     
-                    # Confirm preset mode
+                    # Confirm output preset mode
                     get_preset_response = ps.get_preset_selection()
                     if get_preset_response is None:
                         self.log(f"Failed to get preset mode for {cathode}", LogLevel.ERROR)
                     elif get_preset_response != 3:
                         self.log(f"Cathode {cathode} is not in preset mode 3 (normal mode). Current mode: {get_preset_response}", LogLevel.WARNING)
                     else:
-                        self.log(f"Asserted preset mode 3 for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
+                        self.log(f"Asserted preset mode 3 (normal mode) for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
 
                     # Set and confirm OVP
-                    ovp_value = float(self.overvoltage_limit_vars[idx].get())
+                    stored_ovp = self.overvoltage_limit_vars[idx].get()
+                    ovp_value = float(stored_ovp)
+                    ovp_set   = Decimal(stored_ovp).quantize(Decimal('0.01'))  # Round to 2 decimal places
                     self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
-                    if ps.set_over_voltage_protection(ovp_value):
+                    if ps.set_over_voltage_protection(ovp_set):
                         self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
                         
                         # Confirm the OVP setting
@@ -694,9 +687,11 @@ class CathodeHeatingSubsystem:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
                     # Set and confirm OCP
-                    ocp_value = float(self.overcurrent_limit_vars[idx].get())
+                    stored_ocp = self.overcurrent_limit_vars[idx].get()
+                    ocp_value = float(stored_ocp)
+                    ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
                     self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
-                    if ps.set_over_current_protection(ocp_value):
+                    if ps.set_over_current_protection(ocp_set):
                         self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
                         
                         # Confirm the OCP setting
@@ -799,12 +794,14 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            raw_value = float(self.overvoltage_limit_vars[index].get())
+            stored_ovp = self.overvoltage_limit_vars[index].get()
+            raw_value = float(stored_ovp)
+            ovp_set   = Decimal(stored_ovp).quantize(Decimal('0.01'))  # Round to 2 decimal places
             if raw_value < 0 or raw_value > 60:
                 raise ValueError("OVP out of valid range (0-60 V).")
             
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
-            ovp_set_response = self.power_supplies[index].set_over_voltage_protection(raw_value)
+            ovp_set_response = self.power_supplies[index].set_over_voltage_protection(ovp_set)
             if not ovp_set_response:
                 self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.WARNING)
                 return
@@ -839,12 +836,15 @@ class CathodeHeatingSubsystem:
             return
 
         try:
+            stored_ocp = self.overcurrent_limit_vars[index].get()
+            raw_value = float(stored_ocp)
+            ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
             raw_value = float(self.overcurrent_limit_vars[index].get())
             if raw_value < 0 or raw_value > 10:
                 raise ValueError("OCP out of valid range (0-10 A).")
             
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
-            ocp_set_response = self.power_supplies[index].set_over_current_protection(raw_value)
+            ocp_set_response = self.power_supplies[index].set_over_current_protection(ocp_set)
             if not ocp_set_response:
                 self.log(f"Failed to set OCP for Cathode {['A', 'B', 'C'][index]}. Response: {ocp_set_response}", LogLevel.WARNING)
                 return
@@ -871,7 +871,7 @@ class CathodeHeatingSubsystem:
             self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
 
-        voltage, current = self.power_supplies[index].get_settings(3)  # Get settings for preset 3
+        voltage, current = self.power_supplies[index].get_settings(3)  # Get settings for preset 3 (normal mode)
         self.log(f"Raw settings response for Cathode {['A', 'B', 'C'][index]}", LogLevel.DEBUG)
         if voltage is None or current is None:
             self.log(f"Failed to retrieve settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
@@ -1204,8 +1204,14 @@ class CathodeHeatingSubsystem:
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
             target_voltage = self.user_set_voltages[index]
+            
             if self.ramp_status[index]:
                 if target_voltage is not None:
+                    # Set voltage to 0 before starting the ramp-up
+                    self.power_supplies[index].set_voltage(3, 0.0)
+                    self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
+                    
+                    # Ramp up to the target voltage
                     slew_rate = self.slew_rates[index]
                     step_delay = 1.0  # seconds
                     step_size = slew_rate * step_delay
@@ -1251,11 +1257,6 @@ class CathodeHeatingSubsystem:
             - Updates heater voltage display
             - Logs actions and any errors
         """
-        if self.toggle_states[index]:
-            # if the output toggle is enabled, show a warning message
-            msgbox.showwarning("Warning", "Disable the output before setting a new target current.")
-            return
-
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set target current.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
@@ -1295,40 +1296,70 @@ class CathodeHeatingSubsystem:
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
 
-                current_ovp = self.get_ovp(index)
-                if current_ovp is None:
-                    self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                    return
+                # set_voltage handles these checks now
+                # current_ovp = self.get_ovp(index)
+                # if current_ovp is None:
+                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                #     return
 
-                if heater_voltage > current_ovp:
-                    self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                    msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                    return
+                # if heater_voltage > current_ovp:
+                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                #     return
 
-                # Set Upper Voltage Limit and Upper Current Limit on the power supply
+                # Set Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
-                    self.log(f"Setting voltage: {heater_voltage:.2f}V and current: {heater_current:.2f}A", LogLevel.DEBUG)
-                    voltage_set_success = self.power_supplies[index].set_voltage(3, heater_voltage)
+                    self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
+                    
+                    current_ovp = self.get_ovp(index)
+                    
+                    if current_ovp is None:
+                        self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                        return
+                    if heater_voltage > current_ovp:
+                        self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                        msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                        return
+                    # Set the upper current limit on the power supply
+                    
+                    # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
                     
-                    if voltage_set_success and current_set_success:
+                    
+                    if current_set_success:
                         self.user_set_voltages[index] = heater_voltage
+                        
+                        # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
+                        if self.toggle_states[index]:
+                            if self.ramp_status[index]:
+                                self.power_supplies[index].ramp_voltage(
+                                    heater_voltage,
+                                    step_size=self.slew_rates[index],
+                                    step_delay=1.0,
+                                    preset=3
+                                )
+                                self.voltage_set[index] = True
+                            else:
+                                self.power_supplies[index].set_voltage(3, heater_voltage)
+                                self.voltage_set[index] = True
+                                
                         # Confirm the set values
-                        set_voltage, set_current = self.power_supplies[index].get_settings(3)
-                        if set_voltage is not None and set_current is not None:
-                            voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
+                        _ , set_current = self.power_supplies[index].get_settings(3)
+                        if set_current is not None:
+                            # voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
                             current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
                             
-                            if voltage_mismatch or current_mismatch:
+                            if current_mismatch:
                                 self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                                if voltage_mismatch:
-                                    self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                                # if voltage_mismatch:
+                                #     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
                                 if current_mismatch:
                                     self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
+                                    return
                                 # GUI is updated with actual voltage
-                                self.heater_voltage_vars[index].set(f"{set_voltage:.2f}")
+                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f}")
                             else:
-                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
                         else:
                             self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
                         
@@ -1342,7 +1373,7 @@ class CathodeHeatingSubsystem:
                         self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
-                        self.voltage_set[index] = True
+                        
                         self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
                     else:
                         self.reset_related_variables(index)
@@ -1382,7 +1413,7 @@ class CathodeHeatingSubsystem:
             index (int): Index of the power supply to reset (0-2)
 
         Side effects:
-            - Sets voltage and current to 0
+            - Sets voltage to 0 and current to 0.0
             - Resets all prediction variables to '--'
             - Logs the reset action
         """
@@ -1406,9 +1437,6 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
-        if self.toggle_states[index]:
-            msgbox.showwarning("Warning", "Disable the output before setting a new voltage.")
-            return # exit the method if the output is already on
 
         new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
         if new_voltage is not None:
@@ -1441,14 +1469,18 @@ class CathodeHeatingSubsystem:
 
         try:
             current_ovp = self.get_ovp(index)
+            
             if current_ovp is None:
                 self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                return False
+                return
 
             if voltage > current_ovp:
-                self.log(f"Requested voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                msgbox.showwarning("Voltage Exceeds OVP", f"The requested voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower voltage.")
-                return False
+                self.log(f"Calculated voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                return
+            
+            if voltage < 0:
+                raise ValueError("Voltage must be positive")
 
             # Use the ES440_cathode model to interpolate current from voltage
             cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
@@ -1456,34 +1488,42 @@ class CathodeHeatingSubsystem:
                                         log_transform=False)
             heater_current = cathode_model.interpolate(voltage, inverse=True)
 
-
-            # Check if the interpolated current is within the model's range
-            if not min(cathode_model.x_data) <= heater_current <= max(cathode_model.x_data):
-                self.log(f"Heater current {heater_current:.3f} is out of range [{min(cathode_model.x_data):.3f}, {max(cathode_model.x_data):.3f}]", LogLevel.WARNING)
-
-            # Set voltage and current on the power supply
+            # Set Upper Current Limit on the power supply. Voltage is set in the power supply class when toggle_output is called
             if self.power_supplies and len(self.power_supplies) > index:
-                voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
+                # voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
                 current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                if not voltage_set_success or not current_set_success:
-                    self.log(f"Unable to set voltage: {voltage} or current: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                    return False
+                if not current_set_success:
+                    self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    
+                # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
+                if self.toggle_states[index]:
+                    if self.ramp_status[index]:
+                        self.power_supplies[index].ramp_voltage(
+                            voltage,
+                            step_size=self.slew_rates[index],
+                            step_delay=1.0,
+                            preset=3
+                        )
+                        self.voltage_set[index] = True
+                    else:
+                        self.power_supplies[index].set_voltage(3, voltage)
+                        self.voltage_set[index] = True
                 
                 # Confirm the set values
-                set_voltage, set_current = self.power_supplies[index].get_settings(3)
-                if set_voltage is not None and set_current is not None:    
-                    voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
+                _ , set_current = self.power_supplies[index].get_settings(3)
+                if set_current is not None:    
+                    # voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
                     current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                    
-                    if voltage_mismatch or current_mismatch:
+
+                    if current_mismatch:
                         self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                        if voltage_mismatch:
-                            self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                        # if voltage_mismatch:
+                        #     self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
                         if current_mismatch:
                             self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                         return False
                     else:
-                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_voltage:.2f}V, {set_current:.2f}A", LogLevel.INFO)
+                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
                 else:
                     self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
                     return False
@@ -1502,7 +1542,7 @@ class CathodeHeatingSubsystem:
             self.predicted_grid_current_vars[index].set("--")
             self.predicted_temperature_vars[index].set("--")
 
-            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {voltage:.2f}V, {heater_current:.2f}A", LogLevel.INFO)
+            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A", LogLevel.INFO)
             return True
         except ValueError as e:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
