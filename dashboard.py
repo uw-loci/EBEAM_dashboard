@@ -167,6 +167,7 @@ class EBEAMSystemDashboard:
 
         # 4. Log Level dropdown
         self.create_log_level_dropdown(config_frame)
+        self.file_create_log_level_dropdown(config_frame)
 
         # Add F1 help hint
         help_label = ttk.Label(
@@ -264,10 +265,36 @@ class EBEAMSystemDashboard:
         log_level_dropdown.set(current_level.name) 
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
+    def file_create_log_level_dropdown(self, parent_frame):
+        file_log_frame = ttk.Frame(parent_frame)
+        file_log_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        ttk.Label(file_log_frame, text="File Log Level:").pack(side=tk.LEFT)
+
+        self.file_log_level_var = tk.StringVar()
+        file_log_levels = ["DEBUG", "VERBOSE"]
+        self.file_log_level_dropdown = ttk.Combobox(
+            file_log_frame, 
+            textvariable=self.file_log_level_var, 
+            values=file_log_levels, 
+            state="readonly", 
+            width=15
+        )
+        self.file_log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
+        
+        current_file_level = self.messages_frame.get_file_log_level()
+        self.file_log_level_dropdown.set(current_file_level.name) 
+        self.file_log_level_dropdown.bind("<<ComboboxSelected>>", self.on_file_log_level_change)
+
     def on_log_level_change(self, event):
         selected_level = LogLevel[self.log_level_var.get()]
         self.messages_frame.set_log_level(selected_level)
-        print(f"Log level changed to: {selected_level.name}")
+
+    def on_file_log_level_change(self, event):
+        selected_level = self.file_log_level_var.get()
+        if selected_level == "DEBUG":
+            self.messages_frame.logger.file_log_level = LogLevel.DEBUG
+        elif selected_level == "VERBOSE":
+            self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
 
     def create_subsystems(self):
         """

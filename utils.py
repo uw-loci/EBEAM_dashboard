@@ -19,8 +19,9 @@ class LogLevel(enum.IntEnum):
     CRITICAL = 5
 
 class Logger:
-    def __init__(self, text_widget, log_level=LogLevel.INFO, log_to_file=False):
+    def __init__(self, text_widget, file_log_level = LogLevel.DEBUG, log_level=LogLevel.INFO, log_to_file=False):
         self.text_widget = text_widget
+        self.file_log_level = file_log_level
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
@@ -48,30 +49,27 @@ class Logger:
             print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
-        
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
-            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-            formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-            
             # Write to text widget
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
 
-            # write to log flie if enabled
-            if self.log_to_file:
-                now = datetime.datetime.now()
-                if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
-                    self.setup_log_file()
-
-                if self.log_file:
-                    try:
-                        self.log_file.write(formatted_message)
-                        self.log_file.flush()
-                    except Exception as e:
-                        print(f"Error writing to log file: {str(e)}")
+        # write to log file if enabled
+        if self.log_to_file and level >= self.file_log_level:
+            now = datetime.datetime.now()
+            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+                self.setup_log_file()
+            try:
+                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+                self.log_file.write(file_formatted_message)
+                self.log_file.flush()
+            except Exception as e:
+                print(f"Error writing to log file: {str(e)}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
@@ -152,7 +150,7 @@ class MessagesFrame:
         )
 
         self.file_logging_enabled = True
-        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
+        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, file_log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
@@ -199,6 +197,9 @@ class MessagesFrame:
 
     def get_log_level(self):
         return self.logger.log_level
+    
+    def get_file_log_level(self):
+        return self.logger.file_log_level
 
     def flush(self):
         """ Flush method needed for stdout redirection compatibility. """
