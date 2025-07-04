@@ -3,6 +3,7 @@ import tkinter as tk
 from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 from utils import LogLevel
+from dict_logger import update_field, status_dict
 
 class TemperatureBar(tk.Canvas):
 
@@ -248,6 +249,8 @@ class ProcessMonitorSubsystem:
                         formatted_temps[unit] = str(value)
                         
                 self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
+                update_field("temperatures", formatted_temps)
+                self.log(f"Updated status dict: {status_dict}", LogLevel.DEBUG)
 
                 if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):
