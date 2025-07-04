@@ -4,6 +4,7 @@ import threading
 import queue
 import time
 from utils import LogLevel
+from dict_logger import update_field, status_dict
 
 class G9Driver:
     NUMIN = 13
@@ -250,8 +251,14 @@ class G9Driver:
             'sotdf': self._extract_flags(status_data['sotdf'], 7),
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
+
         self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
         self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}", LogLevel.DEBUG)
+
+        update_field("safetyInputDataFlags", binary_data["sitdf"])
+        update_field("safetyOutputDataFlags", binary_data["sotdf"])
+        
+        self.log(f"Updated status dict: {status_dict}", LogLevel.DEBUG)
 
         # Check for errors
         self._check_unit_status(status_data['unit_status'])
