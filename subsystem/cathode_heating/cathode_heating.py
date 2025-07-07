@@ -433,54 +433,54 @@ class CathodeHeatingSubsystem:
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
             ToolTip(slew_rate_label, "Rate of change for voltage output")
 
-            # Get buttons and output labels
-            #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            query_settings_button = ttk.Button(config_tab, text="Query Settings:", width=18, command=lambda x=i: self.query_and_check_settings(x))
-            query_settings_button.grid(row=5, column=0, sticky='w')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
-            query_settings_button['state'] = 'disabled'
-            self.query_settings_buttons.append(query_settings_button)
-
-            # Add labels for power supply readings
-            display_label = ttk.Label(config_tab, text='\nProtection Settings:')
-            display_label.grid(row=6, column=0, columnspan=1, sticky='ew')
-
-            voltage_display_var = tk.StringVar(value='Voltage: -- V')
-            current_display_var = tk.StringVar(value='Current: -- A')
-            operation_mode_var = tk.StringVar(value='Mode: --')
-
-            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
-            voltage_label.grid(row=7, column=0, sticky='w')
-            mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=7, column=1, sticky='w')
-
-            # Store variables for later updates
-            self.voltage_display_vars.append(voltage_display_var)
-            self.current_display_vars.append(current_display_var)
-
-            # Add label for Temperature Controller
-            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=8, column=0, columnspan=3, sticky="ew")
-
-            # Add dropdown for interpolate_setting
+            # Add dropdown for interpolate_setting - moved to row 5
             interpolate_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
-            interpolate_label.grid(row=9, column=0, sticky='e')
+            interpolate_label.grid(row=5, column=0, sticky='e')
 
             interpolate_options = list(self.current_options.keys())
             interp_box = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
-            interp_box.grid(row=9, column=1, sticky='w')
+            interp_box.grid(row=5, column=1, sticky='w')
 
             interp_box.set(f"Cathode {['A', 'B', 'C'][i]}")
             interp_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
 
             self.interpolate_comboboxes.append(interp_box)
 
+            # Get buttons and output labels
+            #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
+            query_settings_button = ttk.Button(config_tab, text="Query Settings:", width=18, command=lambda x=i: self.query_and_check_settings(x))
+            query_settings_button.grid(row=6, column=0, sticky='w')
+            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
+            query_settings_button['state'] = 'disabled'
+            self.query_settings_buttons.append(query_settings_button)
+
+            # Add labels for power supply readings
+            display_label = ttk.Label(config_tab, text='\nProtection Settings:')
+            display_label.grid(row=7, column=0, columnspan=1, sticky='ew')
+
+            voltage_display_var = tk.StringVar(value='Voltage: -- V')
+            current_display_var = tk.StringVar(value='Current: -- A')
+            operation_mode_var = tk.StringVar(value='Mode: --')
+
+            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
+            voltage_label.grid(row=8, column=0, sticky='w')
+            mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
+            mode_label.grid(row=8, column=1, sticky='w')
+
+            # Store variables for later updates
+            self.voltage_display_vars.append(voltage_display_var)
+            self.current_display_vars.append(current_display_var)
+
+            # Add label for Temperature Controller
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
+
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=10, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
