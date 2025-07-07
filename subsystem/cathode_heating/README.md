@@ -1,6 +1,6 @@
 # 9104 Power Supply Initialization
 ```mermaid
-flowchart TD
+flowchart TB
     Start([Start]) --> InitArrays[Initialize power_supplies and status arrays]
     InitArrays --> LoopStart{For each cathode PS}
     
@@ -13,11 +13,11 @@ flowchart TD
     PSExists -- Yes --> CheckConnection{Is connected?}
     
     CheckConnection -- No --> UpdatePort[Update COM port]
-    CheckConnection -- Yes --> SetPreset[Set preset mode to 3]
+    CheckConnection -- Yes --> SetPreset[Normal mode]
     CreatePS --> SetPreset
     UpdatePort --> SetPreset
     
-    SetPreset --> ConfirmPreset{Preset = 3?}
+    SetPreset --> ConfirmPreset{Preset == 3?}
     ConfirmPreset -- No --> LogPresetWarning[Log preset warning]
     ConfirmPreset -- Yes --> SetOVP[Set overvoltage protection]
     LogPresetWarning --> SetOVP
@@ -75,6 +75,7 @@ flowchart TB
     ParallelCheck --> TempCheck{"Temperature
     Controller Connected?"}
     
+    PSCheck -->|Yes| PSResume
     PSCheck -->|No| PSRetry["Retry Connection
     1. Log Warning
     2. Max 3 Attempts
@@ -113,7 +114,7 @@ flowchart TB
     2. Update Display"]
     
     PSResume --> UpdateDisplay["Update GUI Display
-    1. Voltage/Current
+    1. Voltage & Current
     2. Operation Mode
     3. Temperature Plot"]
     PSFail --> UpdateDisplay
@@ -123,12 +124,13 @@ flowchart TB
     
     UpdateDisplay --> NextCycle["Schedule Next
     Update (500ms)"]
+    
     NextCycle --> Start
     
     subgraph GUI_Updates["GUI Status Updates"]
         direction TB
         UpdateLabels["Update Display Labels:
-        - Heater Current/Voltage
+        - Heater Current & Voltage
         - Target Current
         - Temperature
         - Operation Mode"]
@@ -144,21 +146,16 @@ flowchart TB
         - Query Settings
         - Configuration Options"]
     end
-    
-    UpdateDisplay --> GUI_Updates
 ```
 
 # Defining a target electron beam emission current
  
 ```mermaid
 flowchart TB
-    Input["User Enters<b> Target Current"] --> ValidatePS{"Power Supply<b> Enabled?"}
-    
-    ValidatePS -->|Yes| Warning["Show Warning:<b> Disable First"]
-    ValidatePS -->|No| Calculate["Calculate Settings
-    - Emission Current<b> 
-    - Heater Current
-    - Heater Voltage"]
+    Input["User Enters<b> Target Current"] --> Calculate["Calculate Settings
+                                                        - Emission Current 
+                                                        - Heater Current
+                                                        - Heater Voltage"]
     
     Calculate --> ValidateRange{"Within Model<b> Ranges?"}
     
@@ -166,16 +163,60 @@ flowchart TB
     ValidateRange -->|Yes| CheckOVP{"Voltage < OVP<b> Limit?"}
     
     CheckOVP -->|No| OVPWarn["Show OVP Warning"]
-    CheckOVP -->|Yes| SetPS["Set Power Supply<b> - Voltage<b> - Current"]
+    CheckOVP -->|Yes| CheckOCP{"Current < OCP Limit?"}
+
+    CheckOCP -->|No| OCPWarn["Show OCP Warning"]
+    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage & Current"]
+    
+    SetPS --> Confirm{"Confirm Settings"}
+    
+    Confirm -->|Mismatch| LogError["Log Mismatch<b> Show Warning"]
+    Confirm -->|Match| UpdateDisplay["Update Display<b> - Predictions<b> - Status"]
+    
+
+    UpdateDisplay --> OutputToggled{"Did user toggle output?"}
+
+    OutputToggled --> |No| End
+    OutputToggled --> |Yes| OutputOn["Output Switched On"]
+    
+    
+    ResetVars --> End
+    OVPWarn --> End
+    OCPWarn --> End
+    LogError --> End
+```
+
+# Setting output via Dashboard for Benchmarking
+ 
+```mermaid
+flowchart TB
+    Input["User Enters<b> Voltage"] --> LUT["Use Voltage LUT to set Heater Voltage"]
+    
+
+    LUT --> CheckOVP{"Voltage < OVP<b> Limit?"}
+    
+    CheckOVP -->|No| OVPWarn["Show OVP Warning"]
+    CheckOVP -->|Yes| CheckOCP{"Current < OCP Limit?"}
+
+    CheckOCP -->|No| OCPWarn["Show OCP Warning"]
+    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage & Current"]
     
     SetPS --> Confirm{"Confirm<b> Settings"}
     
-    Confirm -->|Match| UpdateDisplay["Update Display<b> - Predictions<b> - Status"]
+    Confirm -->|Match| UpdateDisplay["Update Display 
+                                     - Predictions 
+                                     - Status"]
     Confirm -->|Mismatch| LogError["Log Mismatch<b> Show Warning"]
-    
-    Warning --> End["End"]
-    ResetVars --> End
+
+    UpdateDisplay --> OutputToggle{"Did user toggle output?"}
+
+    OutputToggle --> |Yes| RampToggle{"Did user toggle a ramp?"}
+
+    RampToggle --> |Yes| Ramp --> OutputOn["Output turned on"]
+    RampToggle --> |No| OutputOn
+    OutputToggle --> |No| End
+
     OVPWarn --> End
-    UpdateDisplay --> End
+    OCPWarn --> End
     LogError --> End
 ```
