@@ -461,6 +461,19 @@ class CathodeHeatingSubsystem:
             # Add label for Temperature Controller
             ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=8, column=0, columnspan=3, sticky="ew")
 
+            # Add dropdown for interpolate_setting
+            interpolate_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
+            interpolate_label.grid(row=9, column=0, sticky='e')
+
+            interpolate_options = list(self.current_options.keys())
+            interp_box = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
+            interp_box.grid(row=9, column=1, sticky='w')
+
+            interp_box.set(f"Cathode {['A', 'B', 'C'][i]}")
+            interp_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
+
+            self.interpolate_comboboxes.append(interp_box)
+
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
@@ -468,18 +481,6 @@ class CathodeHeatingSubsystem:
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
             read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-
-            # Add dropdown for interpolate_setting
-            interpolate_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
-            interpolate_label.grid(row=5, column=0, sticky='e')
-
-            interpolate_options = list(self.current_options.keys())
-            interp_box = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
-            interp_box.grid(row=5, column=1, sticky='w')
-            interp_box.set(f"Cathode {['A', 'B', 'C'][i]}")
-            interp_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
-
-            self.interpolate_comboboxes.append(interp_box)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -1443,7 +1444,7 @@ class CathodeHeatingSubsystem:
             index (int): Index of the power supply to reset (0-2)
 
         Side effects:
-            - Sets voltage to 0 and current to 0.0
+            - Sets voltage to 0 and current to  0.0
             - Resets all prediction variables to '--'
             - Logs the reset action
         """
