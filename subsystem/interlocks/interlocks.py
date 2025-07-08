@@ -263,6 +263,8 @@ class InterlocksSubsystem:
                 # Get interlock status from driver
                 status = self.driver.get_interlock_status()
                 
+                # If status is None, it means no data was received
+                # This should not happen if driver error handling is working correctly                
                 if status is None:
                     self._set_all_indicators('red')
                     if current_time - self.last_error_time > (self.update_interval / 1000):
@@ -273,6 +275,16 @@ class InterlocksSubsystem:
                         return
                 
                 sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
+
+                # Check if unit status contains an error and logs message
+                if '__error__' in unit_status:
+                    self._set_all_indicators('red')
+                    self.log(unit_status['__error__'], LogLevel.CRITICAL)
+                    if current_time - self.last_error_time > (self.update_interval / 1000):
+                        self.last_error_time = current_time
+                        self._adjust_update_interval(success=False)
+                        self.parent.after(self.update_interval, self.update_data)
+                        return
 
                 # parse unit status
                 for k, v in unit_status.items():

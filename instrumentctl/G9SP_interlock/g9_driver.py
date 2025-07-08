@@ -99,13 +99,16 @@ class G9Driver:
         self.ser = None
 
     def _update_queue(self, response=None):
-        data = response if response else ([0] * 13, [0] * 13, 0)
+        data = response if response else ([0] * 13, [0] * 13, 0, {}, b'', b'') # generates placeholder for null response
         if self._response_queue.full():
             self._response_queue.get_nowait()
         self._response_queue.put(data)
 
     def _communication_thread(self):
         """Background thread for handling serial communication"""
+        backoff = 0.5 # initial time to wait on serial or permission error in seconds
+        backoff_max = 5.0 # maximum time to wait before stopping attempts to reconnect
+
         while self._running:
             try:
                 with self._lock:
@@ -119,13 +122,28 @@ class G9Driver:
                         result = self._process_response(response_data)
                         self._update_queue(result)
            
-            except PermissionError:
-                self._update_queue()
-                self._running = False
+            except (TimeoutError, ValueError) as e:
+                # bad frame, bad checksum, truncated message
+                self._update_queue(([0]*13, [0]*13, 0, {'__error__': str(e)}, b'', b''))
+                # keep the port open and try again after a short pause
+            except (serial.SerialException, PermissionError) as e:
+                # On serial or permission error connection is closed and restablished after a short dynamic sleep
+                port, baudrate, timeout = self.ser.port, self.ser.baudrate, self.ser.timeout # cache serial parameters
                 self._close_serial()
+                self._update_queue(([0]*13, [0]*13, 0, {'__error__': str(e)}, b'', b''))
 
-            except serial.SerialException:
-                self._update_queue()
+                time.sleep(backoff)
+                # Attempt to reconnect with exponential backoff; we do not stop trying to reconnect
+                try:
+                    self.setup_serial(port, baudrate, timeout)
+                    backoff = 0.5  # reset backoff time on successful reconnection
+                except ConnectionError as e:
+                    backoff = min(backoff * 2, backoff_max)  # exponential backoff
+                continue  # retry connection
+
+            except Exception as e:
+                # catches any unknown/unexpected exceptions
+                self._update_queue(([0]*13, [0]*13, 0, {'__error__': str(e)}, b'', b''))
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
@@ -324,4 +342,5 @@ class G9Driver:
 
 
     #TODO: Figure out how to handle all the errors (end task)
+    # Added error flag in unit_status dict to indicate and log message to gui
     #TODO: add a function to keep track of the driver uptime\
