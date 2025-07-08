@@ -452,7 +452,8 @@ class VTRXSubsystem:
     def update_plot(self):
         """Update plot with current display window data."""
         # Update the data for the line
-        self.line.set_data(self.x_data, self.y_data)
+        y_data_clean = [y if (y is not None and y>0) else float('nan') for y in self.y_data]  # Remove None values
+        self.line.set_data(self.x_data, y_data_clean)
         self.ax.relim()
         self.ax.autoscale_view(scalex=False, scaley=True)
         self.ax.margins(y=0.1) # Add some margin to the y-axis
