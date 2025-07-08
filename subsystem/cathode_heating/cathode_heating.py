@@ -448,39 +448,43 @@ class CathodeHeatingSubsystem:
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            query_settings_button = ttk.Button(config_tab, text="Query Settings:", width=18, command=lambda x=i: self.query_and_check_settings(x))
+            query_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.query_and_check_settings(x))
             query_settings_button.grid(row=6, column=0, sticky='w')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
             query_settings_button['state'] = 'disabled'
             self.query_settings_buttons.append(query_settings_button)
 
-            # Add labels for power supply readings
-            display_label = ttk.Label(config_tab, text='\nProtection Settings:')
-            display_label.grid(row=7, column=0, columnspan=1, sticky='ew')
+            # Power supply readings
+            display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
+            display_label.grid(row=8, column=0, columnspan=1, sticky='ew')
 
             voltage_display_var = tk.StringVar(value='Voltage: -- V')
             current_display_var = tk.StringVar(value='Current: -- A')
             operation_mode_var = tk.StringVar(value='Mode: --')
 
-            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
-            voltage_label.grid(row=8, column=0, sticky='w')
+            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
+            voltage_label.grid(row=9, column=0, sticky='w')
             mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=8, column=1, sticky='w')
+            mode_label.grid(row=9, column=1, sticky='w')
 
             # Store variables for later updates
             self.voltage_display_vars.append(voltage_display_var)
             self.current_display_vars.append(current_display_var)
 
             # Add label for Temperature Controller
-            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=10, column=0, columnspan=3, sticky="ew")
+
+            # Overtemperature status display
+            overtemp_status_label = ttk.Label(config_tab, text='Overtemp Status:', style='LeftAlign.TLabel')
+            overtemp_status_label.grid(row=11, column=0, sticky='e')
+            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=11, column=1, sticky='w')
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -1088,14 +1092,8 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
                     
-                    # Update heater voltage display
-                    if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                        last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
-                    elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
-                    else:
-                        self.heater_voltage_vars[i].set("-- V")
+                    # Remove the heater voltage display update logic that overwrites lookup table values
+                    # The heater voltage display should only be updated when user sets values, not from power supply readings
 
                     # Update mode display
                     if mode in ["CV Mode", "CC Mode"]:
@@ -1388,7 +1386,7 @@ class CathodeHeatingSubsystem:
                                     self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
                                     return
                                 # GUI is updated with actual voltage
-                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f}")
+                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f} V")
                             else:
                                 self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
                         else:
@@ -1402,7 +1400,7 @@ class CathodeHeatingSubsystem:
                         self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
                         self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
-                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
+                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f} V')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
                         
                         self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
@@ -1753,6 +1751,12 @@ class CathodeHeatingSubsystem:
     #     Returns:
     #         float: Interpolated value
     #     """
+    #     if vltToCur:
+    #         return self.cur_cathode_model.interpolate(val, inverse=True)
+    #     else:
+    #         heater_current = self.emission_current_model.interpolate(val, inverse=True)
+    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+    #         return heater_voltage
     #     if vltToCur:
     #         return self.cur_cathode_model.interpolate(val, inverse=True)
     #     else:
