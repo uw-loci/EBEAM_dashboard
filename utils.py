@@ -463,8 +463,8 @@ class MachineStatus():
 
 
 class WebMonitorLogger:
-    def __init__(self, filepath):
-        self.filepath = filepath
+    def __init__(self):
+        self.filepath = None
         self.dict = {
             "pressure": None,
             "safetyOutputDataFlags": None,
@@ -472,8 +472,22 @@ class WebMonitorLogger:
             "temperatures": None,
             "vacuumBits": None
             }
-        self.log_file = None
         self.setup_wm_log_file()
+
+    """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+    def setup_wm_log_file(self):
+        if self.filepath == None:
+            # Use the EBEAM_dashboard directory
+            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Create the log file with the old naming pattern
+            log_file_name = f"web_monitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+            self.filepath = os.path.join(log_dir, log_file_name)
+            self.log_file = open(self.filepath, 'w')
+            self.log_start_time = datetime.datetime.now()
+            print(f"Web Monitor Log file created at {self.filepath}")
 
 
     """ update the fields and log full status"""
@@ -483,29 +497,7 @@ class WebMonitorLogger:
             self.log_dict_update(self.dict)
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
-        
-
-    def setup_wm_log_file(self):
-        """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
-        try:
-            # Use the EBEAM_dashboard directory
-            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
-            os.makedirs(log_dir, exist_ok=True)
-            
-            # Create the log file with the old naming pattern
-            log_file_name = f"web_monitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-
-            # close the existing log file at intervals of 8 hours and create a new one
-            if self.log_file != None:
-                self.log_file.close()
-
-            self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
-            self.log_start_time = datetime.datetime.now()
-            print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
-        except Exception as e:
-            print(f"Error creating log file: {str(e)}")
-
+    
 
     def log_dict_update(self, update_dict):
         try:

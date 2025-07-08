@@ -26,7 +26,7 @@ class TemperatureBar(tk.Canvas):
         self.width = width
         self.bar_width = 15
         self.value = 0
-        
+
         # Create title
         self.create_text(
             width//2, 
@@ -198,7 +198,7 @@ class ProcessMonitorSubsystem:
             self.monitor = DP16ProcessMonitor(
                 port=com_port,
                 unit_numbers=list(self.thermometer_map.values()),
-                logger=logger
+                logger=logger,
             )
         except Exception as e:
             self.monitor = None
@@ -248,8 +248,7 @@ class ProcessMonitorSubsystem:
                         formatted_temps[unit] = str(value)
                         
                 self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
-                WebMonitorLogger.update_field("temperatures", formatted_temps)
-                self.log(f"Updated status dict: {WebMonitorLogger.status_dict}", LogLevel.DEBUG)
+                self.log(f"Updated status dict: {self.web_monitor.status_dict}", LogLevel.DEBUG)
 
                 if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):

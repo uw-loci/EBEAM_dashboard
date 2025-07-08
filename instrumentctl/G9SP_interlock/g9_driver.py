@@ -3,8 +3,7 @@ import serial
 import threading
 import queue
 import time
-from utils import LogLevel
-from utils import WebMonitorLogger
+from utils import LogLevel, WebMonitorLogger
 
 class G9Driver:
     NUMIN = 13
@@ -58,7 +57,7 @@ class G9Driver:
         13: "Function Block Error Flag"
     }
 
-    def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+    def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False, web_monitor: WebMonitorLogger = None):
         self.logger = logger
         self.debug_mode = debug_mode
         self.ser = None
@@ -70,6 +69,7 @@ class G9Driver:
         self._running = True
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
         self._thread.start()
+        self.web_monitor = web_monitor
 
     def setup_serial(self, port, baudrate=9600, timeout=0.5):
         """
