@@ -3,7 +3,7 @@ import serial
 import threading
 import queue
 import time
-from utils import LogLevel, WebMonitorLogger
+from utils import LogLevel
 
 class G9Driver:
     NUMIN = 13
@@ -57,7 +57,7 @@ class G9Driver:
         13: "Function Block Error Flag"
     }
 
-    def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False, web_monitor: WebMonitorLogger = None):
+    def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.logger = logger
         self.debug_mode = debug_mode
         self.ser = None
@@ -69,7 +69,6 @@ class G9Driver:
         self._running = True
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
         self._thread.start()
-        self.web_monitor = web_monitor
 
     def setup_serial(self, port, baudrate=9600, timeout=0.5):
         """
@@ -254,12 +253,7 @@ class G9Driver:
 
         self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
         self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}", LogLevel.DEBUG)
-
-        self.web_monitor.update_field("safetyInputDataFlags", binary_data["sitdf"])
-        self.web_monitor.update_field("safetyOutputDataFlags", binary_data["sotdf"])
         
-        self.log(f"Updated status dict: {WebMonitorLogger.status_dict}", LogLevel.DEBUG)
-
         # Check for errors
         self._check_unit_status(status_data['unit_status'])
         self._check_safety_inputs(data)

@@ -5,7 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus, WebMonitorLogger
+from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
@@ -58,7 +58,6 @@ class EBEAMSystemDashboard:
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
-        self.web_monitor = WebMonitorLogger()
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
         
@@ -307,7 +306,6 @@ class EBEAMSystemDashboard:
                 self.frames['Vacuum System'],
                 serial_port=self.com_ports['VTRXSubsystem'], 
                 logger=self.logger,
-                web_monitor = self.web_monitor
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'], 
