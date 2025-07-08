@@ -6,7 +6,6 @@ from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
 from typing import Dict
-import sys
 
 class DP16ProcessMonitor:
     """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
@@ -26,7 +25,7 @@ class DP16ProcessMonitor:
     MAX_DELAY = 5       # [seconds]
 
     ERROR_THRESHOLD = 5
-    ERROR_LOG_INTERVAL = 30 # [seconds]
+    ERROR_LOG_INTERVAL = 10 # [seconds]
 
     # Error states
     DISCONNECTED = -1
@@ -225,19 +224,9 @@ class DP16ProcessMonitor:
             except Exception as e:
                 self.consecutive_connection_errors += 1
                 current_time = time.time()
-                # if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
-                #     self.log(f"Polling error: {e}", LogLevel.ERROR)
-                #     self.last_critical_error_time = current_time
                 if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
-                    try:
-                        self.log(f"Polling error: {e}", LogLevel.ERROR)
-                    except RuntimeError:
-                        # can’t write into the Text widget from here – just swallow or
-                        # fallback to stderr
-                        print(f"[{LogLevel.ERROR.name}] Polling error: {e}", file=sys.__stderr__)
-                    finally:
-                        self.last_critical_error_time = current_time
-
+                    self.log(f"Polling error: {e}", LogLevel.ERROR)
+                    self.last_critical_error_time = current_time
 
     def _poll_single_unit(self, unit):
         """Poll a single unit atomically"""

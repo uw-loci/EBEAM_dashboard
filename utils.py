@@ -472,7 +472,9 @@ class WebMonitorLogger:
             "temperatures": None,
             "vacuumBits": None
             }
+        self.log_file = False
         self.setup_wm_log_file()
+
 
     """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
     def setup_wm_log_file(self):
@@ -483,11 +485,13 @@ class WebMonitorLogger:
             os.makedirs(log_dir, exist_ok=True)
             
             # Create the log file with the old naming pattern
-            log_file_name = f"web_monitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-            self.filepath = os.path.join(log_dir, log_file_name)
-            self.log_file = open(self.filepath, 'w')
-            self.log_start_time = datetime.datetime.now()
-            print(f"Web Monitor Log file created at {self.filepath}")
+            if self.log_file == False:
+                log_file_name = f"web_monitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+                self.log_start_time = datetime.datetime.now()
+                self.filepath = os.path.join(log_dir, log_file_name)
+                self.log_file = open(self.filepath, 'w')
+                self.log_start_time = datetime.datetime.now()
+                print(f"Web Monitor Log file created at {self.filepath}")
 
 
     """ update the fields and log full status"""
@@ -501,8 +505,12 @@ class WebMonitorLogger:
 
     def log_dict_update(self, update_dict):
         try:
-            with open(self.filepath, 'a', buffering=1) as f: 
-                timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-                f.write(f"[{timestamp}] {json.dumps(update_dict)}\n")
-        except:
-            print(f"Error writing web monitor updates")
+            now = datetime.datetime.now()
+            if self.log_start_time is None or (now - self.log_start_time).total_seconds() >= 8 * 60 * 60:
+                if self.log_file:
+                    self.log_file.close()
+                self.setup_wm_log_file()
+
+        except Exception as e:
+            print(f"Error writing web monitor updates: {e}")
+
