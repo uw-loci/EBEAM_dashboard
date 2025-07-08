@@ -454,14 +454,16 @@ class VTRXSubsystem:
         # Update the data for the line
         self.line.set_data(self.x_data, self.y_data)
         self.ax.relim()
-        self.ax.autoscale_view(True, True, False)
+        self.ax.autoscale_view(scaley=True, scaley=False)
+        self.ax.margins(y=0.1) # Add some margin to the y-axis
 
+        '''
         if self.y_data:
             y_min = min(self.y_data)
             y_max = max(self.y_data)
             if y_min > 0 and y_max > 0:
                 self.ax.set_ylim(y_min * 0.5, y_max * 2)
-
+    '''
         if self.x_data:
             current_time = self.x_data[-1]
             start_time = current_time - datetime.timedelta(seconds=self.display_window)
