@@ -13,6 +13,7 @@ import time
 import os
 import sys
 import queue
+from utils import WebMonitorLogger
 
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
@@ -454,6 +455,7 @@ class VTRXSubsystem:
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
+            WebMonitorLogger.update_field("pressure", pressure_raw)
 
     def update_plot(self):
         """Update plot with current display window data."""
