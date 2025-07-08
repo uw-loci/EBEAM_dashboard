@@ -46,7 +46,7 @@ class VTRXSubsystem:
         16: "UNSAFE FOR HV WARNING"
     }
 
-    def __init__(self, parent, serial_port='COM7', baud_rate=9600, logger=None):
+    def __init__(self, parent, serial_port='COM7', baud_rate=9600, logger=None, web_monitor: WebMonitorLogger = None):
         self.parent = parent
         self.serial_port = serial_port
         self.baud_rate = baud_rate
@@ -75,6 +75,7 @@ class VTRXSubsystem:
         
         self.setup_serial()
         self.setup_gui()
+        self.web_monitor = web_monitor
         
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
@@ -455,7 +456,8 @@ class VTRXSubsystem:
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
-            WebMonitorLogger.update_field("pressure", pressure_raw)
+            self.web_monitor.update_field("pressure", pressure_raw)
+            self.web_monitor.update_field("vacuumBits", subsystem_bits)
 
     def update_plot(self):
         """Update plot with current display window data."""
