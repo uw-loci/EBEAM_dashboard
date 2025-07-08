@@ -89,13 +89,13 @@ class CathodeHeatingSubsystem:
             "Cathode C" : pd.read_csv('subsystem/cathode_heating/powersupply_C.csv'),
             # "Interpolate" : self.interpolate
         }
-        self.interpolate_setting = [self.current_options["Cathode A"], 
+        self.lookup_table_setting = [self.current_options["Cathode A"], 
                                     self.current_options["Cathode B"], 
                                     self.current_options["Cathode C"],
                                     # self.current_options["Interpolate"]
                                     ]
         self.query_settings_buttons = []
-        self.interpolate_comboboxes = []
+        self.lookup_table_comboboxes = []
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -433,18 +433,18 @@ class CathodeHeatingSubsystem:
             set_slew_rate_button.grid(row=4, column=2, sticky='e')
             ToolTip(slew_rate_label, "Rate of change for voltage output")
 
-            # Add dropdown for interpolate_setting - moved to row 5
-            interpolate_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
-            interpolate_label.grid(row=5, column=0, sticky='e')
+            # Add dropdown for lookup_table_setting - moved to row 5
+            lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
+            lookup_table_label.grid(row=5, column=0, sticky='e')
 
-            interpolate_options = list(self.current_options.keys())
-            interp_box = ttk.Combobox(config_tab, values=interpolate_options, state='readonly')
+            lookup_table_options = list(self.current_options.keys())
+            interp_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly')
             interp_box.grid(row=5, column=1, sticky='w')
 
             interp_box.set(f"Cathode {['A', 'B', 'C'][i]}")
             interp_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_interp_change(event, idx))
 
-            self.interpolate_comboboxes.append(interp_box)
+            self.lookup_table_comboboxes.append(interp_box)
 
             # Get buttons and output labels
             #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
@@ -1322,8 +1322,11 @@ class CathodeHeatingSubsystem:
             else:
                 heater_voltage, target_current_mA, heater_current = self.emission_cur_vlt_converter(index, target_current_mA, False)
 
-                self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
-                self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
+                # self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
+                # self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
+
+                self.log(f"Used lookup table for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
+                self.log(f"Retrieved heater voltage for Cathode {['A', 'B', 'C'][index]} from lookup table: {heater_voltage:.3f}V", LogLevel.INFO)
 
                 # set_voltage handles these checks now
                 # current_ovp = self.get_ovp(index)
@@ -1584,7 +1587,7 @@ class CathodeHeatingSubsystem:
             self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
             self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-            self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
+            self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} Cbruh')
 
             self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A", LogLevel.INFO)
             return True
@@ -1688,11 +1691,12 @@ class CathodeHeatingSubsystem:
             event: The event triggered by changing the selection in the combobox.
             index: The index of the power supply to update.
         """
-        selected_value = self.interpolate_comboboxes[index].get()
+        selected_value = self.lookup_table_comboboxes[index].get()
 
         if selected_value in self.current_options:
-            self.log(f"Updating interpolation setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
-            self.interpolate_setting[index] = self.current_options[selected_value]
+            # self.log(f"Updating interpolation setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
+            self.log(f"Updating lookup table setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
+            self.lookup_table_setting[index] = self.current_options[selected_value]
         else:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
 
@@ -1708,8 +1712,8 @@ class CathodeHeatingSubsystem:
         Returns:
             tuple: (emission_voltage, emission_current, predicted_current)
         """
-        if isinstance(self.interpolate_setting[index], pd.DataFrame):
-            df = self.interpolate_setting[index]
+        if isinstance(self.lookup_table_setting[index], pd.DataFrame):
+            df = self.lookup_table_setting[index]
             if vltToCur:
                 # Find closest voltage in DataFrame
                 closest_voltage = df.iloc[(df['voltage'] - val).abs().argsort()[0]]
