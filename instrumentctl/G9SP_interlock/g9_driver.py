@@ -255,8 +255,8 @@ class G9Driver:
         self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
         self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}", LogLevel.DEBUG)
 
-        WebMonitorLogger.update_field("safetyInputDataFlags", binary_data["sitdf"])
-        WebMonitorLogger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
+        self.web_monitor.update_field("safetyInputDataFlags", binary_data["sitdf"])
+        self.web_monitor.update_field("safetyOutputDataFlags", binary_data["sotdf"])
         
         self.log(f"Updated status dict: {WebMonitorLogger.status_dict}", LogLevel.DEBUG)
 
