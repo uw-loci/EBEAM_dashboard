@@ -5,7 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
+from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus, WebMonitorLogger
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
@@ -58,6 +58,7 @@ class EBEAMSystemDashboard:
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
+        self.web_monitor = WebMonitorLogger()
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
         
@@ -305,24 +306,25 @@ class EBEAMSystemDashboard:
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
                 serial_port=self.com_ports['VTRXSubsystem'], 
-                logger=self.logger
+                logger=self.logger,
+                web_monitor = self.web_monitor
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'], 
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
-                active = self.machine_status_frame.MACHINE_STATUS
+                active = self.machine_status_frame.MACHINE_STATUS,
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'],
                 com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
                 frames = self.frames,
-                active = self.machine_status_frame.MACHINE_STATUS
+                active = self.machine_status_frame.MACHINE_STATUS,
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
-                logger=self.logger,
+                logger=self.logger
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
