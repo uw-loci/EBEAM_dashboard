@@ -10,7 +10,6 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
 import json
 
-
 class LogLevel(enum.IntEnum):
     VERBOSE = 0
     DEBUG = 1
@@ -26,12 +25,23 @@ class Logger:
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
+        self.webMonitor_log_file = None
         self.log_start_time = None
+        self.webMonitor_log_start_time = None
+        self.log_filepath = None
+        self.webMonitor_log_filepath = None
+        self.dict = {
+            "pressure": None,
+            "safetyOutputDataFlags": None,
+            "safetyInputDataFlags": None,
+            "temperatures": None,
+            "vacuumBits": None
+            }
         if log_to_file:
             self.setup_log_file()
 
     def setup_log_file(self):
-        """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+        """Setup a new log file and web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
             # Use the EBEAM_dashboard directory
             base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
@@ -40,14 +50,20 @@ class Logger:
             
             # Create the log file with the old naming pattern
             log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-
+            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             # close the existing log file at intervals of 8 hours and create a new one
             if self.log_file != None:
                 self.log_file.close()
 
+            if self.webMonitor_log_file != None:
+                self.webMonitor_log_file.close()
+
             self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+            self.webMonitor_log_file = open(os.path.join(log_dir, webMonitor_log_file_name), 'w')
             self.log_start_time = datetime.datetime.now()
+            self.webMonitor_log_start_time = datetime.datetime.now()
             print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
+            print(f"WebMonitor Log File created at {os.path.join(log_dir, webMonitor_log_file_name)}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
     def log(self, msg, level=LogLevel.INFO):
@@ -70,7 +86,31 @@ class Logger:
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
             except Exception as e:
-                print(f"Error writing to log file: {str(e)}")
+                print(f"Error writing to log file: {str(e)}")   
+    def update_field(self, field, value):
+        if field in self.dict:
+            self.dict[field] = value
+            self.log_dict_update(self.dict)
+        else:
+            raise KeyError(f"'{field}' is not a valid key in status dict.")      
+    def log_dict_update(self, update_dict):
+        try:
+            now = datetime.datetime.now()
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 8 * 60 * 60:
+                if self.webMonitor_log_file:
+                    self.webMonitor_log_file.close()
+                self.setup_log_file()
+            
+            entry = {
+                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": update_dict
+            }
+            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+            self.webMonitor_log_file.flush()
+
+        except Exception as e:
+            print(f"Error writing web monitor updates: {e}")
+
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
@@ -460,57 +500,4 @@ class MachineStatus():
                 if name in self.status_labels and name != "Machine Status":  # Don't change main label
                     new_color = "#57cce7" if is_active else "#dbd9d9"
                     self.status_labels[name].config(bg=new_color)
-
-
-class WebMonitorLogger:
-    def __init__(self):
-        self.filepath = None
-        self.dict = {
-            "pressure": None,
-            "safetyOutputDataFlags": None,
-            "safetyInputDataFlags": None,
-            "temperatures": None,
-            "vacuumBits": None
-            }
-        self.log_file = False
-        self.setup_wm_log_file()
-
-
-    """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
-    def setup_wm_log_file(self):
-        if self.filepath == None:
-            # Use the EBEAM_dashboard directory
-            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
-            os.makedirs(log_dir, exist_ok=True)
-            
-            # Create the log file with the old naming pattern
-            if self.log_file == False:
-                log_file_name = f"web_monitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-                self.log_start_time = datetime.datetime.now()
-                self.filepath = os.path.join(log_dir, log_file_name)
-                self.log_file = open(self.filepath, 'w')
-                self.log_start_time = datetime.datetime.now()
-                print(f"Web Monitor Log file created at {self.filepath}")
-
-
-    """ update the fields and log full status"""
-    def update_field(self, field, value):
-        if field in self.dict:
-            self.dict[field] = value
-            self.log_dict_update(self.dict)
-        else:
-            raise KeyError(f"'{field}' is not a valid key in status dict.")
-    
-
-    def log_dict_update(self, update_dict):
-        try:
-            now = datetime.datetime.now()
-            if self.log_start_time is None or (now - self.log_start_time).total_seconds() >= 8 * 60 * 60:
-                if self.log_file:
-                    self.log_file.close()
-                self.setup_wm_log_file()
-
-        except Exception as e:
-            print(f"Error writing web monitor updates: {e}")
 

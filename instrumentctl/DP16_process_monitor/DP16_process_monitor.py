@@ -6,7 +6,6 @@ from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
 from typing import Dict
-from utils import WebMonitorLogger
 
 class DP16ProcessMonitor:
     """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
