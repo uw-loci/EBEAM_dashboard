@@ -453,7 +453,9 @@ class VTRXSubsystem:
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
+            self.logger.update_field("vacuumBits", subsystem_bits)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
+            self.logger.update_field("pressure", pressure_raw)
 
     def update_plot(self):
         """Update plot with current display window data."""
