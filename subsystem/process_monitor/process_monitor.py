@@ -324,7 +324,7 @@ class ProcessMonitorSubsystem:
                 msg, level = event
                 self.log(msg, level)
                 event = self.monitor.get_log_msg()
-        self.parent.after(200, self._poll_pmon_events)
+        self.parent.after(200, self._poll_pmon_log)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
