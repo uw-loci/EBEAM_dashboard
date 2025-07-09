@@ -26,7 +26,6 @@ class TemperatureBar(tk.Canvas):
         self.width = width
         self.bar_width = 15
         self.value = 0
-
         # Create title
         self.create_text(
             width//2, 
