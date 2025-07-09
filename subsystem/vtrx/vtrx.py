@@ -382,7 +382,7 @@ class VTRXSubsystem:
         self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-9, 1e3)  
+        self.ax.set_ylim(1e-7, 1e3)  
         self.ax.tick_params(axis='x', labelsize=6, pad=1)
         self.ax.grid(True)
 
@@ -447,8 +447,8 @@ class VTRXSubsystem:
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
-            subsystem_bits = ''.join(str(bit) for bit in switch_states)
-            self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
+            # subsystem_bits = ''.join(str(bit) for bit in switch_states)
+            # self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
     def update_plot(self):
