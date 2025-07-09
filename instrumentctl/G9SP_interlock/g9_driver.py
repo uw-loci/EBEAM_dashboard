@@ -250,7 +250,6 @@ class G9Driver:
             'sotdf': self._extract_flags(status_data['sotdf'], 7),
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
-
         self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
         self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}", LogLevel.DEBUG)
         self.logger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
