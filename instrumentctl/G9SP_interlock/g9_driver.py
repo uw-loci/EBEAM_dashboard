@@ -106,9 +106,6 @@ class G9Driver:
 
     def _communication_thread(self):
         """Background thread for handling serial communication"""
-        backoff = 0.5 # initial time to wait on serial or permission error in seconds
-        backoff_max = 5.0 # maximum time to wait before stopping attempts to reconnect
-
         while self._running:
             try:
                 with self._lock:
@@ -132,13 +129,11 @@ class G9Driver:
                 self._close_serial()
                 self._update_queue(([0]*13, [0]*13, 0, {'__error__': str(e)}, b'', b''))
 
-                time.sleep(backoff)
-                # Attempt to reconnect with exponential backoff; we do not stop trying to reconnect
+                time.sleep(0.5) # wait before trying to reconnect
                 try:
                     self.setup_serial(port, baudrate, timeout)
-                    backoff = 0.5  # reset backoff time on successful reconnection
                 except ConnectionError as e:
-                    backoff = min(backoff * 2, backoff_max)  # exponential backoff
+                    self._update_queue(([0]*13, [0]*13, 0, {'__error__': str(e)}, b'', b''))
                 continue  # retry connection
 
             except Exception as e:
