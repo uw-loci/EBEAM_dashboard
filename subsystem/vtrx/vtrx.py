@@ -13,7 +13,6 @@ import time
 import os
 import sys
 import queue
-from utils import WebMonitorLogger
 
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
