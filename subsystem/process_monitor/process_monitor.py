@@ -197,7 +197,7 @@ class ProcessMonitorSubsystem:
             self.monitor = DP16ProcessMonitor(
                 port=com_port,
                 unit_numbers=list(self.thermometer_map.values()),
-                logger=logger,
+                logger=logger
             )
         except Exception as e:
             self.monitor = None
