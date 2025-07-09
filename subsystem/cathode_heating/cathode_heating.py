@@ -49,8 +49,6 @@ class CathodeHeatingSubsystem:
         'ERROR': '#FFA500',       # Communication error
         'DISCONNECTED': '#808080'
     }
-
-    
     
     def __init__(self, parent, com_ports, active, logger=None):
         """
@@ -1433,8 +1431,6 @@ class CathodeHeatingSubsystem:
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
        
-
-        # self.predicted_temperature_vars[index].set('--')
         if not self.voltage_set[index]:
             self.heater_voltage_vars[index].set('--')
 
@@ -1475,7 +1471,7 @@ class CathodeHeatingSubsystem:
         if new_voltage is not None:
             success = self.update_predictions_from_voltage(index, new_voltage)
             if success:
-                self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+                self.heater_voltage_vars[index].set(f"{new_voltage:.2f} V")
                 setattr(self, f'last_set_voltage_{index}', new_voltage)
                 self.voltage_set[index] = True
                 # self.entry_fields[index].delete(0, tk.END)  # COMMENTED OUT - no entry fields
@@ -1518,6 +1514,34 @@ class CathodeHeatingSubsystem:
             while True:
                 try:
                     heater_voltage, heater_current, target_current = self.emission_cur_vlt_converter(index, voltage, True)
+                    
+                    # Check if lookup table returned zero values (voltage out of range)
+                    if heater_current == -1 and target_current == -1:
+                        # Still allow voltage setting, but don't update predictions
+                        self.predicted_heater_current_vars[index].set('--')
+                        self.predicted_emission_current_vars[index].set('--')
+                        self.predicted_grid_current_vars[index].set('--')
+                        
+                        # Set voltage directly without current limit
+                        if self.power_supplies and len(self.power_supplies) > index:
+                            if self.toggle_states[index]:
+                                if self.ramp_status[index]:
+                                    self.power_supplies[index].ramp_voltage(
+                                        voltage,
+                                        step_size=self.slew_rates[index],
+                                        step_delay=1.0,
+                                        preset=3
+                                    )
+                                    self.voltage_set[index] = True
+                                else:
+                                    self.power_supplies[index].set_voltage(3, voltage)
+                                    self.voltage_set[index] = True
+                            
+                            self.user_set_voltages[index] = voltage
+                            self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {voltage:.2f}V (no lookup table data available)", LogLevel.INFO)
+                        
+                        return True
+                    
                     break
                 except ValueError:
                     # Show dialog with current voltage and allow user to enter new value
@@ -1718,18 +1742,34 @@ class CathodeHeatingSubsystem:
         if isinstance(self.lookup_table_setting[index], pd.DataFrame):
             df = self.lookup_table_setting[index]
             if vltToCur:
-                # Find closest voltage in DataFrame
-                closest_voltage = df.iloc[(df['voltage'] - val).abs().argsort()[0]]
-                heater_voltage = closest_voltage['voltage']
-                heater_current = closest_voltage['predicted_current']  # This is the heater current
-                target_current = closest_voltage['target_current']     # This is the target current
+                # Look for exact match in voltage column
+                exact_match = df[df['voltage'] == val]
+                if exact_match.empty:
+                    heater_voltage = val
+                    heater_current = -1
+                    target_current = -1
+                    return (heater_voltage, heater_current, target_current)
+                
+                # Use the first exact match found
+                match_row = exact_match.iloc[0]
+                heater_voltage = match_row['voltage']
+                heater_current = match_row['predicted_current']  # This is the heater current
+                target_current = match_row['target_current']     # This is the target current
                 return (heater_voltage, heater_current, target_current)
             else:
-                # Find closest target current in DataFrame
-                closest_current = df.iloc[(df['target_current'] - val).abs().argsort()[0]]
-                heater_voltage = closest_current['voltage']
-                target_current = closest_current['target_current']
-                heater_current = closest_current['predicted_current']  # This is the heater current
+                # Look for exact match in target_current column
+                exact_match = df[df['target_current'] == val]
+                if exact_match.empty:
+                    heater_voltage = -1
+                    heater_current = -1
+                    target_current = val
+                    return (heater_voltage, target_current, heater_current)
+                
+                # Use the first exact match found
+                match_row = exact_match.iloc[0]
+                heater_voltage = match_row['voltage']
+                target_current = match_row['target_current']
+                heater_current = match_row['predicted_current']  # This is the heater current
                 return (heater_voltage, target_current, heater_current)
         else:
             raise ValueError("Lookup table not properly configured as DataFrame")
@@ -1766,5 +1806,7 @@ class CathodeHeatingSubsystem:
     #         return self.cur_cathode_model.interpolate(val, inverse=True)
     #     else:
     #         heater_current = self.emission_current_model.interpolate(val, inverse=True)
+    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+    #         return heater_voltage
     #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
     #         return heater_voltage
