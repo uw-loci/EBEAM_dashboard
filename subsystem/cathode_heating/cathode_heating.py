@@ -84,12 +84,10 @@ class CathodeHeatingSubsystem:
             "Cathode A" : pd.read_csv('subsystem/cathode_heating/powersupply_A.csv'),
             "Cathode B" : pd.read_csv('subsystem/cathode_heating/powersupply_B.csv'),
             "Cathode C" : pd.read_csv('subsystem/cathode_heating/powersupply_C.csv'),
-            # "Interpolate" : self.interpolate
         }
         self.lookup_table_setting = [self.current_options["Cathode A"], 
                                     self.current_options["Cathode B"], 
                                     self.current_options["Cathode C"],
-                                    # self.current_options["Interpolate"]
                                     ]
         self.query_settings_buttons = []
         self.lookup_table_comboboxes = []
@@ -134,9 +132,6 @@ class CathodeHeatingSubsystem:
         
         # Heater current predictions - used for power supply control
         self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        
-        # Temperature predictions from heater current model
-        # self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
     
     def _init_measurement_variables(self):
         """
@@ -252,10 +247,6 @@ class CathodeHeatingSubsystem:
             notebook = ttk.Notebook(frame)
             notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
 
-            # toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
-            # toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
-            # self.ramp_toggle_buttons.append(toggle_button)
-
             # Create the main tab
             main_tab = ttk.Frame(notebook)
             notebook.add(main_tab, text='Main')
@@ -266,18 +257,6 @@ class CathodeHeatingSubsystem:
 
             config_tab.columnconfigure(1, minsize=70)
             config_tab.columnconfigure(2, minsize=20)
-
-            # Create target current (mA) and heater voltage labels
-            
-            # Set target current (mA) label - COMMENTED OUT
-            # set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
-            # set_target_label.grid(row=0, column=0, sticky='e')
-            # ToolTip(set_target_label, "Target current is predicted to be 72% of cathode emission current")
-            # entry_field = ttk.Entry(main_tab, width=7)
-            # entry_field.grid(row=0, column=1, sticky='w')
-            # self.entry_fields.append(entry_field)
-            # set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_target_current(i, entry_field))
-            # set_button.grid(row=0, column=1, sticky='e')
 
             # Set heater voltage (V) label
             ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=0, column=0, sticky='e')
@@ -302,10 +281,6 @@ class CathodeHeatingSubsystem:
             # Predicted heater current (A)
             ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
-
-            # Predicted cathode temperature (C)
-            # ttk.Label(main_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
-            # ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
 
             # Create entries and display labels
             heater_label = ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel')
@@ -444,7 +419,6 @@ class CathodeHeatingSubsystem:
             self.lookup_table_comboboxes.append(lookup_table_box)
 
             # Get buttons and output labels
-            #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
             query_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.query_and_check_settings(x))
             query_settings_button.grid(row=6, column=0, sticky='w')
             query_settings_button['state'] = 'disabled'
@@ -1300,9 +1274,6 @@ class CathodeHeatingSubsystem:
             if ideal_emission_current < 0:
                 raise ValueError("Target current must be positive")
             
-            # log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            # self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
-            
             if ideal_emission_current == 0:
                 # Set all related variables to zero
                 self.reset_power_supply(index)
@@ -1319,22 +1290,8 @@ class CathodeHeatingSubsystem:
             else:
                 heater_voltage, heater_current, target_current = self.emission_cur_vlt_converter(index, target_current_mA, False)
 
-                # self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
-                # self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
-
                 self.log(f"Used lookup table for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Retrieved heater voltage for Cathode {['A', 'B', 'C'][index]} from lookup table: {heater_voltage:.3f}V", LogLevel.INFO)
-
-                # set_voltage handles these checks now
-                # current_ovp = self.get_ovp(index)
-                # if current_ovp is None:
-                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                #     return
-
-                # if heater_voltage > current_ovp:
-                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                #     return
 
                 # Set Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
@@ -1353,7 +1310,6 @@ class CathodeHeatingSubsystem:
                     
                     # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    
                     
                     if current_set_success:
                         self.user_set_voltages[index] = heater_voltage
@@ -1391,15 +1347,11 @@ class CathodeHeatingSubsystem:
                                 self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
                         else:
                             self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
-                        
-                        # predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-                        # predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
 
                         predicted_grid_current = 0.28 * (target_current_mA / 0.72)  # Calculate from target current
                         self.predicted_emission_current_vars[index].set(f'{(target_current_mA / 0.72):.2f} mA')
                         self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-                        # self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
                         self.heater_voltage_vars[index].set(f'{heater_voltage:.2f} V')
                         setattr(self, f'last_set_voltage_{index}', heater_voltage)
                         
@@ -1454,7 +1406,6 @@ class CathodeHeatingSubsystem:
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
         self.heater_voltage_vars[index].set('--')
-        # self.predicted_temperature_vars[index].set('--')
 
     def on_voltage_label_click(self, index):
         """ 
@@ -1474,7 +1425,6 @@ class CathodeHeatingSubsystem:
                 self.heater_voltage_vars[index].set(f"{new_voltage:.2f} V")
                 setattr(self, f'last_set_voltage_{index}', new_voltage)
                 self.voltage_set[index] = True
-                # self.entry_fields[index].delete(0, tk.END)  # COMMENTED OUT - no entry fields
             else:
                 self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
@@ -1604,8 +1554,6 @@ class CathodeHeatingSubsystem:
             # Calculate dependent variables - target_current is what hits the target, emission is total
             ideal_emission_current = target_current / 0.72  # Convert target to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
-            # predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-            # predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
 
             # Update GUI with new values
             self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
@@ -1704,7 +1652,6 @@ class CathodeHeatingSubsystem:
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-               # self.temperature_controller.stop_reading()
                 self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
@@ -1720,7 +1667,6 @@ class CathodeHeatingSubsystem:
         selected_value = self.lookup_table_comboboxes[index].get()
 
         if selected_value in self.current_options:
-            # self.log(f"Updating interpolation setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
             self.log(f"Updating lookup table setting for Cathode {['A', 'B', 'C'][index]} to {selected_value}")
             self.lookup_table_setting[index] = self.current_options[selected_value]
         else:
@@ -1773,40 +1719,3 @@ class CathodeHeatingSubsystem:
                 return (heater_voltage, target_current, heater_current)
         else:
             raise ValueError("Lookup table not properly configured as DataFrame")
-    # def interpolate(self, val, vltToCur=True):
-    #     """
-    #     Interpolate between voltage and current using the physics models.
-        
-    #     Args:
-    #         val (float): Input value
-    #         vltToCur (bool): True if converting voltage to current, False if current to voltage
-            
-    #     Returns:
-    #         float: Interpolated value
-    #     """
-    #     if vltToCur:
-    #         return self.cur_cathode_model.interpolate(val, inverse=True)
-    #     else:
-    #     """ heater_current = self.emission_current_model.interpolate(val, inverse=True)
-            return heater_voltage
-    #     if vltToCur:ltToCur (bool): True if converting voltage to current, False if current to voltage
-    #         return self.cur_cathode_model.interpolate(val, inverse=True)
-    #     else:
-    #         heater_current = self.emission_current_model.interpolate(val, inverse=True)alue
-    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-    #         return heater_voltage
-    #     """
-    #     if vltToCur:
-    #         return self.cur_cathode_model.interpolate(val, inverse=True)
-    #     else:
-    #         heater_current = self.emission_current_model.interpolate(val, inverse=True)
-    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-    #         return heater_voltage
-    #     if vltToCur:
-    #         return self.cur_cathode_model.interpolate(val, inverse=True)
-    #     else:
-    #         heater_current = self.emission_current_model.interpolate(val, inverse=True)
-    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-    #         return heater_voltage
-    #         heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-    #         return heater_voltage
