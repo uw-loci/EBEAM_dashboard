@@ -269,13 +269,6 @@ class EBEAMSystemDashboard:
         self.messages_frame.set_log_level(selected_level)
         print(f"Log level changed to: {selected_level.name}")
 
-    def on_file_log_level_change(self, event):
-        selected_level = self.file_log_level_var.get()
-        if selected_level == "DEBUG":
-            self.messages_frame.logger.file_log_level = LogLevel.DEBUG
-        elif selected_level == "VERBOSE":
-            self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
-
     def create_subsystems(self):
         """
         Initialize all subsystem objects with their respective frames and settings.
@@ -285,20 +278,20 @@ class EBEAMSystemDashboard:
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
                 serial_port=self.com_ports['VTRXSubsystem'], 
-                logger=self.logger,
+                logger=self.logger
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
                 self.frames['Process Monitor'], 
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
-                active = self.machine_status_frame.MACHINE_STATUS,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Interlocks': subsystem.InterlocksSubsystem(
                 self.frames['Interlocks'],
                 com_ports = self.com_ports['Interlocks'],
                 logger=self.logger,
                 frames = self.frames,
-                active = self.machine_status_frame.MACHINE_STATUS,
+                active = self.machine_status_frame.MACHINE_STATUS
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
