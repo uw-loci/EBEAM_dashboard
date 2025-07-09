@@ -65,6 +65,7 @@ class VTRXSubsystem:
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
         self.last_gui_update_time = time.time()
+
         self.setup_serial()
         self.setup_gui()
         
@@ -381,7 +382,7 @@ class VTRXSubsystem:
         self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-7, 1e-2)  # tightened y-axis limits so initial plot is more readable
+        self.ax.set_ylim(1e-9, 1e3)  
         self.ax.tick_params(axis='x', labelsize=6, pad=1)
         self.ax.grid(True)
 
@@ -446,25 +447,23 @@ class VTRXSubsystem:
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
-            
+            subsystem_bits = ''.join(str(bit) for bit in switch_states)
+            self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
 
     def update_plot(self):
         """Update plot with current display window data."""
         # Update the data for the line
-        y_data_clean = [y if (y is not None and y>0) else float('nan') for y in self.y_data]  # Remove None values
-        self.line.set_data(self.x_data, y_data_clean)
+        self.line.set_data(self.x_data, self.y_data)
         self.ax.relim()
-        self.ax.autoscale_view(scalex=False, scaley=True)
-        self.ax.margins(y=0.1) # Add some margin to the y-axis
+        self.ax.autoscale_view(True, True, False)
 
-        '''
         if self.y_data:
             y_min = min(self.y_data)
             y_max = max(self.y_data)
             if y_min > 0 and y_max > 0:
                 self.ax.set_ylim(y_min * 0.5, y_max * 2)
-    '''
+
         if self.x_data:
             current_time = self.x_data[-1]
             start_time = current_time - datetime.timedelta(seconds=self.display_window)
