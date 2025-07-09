@@ -295,7 +295,7 @@ class EBEAMSystemDashboard:
             ),
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
-                logger=self.logger
+                logger=self.logger,
             ), 
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
