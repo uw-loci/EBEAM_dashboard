@@ -89,7 +89,7 @@ class CathodeHeatingSubsystem:
                                     self.current_options["Cathode B"], 
                                     self.current_options["Cathode C"],
                                     ]
-        self.query_settings_buttons = []
+        self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
 
         # Temperature controller state tracking
@@ -419,10 +419,10 @@ class CathodeHeatingSubsystem:
             self.lookup_table_comboboxes.append(lookup_table_box)
 
             # Get buttons and output labels
-            query_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.query_and_check_settings(x))
-            query_settings_button.grid(row=6, column=0, sticky='w')
-            query_settings_button['state'] = 'disabled'
-            self.query_settings_buttons.append(query_settings_button)
+            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
+            log_power_settings_button.grid(row=6, column=0, sticky='w')
+            log_power_settings_button['state'] = 'disabled'
+            self.log_power_settings_buttons.append(log_power_settings_button)
 
             # Power supply readings
             display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
@@ -734,7 +734,7 @@ class CathodeHeatingSubsystem:
         if not self.power_supplies_initialized:
             self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
         
-        self.update_query_settings_button_states()
+        self.update_log_power_settings_button_states()
 
     def retry_connection(self, index):
         max_retries = 3
@@ -746,7 +746,7 @@ class CathodeHeatingSubsystem:
                 self.power_supply_status[index] = True
                 self.toggle_buttons[index]['state'] = 'normal'
                 self.log(f"Reconnected to power supply on port {port}", LogLevel.DEBUG)
-                self.update_query_settings_button_states()
+                self.update_log_power_settings_button_states()
                 return True
             except Exception as e:
                 self.log(f"Retry {attempt+1} failed: {str(e)}", LogLevel.ERROR)
@@ -865,12 +865,12 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
             msgbox.showerror("Error", "Invalid input for OCP limit. Please enter a valid number.")
 
-    def update_query_settings_button_states(self):
+    def update_log_power_settings_button_states(self):
         for i, power_supply in enumerate(self.power_supplies):
-            if i < len(self.query_settings_buttons):
-                self.query_settings_buttons[i]['state'] = 'normal' if power_supply else 'disabled'
+            if i < len(self.log_power_settings_buttons):
+                self.log_power_settings_buttons[i]['state'] = 'normal' if power_supply else 'disabled'
 
-    def query_and_check_settings(self, index):
+    def log_power_and_check_settings(self, index):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
