@@ -1,6 +1,5 @@
 # cathode_heating.py
 import tkinter as tk
-from bidict import bidict
 from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
@@ -81,9 +80,9 @@ class CathodeHeatingSubsystem:
         self.slew_rates = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.ramp_status = [True, True, True]
         self.current_options = {
-            "Cathode A" : pd.read_csv('subsystem/cathode_heating/powersupply_A.csv'),
-            "Cathode B" : pd.read_csv('subsystem/cathode_heating/powersupply_B.csv'),
-            "Cathode C" : pd.read_csv('subsystem/cathode_heating/powersupply_C.csv'),
+            "Cathode A" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
+            "Cathode B" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_B.csv')),
+            "Cathode C" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_C.csv')),
         }
         self.lookup_table_setting = [self.current_options["Cathode A"], 
                                     self.current_options["Cathode B"], 
