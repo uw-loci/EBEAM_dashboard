@@ -273,6 +273,13 @@ class CathodeHeatingSubsystem:
             voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
             ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
 
+            # Create nudge buttons for voltage adjustment
+            nudge_frame = ttk.Frame(main_tab)
+            nudge_frame.grid(row=1, column=1, sticky='e')
+
+            ttk.Button(nudge_frame, text="+0.02", width=6,command=lambda i=i: self.adjust_voltage(i, 0.02)).pack(side='top', pady=1)
+            ttk.Button(nudge_frame, text="-0.02", width=6, command=lambda i=i: self.adjust_voltage(i, -0.02)).pack(side='top', pady=1)
+
             # Create labels for predicted values
             
             # Predicted emission current (mA)
@@ -1053,16 +1060,18 @@ class CathodeHeatingSubsystem:
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")     
+
                     
-                    # Update heater voltage display
-                    if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                        last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
-                    elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
-                    else:
-                        self.heater_voltage_vars[i].set("-- V")
+                    # # Update heater voltage display
+                    # if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
+                    #     last_set_voltage = getattr(self, f'last_set_voltage_{i}')
+                    #     self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
+                    # elif voltage is not None:
+                    #     self.heater_voltage_vars[i].set(f"{voltage:.2f}")
+                    # else:
+                    #     self.heater_voltage_vars[i].set("-- V")
+                    
 
                     # Update mode display
                     if mode in ["CV Mode", "CC Mode"]:
@@ -1448,6 +1457,45 @@ class CathodeHeatingSubsystem:
                 self.entry_fields[index].delete(0, tk.END)
             else:
                 self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def adjust_voltage(self, index: int, delta: float) -> None:
+        """
+        Increment / decrement the *requested* heater voltage by *delta* volts
+        and push the change through the same pathway used for manual entry.
+
+        Parameters
+        ----------
+        index : int
+            Cathode index 0-2  (A, B, C).
+        delta : float
+            +0.02 → raise 20 mV   |   -0.02 → lower 20 mV.
+        """
+        # Pull whatever text is currently shown under “Set Heater (V)”.
+        raw = str(self.heater_voltage_vars[index].get())
+        try:
+            current_v = float(raw)
+        except ValueError:                       # label still ‘--’ or non-numeric
+            current_v = 0.0
+
+        new_v = round(current_v + delta, 2)      # keep two decimals for UI
+
+        # Guard-rails: prevent < 0 V or exceeding the active OVP.
+        ovp = self.get_ovp(index)                
+        if new_v < 0:
+            msgbox.showwarning("Voltage below 0 V",
+                            "Requested voltage would be negative - action aborted.")
+            return
+        if ovp is not None and new_v > ovp:
+            msgbox.showwarning("Voltage > OVP",
+                            f"Requested {new_v:.2f} V exceeds OVP ({ovp:.2f} V).")
+            return
+
+        # Check values before set
+        ok = self.update_predictions_from_voltage(index, new_v)
+        if ok:
+            self.heater_voltage_vars[index].set(f"{new_v:.2f}")
+            self.user_set_voltages[index] = new_v
+            self.voltage_set[index] = True
 
     def update_predictions_from_voltage(self, index, voltage):
         """
