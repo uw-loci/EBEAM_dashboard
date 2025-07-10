@@ -138,7 +138,7 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_voltage_vars = [tk.DoubleVar(value=0.0) for _ in range(3)]  # Set voltage
         self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
         
@@ -254,23 +254,36 @@ class CathodeHeatingSubsystem:
             config_tab.columnconfigure(1, minsize=70)
             config_tab.columnconfigure(2, minsize=20)
 
-            # Create target current (mA) and heater voltage labels
+            # Create target voltage and heater voltage labels
             
-            # Set target current (mA) label
-            set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
+            # Set target voltage label
+            set_target_label = ttk.Label(main_tab, text='Set Target Voltage (V):', style='RightAlign.TLabel')
             set_target_label.grid(row=0, column=0, sticky='e')
-            ToolTip(set_target_label, "Target current is predicted to be 72% of cathode emission current")
-            entry_field = ttk.Entry(main_tab, width=7)
+
+            target_voltage = tk.DoubleVar(value=0.0)  # Default target voltage
+            entry_field = ttk.Entry(main_tab, textvariable=target_voltage, width=7)
             entry_field.grid(row=0, column=1, sticky='w')
             self.entry_fields.append(entry_field)
-            set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_target_current(i, entry_field))
+
+            set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.on_voltage_label_click(i, entry_field))
             set_button.grid(row=0, column=1, sticky='e')
 
             # Set heater voltage (V) label
-            ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
-            voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
-            voltage_label.grid(row=1, column=1, sticky='w')
-            voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
+            ttk.Label(main_tab, text='Target Voltage (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
+            # voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
+            # voltage_label.grid(row=1, column=1, sticky='w')
+            
+            # Frame to hold value + unit side-by-side
+            voltage_display_frame = ttk.Frame(main_tab)
+            voltage_display_frame.grid(row=1, column=1, sticky='w')
+            # Dynamic voltage value
+            voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
+            voltage_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
+            unit_label.pack(side='left')
+
+            # voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
             ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
 
             # Create nudge buttons for voltage adjustment
@@ -297,9 +310,9 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
 
-            # Predicted cathode temperature (C)
-            ttk.Label(main_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
+            # # Predicted cathode temperature (C)
+            # ttk.Label(main_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
+            # ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
 
             # Create entries and display labels
             heater_label = ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel')
@@ -351,9 +364,9 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
             
-            # Actual target current (mA)
-            ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            # # Actual target current (mA)
+            # ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            # ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             
             # Temperature monitoring (C)
             ttk.Label(main_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
@@ -1436,7 +1449,7 @@ class CathodeHeatingSubsystem:
         self.heater_voltage_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
 
-    def on_voltage_label_click(self, index):
+    def on_voltage_label_click(self, index, target_voltage):
         """ 
         Handler for user clicks on heater voltage label for manual voltage setting
 
@@ -1446,8 +1459,16 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
+        try:
+            new_voltage = float(target_voltage.get())
 
-        new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
+            if new_voltage < 0:
+                msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
+                return
+        except (tk.TclError, ValueError):
+            msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
+            return
+
         if new_voltage is not None:
             success = self.update_predictions_from_voltage(index, new_voltage)
             if success:
@@ -1471,10 +1492,10 @@ class CathodeHeatingSubsystem:
             +0.02 → raise 20 mV   |   -0.02 → lower 20 mV.
         """
         # Pull whatever text is currently shown under “Set Heater (V)”.
-        raw = str(self.heater_voltage_vars[index].get())
         try:
+            raw = self.heater_voltage_vars[index].get()
             current_v = float(raw)
-        except ValueError:                       # label still ‘--’ or non-numeric
+        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
             current_v = 0.0
 
         new_v = round(current_v + delta, 2)      # keep two decimals for UI
