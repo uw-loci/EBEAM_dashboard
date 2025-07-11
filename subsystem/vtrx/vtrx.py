@@ -232,7 +232,6 @@ class VTRXSubsystem:
             return
         
         try:
-            pressure_value = float(data_parts[0])   # numerical pressure value
             pressure_raw = data_parts[1]            # raw string from 972b sensor
             pressure_raw = pressure_raw.strip()  # Clean up any whitespace
             pressure_value = float(pressure_raw)  if pressure_raw else float(data_parts[0]) # use raw value if available for greater precision
