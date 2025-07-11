@@ -331,9 +331,9 @@ class CathodeHeatingSubsystem:
             ttk.Label(main_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=6, column=0, sticky='e')
             ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
             
-            # Actual target current (mA)
-            ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            # # Actual target current (mA)
+            # ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            # ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             
             # Temperature monitoring (C)
             ttk.Label(main_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
@@ -1082,7 +1082,7 @@ class CathodeHeatingSubsystem:
             else:
                 self.actual_heater_current_vars[i].set("-- A")
                 self.actual_heater_voltage_vars[i].set("-- V")
-                self.actual_target_current_vars[i].set("-- mA")
+                # self.actual_target_current_vars[i].set("-- mA")
 
             temperature = self.read_temperature(i)
 
