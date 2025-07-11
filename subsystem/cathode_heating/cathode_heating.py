@@ -358,7 +358,7 @@ class CathodeHeatingSubsystem:
             canvas.get_tk_widget().grid(row=9, column=0, columnspan=3, pady=0.1)
 
             ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
-            
+
             # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
             overtemp_label.grid(row=1, column=0, sticky='e')
@@ -409,7 +409,7 @@ class CathodeHeatingSubsystem:
             lookup_table_label.grid(row=5, column=0, sticky='e')
 
             lookup_table_options = list(self.current_options.keys())
-            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly')
+            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=10)
             lookup_table_box.grid(row=5, column=1, sticky='w')
 
             lookup_table_box.set(f"Cathode {['A', 'B', 'C'][i]}")
@@ -419,7 +419,7 @@ class CathodeHeatingSubsystem:
 
             # Get buttons and output labels
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=6, column=0, sticky='w')
+            log_power_settings_button.grid(row=5, column=2, sticky='w')
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
@@ -427,12 +427,18 @@ class CathodeHeatingSubsystem:
             display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
             display_label.grid(row=8, column=0, columnspan=1, sticky='ew')
 
-            voltage_display_var = tk.StringVar(value='Voltage: -- V')
-            current_display_var = tk.StringVar(value='Current: -- A')
+            voltage_display_var = tk.StringVar(value='-- V')
+            current_display_var = tk.StringVar(value='-- A')
             operation_mode_var = tk.StringVar(value='Mode: --')
 
-            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
-            voltage_label.grid(row=9, column=0, sticky='w')
+            # Create frame for voltage display with separate labels
+            voltage_frame = ttk.Frame(config_tab)
+            voltage_frame.grid(row=9, column=0, sticky='w')
+            
+            ttk.Label(voltage_frame, text='Voltage: ').grid(row=0, column=0, sticky='w')
+            voltage_value_label = ttk.Label(voltage_frame, textvariable=voltage_display_var, style='Bold.TLabel')
+            voltage_value_label.grid(row=0, column=1, sticky='w')
+            
             mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
             mode_label.grid(row=9, column=1, sticky='w')
 
@@ -1102,8 +1108,8 @@ class CathodeHeatingSubsystem:
             self.e_beam_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
 
             # Update Config page labels
-            self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V' if voltage is not None else 'Voltage: -- V')
-            self.current_display_vars[i].set(f'Current: {current:.2f} A' if current is not None else 'Current: -- A')
+            self.voltage_display_vars[i].set(f'{voltage:.2f} V' if voltage is not None else '-- V')
+            self.current_display_vars[i].set(f'{current:.2f} A' if current is not None else '-- A')
             if mode in ["CV Mode", "CC Mode"]:
                 self.operation_mode_var[i].set(f'Mode: {mode}')
             else:
