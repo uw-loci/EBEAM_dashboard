@@ -65,13 +65,7 @@ class VTRXSubsystem:
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
         self.last_gui_update_time = time.time()
-        
-        current_time = datetime.datetime.now()
-        self.full_history_x = [current_time]
-        self.full_history_y = [1e3]
-        self.x_data = [current_time]
-        self.y_data = [1e3]
-        
+
         self.setup_serial()
         self.setup_gui()
         
@@ -238,8 +232,9 @@ class VTRXSubsystem:
             return
         
         try:
-            pressure_value = float(data_parts[0])   # numerical pressure value
             pressure_raw = data_parts[1]            # raw string from 972b sensor
+            pressure_raw = pressure_raw.strip()  # Clean up any whitespace
+            pressure_value = float(pressure_raw)  if pressure_raw else float(data_parts[0]) # use raw value if available for greater precision
             switch_states_binary = data_parts[2]    # binary state switches
             switch_states = [int(bit) for bit in f"{int(switch_states_binary, 2):08b}"] # Ensures it's 8 bits long
 
