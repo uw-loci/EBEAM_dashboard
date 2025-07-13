@@ -100,7 +100,9 @@ class Logger:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_log_file()
-            
+                
+            self.webMonitor_log_file.seek(0)
+            self.webMonitor_log_file.truncate()
             entry = {
                 "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
                 "status": update_dict
