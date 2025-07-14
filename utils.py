@@ -39,6 +39,7 @@ class Logger:
             }
         if log_to_file:
             self.setup_log_file()
+            self.setup_wm_logfile()
 
     def setup_log_file(self):
         """Setup a new log file and web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
@@ -50,22 +51,36 @@ class Logger:
             
             # Create the log file with the old naming pattern
             log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             # close the existing log file at intervals of 8 hours and create a new one
             if self.log_file != None:
                 self.log_file.close()
 
+            self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+            self.log_start_time = datetime.datetime.now()
+            print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
+        except Exception as e:
+            print(f"Error creating log file: {str(e)}")
+
+    def setup_wm_logfile(self):
+        """Setup a new log file and web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+        try:
+            # Use the EBEAM_dashboard directory
+            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Create the web monitor log file with the old naming pattern
+            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+            # close the existing log file at intervals of 8 hours and create a new one
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
 
-            self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
             self.webMonitor_log_file = open(os.path.join(log_dir, webMonitor_log_file_name), 'w')
-            self.log_start_time = datetime.datetime.now()
             self.webMonitor_log_start_time = datetime.datetime.now()
-            print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
             print(f"WebMonitor Log File created at {os.path.join(log_dir, webMonitor_log_file_name)}")
         except Exception as e:
-            print(f"Error creating log file: {str(e)}")
+            print(f"Error creating web monitor log file: {str(e)}")
+
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -81,6 +96,8 @@ class Logger:
             now = datetime.datetime.now()
             if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                 self.setup_log_file()
+            if self.webMonitor_log_start_time == None or (now - self.webMonitor_log_start_time).total_seconds() > 60:
+                self.setup_wm_logfile()
             try:
                 file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
                 self.log_file.write(file_formatted_message)
@@ -96,10 +113,10 @@ class Logger:
     def log_dict_update(self, update_dict):
         try:
             now = datetime.datetime.now()
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 8 * 60 * 60:
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4 * 60 * 60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
-                self.setup_log_file()
+                self.setup_wm_logfile()
                 
             # self.webMonitor_log_file.seek(0)
             # self.webMonitor_log_file.truncate()
