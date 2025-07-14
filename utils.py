@@ -96,7 +96,7 @@ class Logger:
             now = datetime.datetime.now()
             if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                 self.setup_log_file()
-            if self.webMonitor_log_start_time == None or (now - self.webMonitor_log_start_time).total_seconds() > 60:
+            if self.webMonitor_log_start_time == None or (now - self.webMonitor_log_start_time).total_seconds() > 4*60*60:
                 self.setup_wm_logfile()
             try:
                 file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
@@ -113,7 +113,7 @@ class Logger:
     def log_dict_update(self, update_dict):
         try:
             now = datetime.datetime.now()
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4 * 60 * 60:
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4*60*60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
