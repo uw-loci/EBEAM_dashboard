@@ -151,9 +151,9 @@ class CathodeHeatingSubsystem:
         
         # Beam current monitoring
         self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Total emission
-        self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current hitting target
+        self.beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current hitting target
         self.grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current intercepted by grid
-        self.actual_target_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)] # Measured target current
+        self.actual_beam_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)] # Measured beam current
 
         # Temperature monitoring
         self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured temperatures
@@ -333,7 +333,7 @@ class CathodeHeatingSubsystem:
             
             # Actual target current (mA)
             ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            ttk.Label(main_tab, textvariable=self.actual_beam_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             
             # Temperature monitoring (C)
             ttk.Label(main_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
@@ -1076,7 +1076,7 @@ class CathodeHeatingSubsystem:
             else:
                 self.actual_heater_current_vars[i].set("-- A")
                 self.actual_heater_voltage_vars[i].set("-- V")
-                self.actual_target_current_vars[i].set("-- mA")
+                self.actual_beam_current_vars[i].set("-- mA")
 
             temperature = self.read_temperature(i)
 
@@ -1333,10 +1333,10 @@ class CathodeHeatingSubsystem:
 
             while True:
                 try:
-                    heater_voltage, heater_current, target_current = self.emission_cur_vlt_converter(index, voltage)
+                    heater_voltage, heater_current, beam_current = self.emission_cur_vlt_converter(index, voltage)
                     
                     # Check if lookup table returned zero values (voltage out of range)
-                    if heater_current == -1 and target_current == -1:
+                    if heater_current == -1 and beam_current == -1:
                         # Still allow voltage setting, but don't update predictions
                         self.predicted_heater_current_vars[index].set('--')
                         self.predicted_emission_current_vars[index].set('--')
@@ -1421,8 +1421,8 @@ class CathodeHeatingSubsystem:
                 
                 self.user_set_voltages[index] = voltage
 
-            # Calculate dependent variables - target_current is what hits the target, emission is total
-            ideal_emission_current = target_current / 0.72  # Convert target to emission current
+            # Calculate dependent variables - beam_current is what hits the target, emission is total
+            ideal_emission_current = beam_current / 0.72  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
 
             # Update GUI with new values
@@ -1551,7 +1551,7 @@ class CathodeHeatingSubsystem:
             val (float): Input value (voltage or current)
             
         Returns:
-            tuple: (heater_voltage, heater_current, target_current)
+            tuple: (heater_voltage, heater_current, beam_current)
         """
         if isinstance(self.lookup_table_setting[index], pd.DataFrame):
             df = self.lookup_table_setting[index]
@@ -1560,14 +1560,14 @@ class CathodeHeatingSubsystem:
             if exact_match.empty:
                 heater_voltage = val
                 heater_current = -1
-                target_current = -1
-                return (heater_voltage, heater_current, target_current)
+                beam_current = -1
+                return (heater_voltage, heater_current, beam_current)
             
             # Use the first exact match found
             match_row = exact_match.iloc[0]
             heater_voltage = match_row['voltage']
-            heater_current = match_row['predicted_current']  # This is the heater current
-            target_current = match_row['target_current']     # This is the target current
-            return (heater_voltage, heater_current, target_current)
+            heater_current = match_row['heater_current']  # This is the heater current
+            beam_current = match_row['beam_current']     # This is the beam current
+            return (heater_voltage, heater_current, beam_current)
         else:
             raise ValueError("Lookup table not properly configured as DataFrame")
