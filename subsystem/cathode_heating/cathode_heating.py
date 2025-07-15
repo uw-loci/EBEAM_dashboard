@@ -228,6 +228,7 @@ class CathodeHeatingSubsystem:
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
         self.ramp_mode_vars = []
+        self.toggle_button_clones = [[] for _ in range(3)]  # Store clones of toggle buttons for each cathode to sync Current and Voltage tabs
         self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
@@ -316,41 +317,9 @@ class CathodeHeatingSubsystem:
             heater_label = ttk.Label(current_tab, text=heater_labels[i], style='Bold.TLabel')
             heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
 
-            control_frame = ttk.Frame(current_tab)
-            control_frame.grid(row=6, column=1, sticky='w')
-
-            # Create a label frame for radio buttons with title
-            ramp_frame = ttk.Frame(control_frame)
-            ramp_frame.grid(row=0, column=0, padx=(0, 10))
-
-            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
-            gradual_radio = ttk.Radiobutton(
-                ramp_frame, 
-                text="Ramp Mode",
-                value="gradual",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, True)
-            )
-            immediate_radio = ttk.Radiobutton(
-                ramp_frame,
-                text="Immediate Set",
-                value="immediate",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, False)
-            )
-            gradual_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
-            immediate_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
+            self.build_shared_controls(current_tab, i)
             
-            self.ramp_mode_vars.append(ramp_var)
-
-            # Create toggle switch for output
-            toggle_button = ttk.Button(control_frame, image=self.toggle_off_image, style='Flat.TButton', 
-                                       command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=0, column=1)
-
-            self.toggle_buttons.append(toggle_button)
-            
-            ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
+            # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
             # Create measured values labels
             
@@ -447,41 +416,9 @@ class CathodeHeatingSubsystem:
             heater_label = ttk.Label(voltage_tab, text=heater_labels[i], style='Bold.TLabel')
             heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
 
-            control_frame = ttk.Frame(voltage_tab)
-            control_frame.grid(row=6, column=1, sticky='w')
-
-            # Create a label frame for radio buttons with title
-            ramp_frame = ttk.Frame(control_frame)
-            ramp_frame.grid(row=0, column=0, padx=(0, 10))
-
-            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
-            gradual_radio = ttk.Radiobutton(
-                ramp_frame, 
-                text="Ramp Mode",
-                value="gradual",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, True)
-            )
-            immediate_radio = ttk.Radiobutton(
-                ramp_frame,
-                text="Immediate Set",
-                value="immediate",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, False)
-            )
-            gradual_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
-            immediate_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
+            self.build_shared_controls(voltage_tab, i) # Create shared controls for Current and Voltage tabs
             
-            self.ramp_mode_vars.append(ramp_var)
-
-            # Create toggle switch for output
-            toggle_button = ttk.Button(control_frame, image=self.toggle_off_image, style='Flat.TButton', 
-                                       command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=0, column=1)
-
-            self.toggle_buttons.append(toggle_button)
-            
-            ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
+            # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
             # Create measured values labels
             
@@ -607,6 +544,45 @@ class CathodeHeatingSubsystem:
         config_tab.columnconfigure(1, weight=1)
 
         self.init_time = datetime.datetime.now()
+
+    def build_shared_controls(self, parent_tab: ttk.Frame, i: int):
+        """
+        Create the ramp and output toggle controls shared across Current Control and Voltage Control tabs.
+        Ensures both tabs share the same toggle button and ramp mode settings.
+        """
+        if i >= len(self.ramp_mode_vars):      # first time for this cathode
+            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
+            self.ramp_mode_vars.append(ramp_var)
+        else:                                  # second time – reuse
+            ramp_var = self.ramp_mode_vars[i]
+
+        control_frame = ttk.Frame(parent_tab)
+        control_frame.grid(row=6, column=1, sticky='w')
+
+        ramp_frame = ttk.Frame(control_frame)
+        ramp_frame.grid(row=0, column=0, padx=(0, 10))
+
+        ttk.Radiobutton(
+            ramp_frame, text="Ramp Mode", value="gradual", variable=ramp_var,
+            command=lambda idx=i: self.set_ramp_mode(idx, True)
+        ).grid(row=0, column=0, sticky='w', padx=1, pady=1)
+
+        ttk.Radiobutton(
+            ramp_frame, text="Immediate Set", value="immediate", variable=ramp_var,
+            command=lambda idx=i: self.set_ramp_mode(idx, False)
+        ).grid(row=1, column=0, sticky='w', padx=1, pady=1)
+
+        toggle_btn = ttk.Button(
+            control_frame, image=self.toggle_off_image, style='Flat.TButton',
+            command=lambda idx=i: self.toggle_output(idx)
+        )
+        toggle_btn.grid(row=0, column=1)
+
+        if i >= len(self.toggle_buttons):
+            self.toggle_buttons.append(toggle_btn)
+
+        self.toggle_button_clones[i].append(toggle_btn)  # Store clone for Current Control tab
+
 
     def update_com_ports(self, new_com_ports):
         """
@@ -870,6 +846,8 @@ class CathodeHeatingSubsystem:
         for idx, status in enumerate(self.power_supply_status):
             if idx < len(self.toggle_buttons):
                 self.toggle_buttons[idx]['state'] = 'normal' if status else 'disabled'
+                for btn in self.toggle_button_clones[idx]:
+                    btn['state'] = 'normal' if status else 'disabled'
                 if not status:
                     self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
             else:
@@ -1386,6 +1364,8 @@ class CathodeHeatingSubsystem:
         # Update the toggle state and button image
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
+        for btn in self.toggle_button_clones[index]:
+            btn.config(image=current_image)
         self.toggle_buttons[index].config(image=current_image)
         
     def set_target_current(self, index, entry_field):
