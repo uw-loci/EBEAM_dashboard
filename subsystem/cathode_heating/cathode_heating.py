@@ -317,7 +317,7 @@ class CathodeHeatingSubsystem:
             heater_label = ttk.Label(current_tab, text=heater_labels[i], style='Bold.TLabel')
             heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
 
-            self.build_shared_controls(current_tab, i)
+            self.build_shared_controls(current_tab, i, control_mode="current") # Create shared controls for Current and Voltage tabs
             
             # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
@@ -416,7 +416,7 @@ class CathodeHeatingSubsystem:
             heater_label = ttk.Label(voltage_tab, text=heater_labels[i], style='Bold.TLabel')
             heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
 
-            self.build_shared_controls(voltage_tab, i) # Create shared controls for Current and Voltage tabs
+            self.build_shared_controls(voltage_tab, i, control_mode="voltage") # Create shared controls for Current and Voltage tabs
             
             # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
@@ -545,7 +545,7 @@ class CathodeHeatingSubsystem:
 
         self.init_time = datetime.datetime.now()
 
-    def build_shared_controls(self, parent_tab: ttk.Frame, i: int):
+    def build_shared_controls(self, parent_tab: ttk.Frame, i: int, control_mode: str = "current"):
         """
         Create the ramp and output toggle controls shared across Current Control and Voltage Control tabs.
         Ensures both tabs share the same toggle button and ramp mode settings.
@@ -574,7 +574,7 @@ class CathodeHeatingSubsystem:
 
         toggle_btn = ttk.Button(
             control_frame, image=self.toggle_off_image, style='Flat.TButton',
-            command=lambda idx=i: self.toggle_output(idx)
+            command=lambda idx=i: self.toggle_output(idx, control_mode)
         )
         toggle_btn.grid(row=0, column=1)
 
@@ -1321,18 +1321,31 @@ class CathodeHeatingSubsystem:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
-    def toggle_output(self, index):
+    def toggle_output(self, index, control_mode: str="current"):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
 
         new_state = not self.toggle_states[index]
 
+        target_voltage = None
+        target_current = None
+
         if new_state:  # If turning output ON
+            if control_mode == "voltage":
+                target_voltage = self.user_set_voltages[index]
+                if target_voltage is None:
+                    msgbox.showwarning("Warning", f"Target voltage for Cathode {['A', 'B', 'C'][index]} is not set.")
+                    return
+            else:  # control_mode == "current"
+                target_current = self.user_set_currents[index]
+                if target_current is None:
+                    msgbox.showwarning("Warning", f"Target current for Cathode {['A', 'B', 'C'][index]} is not set.")
+                    return
+
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-            target_voltage = self.user_set_voltages[index]
             
             if self.ramp_status[index]:
                 if target_voltage is not None:
@@ -1352,11 +1365,20 @@ class CathodeHeatingSubsystem:
                         step_delay=step_delay,
                         preset=3
                     )
-            else: # ramp is off; just set output voltage
-                if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
-                    self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
-                    msgbox.showerror("Error", f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}")
-                
+            else: # ramp is off; Immediate Set 
+                if target_current is not None and control_mode == "current":
+                    if not self.power_supplies[index].set_current(current=target_current, preset=3):
+                        self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
+                        msgbox.showerror("Error", f"Failed to set current for Cathode {['A', 'B', 'C'][index]}")
+                elif target_voltage is not None and control_mode == "voltage":
+                    if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
+                        self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
+                        msgbox.showerror("Error", f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}")
+                else:
+                    self.log(f"Invalid control mode '{control_mode}' for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    msgbox.showerror("Error", f"Invalid control mode '{control_mode}' for Cathode {['A', 'B', 'C'][index]}")
+                    return
+                    
         else:
             # turning off the output
             self.power_supplies[index].set_output("0")
@@ -1364,9 +1386,9 @@ class CathodeHeatingSubsystem:
         # Update the toggle state and button image
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
+        self.toggle_buttons[index].config(image=current_image)
         for btn in self.toggle_button_clones[index]:
             btn.config(image=current_image)
-        self.toggle_buttons[index].config(image=current_image)
         
     def set_target_current(self, index, entry_field):
         """
@@ -1726,7 +1748,21 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
                 return False
             
-            # Insert code to predict values from lookup table here
+            # Lookup required heater voltage when merged with feature/lookup-table
+
+            if self.toggle_states[index]: # Output is ON
+                if self.ramp_status[index]:
+                    # Ramp current 
+                    return True
+                else:
+                    self.power_supplies[index].set_current(3, current)
+
+            self.user_set_currents[index] = current
+            self.current_set[index] = True
+
+            # Update prediction values once merged
+
+            return True
 
         except ValueError as e:
             self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
