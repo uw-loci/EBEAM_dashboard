@@ -538,7 +538,7 @@ class CathodeHeatingSubsystem:
 
             # Get buttons and output labels
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=5, column=2, sticky='w')
+            log_power_settings_button.grid(row=6, column=2, sticky='w')
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
@@ -546,8 +546,8 @@ class CathodeHeatingSubsystem:
             display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
             display_label.grid(row=8, column=0, columnspan=1, sticky='ew')
 
-            voltage_display_var = tk.StringVar(value='Voltage: -- V')
-            current_display_var = tk.StringVar(value='Current: -- A')
+            voltage_display_var = tk.StringVar(value='Voltage: --')
+            current_display_var = tk.StringVar(value='Current: --')
             operation_mode_var = tk.StringVar(value='Mode: --')
 
             voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
@@ -1394,9 +1394,19 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]: # ramp is on; Gradual Set
                 if target_current is not None and control_mode == "current":
-                    self.log(f"Starting current ramp with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
                     # BUILD RAMPING FUNCTION FOR CURRENT AND USE HERE
-                    
+
+                    slew_rate = self.curr_slew_rate[index]
+                    step_delay = 1.0  # seconds
+                    step_size = slew_rate * step_delay
+
+                    self.log(f"Starting current ramp with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.power_supplies[index].ramp_current(
+                        target_current,
+                        step_size=step_size,
+                        step_delay=step_delay,
+                        preset=3
+                    ) 
                 if target_voltage is not None and control_mode == "voltage":
                     # Set voltage to 0 before starting the ramp-up
                     # self.power_supplies[index].set_voltage(3, 0.0)
