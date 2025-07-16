@@ -444,9 +444,9 @@ class CathodeHeatingSubsystem:
             # ttk.Label(voltage_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             
             # Temperature monitoring (C)
-            ttk.Label(voltage_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            ttk.Label(voltage_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
             clamp_temp_label = ttk.Label(voltage_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
-            clamp_temp_label.grid(row=10, column=1, sticky='w')
+            clamp_temp_label.grid(row=9, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
 
             # Create plot for each cathode
@@ -463,7 +463,7 @@ class CathodeHeatingSubsystem:
             fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
             canvas = FigureCanvasTkAgg(fig, master=voltage_tab)
             canvas.draw()
-            canvas.get_tk_widget().grid(row=9, column=0, columnspan=3, pady=0.1)
+            canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, pady=0.1)
 
             ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
             
