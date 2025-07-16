@@ -240,8 +240,8 @@ class G9Driver:
         unit_status_flags = self._extract_flags(status_data['unit_status'], 16)
 
         unit_flags = {self.US_STATUS[k] : unit_status_flags[k] for k in self.US_STATUS.keys()}
-        self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}")
-        self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}")
+        # self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}")
+        # self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}")
 
         # Check for errors
         self._check_unit_status(status_data['unit_status'])
