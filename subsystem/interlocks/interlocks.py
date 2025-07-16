@@ -4,6 +4,7 @@ import os, sys
 import instrumentctl.G9SP_interlock.g9_driver as g9_driv
 from utils import LogLevel
 import time
+import queue
 
 class InterlocksSubsystem:
     # the bit poistion for each interlock
@@ -198,6 +199,44 @@ class InterlocksSubsystem:
                     canvas.itemconfig(oval_id, fill=color)
                     self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
 
+    def _check_terminal_status(self, data, status_dict, terminal_type):
+        """
+        Generic terminal status checker
+        
+        Raise:
+            ValueError: If an error is found in the Error Cause Data or with invalid inputs
+        """
+        for i, byte in enumerate(reversed(data[:self.driver.NUMIN])):
+            msb = byte >> 4
+            lsb = byte & 0x0F
+
+            for nibble, position in [(msb, 'H'), (lsb, 'L')]:
+                if nibble in status_dict and nibble != 0:
+                    self.log(f"{terminal_type} error at byte {i}{position}: {status_dict[nibble]} (code {nibble})", LogLevel.ERROR)
+
+    def extract_flags(self, byte_string, num_bits):
+        """Extracts num_bits from the data
+        the bytes are order in big-endian meaning the first 8 are on top 
+        but the bits in the bye are ordered in little-endian 7 MSB and 0 LSB
+        
+        Raise:
+            ValueError: When called requesting more bits than in the bytes
+        Return:
+            num_bits array - MSB is 0 signal LSB if (num_bits - 1)th bit (aka little endian)
+        """
+        num_bytes = (num_bits + 7) // 8
+
+        if len(byte_string) < num_bytes:
+            self.log(f"Input must contain at least {num_bytes} bytes; received {len(byte_string)}", LogLevel.ERROR)
+
+        extracted_bits = []
+        for byte_index in range(num_bytes):
+            byte = byte_string[byte_index]
+            bits_to_extract = min(8, num_bits - (byte_index * 8))
+            extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
+
+        return extracted_bits[:num_bits]
+    
     def update_data(self):
         """
         Update interlock status
@@ -224,6 +263,8 @@ class InterlocksSubsystem:
                 # Get interlock status from driver
                 status = self.driver.get_interlock_status()
                 
+                # If status is None, it means no data was received
+                # This should not happen if driver error handling is working correctly                
                 if status is None:
                     self._set_all_indicators('red')
                     if current_time - self.last_error_time > (self.update_interval / 1000):
@@ -232,8 +273,39 @@ class InterlocksSubsystem:
                         self._adjust_update_interval(success=False)
                         self.parent.after(self.update_interval, self.update_data)
                         return
-                    
-                sitsf_bits, sitdf_bits, g9_active = status
+                
+                sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
+
+                # Check if unit status contains an error and logs message
+                if '__error__' in unit_status:
+                    self._set_all_indicators('red')
+                    self.log(unit_status['__error__'], LogLevel.CRITICAL)
+                    if current_time - self.last_error_time > (self.update_interval / 1000):
+                        self.last_error_time = current_time
+                        self._adjust_update_interval(success=False)
+                        self.parent.after(self.update_interval, self.update_data)
+                        return
+
+                # parse unit status
+                for k, v in unit_status.items():
+                    if k != "Normal":
+                        if v == 1:
+                            self.log(f"Unit State Error: {v}", LogLevel.CRITICAL)
+                    else:
+                        if v == 0:
+                            self.log("Unit State Error: Normal Operation Error Flag", LogLevel.CRITICAL)
+
+                # check input terms
+                self._check_terminal_status(
+                    input_terms,
+                    self.driver.IN_STATUS,
+                    "Input")
+                
+                # check output terms
+                self._check_terminal_status(
+                    output_terms,
+                    self.driver.OUT_STATUS,
+                    "Output")
 
                 # Process dual-input interlocks (first 3 pairs)
                 for i in range(3):
