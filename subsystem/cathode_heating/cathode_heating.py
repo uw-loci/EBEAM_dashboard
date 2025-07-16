@@ -386,9 +386,6 @@ class CathodeHeatingSubsystem:
             # Dynamic voltage value
             voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
             voltage_label.pack(side='left')
-            # Static unit label
-            unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
-            unit_label.pack(side='left')
 
             # voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
             ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
@@ -528,7 +525,7 @@ class CathodeHeatingSubsystem:
             lookup_table_label.grid(row=6, column=0, sticky='e')
 
             lookup_table_options = list(self.current_options.keys())
-            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly')
+            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=10)
             lookup_table_box.grid(row=6, column=1, sticky='w')
 
             lookup_table_box.set(f"Cathode {['A', 'B', 'C'][i]}")
