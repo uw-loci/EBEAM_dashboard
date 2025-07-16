@@ -538,7 +538,7 @@ class CathodeHeatingSubsystem:
 
             # Get buttons and output labels
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=5, column=2, sticky='w')
+            log_power_settings_button.grid(row=6, column=2, sticky='w')
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
