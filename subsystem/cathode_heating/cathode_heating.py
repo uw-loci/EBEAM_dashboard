@@ -72,11 +72,13 @@ class CathodeHeatingSubsystem:
         # Power supply state tracking
         self.power_supplies_initialized = False
         self.voltage_set = [False, False, False]
+        self.current_set = [False, False, False]
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
         self.ramp_toggle_buttons = []
         self.user_set_voltages = [None, None, None]
+        self.user_set_currents = [None, None, None]
         self.slew_rates = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.ramp_status = [True, True, True]
         self.current_options = {
@@ -145,7 +147,8 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_voltage_vars = [tk.DoubleVar(value=0.0) for _ in range(3)]  # Set voltage
+        self.heater_current_vars = [tk.DoubleVar(value=0.0) for _ in range(3)]  # Set current
         self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
         
@@ -232,6 +235,7 @@ class CathodeHeatingSubsystem:
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
         self.ramp_mode_vars = []
+        self.toggle_button_clones = [[] for _ in range(3)]  # Store clones of toggle buttons for each cathode to sync Current and Voltage tabs
         self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
@@ -242,13 +246,22 @@ class CathodeHeatingSubsystem:
 
             frame.columnconfigure(1, weight=1)  # Allow notebook to expand
             frame.columnconfigure(2, weight=0)
+            frame.columnconfigure(3, weight=0)
 
             notebook = ttk.Notebook(frame)
-            notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
+            notebook.grid(row=0, column=0, columnspan=3, sticky='w', padx=5, pady=2)
 
-            # Create the main tab
-            main_tab = ttk.Frame(notebook)
-            notebook.add(main_tab, text='Main')
+            # toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
+            # toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
+            # self.ramp_toggle_buttons.append(toggle_button)
+
+            # Create the current control tab
+            current_tab = ttk.Frame(notebook)
+            notebook.add(current_tab, text='Current Control')
+
+            # Create the voltage control tab
+            voltage_tab = ttk.Frame(notebook)
+            notebook.add(voltage_tab, text='Voltage Control')
 
             # Create the config tab
             config_tab = ttk.Frame(notebook)
@@ -257,88 +270,78 @@ class CathodeHeatingSubsystem:
             config_tab.columnconfigure(1, minsize=70)
             config_tab.columnconfigure(2, minsize=20)
 
-            # Set heater voltage (V) label
-            ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=0, column=0, sticky='e')
-            voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
-            voltage_label.grid(row=0, column=1, sticky='w')
-            voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
-            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
+            # =====Current Control Menu=====
+            # Set target current label and entry box
+            set_target_current_label = ttk.Label(current_tab, text='Set Target Current (A):', style='RightAlign.TLabel')
+            set_target_current_label.grid(row=0, column=0, sticky='e')
+
+            target_current = tk.DoubleVar(value=0.0)  # Default target current
+            current_entry_field = ttk.Entry(current_tab, textvariable=target_current, width=7)
+            current_entry_field.grid(row=0, column=1, sticky='w')
+            self.entry_fields.append(current_entry_field)
+
+            set_current_button = ttk.Button(current_tab, text="Set", width=4, command=lambda i=i, entry_field=current_entry_field: self.on_current_label_click(i, entry_field))
+            set_current_button.grid(row=0, column=1, sticky='e')
+            
+            # Current heater current (mA) label
+            ttk.Label(current_tab, text='Target Current (A):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
+
+            # Frame to hold value + unit side-by-side
+            current_display_frame = ttk.Frame(current_tab)
+            current_display_frame.grid(row=1, column=1, sticky='w')
+            # Dynamic current value
+            current_label = ttk.Label(current_display_frame, textvariable=self.heater_current_vars[i], style='Bold.TLabel') 
+            current_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(current_display_frame, text=" A", style="Bold.TLabel")
+            unit_label.pack(side='left')
+
+            # Create nudge buttons for current adjustment
+            nudge_frame = ttk.Frame(current_tab)
+            nudge_frame.grid(row=1, column=1, sticky='e')
+
+            ttk.Button(nudge_frame, text="+0.01", width=6,command=lambda i=i: self.adjust_current(i, 0.01)).pack(side='top', pady=1)
+            ttk.Button(nudge_frame, text="-0.01", width=6, command=lambda i=i: self.adjust_current(i, -0.01)).pack(side='top', pady=1)
 
             # Create labels for predicted values
             
             # Predicted emission current (mA)
-            pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
-            pred_emission_label.grid(row=1, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w')
+            pred_emission_label = ttk.Label(current_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
+            pred_emission_label.grid(row=2, column=0, sticky='e')
+            ttk.Label(current_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
 
             # Predicted grid current (mA)
-            set_grid_label = ttk.Label(main_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
-            set_grid_label.grid(row=2, column=0, sticky='e')
+            set_grid_label = ttk.Label(current_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
+            set_grid_label.grid(row=3, column=0, sticky='e')
             ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
-            ttk.Label(main_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
+            ttk.Label(current_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
             
-            # Predicted heater current (A)
-            ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
+            # Predicted heater voltage (V)
+            ttk.Label(current_tab, text='Pred Heater Voltage (V):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            # ttk.Label(current_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
 
-            # Create entries and display labels
-            heater_label = ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel')
-            heater_label.grid(row=4, column=0, sticky='e', padx=(0, 5))
+                       # Create entries and display labels
+            heater_label = ttk.Label(current_tab, text=heater_labels[i], style='Bold.TLabel')
+            heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
 
-            control_frame = ttk.Frame(main_tab)
-            control_frame.grid(row=4, column=1, sticky='w')
-
-            # Create a label frame for radio buttons with title
-            ramp_frame = ttk.Frame(control_frame)
-            ramp_frame.grid(row=0, column=0, padx=(0, 10))
-
-            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
-            gradual_radio = ttk.Radiobutton(
-                ramp_frame, 
-                text="Ramp Mode",
-                value="gradual",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, True)
-            )
-            immediate_radio = ttk.Radiobutton(
-                ramp_frame,
-                text="Immediate Set",
-                value="immediate",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, False)
-            )
-            gradual_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
-            immediate_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
+            self.build_shared_controls(current_tab, i, control_mode="current") # Create shared controls for Current and Voltage tabs
             
-            self.ramp_mode_vars.append(ramp_var)
-
-            # Create toggle switch for output
-            toggle_button = ttk.Button(control_frame, image=self.toggle_off_image, style='Flat.TButton', 
-                                       command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=0, column=1)
-
-            self.toggle_buttons.append(toggle_button)
-            
-            ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
+            # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
             # Create measured values labels
             
             # Actual heater current (A)
-            ttk.Label(main_tab, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
+            ttk.Label(current_tab, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            ttk.Label(current_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
             
             # Actual heater voltage (V)
-            ttk.Label(main_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=6, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
-            
-            # # Actual target current (mA)
-            # ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
-            # ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
-            
+            ttk.Label(current_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(current_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
+    
             # Temperature monitoring (C)
-            ttk.Label(main_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
-            clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
-            clamp_temp_label.grid(row=8, column=1, sticky='w')
+            ttk.Label(current_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            clamp_temp_label = ttk.Label(current_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
+            clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
 
             # Create plot for each cathode
@@ -353,7 +356,110 @@ class CathodeHeatingSubsystem:
             ax.tick_params(axis='y', labelsize=6)
             fig.tight_layout(pad=0.01)
             fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
-            canvas = FigureCanvasTkAgg(fig, master=main_tab)
+            canvas = FigureCanvasTkAgg(fig, master=current_tab)
+            canvas.draw()
+            canvas.get_tk_widget().grid(row=11, column=0, columnspan=3, pady=0.1)
+
+            # =====Voltage Control Menu=====
+            # Set target voltage label and entry box
+            set_target_voltage_label = ttk.Label(voltage_tab, text='Set Target Voltage (V):', style='RightAlign.TLabel')
+            set_target_voltage_label.grid(row=0, column=0, sticky='e')
+
+            target_voltage = tk.DoubleVar(value=0.0)  # Default target voltage
+            voltage_entry_field = ttk.Entry(voltage_tab, textvariable=target_voltage, width=7)
+            voltage_entry_field.grid(row=0, column=1, sticky='w')
+            self.entry_fields.append(voltage_entry_field)
+
+            set_button = ttk.Button(voltage_tab, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.on_voltage_label_click(i, entry_field))
+            set_button.grid(row=0, column=1, sticky='e')
+
+            # Current heater voltage (V) label
+            ttk.Label(voltage_tab, text='Target Voltage (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
+            # voltage_label = ttk.Label(voltage_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
+            # voltage_label.grid(row=1, column=1, sticky='w')
+            
+            # Frame to hold value + unit side-by-side
+            voltage_display_frame = ttk.Frame(voltage_tab)
+            voltage_display_frame.grid(row=1, column=1, sticky='w')
+            # Dynamic voltage value
+            voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
+            voltage_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
+            unit_label.pack(side='left')
+
+            # voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
+            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
+
+            # Create nudge buttons for voltage adjustment
+            nudge_frame = ttk.Frame(voltage_tab)
+            nudge_frame.grid(row=1, column=1, sticky='e')
+
+            ttk.Button(nudge_frame, text="+0.02", width=6,command=lambda i=i: self.adjust_voltage(i, 0.02)).pack(side='top', pady=1)
+            ttk.Button(nudge_frame, text="-0.02", width=6, command=lambda i=i: self.adjust_voltage(i, -0.02)).pack(side='top', pady=1)
+
+            # Create labels for predicted values
+            
+            # Predicted emission current (mA)
+            pred_emission_label = ttk.Label(voltage_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
+            pred_emission_label.grid(row=2, column=0, sticky='e')
+            ttk.Label(voltage_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
+
+            # Predicted grid current (mA)
+            set_grid_label = ttk.Label(voltage_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
+            set_grid_label.grid(row=3, column=0, sticky='e')
+            ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
+            ttk.Label(voltage_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
+            
+            # Predicted heater current (A)
+            ttk.Label(voltage_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
+            ttk.Label(voltage_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
+
+            # # Predicted cathode temperature (C)
+            # ttk.Label(voltage_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
+            # ttk.Label(voltage_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
+
+            # Create entries and display labels
+            heater_label = ttk.Label(voltage_tab, text=heater_labels[i], style='Bold.TLabel')
+            heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
+
+            self.build_shared_controls(voltage_tab, i, control_mode="voltage") # Create shared controls for Current and Voltage tabs
+            
+            # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
+
+            # Create measured values labels
+            
+            # Actual heater current (A)
+            ttk.Label(voltage_tab, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
+            ttk.Label(voltage_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            
+            # Actual heater voltage (V)
+            ttk.Label(voltage_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
+            ttk.Label(voltage_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
+            
+            # # Actual target current (mA)
+            # ttk.Label(voltage_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
+            # ttk.Label(voltage_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            
+            # Temperature monitoring (C)
+            ttk.Label(voltage_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
+            clamp_temp_label = ttk.Label(voltage_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
+            clamp_temp_label.grid(row=10, column=1, sticky='w')
+            self.clamp_temp_labels.append(clamp_temp_label)
+
+            # Create plot for each cathode
+            fig, ax = plt.subplots(figsize=(2.8, 1.3))
+            line, = ax.plot([], [])
+            self.temperature_data[i].append(line)
+            ax.set_xlabel('Time', fontsize=8)
+            ax.set_ylim(15, 80)
+            ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
+            ax.xaxis.set_major_locator(MaxNLocator(4))
+            ax.tick_params(axis='x', labelsize=6)
+            ax.tick_params(axis='y', labelsize=6)
+            fig.tight_layout(pad=0.01)
+            fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
+            canvas = FigureCanvasTkAgg(fig, master=voltage_tab)
             canvas.draw()
             canvas.get_tk_widget().grid(row=9, column=0, columnspan=3, pady=0.1)
 
@@ -467,6 +573,45 @@ class CathodeHeatingSubsystem:
         config_tab.columnconfigure(1, weight=1)
 
         self.init_time = datetime.datetime.now()
+
+    def build_shared_controls(self, parent_tab: ttk.Frame, i: int, control_mode: str = "current"):
+        """
+        Create the ramp and output toggle controls shared across Current Control and Voltage Control tabs.
+        Ensures both tabs share the same toggle button and ramp mode settings.
+        """
+        if i >= len(self.ramp_mode_vars):      # first time for this cathode
+            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
+            self.ramp_mode_vars.append(ramp_var)
+        else:                                  # second time – reuse
+            ramp_var = self.ramp_mode_vars[i]
+
+        control_frame = ttk.Frame(parent_tab)
+        control_frame.grid(row=6, column=1, sticky='w')
+
+        ramp_frame = ttk.Frame(control_frame)
+        ramp_frame.grid(row=0, column=0, padx=(0, 10))
+
+        ttk.Radiobutton(
+            ramp_frame, text="Ramp Mode", value="gradual", variable=ramp_var,
+            command=lambda idx=i: self.set_ramp_mode(idx, True)
+        ).grid(row=0, column=0, sticky='w', padx=1, pady=1)
+
+        ttk.Radiobutton(
+            ramp_frame, text="Immediate Set", value="immediate", variable=ramp_var,
+            command=lambda idx=i: self.set_ramp_mode(idx, False)
+        ).grid(row=1, column=0, sticky='w', padx=1, pady=1)
+
+        toggle_btn = ttk.Button(
+            control_frame, image=self.toggle_off_image, style='Flat.TButton',
+            command=lambda idx=i: self.toggle_output(idx, control_mode)
+        )
+        toggle_btn.grid(row=0, column=1)
+
+        if i >= len(self.toggle_buttons):
+            self.toggle_buttons.append(toggle_btn)
+
+        self.toggle_button_clones[i].append(toggle_btn)  # Store clone for Current Control tab
+
 
     def update_com_ports(self, new_com_ports):
         """
@@ -730,6 +875,8 @@ class CathodeHeatingSubsystem:
         for idx, status in enumerate(self.power_supply_status):
             if idx < len(self.toggle_buttons):
                 self.toggle_buttons[idx]['state'] = 'normal' if status else 'disabled'
+                for btn in self.toggle_button_clones[idx]:
+                    btn['state'] = 'normal' if status else 'disabled'
                 if not status:
                     self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
             else:
@@ -1066,7 +1213,18 @@ class CathodeHeatingSubsystem:
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")     
+
+                    
+                    # # Update heater voltage display
+                    # if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
+                    #     last_set_voltage = getattr(self, f'last_set_voltage_{i}')
+                    #     self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
+                    # elif voltage is not None:
+                    #     self.heater_voltage_vars[i].set(f"{voltage:.2f}")
+                    # else:
+                    #     self.heater_voltage_vars[i].set("-- V")
+                    
 
                     # Update mode display
                     if mode in ["CV Mode", "CC Mode"]:
@@ -1196,29 +1354,50 @@ class CathodeHeatingSubsystem:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
-    def toggle_output(self, index):
+    def toggle_output(self, index, control_mode: str="current"):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
 
         new_state = not self.toggle_states[index]
 
+        target_voltage = None
+        target_current = None
+
         if new_state:  # If turning output ON
+            if control_mode == "voltage":
+                target_voltage = self.user_set_voltages[index]
+                if target_voltage is None:
+                    msgbox.showwarning("Warning", f"Target voltage for Cathode {['A', 'B', 'C'][index]} is not set.")
+                    return
+            else:  # control_mode == "current"
+                target_current = self.user_set_currents[index]
+                if target_current is None:
+                    msgbox.showwarning("Warning", f"Target current for Cathode {['A', 'B', 'C'][index]} is not set.")
+                    return
+
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-            target_voltage = self.user_set_voltages[index]
             
             if self.ramp_status[index]:
-                if target_voltage is not None:
-                    # Set voltage to 0 before starting the ramp-up
-                    self.power_supplies[index].set_voltage(3, 0.0)
-                    self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
+                slew_rate = self.slew_rates[index]
+                step_delay = 1.0  # seconds
+                step_size = slew_rate * step_delay
+
+                if target_current is not None and control_mode == "current":
+                    self.log(f"Starting current ramp with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
+                    # BUILD RAMPING FUNCTION FOR CURRENT AND USE HERE
                     
-                    # Ramp up to the target voltage
-                    slew_rate = self.slew_rates[index]
-                    step_delay = 1.0  # seconds
-                    step_size = slew_rate * step_delay
+                if target_voltage is not None and control_mode == "voltage":
+                    # Set voltage to 0 before starting the ramp-up
+                    # self.power_supplies[index].set_voltage(3, 0.0)
+                    # self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
+                    
+                    # # Ramp up to the target voltage
+                    # slew_rate = self.slew_rates[index]
+                    # step_delay = 1.0  # seconds
+                    # step_size = slew_rate * step_delay
                     
                     self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
                     self.power_supplies[index].ramp_voltage(
@@ -1227,11 +1406,20 @@ class CathodeHeatingSubsystem:
                         step_delay=step_delay,
                         preset=3
                     )
-            else: # ramp is off; just set output voltage
-                if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
-                    self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
-                    msgbox.showerror("Error", f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}")
-                
+            else: # ramp is off; Immediate Set 
+                if target_current is not None and control_mode == "current":
+                    if not self.power_supplies[index].set_current(current=target_current, preset=3):
+                        self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
+                        msgbox.showerror("Error", f"Failed to set current for Cathode {['A', 'B', 'C'][index]}")
+                elif target_voltage is not None and control_mode == "voltage":
+                    if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
+                        self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
+                        msgbox.showerror("Error", f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}")
+                else:
+                    self.log(f"Invalid control mode '{control_mode}' for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                    msgbox.showerror("Error", f"Invalid control mode '{control_mode}' for Cathode {['A', 'B', 'C'][index]}")
+                    return
+                    
         else:
             # turning off the output
             self.power_supplies[index].set_output("0")
@@ -1240,6 +1428,155 @@ class CathodeHeatingSubsystem:
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)
+        for btn in self.toggle_button_clones[index]:
+            btn.config(image=current_image)
+        
+    def set_target_current(self, index, entry_field):
+        """
+        Set target beam current for a cathode and calculate required heater settings.
+
+        Uses the target beam current to calculate ideal emission current, then determines
+        the appropritate heater voltage and current using the ES440 cathode data model.
+
+        Args:
+            index (int): Index of the cathode (0-2)
+            entry_field (ttk.Entry): Entry widget containing target current value
+
+        Raises:
+            ValueError: If target current is negative or invalid
+
+        Side effects:
+            - programs power supply voltage and current settings
+            - updates predicted values displays (emission, grid current, temperature)
+            - Updates heater voltage display
+            - Logs actions and any errors
+        """
+        if not self.power_supply_status[index]:
+            self.log(f"Power supply {index + 1} is not initialized. Cannot set target current.", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
+            return
+        
+        if entry_field is None:
+            self.log("Target current entry field is missing", LogLevel.ERROR)
+            return
+
+        try:
+            target_current_mA = float(entry_field.get())
+            ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
+            if ideal_emission_current < 0:
+                raise ValueError("Target current must be positive")
+            
+            log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
+            self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
+            
+            if ideal_emission_current == 0:
+                # Set all related variables to zero
+                self.reset_power_supply(index)
+                return
+
+            # Ensure current is within the data range
+            if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
+                self.log("Desired emission current is below the minimum range of the model.", LogLevel.DEBUG)
+                self.predicted_emission_current_vars[index].set('0.00')
+                self.predicted_grid_current_vars[index].set('0.00')
+                self.predicted_heater_current_vars[index].set('0.00')
+                self.heater_voltage_vars[index].set('0.00')
+                self.predicted_temperature_vars[index].set('0.00')
+            else:
+                # Calculate heater current from the ES440 model
+                heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
+                heater_voltage = self.heater_voltage_model.interpolate(heater_current)
+
+                self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
+                self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
+
+                # set_voltage handles these checks now
+                # current_ovp = self.get_ovp(index)
+                # if current_ovp is None:
+                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                #     return
+
+                # if heater_voltage > current_ovp:
+                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                #     return
+
+                # Set Upper Current Limit on the power supply
+                if self.power_supplies and len(self.power_supplies) > index:
+                    self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
+                    
+                    current_ovp = self.get_ovp(index)
+                    
+                    if current_ovp is None:
+                        self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                        return
+                    if heater_voltage > current_ovp:
+                        self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                        msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                        return
+                    # Set the upper current limit on the power supply
+                    
+                    # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
+                    current_set_success = self.power_supplies[index].set_current(3, heater_current)
+                    
+                    
+                    if current_set_success:
+                        self.user_set_voltages[index] = heater_voltage
+                        
+                        # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
+                        if self.toggle_states[index]:
+                            if self.ramp_status[index]:
+                                self.power_supplies[index].ramp_voltage(
+                                    heater_voltage,
+                                    step_size=self.slew_rates[index],
+                                    step_delay=1.0,
+                                    preset=3
+                                )
+                                self.voltage_set[index] = True
+                            else:
+                                self.power_supplies[index].set_voltage(3, heater_voltage)
+                                self.voltage_set[index] = True
+                                
+                        # Confirm the set values
+                        _ , set_current = self.power_supplies[index].get_settings(3)
+                        if set_current is not None:
+                            # voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
+                            current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
+                            
+                            if current_mismatch:
+                                self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
+                                # if voltage_mismatch:
+                                #     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
+                                if current_mismatch:
+                                    self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
+                                    return
+                                # GUI is updated with actual voltage
+                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f}")
+                            else:
+                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
+                        else:
+                            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
+                        
+                        predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
+                        predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
+
+                        predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
+                        self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
+                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
+                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
+                        setattr(self, f'last_set_voltage_{index}', heater_voltage)
+                        
+                        self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
+                    else:
+                        self.reset_related_variables(index)
+                        self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+        except ValueError as e:
+            self.log("Invalid input for target current", LogLevel.ERROR)
+            msgbox.showerror("Invalid Input", str(e))
+            return
 
     def reset_related_variables(self, index):
         """
@@ -1282,8 +1619,39 @@ class CathodeHeatingSubsystem:
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
         self.heater_voltage_vars[index].set('--')
+        self.predicted_temperature_vars[index].set('--')
 
-    def on_voltage_label_click(self, index):
+    def on_current_label_click(self, index, target_current):
+        """ 
+        Handler for user clicks on heater current label for manual current setting
+
+        Args:
+            index (int): Index of the clicked current label (0-2)
+
+        Shows a dialog for current input if output is disabled. 
+        Updates predictions and display values based on entered current.
+        """
+        try:
+            new_current = float(target_current.get())
+
+            if new_current < 0:
+                msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
+                return
+        except (tk.TclError, ValueError):
+            msgbox.showerror("Invalid Input", "Please enter a valid current value.")
+            return
+
+        if new_current is not None:
+            success = self.update_predictions_from_current(index, new_current)
+            if success:
+                self.heater_current_vars[index].set(f"{new_current:.2f}")
+                setattr(self, f'last_set_current_{index}', new_current)
+                self.current_set[index] = True
+                self.entry_fields[index].delete(0, tk.END)
+            else:
+                self.log(f"Failed to set manual current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def on_voltage_label_click(self, index, target_voltage):
         """ 
         Handler for user clicks on heater voltage label for manual voltage setting
 
@@ -1293,8 +1661,16 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
+        try:
+            new_voltage = float(target_voltage.get())
 
-        new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
+            if new_voltage < 0:
+                msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
+                return
+        except (tk.TclError, ValueError):
+            msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
+            return
+
         if new_voltage is not None:
             success = self.update_predictions_from_voltage(index, new_voltage)
             if success:
@@ -1303,6 +1679,138 @@ class CathodeHeatingSubsystem:
                 self.voltage_set[index] = True
             else:
                 self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def adjust_current(self, index: int, delta: float) -> None:
+        """
+        Increment / decrement the *requested* heater current by *delta* amps
+        and push the change through the same pathway used for manual entry.
+
+        Parameters
+        ----------
+        index : int
+            Cathode index 0-2  (A, B, C).
+        delta : float
+            +0.01 → raise 10 mA   |   -0.01 → lower 10 mA.
+        """
+        # Pull whatever text is currently shown under “Set Heater (A)”.
+        try:
+            raw = self.heater_current_vars[index].get()
+            current_a = float(raw)
+        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
+            current_a = 0.0
+
+        new_a = round(current_a + delta, 2)      # keep two decimals for UI
+
+        # Guard-rails: prevent < 0 A.
+        if new_a < 0:
+            msgbox.showwarning("Current below 0 A",
+                            "Requested current would be negative - action aborted.")
+            return
+        ocp = self.get_ocp(index)
+        if ocp is not None and new_a > ocp:
+            msgbox.showwarning("Current > OCP", f"Requested {new_a:.2f} A exceeds OCP ({ocp:.2f} A).")
+            return
+
+        # Check values before set
+        ok = self.update_predictions_from_current(index, new_a)
+        if ok:
+            self.heater_current_vars[index].set(f"{new_a:.2f}")
+            self.user_set_currents[index] = new_a
+            self.current_set[index] = True
+
+    def adjust_voltage(self, index: int, delta: float) -> None:
+        """
+        Increment / decrement the *requested* heater voltage by *delta* volts
+        and push the change through the same pathway used for manual entry.
+
+        Parameters
+        ----------
+        index : int
+            Cathode index 0-2  (A, B, C).
+        delta : float
+            +0.02 → raise 20 mV   |   -0.02 → lower 20 mV.
+        """
+        # Pull whatever text is currently shown under “Set Heater (V)”.
+        try:
+            raw = self.heater_voltage_vars[index].get()
+            current_v = float(raw)
+        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
+            current_v = 0.0
+
+        new_v = round(current_v + delta, 2)      # keep two decimals for UI
+
+        # Guard-rails: prevent < 0 V or exceeding the active OVP.
+        ovp = self.get_ovp(index)                
+        if new_v < 0:
+            msgbox.showwarning("Voltage below 0 V",
+                            "Requested voltage would be negative - action aborted.")
+            return
+        if ovp is not None and new_v > ovp:
+            msgbox.showwarning("Voltage > OVP",
+                            f"Requested {new_v:.2f} V exceeds OVP ({ovp:.2f} V).")
+            return
+
+        # Check values before set
+        ok = self.update_predictions_from_voltage(index, new_v)
+        if ok:
+            self.heater_voltage_vars[index].set(f"{new_v:.2f}")
+            self.user_set_voltages[index] = new_v
+            self.voltage_set[index] = True
+
+    def update_predictions_from_current(self, index, current):
+        """
+        Calculate and update predicted values based on a manually set current.
+        
+        Args:
+            index (int): Index of cathode (0-2)
+            current (float): Manually entered current value
+
+        Returns:
+            bool: True if update successful, False if failed
+
+        Updates:
+            - Heater voltage prediction
+            - Emission current prediction
+            - Temperature prediction
+            - Power supply settings
+        """
+        try:
+            current_ocp = self.get_ocp(index)
+
+            if current_ocp is None:
+                self.log(f"Unable to get current OCP for Cathode {['A', 'B', 'C'][index]}. Aborting current set.", LogLevel.ERROR)
+                return False
+            if current > current_ocp:
+                self.log(f"Calculated current ({current:.2f}A) exceeds OCP ({current_ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                msgbox.showwarning("Current Exceeds OCP", f"The calculated current ({current:.2f}A) exceeds the current OCP setting ({current_ocp:.2f}A). Please adjust the OCP or choose a lower target current.")
+                return False
+            if current < 0:
+                msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
+                return False
+            
+            # Lookup required heater voltage when merged with feature/lookup-table
+
+            if self.toggle_states[index]: # Output is ON
+                if self.ramp_status[index]:
+                    # Ramp current 
+                    return True
+                else:
+                    self.power_supplies[index].set_current(3, current)
+
+            self.user_set_currents[index] = current
+            self.current_set[index] = True
+
+            # Update prediction values once merged
+
+            return True
+
+        except ValueError as e:
+            self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
+            return False
+        except Exception as e:
+            self.log(f"Unexpected error while processing manual current setting: {str(e)}", LogLevel.ERROR)
+            return False
+
 
     def update_predictions_from_voltage(self, index, voltage):
         """
@@ -1445,6 +1953,27 @@ class CathodeHeatingSubsystem:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             self.reset_related_variables(index)
             return False
+
+    def get_ocp(self, index):
+        '''
+        Get the current over-current protection setting.
+        Args:
+            index (int): Index of the power supply (0-2)
+            
+        Returns:
+            float or None: Current OCP setting in amps, None if retrieval fails
+        '''
+        try: 
+            ocp = self.power_supplies[index].get_over_current_protection()
+            if ocp is not None:
+                return ocp
+            else:
+                self.log(f"Failed to get OCP for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return None
+        except Exception as e:
+            self.log(f"Error getting OCP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            return None
+
 
     def get_ovp(self, index):
         """
