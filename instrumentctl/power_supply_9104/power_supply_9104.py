@@ -13,7 +13,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
-        self.serial_lock = threading.Lock()
+        # self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
@@ -50,9 +50,8 @@ class PowerSupply9104:
 
     def flush_serial(self):
         if self.ser and self.ser.is_open:
-            with self.serial_lock:
-                self.log("Flushing serial input buffer", LogLevel.DEBUG)
-                self.ser.reset_input_buffer()
+            self.log("Flushing serial input buffer", LogLevel.DEBUG)
+            self.ser.reset_input_buffer()
         else:
             self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
 
@@ -60,9 +59,10 @@ class PowerSupply9104:
         """Send a command to the power supply and read the response."""
         with self.serial_lock:
             try: 
+                self.flush_serial()
                 self.push_ramp_log(f"Sending command: {command}", LogLevel.DEBUG)
                 self.ser.write(f"{command}\r\n".encode())
-                
+            
                 response = self.ser.read_until(b'\r').decode()
 
                 if 'OK' not in response:

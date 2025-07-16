@@ -16,6 +16,7 @@ import os, sys
 import numpy as np
 from utils import LogLevel
 from decimal import Decimal
+from decimal import Decimal
 
 def resource_path(relative_path):
     """
@@ -1298,6 +1299,17 @@ class CathodeHeatingSubsystem:
 
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
+
+                # set_voltage handles these checks now
+                # current_ovp = self.get_ovp(index)
+                # if current_ovp is None:
+                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
+                #     return
+
+                # if heater_voltage > current_ovp:
+                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+                #     return
 
                 # Set Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
