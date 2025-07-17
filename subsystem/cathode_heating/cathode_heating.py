@@ -136,7 +136,10 @@ class CathodeHeatingSubsystem:
         
         # Heater current predictions - used for power supply control
         self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
-        
+
+        # Heater voltage predictions - used for power supply control
+        self.predicted_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
+
         # Predicted temperature - used for safety monitoring
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
     
@@ -320,7 +323,7 @@ class CathodeHeatingSubsystem:
             
             # Predicted heater voltage (V)
             ttk.Label(current_tab, text='Pred Heater Voltage (V):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
-            ttk.Label(current_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
+            ttk.Label(current_tab, textvariable=self.predicted_heater_voltage_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
 
             # Create entries and display labels
             heater_label = ttk.Label(current_tab, text=heater_labels[i], style='Bold.TLabel')
@@ -1638,7 +1641,9 @@ class CathodeHeatingSubsystem:
         """
         try:
             new_current = float(target_current.get())
-
+            self.user_set_currents[index] = new_current
+            # Update predictions
+            self.update_predictions_from_current(index, new_current)
             if new_current < 0:
                 msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
                 return
@@ -1793,21 +1798,54 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
                 return False
             
-            # Lookup required heater voltage when merged with feature/lookup-table
+            # Lookup required heater voltage and beam current from the lookup table
+            df = self.lookup_table_setting[index]
+            # Find the row where heater_current matches the requested current
+            exact_match = df[df['heater_current'] == current]
+            if exact_match.empty:
+                # No exact match, set predictions to '--'
+                self.predicted_heater_voltage_vars[index].set('--')
+                self.predicted_emission_current_vars[index].set('--')
+                self.predicted_grid_current_vars[index].set('--')
+                # Set current directly if output is ON
+                if self.toggle_states[index]:
+                    if self.ramp_status[index]:
+                        # Ramp current (not implemented)
+                        return True
+                    else:
+                        self.power_supplies[index].set_current(3, current)
+                self.user_set_currents[index] = current
+                self.current_set[index] = True
+                return True
+            else:
+                match_row = exact_match.iloc[0]
+                heater_voltage = match_row['voltage']
+                beam_current = match_row['beam_current']
+                # Calculate emission current and grid current
+                ideal_emission_current = beam_current / 0.72 if beam_current is not None else None
+                predicted_grid_current = 0.28 * ideal_emission_current if ideal_emission_current is not None else None
 
-            if self.toggle_states[index]: # Output is ON
-                if self.ramp_status[index]:
-                    # Ramp current 
-                    return True
+                self.predicted_heater_voltage_vars[index].set(f'{heater_voltage:.2f} V')
+                if ideal_emission_current is not None:
+                    self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
                 else:
-                    self.power_supplies[index].set_current(3, current)
+                    self.predicted_emission_current_vars[index].set('--')
+                if predicted_grid_current is not None:
+                    self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+                else:
+                    self.predicted_grid_current_vars[index].set('--')
 
-            self.user_set_currents[index] = current
-            self.current_set[index] = True
+                # Set current on the power supply if output is ON
+                if self.toggle_states[index]:
+                    if self.ramp_status[index]:
+                        # Ramp current (not implemented)
+                        return True
+                    else:
+                        self.power_supplies[index].set_current(3, current)
 
-            # Update prediction values once merged
-
-            return True
+                self.user_set_currents[index] = current
+                self.current_set[index] = True
+                return True
 
         except ValueError as e:
             self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
