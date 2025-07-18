@@ -32,6 +32,7 @@ frames_config = [
     ("Machine Status", 4, 1916, 38)
 ]
 
+
 class EBEAMSystemDashboard:
     """
     Main dashboard class that manages the EBEAM System Control Dashboard interface.
@@ -48,27 +49,28 @@ class EBEAMSystemDashboard:
         com_ports: Dictionary mapping subsystem names to serial COM port assignments
         frames: Dictionary of tkinter frames for each subsystem
         subsystems: Dictionary of initialized subsystem objects
+        cathode_datasets: Dict mapping cathode names to selected dataset files
     """
 
     PORT_INFO = {
         "AG0KLEQ8A" : "Interlocks"
     }
 
-    def __init__(self, root, com_ports):
+    def __init__(self, root, com_ports, cathode_datasets=None):
         self.root = root
         self.com_ports = com_ports
+        self.cathode_datasets = cathode_datasets or {}
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
-        
-        
+
         # if save file exists call it and open it
         if saveFileExists():
-             self.load_saved_pane_state()
+            self.load_saved_pane_state()
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
-        
+
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
@@ -269,6 +271,7 @@ class EBEAMSystemDashboard:
         self.messages_frame.set_log_level(selected_level)
         print(f"Log level changed to: {selected_level.name}")
 
+
     def create_subsystems(self):
         """
         Initialize all subsystem objects with their respective frames and settings.
@@ -301,7 +304,8 @@ class EBEAMSystemDashboard:
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
                 logger=self.logger,
-                active = self.machine_status_frame.MACHINE_STATUS
+                active = self.machine_status_frame.MACHINE_STATUS,
+                cathode_datasets=self.cathode_datasets
             )
         }
 

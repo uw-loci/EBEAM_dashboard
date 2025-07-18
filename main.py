@@ -1,6 +1,9 @@
 import sys
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
+import tkinter.filedialog as filedialog
+import shutil
 import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
@@ -36,11 +39,12 @@ def create_dummy_ports(subsystems):
     """
     return {subsystem: f"DUMMY_COM{i+1}" for i, subsystem in enumerate(subsystems)}
 
-def start_main_app(com_ports):
+def start_main_app(com_ports, cathode_datasets=None):
     """
     Create and start the main EBEAM System Dashboard application.
 
     :param com_ports: Dict mapping subsystems to their selected COM ports.
+    :param cathode_datasets: Dict mapping cathode names to selected dataset files.
     """
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
@@ -48,26 +52,26 @@ def start_main_app(com_ports):
 
     # Track fullscreen state
     fullscreen = False
-  
+
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             app.cleanup()
             root.destroy()
         return "break"
-    
+
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
         fullscreen = not fullscreen
         root.attributes('-fullscreen', fullscreen)
         return "break"
-    
+
     def escape_handler(event=None):
         nonlocal fullscreen
         if fullscreen:
             fullscreen = False
             root.attributes('-fullscreen', False)
         return "break"
-    
+
     def toggle_maximize(event=None):
         if root.state() == 'zoomed':
             root.state('normal')
@@ -170,7 +174,7 @@ def start_main_app(com_ports):
     root.bind('<Control-s>', save_logs)         # Save log file
   
 
-    app = EBEAMSystemDashboard(root, com_ports)
+    app = EBEAMSystemDashboard(root, com_ports, cathode_datasets=cathode_datasets)
     root.mainloop()
 
 def config_com_ports(saved_com_ports):
@@ -198,16 +202,30 @@ def config_com_ports(saved_com_ports):
     combined_port_options = real_ports + dummy_port_labels
 
     config_root = tk.Tk()
-    config_root.title("Configure COM Ports")
+    config_root.title("Configure COM Ports and Lookup Tables")
 
     selections = {}
+    dataset_selections = {}
 
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
 
-    # Create a dropdown for each subsystem
+    # Create a two-column layout: left for COM ports, right for datasets
+    left_frame = ttk.Frame(main_frame)
+    left_frame.grid(row=0, column=0, sticky='n')
+    right_frame = ttk.Frame(main_frame)
+    right_frame.grid(row=0, column=1, sticky='n', padx=(30,0))
+
+    # Dataset files for cathodes
+    lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
+    cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv')]
+    # Add 'Default' option at the top
+    dataset_options = ['Default'] + cathode_files
+    cathode_map = {'CathodeA PS': 'A', 'CathodeB PS': 'B', 'CathodeC PS': 'C'}
+
+    # COM port dropdowns (left column)
     for subsystem in SUBSYSTEMS:
-        frame = ttk.Frame(main_frame)
+        frame = ttk.Frame(left_frame)
         frame.pack(pady=5, anchor='center')
 
         label = tk.Label(
@@ -231,14 +249,77 @@ def config_com_ports(saved_com_ports):
         combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
 
+    def add_lut_dataset():
+        file_path = filedialog.askopenfilename(
+            title="Select LUT CSV File",
+            filetypes=[("CSV Files", "*.csv")],
+        )
+        if file_path:
+            dest_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
+            dest_file = os.path.join(dest_dir, os.path.basename(file_path))
+            try:
+                shutil.copy(file_path, dest_file)
+                # Update the cathode_files and dataset_options list and all dataset dropdowns
+                cathode_files.append(os.path.basename(file_path))
+                dataset_options.clear()
+                dataset_options.extend(['Default'] + cathode_files)
+                for cb in dataset_comboboxes:
+                    cb['values'] = dataset_options
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add LUT file:\n{e}")
+
+    # Add the button to the right_frame
+    add_lut_btn = ttk.Button(right_frame, text="Add new LUT Dataset", command=add_lut_dataset)
+    add_lut_btn.pack(pady=(0, 10))
+
+    # Store references to dataset comboboxes for updating
+    dataset_comboboxes = []
+
+    # Dataset dropdowns (right column, only for cathodes)
+    for cathode, suffix in cathode_map.items():
+        frame = ttk.Frame(right_frame)
+        frame.pack(pady=18, anchor='center')
+
+        label = tk.Label(
+            frame,
+            text=f"{cathode} Dataset:",
+            width=18,
+            anchor='e'
+        )
+        label.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Default to 'Default' option
+        selected_dataset = tk.StringVar(value='Default')
+
+        dataset_combobox = ttk.Combobox(
+            frame,
+            values=dataset_options,
+            textvariable=selected_dataset,
+            state='readonly',
+            width=20
+        )
+        dataset_combobox.pack(side=tk.LEFT)
+        dataset_selections[cathode] = selected_dataset
+        dataset_comboboxes.append(dataset_combobox)
+
+
     def on_submit():
         """
         Handler for the 'Submit' button. Checks if all subsystems have a port
         selected. If not, offers to fill those with dummy ports. If the user
         refuses, they remain in the config window.
         """
+
         selected_ports = {key: value.get() for key, value in selections.items()}
-        
+        selected_datasets = {}
+        for key, value in dataset_selections.items():
+            v = value.get()
+            if v == 'Default':
+                # Store the path to the default file in usr/usr_data/EBEAM_dashboard_LUT
+                selected_datasets[key] = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'default.csv')
+            else:
+                selected_datasets[key] = v
+
         # check that all COM ports are selected
         if not all(selected_ports.values()):
             response = messagebox.askquestion(
@@ -259,9 +340,9 @@ def config_com_ports(saved_com_ports):
         # save final selections
         save_com_ports(selected_ports)
         config_root.destroy()
-        
-        # Launch the main application
-        start_main_app(selected_ports)
+
+        # Pass selected_datasets to main app
+        start_main_app(selected_ports, cathode_datasets=selected_datasets)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)

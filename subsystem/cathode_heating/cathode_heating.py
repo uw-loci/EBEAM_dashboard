@@ -50,7 +50,7 @@ class CathodeHeatingSubsystem:
         'DISCONNECTED': '#808080'
     }
     
-    def __init__(self, parent, com_ports, active, logger=None):
+    def __init__(self, parent, com_ports, active, logger=None, cathode_datasets=None):
         """
         Initialize the cathode heating subsystem.
         
@@ -65,10 +65,12 @@ class CathodeHeatingSubsystem:
                 }
             logger: Optional logger instance for system events
         """
+
         self.parent = parent
         self.com_ports = com_ports
         self.logger = logger
         self.active = active
+        self.cathode_datasets = cathode_datasets or {}
 
         # Power supply state tracking
         self.power_supplies_initialized = False
@@ -83,10 +85,20 @@ class CathodeHeatingSubsystem:
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
         self.ramp_status = [True, True, True]
+        # Determine dataset file for each cathode
+        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
+
+        def get_dataset_path(cathode_key, default_file):
+            filename = self.cathode_datasets.get(cathode_key, default_file)
+            if not os.path.isabs(filename):
+                return os.path.join(lut_dir, filename)
+            return filename
+        self.get_dataset_path = get_dataset_path
+
         self.current_options = {
-            "Cathode A" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
-            "Cathode B" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_B.csv')),
-            "Cathode C" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_C.csv')),
+            "Cathode A" : pd.read_csv(resource_path(get_dataset_path('CathodeA PS', 'powersupply_A.csv'))),
+            "Cathode B" : pd.read_csv(resource_path(get_dataset_path('CathodeB PS', 'powersupply_B.csv'))),
+            "Cathode C" : pd.read_csv(resource_path(get_dataset_path('CathodeC PS', 'powersupply_C.csv'))),
         }
         self.lookup_table_setting = [self.current_options["Cathode A"], 
                                     self.current_options["Cathode B"], 
@@ -465,7 +477,7 @@ class CathodeHeatingSubsystem:
             canvas.draw()
             canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, pady=0.1)
 
-            ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
+            ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
             
             # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
@@ -527,18 +539,28 @@ class CathodeHeatingSubsystem:
             lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
             lookup_table_label.grid(row=6, column=0, sticky='e')
 
-            lookup_table_options = list(self.current_options.keys())
-            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=10)
+            # Build options: Default plus any non-default cathode-specific files
+            lookup_table_options = ["Default"]
+            cathode_keys = ["Cathode A", "Cathode B", "Cathode C"]
+            for idx, cathode in enumerate(cathode_keys):
+                dataset_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+idx)} PS', 'default.csv'))
+                if dataset_file != 'default.csv':
+                    lookup_table_options.append(f"{cathode}: {dataset_file}")
+
+            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=28)
             lookup_table_box.grid(row=6, column=1, sticky='w')
 
-            lookup_table_box.set(f"Cathode {['A', 'B', 'C'][i]}")
+            # Set the default value to Default or the cathode-specific file
+            dataset_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+i)} PS', 'default.csv'))
+            display_name = 'Default' if dataset_file == 'default.csv' else f"Cathode {chr(65+i)}: {dataset_file}"
+            lookup_table_box.set(display_name)
             lookup_table_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_lookup_table_change(event, idx))
 
             self.lookup_table_comboboxes.append(lookup_table_box)
 
-            # Get buttons and output labels
+            # Move 'Log Power Settings' button to the next row (row 7)
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=6, column=2, sticky='w')
+            log_power_settings_button.grid(row=0, column=2, columnspan=2, sticky='ew', pady=(2, 0))
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
