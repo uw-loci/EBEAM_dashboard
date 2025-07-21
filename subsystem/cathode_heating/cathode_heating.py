@@ -49,6 +49,29 @@ class CathodeHeatingSubsystem:
         'ERROR': '#FFA500',       # Communication error
         'DISCONNECTED': '#808080'
     }
+
+    def get_dataset_path(self, cathode_key, default_file):
+        """
+        Get the full path to a dataset file for a cathode.
+        
+        Args:
+            cathode_key (str): Key for the cathode (e.g., 'CathodeA PS')
+            default_file (str): Default filename to use if not specified
+            
+        Returns:
+            str: Full path to the dataset file
+        """
+        filename = self.cathode_datasets.get(cathode_key, default_file)
+        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
+        
+        # If filename is absolute, use as is
+        if os.path.isabs(filename):
+            return filename
+        # If filename already starts with lut_dir, use as is  
+        if filename.startswith(lut_dir):
+            return filename
+        # Otherwise, join lut_dir and filename
+        return os.path.join(lut_dir, filename)
     
     def __init__(self, parent, com_ports, active, logger=None, cathode_datasets=None):
         """
@@ -88,22 +111,62 @@ class CathodeHeatingSubsystem:
         # Determine dataset file for each cathode
         lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
 
-        def get_dataset_path(cathode_key, default_file):
-            filename = self.cathode_datasets.get(cathode_key, default_file)
-            if not os.path.isabs(filename):
-                return os.path.join(lut_dir, filename)
-            return filename
-        self.get_dataset_path = get_dataset_path
+        def validate_lut(df):
+            required_cols = ['beam_current', 'voltage', 'heater_current']
+            if not all(col in df.columns for col in required_cols):
+                return False
+            if df[required_cols].isnull().any().any():
+                return False
+            if len(df) == 0:
+                return False
+            return True
 
+        # Try loading in each power supply dataset:
+        self.current_options = {}
+
+        # Cathode A
+        try:
+            df_A = pd.read_csv(resource_path(self.get_dataset_path('CathodeA PS', 'powersupply_A.csv')))
+            if not validate_lut(df_A):
+                msgbox.showerror("Cathode Heating Error", "LUT file for Cathode A is invalid or missing required columns/data.")
+                df_A = None
+        except Exception as e:
+            msgbox.showerror("Cathode Heating Error", f"Failed to load LUT for Cathode A:\n{e}")
+            df_A = None
+
+        # Cathode B
+        try:
+            df_B = pd.read_csv(resource_path(self.get_dataset_path('CathodeB PS', 'powersupply_B.csv')))
+            if not validate_lut(df_B):
+                msgbox.showerror("Cathode Heating Error", "LUT file for Cathode B is invalid or missing required columns/data.")
+                df_B = None
+        except Exception as e:
+            msgbox.showerror("Cathode Heating Error", f"Failed to load LUT for Cathode B:\n{e}")
+            df_B = None
+
+        # Cathode C
+        try:
+            df_C = pd.read_csv(resource_path(self.get_dataset_path('CathodeC PS', 'powersupply_C.csv')))
+            if not validate_lut(df_C):
+                msgbox.showerror("Cathode Heating Error", "LUT file for Cathode C is invalid or missing required columns/data.")
+                df_C = None
+        except Exception as e:
+            if self.logger:
+                self.logger.log(f"Failed to load Cathode C power supply dataset: {e}", LogLevel.ERROR)
+            df_C = None
+
+        # Create the options dictionary ONCE with all loaded data
         self.current_options = {
-            "Cathode A" : pd.read_csv(resource_path(get_dataset_path('CathodeA PS', 'powersupply_A.csv'))),
-            "Cathode B" : pd.read_csv(resource_path(get_dataset_path('CathodeB PS', 'powersupply_B.csv'))),
-            "Cathode C" : pd.read_csv(resource_path(get_dataset_path('CathodeC PS', 'powersupply_C.csv'))),
+            "Cathode A": df_A,
+            "Cathode B": df_B,
+            "Cathode C": df_C,
         }
-        self.lookup_table_setting = [self.current_options["Cathode A"], 
-                                    self.current_options["Cathode B"], 
-                                    self.current_options["Cathode C"],
-                                    ]
+
+        self.lookup_table_setting = [
+            self.current_options["Cathode A"], 
+            self.current_options["Cathode B"], 
+            self.current_options["Cathode C"],
+        ]
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
         self.entry_fields = []  # Initialize entry fields list
@@ -539,21 +602,46 @@ class CathodeHeatingSubsystem:
             lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
             lookup_table_label.grid(row=6, column=0, sticky='e')
 
-            # Build options: Default plus any non-default cathode-specific files
+            # Build options: Default plus any other CSV files (including default.csv)
             lookup_table_options = ["Default"]
-            cathode_keys = ["Cathode A", "Cathode B", "Cathode C"]
-            for idx, cathode in enumerate(cathode_keys):
-                dataset_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+idx)} PS', 'default.csv'))
-                if dataset_file != 'default.csv':
-                    lookup_table_options.append(f"{cathode}: {dataset_file}")
+
+            # Get all CSV files from the LUT directory
+            lut_dir = os.path.join("usr", "usr_data", "EBEAM_dashboard_LUT")
+            if os.path.exists(lut_dir):
+                for filename in os.listdir(lut_dir):
+                    if filename.endswith('.csv'):
+                        # Add each CSV file as an option (but don't duplicate default.csv as "Default")
+                        if filename != 'default.csv':
+                            lookup_table_options.append(filename)
+
+            # Also check for cathode-specific files in the current cathode's directory
+            current_cathode_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+i)} PS', 'default.csv'))
+            if current_cathode_file != 'default.csv' and current_cathode_file not in lookup_table_options:
+                lookup_table_options.append(current_cathode_file)
+
+            # Update self.current_options to include the "Default" mapping
+            if not hasattr(self, 'current_options'):
+                self.current_options = {}
+
+            # Map "Default" to the default.csv file path
+            self.current_options["Default"] = os.path.join("usr", "usr_data", "EBEAM_dashboard_LUT", "default.csv")
+
+            # Map all other options to their full file paths
+            for option in lookup_table_options:
+                if option != "Default":
+                    self.current_options[option] = os.path.join("usr", "usr_data", "EBEAM_dashboard_LUT", option)
 
             lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=28)
             lookup_table_box.grid(row=6, column=1, sticky='w')
 
             # Set the default value to Default or the cathode-specific file
             dataset_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+i)} PS', 'default.csv'))
-            display_name = 'Default' if dataset_file == 'default.csv' else f"Cathode {chr(65+i)}: {dataset_file}"
-            lookup_table_box.set(display_name)
+            if dataset_file == 'default.csv':
+                lookup_table_box.set("Default")
+            else:
+                # For cathode-specific files, just use the filename
+                lookup_table_box.set(dataset_file)
+
             lookup_table_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_lookup_table_change(event, idx))
 
             self.lookup_table_comboboxes.append(lookup_table_box)

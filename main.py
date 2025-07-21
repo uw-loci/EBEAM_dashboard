@@ -218,8 +218,8 @@ def config_com_ports(saved_com_ports):
 
     # Dataset files for cathodes
     lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
-    cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv')]
-    # Add 'Default' option at the top
+    cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv') and f.lower() != 'default.csv']
+    # Add 'Default' option at the top, do not show 'default.csv' in the dropdown
     dataset_options = ['Default'] + cathode_files
     cathode_map = {'CathodeA PS': 'A', 'CathodeB PS': 'B', 'CathodeC PS': 'C'}
 
@@ -318,7 +318,8 @@ def config_com_ports(saved_com_ports):
                 # Store the path to the default file in usr/usr_data/EBEAM_dashboard_LUT
                 selected_datasets[key] = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'default.csv')
             else:
-                selected_datasets[key] = v
+                # Map to the full path for other files
+                selected_datasets[key] = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', v)
 
         # check that all COM ports are selected
         if not all(selected_ports.values()):
