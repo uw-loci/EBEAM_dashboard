@@ -124,7 +124,7 @@ EBEAM_DASHBOARD/
 │   │   └── power_supply_9014.py
 │   ├── G9_driver/
 │   │   ├── README.md
-│   │   └── G9_driver.py
+│   │   └── .py
 │   └── E5CN_modbus/
 │       ├── README.md
 │       └── E5CN_modbus.py
