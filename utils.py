@@ -35,7 +35,10 @@ class Logger:
             "safetyOutputDataFlags": None,
             "safetyInputDataFlags": None,
             "temperatures": None,
-            "vacuumBits": None
+            "vacuumBits": None,
+            "Cathode A - Heater Current: ": None,
+            "Cathode B - Heater Current: ": None,
+            "Cathode C - Heater Current: ": None
             }
         if log_to_file:
             self.setup_log_file()
