@@ -121,52 +121,28 @@ class CathodeHeatingSubsystem:
                 return False
             return True
 
-        # Try loading in each power supply dataset:
+        # Load all CSV LUTs in the LUT directory
+        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
         self.current_options = {}
-
-        # Cathode A
-        try:
-            df_A = pd.read_csv(resource_path(self.get_dataset_path('CathodeA PS', 'powersupply_A.csv')))
-            if not validate_lut(df_A):
-                msgbox.showerror("Cathode Heating Error", "LUT file for Cathode A is invalid or missing required columns/data.")
-                df_A = None
-        except Exception as e:
-            msgbox.showerror("Cathode Heating Error", f"Failed to load LUT for Cathode A:\n{e}")
-            df_A = None
-
-        # Cathode B
-        try:
-            df_B = pd.read_csv(resource_path(self.get_dataset_path('CathodeB PS', 'powersupply_B.csv')))
-            if not validate_lut(df_B):
-                msgbox.showerror("Cathode Heating Error", "LUT file for Cathode B is invalid or missing required columns/data.")
-                df_B = None
-        except Exception as e:
-            msgbox.showerror("Cathode Heating Error", f"Failed to load LUT for Cathode B:\n{e}")
-            df_B = None
-
-        # Cathode C
-        try:
-            df_C = pd.read_csv(resource_path(self.get_dataset_path('CathodeC PS', 'powersupply_C.csv')))
-            if not validate_lut(df_C):
-                msgbox.showerror("Cathode Heating Error", "LUT file for Cathode C is invalid or missing required columns/data.")
-                df_C = None
-        except Exception as e:
-            if self.logger:
-                self.logger.log(f"Failed to load Cathode C power supply dataset: {e}", LogLevel.ERROR)
-            df_C = None
-
-        # Create the options dictionary ONCE with all loaded data
-        self.current_options = {
-            "Cathode A": df_A,
-            "Cathode B": df_B,
-            "Cathode C": df_C,
-        }
-
-        self.lookup_table_setting = [
-            self.current_options["Cathode A"], 
-            self.current_options["Cathode B"], 
-            self.current_options["Cathode C"],
-        ]
+        if os.path.exists(lut_dir):
+            for filename in os.listdir(lut_dir):
+                if filename.endswith('.csv'):
+                    file_path = os.path.join(lut_dir, filename)
+                    try:
+                        df = pd.read_csv(resource_path(file_path))
+                        key = 'Default' if filename == 'default.csv' else filename
+                        if validate_lut(df):
+                            self.current_options[key] = df
+                        else:
+                            self.current_options[key] = None
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.log(f"Failed to load LUT {filename}: {e}", LogLevel.ERROR)
+                        key = 'Default' if filename == 'default.csv' else filename
+                        self.current_options[key] = None
+        # Track selected LUT filenames for each cathode (A, B, C)
+        self.selected_lut_files = [None, None, None]
+        self.lookup_table_setting = [None, None, None]
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
         self.entry_fields = []  # Initialize entry fields list
@@ -541,6 +517,12 @@ class CathodeHeatingSubsystem:
             canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, pady=0.1)
 
             ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+
+            # 'Log Power Settings' button
+            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
+            log_power_settings_button.grid(row=0, column=2, columnspan=1, sticky='ew', pady=(2, 0))
+            log_power_settings_button['state'] = 'disabled'
+            self.log_power_settings_buttons.append(log_power_settings_button)
             
             # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
@@ -602,55 +584,33 @@ class CathodeHeatingSubsystem:
             lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
             lookup_table_label.grid(row=6, column=0, sticky='e')
 
-            # Build options: Default plus any other CSV files (including default.csv)
-            lookup_table_options = ["Default"]
-
-            # Get all CSV files from the LUT directory
-            lut_dir = os.path.join("usr", "usr_data", "EBEAM_dashboard_LUT")
-            if os.path.exists(lut_dir):
-                for filename in os.listdir(lut_dir):
-                    if filename.endswith('.csv'):
-                        # Add each CSV file as an option (but don't duplicate default.csv as "Default")
-                        if filename != 'default.csv':
-                            lookup_table_options.append(filename)
-
-            # Also check for cathode-specific files in the current cathode's directory
-            current_cathode_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+i)} PS', 'default.csv'))
-            if current_cathode_file != 'default.csv' and current_cathode_file not in lookup_table_options:
-                lookup_table_options.append(current_cathode_file)
-
-            # Update self.current_options to include the "Default" mapping
-            if not hasattr(self, 'current_options'):
-                self.current_options = {}
-
-            # Map "Default" to the default.csv file path
-            self.current_options["Default"] = os.path.join("usr", "usr_data", "EBEAM_dashboard_LUT", "default.csv")
-
-            # Map all other options to their full file paths
-            for option in lookup_table_options:
-                if option != "Default":
-                    self.current_options[option] = os.path.join("usr", "usr_data", "EBEAM_dashboard_LUT", option)
+            # Build options: all loaded LUT keys, with 'Default' first if present
+            lookup_table_options = list(self.current_options.keys())
+            if 'Default' in lookup_table_options:
+                lookup_table_options.remove('Default')
+                lookup_table_options.insert(0, 'Default')
 
             lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=28)
             lookup_table_box.grid(row=6, column=1, sticky='w')
 
-            # Set the default value to Default or the cathode-specific file
-            dataset_file = os.path.basename(self.get_dataset_path(f'Cathode{chr(65+i)} PS', 'default.csv'))
-            if dataset_file == 'default.csv':
-                lookup_table_box.set("Default")
+            # Set the default value to 'Default' if present, else first option
+            if 'Default' in lookup_table_options:
+                lookup_table_box.set('Default')
+                self.selected_lut_files[i] = 'Default'
             else:
-                # For cathode-specific files, just use the filename
-                lookup_table_box.set(dataset_file)
+                lookup_table_box.set(lookup_table_options[0] if lookup_table_options else '')
+                self.selected_lut_files[i] = lookup_table_options[0] if lookup_table_options else None
+            # Set lookup_table_setting for this cathode
+            self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
 
-            lookup_table_box.bind("<<ComboboxSelected>>", lambda event, idx=i: self.on_lookup_table_change(event, idx))
-
+            # Bind LUT combobox to centralized class method
+            def lut_selection_callback(event, idx=i, box=lookup_table_box):
+                selected = box.get()
+                self.selected_lut_files[idx] = selected
+                self.lookup_table_setting[idx] = self.current_options.get(selected, None)
+                self.refresh_predictions(idx)
+            lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
             self.lookup_table_comboboxes.append(lookup_table_box)
-
-            # Move 'Log Power Settings' button to the next row (row 7)
-            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=0, column=2, columnspan=2, sticky='ew', pady=(2, 0))
-            log_power_settings_button['state'] = 'disabled'
-            self.log_power_settings_buttons.append(log_power_settings_button)
 
             # Power supply readings
             display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
@@ -685,11 +645,37 @@ class CathodeHeatingSubsystem:
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
             read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
-        # Ensure the grid layout of config_tab accommodates the new buttons
-        config_tab.columnconfigure(0, weight=1)
-        config_tab.columnconfigure(1, weight=1)
+            # Ensure the grid layout of config_tab accommodates the new buttons
+            config_tab.columnconfigure(0, weight=1)
+            config_tab.columnconfigure(1, weight=1)
 
-        self.init_time = datetime.datetime.now()
+    def refresh_predictions(self, cathode_idx):
+        """
+        Refresh predicted values for the specified cathode index after LUT change.
+        """
+        lut_df = self.lookup_table_setting[cathode_idx]
+        # If LUT is valid, update predictions; else set to '--'
+        if lut_df is not None and not lut_df.empty:
+            # Use the first row of the LUT as a demonstration (replace with your actual logic)
+            try:
+                row = lut_df.iloc[0]
+                self.predicted_emission_current_vars[cathode_idx].set(str(row.get('beam_current', '--')))
+                self.predicted_grid_current_vars[cathode_idx].set(str(round(row.get('beam_current', 0) * 0.28, 2)) if 'beam_current' in row else '--')
+                self.predicted_heater_current_vars[cathode_idx].set(str(row.get('heater_current', '--')))
+                self.predicted_heater_voltage_vars[cathode_idx].set(str(row.get('voltage', '--')))
+                self.predicted_temperature_vars[cathode_idx].set('--')  # Add temperature prediction if available
+            except Exception:
+                self.predicted_emission_current_vars[cathode_idx].set('--')
+                self.predicted_grid_current_vars[cathode_idx].set('--')
+                self.predicted_heater_current_vars[cathode_idx].set('--')
+                self.predicted_heater_voltage_vars[cathode_idx].set('--')
+                self.predicted_temperature_vars[cathode_idx].set('--')
+        else:
+            self.predicted_emission_current_vars[cathode_idx].set('--')
+            self.predicted_grid_current_vars[cathode_idx].set('--')
+            self.predicted_heater_current_vars[cathode_idx].set('--')
+            self.predicted_heater_voltage_vars[cathode_idx].set('--')
+            self.predicted_temperature_vars[cathode_idx].set('--')
 
     def build_shared_controls(self, parent_tab: ttk.Frame, i: int, control_mode: str = "current"):
         """
