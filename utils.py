@@ -38,7 +38,10 @@ class Logger:
             "vacuumBits": None,
             "Cathode A - Heater Current: ": None,
             "Cathode B - Heater Current: ": None,
-            "Cathode C - Heater Current: ": None
+            "Cathode C - Heater Current: ": None,
+            "Cathode A - Heater Voltage: ": None,
+            "Cathode B - Heater Voltage: ": None,
+            "Cathode C - Heater Voltage: ": None
             }
         if log_to_file:
             self.setup_log_file()
