@@ -1055,8 +1055,15 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
 
-                    self.logger.update_field(f"Cathode {['A', 'B', 'C'][i]} - Heater Current: ", current) 
-                    self.logger.update_field(f"Cathode {['A', 'B', 'C'][i]} - Heater Voltage: ", voltage)
+                    cathode_label = ['A', 'B', 'C'][i]
+                    key_current = f"Cathode {cathode_label} - Heater Current:"
+                    value_current = current
+
+                    key_voltage = f"Cathode {cathode_label} - Heater Voltage:"
+                    value_voltage = voltage
+
+                    self.logger.update_field(key_current, value_current, LogLevel.DEBUG)
+                    self.logger.update_field(key_voltage, value_voltage, LogLevel.DEBUG)
                     
                     # Update heater voltage display
                     if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
