@@ -516,73 +516,12 @@ class CathodeHeatingSubsystem:
             canvas.draw()
             canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, pady=0.1)
 
+
             ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
-            # 'Log Power Settings' button
-            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=0, column=2, columnspan=1, sticky='ew', pady=(2, 0))
-            log_power_settings_button['state'] = 'disabled'
-            self.log_power_settings_buttons.append(log_power_settings_button)
-            
-            # Overtemperature limit entry
-            overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
-            overtemp_label.grid(row=1, column=0, sticky='e')
-
-            temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
-            overtemp_entry = ttk.Entry(config_tab, textvariable=temp_overtemp_var, width=7)
-            overtemp_entry.grid(row=1, column=1, sticky='w')
-            
-            set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
-            set_overtemp_button.grid(row=1, column=2, sticky='e')
-
-            # Overvoltage limit entry
-            overvoltage_label = ttk.Label(config_tab, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
-            overvoltage_label.grid(row=2, column=0, sticky='e')
-
-            temp_overvoltage_var = self.overvoltage_limit_vars[i]
-            overvoltage_entry = ttk.Entry(config_tab, textvariable=temp_overvoltage_var, width=7)
-            overvoltage_entry.grid(row=2, column=1, sticky='w')
-
-            set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=2, column=2, sticky='e')
-            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
-
-            # Overcurrent limit entry
-            overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
-            overcurrent_label.grid(row=3, column=0, sticky='e')
-
-            temp_overcurrent_var = self.overcurrent_limit_vars[i]
-            overcurrent_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
-            overcurrent_entry.grid(row=3, column=1, sticky='w')
-            set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_overcurrent_button.grid(row=3, column=2, sticky='e')
-            ToolTip(overcurrent_label, "OCP must be a value greater than 0.1 A and less than or equal to 10 A")
-
-            # Current slew rate setting
-            current_slew_rate_label = ttk.Label(config_tab, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
-            current_slew_rate_label.grid(row=4, column=0, sticky='e')
-
-            current_slew_rate_var = tk.StringVar(value='0.01')  # Default value
-            current_slew_rate_entry = ttk.Entry(config_tab, textvariable=current_slew_rate_var, width=7)
-            current_slew_rate_entry.grid(row=4, column=1, sticky='w')
-            set_current_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
-            set_current_slew_rate_button.grid(row=4, column=2, sticky='e')
-            ToolTip(current_slew_rate_label, "Rate of change for current output")
-
-            # Voltage slew rate setting
-            slew_rate_label = ttk.Label(config_tab, text='Voltage Slew Rate (V/s):', style='RightAlign.TLabel')
-            slew_rate_label.grid(row=5, column=0, sticky='e')
-            
-            slew_rate_var = tk.StringVar(value='0.02')  # Default value
-            slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
-            slew_rate_entry.grid(row=5, column=1, sticky='w')
-            set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
-            set_slew_rate_button.grid(row=5, column=2, sticky='e')
-            ToolTip(slew_rate_label, "Rate of change for voltage output")
-
-            # Add dropdown for lookup_table_setting
-            lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table:', style='RightAlign.TLabel')
-            lookup_table_label.grid(row=6, column=0, sticky='e')
+            # Add dropdown for lookup table dataset selection
+            lookup_table_label = ttk.Label(config_tab, text='Select LUT Dataset:', style='RightAlign.TLabel')
+            lookup_table_label.grid(row=1, column=0, sticky='e')
 
             # Build options: all loaded LUT keys, with 'Default' first if present
             lookup_table_options = list(self.current_options.keys())
@@ -591,7 +530,7 @@ class CathodeHeatingSubsystem:
                 lookup_table_options.insert(0, 'Default')
 
             lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=28)
-            lookup_table_box.grid(row=6, column=1, sticky='w')
+            lookup_table_box.grid(row=1, column=1, sticky='w')
 
             # Set the default value to 'Default' if present, else first option
             if 'Default' in lookup_table_options:
@@ -611,6 +550,70 @@ class CathodeHeatingSubsystem:
                 self.refresh_predictions(idx)
             lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
             self.lookup_table_comboboxes.append(lookup_table_box)
+
+            # Overtemperature limit entry
+            overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
+            overtemp_label.grid(row=2, column=0, sticky='e')
+
+            temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
+            overtemp_entry = ttk.Entry(config_tab, textvariable=temp_overtemp_var, width=7)
+            overtemp_entry.grid(row=2, column=1, sticky='w')
+            
+            set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
+            set_overtemp_button.grid(row=2, column=1, sticky='e')
+
+
+            # Overvoltage limit entry
+            overvoltage_label = ttk.Label(config_tab, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
+            overvoltage_label.grid(row=3, column=0, sticky='e')
+
+            temp_overvoltage_var = self.overvoltage_limit_vars[i]
+            overvoltage_entry = ttk.Entry(config_tab, textvariable=temp_overvoltage_var, width=7)
+            overvoltage_entry.grid(row=3, column=1, sticky='w')
+
+            set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
+            set_overvoltage_button.grid(row=3, column=1, sticky='e')
+            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
+
+
+            # Overcurrent limit entry
+            overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
+            overcurrent_label.grid(row=4, column=0, sticky='e')
+
+            temp_overcurrent_var = self.overcurrent_limit_vars[i]
+            overcurrent_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
+            overcurrent_entry.grid(row=4, column=1, sticky='w')
+            set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
+            set_overcurrent_button.grid(row=4, column=1, sticky='e')
+            ToolTip(overcurrent_label, "OCP must be a value greater than 0.1 A and less than or equal to 10 A")
+
+            # Current slew rate setting
+            current_slew_rate_label = ttk.Label(config_tab, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
+            current_slew_rate_label.grid(row=5, column=0, sticky='e')
+
+            current_slew_rate_var = tk.StringVar(value='0.01')  # Default value
+            current_slew_rate_entry = ttk.Entry(config_tab, textvariable=current_slew_rate_var, width=7)
+            current_slew_rate_entry.grid(row=5, column=1, sticky='w')
+            set_current_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
+            set_current_slew_rate_button.grid(row=5, column=1, sticky='e')
+            ToolTip(current_slew_rate_label, "Rate of change for current output")
+
+            # Voltage slew rate setting
+            slew_rate_label = ttk.Label(config_tab, text='Voltage Slew Rate (V/s):', style='RightAlign.TLabel')
+            slew_rate_label.grid(row=6, column=0, sticky='e')
+            
+            slew_rate_var = tk.StringVar(value='0.02')  # Default value
+            slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
+            slew_rate_entry.grid(row=6, column=1, sticky='w')
+            set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
+            set_slew_rate_button.grid(row=6, column=1, sticky='e')
+            ToolTip(slew_rate_label, "Rate of change for voltage output")
+
+            # 'Log Power Settings' button
+            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
+            log_power_settings_button.grid(row=7, column=0, sticky='w')
+            log_power_settings_button['state'] = 'disabled'
+            self.log_power_settings_buttons.append(log_power_settings_button)
 
             # Power supply readings
             display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
