@@ -159,14 +159,21 @@ All code development intended to impact a future release is done on the latest `
 The `main` branch contains the latest production code.
 
 #### Development Process 
-Clone the repo to your machine.
+
+Clone the repo to your machine (including the lookup table submodule):
 ```
-git clone https://github.com/bwalkerMIR/EBEAM_dashboard.git
+git clone --recursive https://github.com/bwalkerMIR/EBEAM_dashboard.git
 ```
 Navigate to your project directory:
 ```
 cd EBEAM_dashboard
 ```
+
+If you have already cloned the repository without the `--recursive` flag, or if the lookup table directory `usr/usr_data/EBEAM_dashboard_LUT` is missing or empty, run:
+```
+git submodule update --init --recursive
+```
+
 Create a virtual environment:
 ```
 python -m venv venv
@@ -188,9 +195,17 @@ python main.py
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
+If you ever need to update the lookup table submodule to the latest version:
+```
+git submodule update --remote --merge
+```
+This will update the submodule to the latest commit on its default branch. **After running this command, be sure to commit the updated submodule reference in the main repository:**
+```
+git add usr/usr_data/EBEAM_dashboard_LUT
+git commit -m "Update LUT submodule reference"
+```
 
 Create a new branch from develop for your feature or bug fix:
-
 ```
 git checkout develop
 git pull origin develop

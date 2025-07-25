@@ -1,5 +1,6 @@
 __pycache__/
-usr/usr_data/
+usr/usr_data/*
+!usr/usr_data/EBEAM_dashboard_LUT/
 venv/
 build/
 dist/
