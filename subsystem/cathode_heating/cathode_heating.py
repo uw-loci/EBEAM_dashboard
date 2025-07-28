@@ -4,10 +4,11 @@ from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
-from matplotlib.dates import DateFormatter
+from matplotlib.dates import AutoDateLocator, ConciseDateFormatter
 from instrumentctl.ES440_cathode.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9104.power_supply_9104 import PowerSupply9104
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
@@ -177,6 +178,10 @@ class CathodeHeatingSubsystem:
         self.plot_interval = datetime.timedelta(seconds=5)  # Time between plot updates
         self.time_data = [[] for _ in range(3)]  # Timestamp arrays for plotting
         self.temperature_data = [[] for _ in range(3)]  # Temperature arrays for plotting
+        self.temperature_axes   = []
+        self.temperature_figs   = []
+        self.temperature_canvas = []
+
 
     def _init_config_variables(self):
         """
@@ -467,20 +472,47 @@ class CathodeHeatingSubsystem:
             self.clamp_temp_labels.append(actual_temp_label)
 
             # Create plot for each cathode
-            fig, ax = plt.subplots(figsize=(2, 1.2))
-            line, = ax.plot([], [])
+            fig, ax = plt.subplots(figsize=(2.2, 1.5), dpi=100)
+
+            # thinner line + tiny markers help visibility on small axes
+            line, = ax.plot([], [], lw=1.2, marker='.', ms=2, alpha=0.9)
             self.temperature_data[i].append(line)
-            ax.set_xlabel('Time', fontsize=8)
-            ax.set_ylim(15, 80)
-            ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-            ax.xaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(axis='x', labelsize=6)
-            ax.tick_params(axis='y', labelsize=6)
-            fig.tight_layout(pad=0.01)
-            fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
+
+            # Store for later access (coloring, redraws)
+            self.temperature_axes.append(ax)
+            self.temperature_figs.append(fig)
+
+            # Time axis:
+            locator   = mdates.AutoDateLocator(minticks=3, maxticks=6)
+            formatter = mdates.DateFormatter('%H:%M:%S')
+
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(formatter)
+            ax.xaxis.get_offset_text().set_visible(False)  # kill lower-right date offset
+            fig.autofmt_xdate()  # rotate/align labels to avoid overlap
+
+            ax.tick_params(axis='x', labelsize=7)
+            ax.tick_params(axis='y', labelsize=7)
+            ax.set_ylabel('°C', fontsize=7)
+            ax.set_title(f'Cathode {["A", "B", "C"][i]} Temperature', fontsize=8, fontweight='bold')
+
+
+            # Initial y-range; real autoscale happens in update_plot
+            ax.set_ylim(20, 70)
+
+            # Light grid for readability
+            ax.grid(True, which='major', alpha=0.3, linewidth=0.6)
+            ax.set_facecolor('#f7f7f7')
+
+            fig.tight_layout(pad=0.15)
+
             canvas = FigureCanvasTkAgg(fig, master=main_tab)
             canvas.draw()
-            canvas.get_tk_widget().grid(row=2, column=1, columnspan=3, pady=(15,0))
+            widget = canvas.get_tk_widget()
+            widget.grid(row=2, column=1, columnspan=3, pady=(10, 0), sticky='w')
+
+            self.temperature_canvas.append(canvas)
+
 
             # ===== Config Tab =====
             ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
@@ -1291,43 +1323,44 @@ class CathodeHeatingSubsystem:
         self.parent.after(500, self.update_data)
 
     def update_plot(self, index):
+        DISPLAY_WINDOW_SEC = 300 # seconds (5 minutes)
+
         if len(self.time_data[index]) == 0:
             return
-        
-        time_data = self.time_data[index]
-        temperature_data = self.temperature_data[index][0].get_data()[1]
 
-        # Update the data points
-        self.temperature_data[index][0].set_data(time_data, temperature_data)
-        ax = self.temperature_data[index][0].axes
-        
-        DEFAULT_MIN = 15
-        DEFAULT_MAX = 80
-        MIN_SPAN = 10
-        PADDING_FACTOR = 0.1
+        line = self.temperature_data[index][0]
+        ax   = line.axes
 
-        valid_temps = [t for t in temperature_data if t is not None]
-        if not valid_temps:
-            ax.set_ylim(DEFAULT_MIN, DEFAULT_MAX)
+        times = self.time_data[index]
+        temps = line.get_data()[1]
+
+        # Update data on the line
+        line.set_data(times, temps)
+
+        # X: show only what you actually keep (MAX_POINTS)
+        ax.set_xlim(times[0], times[-1])
+
+        # Y: autoscale with headroom
+        valid = [t for t in temps if t is not None]
+        if valid:
+            tmin, tmax = min(valid), max(valid)
+            if tmin == tmax:
+                tmin -= 0.5; tmax += 0.5
+            span   = tmax - tmin
+            margin = span * 0.1 if span else 1.0
+            ax.set_ylim(tmin - margin, tmax + margin)
         else:
-            temp_min = min(valid_temps)
-            temp_max = max(valid_temps)
+            ax.set_ylim(15, 80)  # fallback
 
-            # Ensure minimum span and padding
-            if temp_max - temp_min < MIN_SPAN:
-                mid = (temp_max + temp_min) / 2
-                temp_min = mid - MIN_SPAN/2
-                temp_max = mid + MIN_SPAN/2
+        # Assume you already pulled `time_data = self.time_data[index]`
+        time_data = self.time_data[index]
+        if time_data:
+            end   = time_data[-1]
+            start = end - datetime.timedelta(seconds=DISPLAY_WINDOW_SEC)
+            ax.set_xlim(start, end)
 
-                padding = (temp_max - temp_min) * PADDING_FACTOR
-                ax.set_ylim(temp_min - padding, temp_max + padding)
-
-
-        # Adjust plot to new data
-        ax.relim()
-        ax.autoscale_view(scaley=False)  # Only autoscale x-axis
-        ax.figure.canvas.draw()
-        
+        ax.figure.canvas.draw_idle()
+            
     def toggle_ramp(self, index):
         """
         Toggle ramping mode for voltage changes.
