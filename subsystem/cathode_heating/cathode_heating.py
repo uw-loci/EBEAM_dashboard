@@ -496,7 +496,6 @@ class CathodeHeatingSubsystem:
             ax.set_ylabel('°C', fontsize=7)
             ax.set_title(f'Cathode {["A", "B", "C"][i]} Temperature', fontsize=8, fontweight='bold')
 
-
             # Initial y-range; real autoscale happens in update_plot
             ax.set_ylim(20, 70)
 
@@ -1323,42 +1322,61 @@ class CathodeHeatingSubsystem:
         self.parent.after(500, self.update_data)
 
     def update_plot(self, index):
+        """
+        Redraws the temperature plot for cathode i with:
+        - sliding time window
+        - dynamic y autoscale with headroom
+        - jitter-free (smoothed) ylim changes
+        - no offset date in bottom-right
+        """
         DISPLAY_WINDOW_SEC = 300 # seconds (5 minutes)
 
-        if len(self.time_data[index]) == 0:
+        if not self.time_data[index]:
             return
 
-        line = self.temperature_data[index][0]
+        # Grab objects/data
+        line = self.temperature_data[index][0] 
         ax   = line.axes
-
         times = self.time_data[index]
-        temps = line.get_data()[1]
+        temps = line.get_ydata()                 
 
-        # Update data on the line
-        line.set_data(times, temps)
+        # X-axis: show last N seconds (default 5 min)
+        window = DISPLAY_WINDOW_SEC
+        end   = times[-1]
+        start = end - datetime.timedelta(seconds=window)
+        ax.set_xlim(start, end)
 
-        # X: show only what you actually keep (MAX_POINTS)
-        ax.set_xlim(times[0], times[-1])
-
-        # Y: autoscale with headroom
-        valid = [t for t in temps if t is not None]
+        # Y-axis autoscale with margin & smoothing
+        valid = [v for v in temps if v is not None]
         if valid:
             tmin, tmax = min(valid), max(valid)
-            if tmin == tmax:
-                tmin -= 0.5; tmax += 0.5
+            if tmin == tmax:               # flat line case
+                tmin -= 0.5
+                tmax += 0.5
             span   = tmax - tmin
-            margin = span * 0.1 if span else 1.0
-            ax.set_ylim(tmin - margin, tmax + margin)
+            margin = max(0.5, span * 0.10) # at least 0.5 °C margin
+            target_lo = tmin - margin
+            target_hi = tmax + margin
         else:
-            ax.set_ylim(15, 80)  # fallback
+            target_lo, target_hi = 15, 80  # fallback
 
-        # Assume you already pulled `time_data = self.time_data[index]`
-        time_data = self.time_data[index]
-        if time_data:
-            end   = time_data[-1]
-            start = end - datetime.timedelta(seconds=DISPLAY_WINDOW_SEC)
-            ax.set_xlim(start, end)
+        # Smooth transitions so axes don’t jump every frame
+        cur_lo, cur_hi = ax.get_ylim()
+        alpha = 0.35                        # smoothing factor (0=no smooth, 1=instant)
+        new_lo = cur_lo + alpha * (target_lo - cur_lo)
+        new_hi = cur_hi + alpha * (target_hi - cur_hi)
+        ax.set_ylim(new_lo, new_hi)
 
+        # Axis cosmetics
+        locator   = mdates.AutoDateLocator(minticks=3, maxticks=6)
+        formatter = mdates.DateFormatter('%H:%M:%S')
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+        ax.xaxis.get_offset_text().set_visible(False)
+
+        ax.grid(True, which='major', alpha=0.3, linewidth=0.6)
+
+        # Redraw
         ax.figure.canvas.draw_idle()
             
     def toggle_ramp(self, index):
