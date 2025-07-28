@@ -1,4 +1,4 @@
-# EBEAM System Dashboard Software
+# EBEAM System Dashboard
 
 
 ![GUI layout diagram](media/GUI_layout.png)
@@ -199,11 +199,24 @@ If you ever need to update the lookup table submodule to the latest version:
 ```
 git submodule update --remote --merge
 ```
-This will update the submodule to the latest commit on its default branch. **After running this command, be sure to commit the updated submodule reference in the main repository:**
-```
-git add usr/usr_data/EBEAM_dashboard_LUT
-git commit -m "Update LUT submodule reference"
-```
+This will update the submodule to the latest commit on its default branch.
+
+**Alternatively, if you made changes directly inside the submodule (by cd'ing into its directory, committing, and pushing), you do NOT need to run the above command.**
+
+In both cases, after the submodule is updated, you must commit the new submodule reference in the main repository:
+1. Stage the submodule reference update:
+   ```
+   git add usr/usr_data/EBEAM_dashboard_LUT
+   ```
+2. Commit the change:
+   ```
+   git commit -m "Update LUT submodule reference"
+   ```
+3. Push your changes to the main repository:
+   ```
+   git push
+   ```
+**Note:** If you made changes inside the submodule itself, first commit and push those changes in the submodule repo, then update the reference in the main repo as above.
 
 Create a new branch from develop for your feature or bug fix:
 ```
