@@ -431,8 +431,6 @@ class CathodeHeatingSubsystem:
 
             # Current heater voltage (V) label
             ttk.Label(voltage_tab, text='Target Voltage (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
-            # voltage_label = ttk.Label(voltage_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
-            # voltage_label.grid(row=1, column=1, sticky='w')
             
             # Frame to hold value + unit side-by-side
             voltage_display_frame = ttk.Frame(voltage_tab)
@@ -440,9 +438,9 @@ class CathodeHeatingSubsystem:
             # Dynamic voltage value
             voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
             voltage_label.pack(side='left')
-
-            # voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
-            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
+            # Static unit label
+            unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
+            unit_label.pack(side='left')
 
             # Create nudge buttons for voltage adjustment
             nudge_frame = ttk.Frame(voltage_tab)
