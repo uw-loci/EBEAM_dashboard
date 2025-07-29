@@ -1640,6 +1640,16 @@ class CathodeHeatingSubsystem:
             if new_current < 0:
                 msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
                 return
+            
+            # Check against OCP
+            ocp = self.get_ocp(index)
+            if ocp is None:
+                self.log(f"Unable to get current OCP for Cathode {['A', 'B', 'C'][index]}. Aborting current set.", LogLevel.ERROR)
+                return
+            if new_current > ocp:
+                self.log(f"Calculated current ({new_current:.2f}A) exceeds OCP ({ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+                msgbox.showwarning("Current Exceeds OCP", f"The calculated current ({new_current:.2f}A) exceeds the current OCP setting ({ocp:.2f}A). Please adjust the OCP or choose a lower target current.")
+                return
         except (tk.TclError, ValueError):
             msgbox.showerror("Invalid Input", "Please enter a valid current value.")
             return
