@@ -83,7 +83,7 @@ class CathodeHeatingSubsystem:
         self.user_set_currents = [None, None, None]
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
-        self.ramp_status = [True, True, True]
+        self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
         self.current_options = {
             "Cathode A" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
@@ -363,6 +363,7 @@ class CathodeHeatingSubsystem:
             ramp_frame.grid(row=2, column=0, padx=(0, 5))
 
             ramp_var = tk.StringVar(value="immediate")
+            self.set_ramp_mode(i, "immediate") # Default to immediate set
             gradual_voltage_radio = ttk.Radiobutton(
                 ramp_frame, 
                 text="Ramp Current",
@@ -1331,7 +1332,7 @@ class CathodeHeatingSubsystem:
         """
         DISPLAY_WINDOW_SEC = 300 # seconds (5 minutes)
 
-        if not self.time_data[index]:
+        if len(self.time_data[index]) == 0:
             return
 
         # Grab objects/data
@@ -1730,7 +1731,7 @@ class CathodeHeatingSubsystem:
         try:
             new_voltage = float(target_voltage.get())
 
-            if new_voltage < 0:
+            if new_voltage < 0 or new_voltage is None:
                 msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
                 return
             
@@ -1748,18 +1749,17 @@ class CathodeHeatingSubsystem:
             msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
             return
 
-        if new_voltage is not None:
-            prediction_success = self.update_predictions_from_voltage(index, new_voltage)
-            if not prediction_success:
-                self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
-            
-            set_success = self.update_output_voltage(index, new_voltage)
-            if set_success:
-                self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
-                setattr(self, f'last_set_voltage_{index}', new_voltage)
-                self.voltage_set[index] = True
-            else:
-                self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        if not prediction_success:
+            self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        
+        set_success = self.update_output_voltage(index, new_voltage)
+        if set_success:
+            self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+            setattr(self, f'last_set_voltage_{index}', new_voltage)
+            self.voltage_set[index] = True
+        else:
+            self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
     def adjust_current(self, index: int, delta: float) -> None:
         """
@@ -1996,9 +1996,10 @@ class CathodeHeatingSubsystem:
         """
         try:
             
-            if not self.power_supplies and len(self.power_supplies) < index:
-                self.log(f"Cathode {['A', 'B', 'C'][index]} power supply uninitialized or lost connection", LogLevel.WARNING)
-                return False
+            if not self.power_supplies_initialized or not self.power_supplies:
+                self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+                return
+            
             # Set current directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
