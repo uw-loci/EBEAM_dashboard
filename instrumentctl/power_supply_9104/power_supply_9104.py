@@ -55,6 +55,9 @@ class PowerSupply9104:
         """Send a command to the power supply and read the response."""
         # with self.serial_lock:
         try:
+            if not self.is_connected():
+                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                return None # return immediately to prevent blocking GUI on serial read
             self.flush_serial()
             
             self.log(f"Sending command: {command}", LogLevel.DEBUG)
@@ -380,6 +383,13 @@ class PowerSupply9104:
             self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
+
+    def stop_ramp(self):
+        """
+        Signal any active ramp thread to exit cleanly.
+        Safe to call even if no ramp is running.
+        """
+        self.stop_event.set()           # thread checks this each step
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""

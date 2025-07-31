@@ -78,7 +78,8 @@ class CathodeHeatingSubsystem:
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
-        self.ramp_toggle_buttons = []
+        # self.ramp_toggle_buttons = []
+        self.stop_ramp_buttons = []
         self.user_set_voltages = [None, None, None]
         self.user_set_currents = [None, None, None]
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
@@ -218,6 +219,8 @@ class CathodeHeatingSubsystem:
         style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
         style.configure('RampOn.TButton', background='green', foreground='black', font=('Helvetica', 8, 'bold'))
         style.configure('RampOff.TButton', background='red', foreground='black', font=('Helvetica', 8, 'bold')) # Ramp button style
+        style.configure('StopInactive.TButton', foreground='grey')
+        style.configure('StopActive.TButton',  foreground='red')
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -360,7 +363,7 @@ class CathodeHeatingSubsystem:
 
             # Create a label frame for radio buttons with title
             ramp_frame = ttk.Frame(output_control_frame)
-            ramp_frame.grid(row=2, column=0, padx=(0, 5))
+            ramp_frame.grid(row=2, column=0, sticky='w', padx=(0, 5))
 
             ramp_var = tk.StringVar(value="immediate")
             self.set_ramp_mode(i, "immediate") # Default to immediate set
@@ -391,12 +394,28 @@ class CathodeHeatingSubsystem:
             
             self.ramp_mode_vars.append(ramp_var)
 
+            # Create frame for output buttons
+            output_button_frame = ttk.Frame(output_control_frame)
+            output_button_frame.grid(row=1, column=0, sticky='w')
+
             # Create toggle switch for output
-            toggle_button = ttk.Button(output_control_frame, image=self.toggle_off_image, style='Flat.TButton', 
+            toggle_button = ttk.Button(output_button_frame, image=self.toggle_off_image, style='Flat.TButton', 
                                        command=lambda i=i: self.toggle_output(i, self.ramp_control_mode[i]))
-            toggle_button.grid(row=1, column=0)
+            toggle_button.grid(row=0, column=0, sticky='w')
 
             self.toggle_buttons.append(toggle_button)
+
+            # Create stop ramp button
+            stop_ramp_btn = ttk.Button(
+                output_button_frame,
+                text='STOP RAMP',
+                width=12,
+                state='disabled',                   # greyed‑out by default
+                style='StopInactive.TButton',
+                command=lambda i=i: self.stop_ramp(i)
+            )
+            stop_ramp_btn.grid(row=0, column=1, padx=(6, 0))
+            self.stop_ramp_buttons.append(stop_ramp_btn)
             
             ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
@@ -1379,29 +1398,6 @@ class CathodeHeatingSubsystem:
 
         # Redraw
         ax.figure.canvas.draw_idle()
-            
-    def toggle_ramp(self, index):
-        """
-        Toggle ramping mode for voltage changes.
-        
-        When enabled (default), voltage changes occur gradually at the configured slew rate.
-        When disabled, voltage changes occur immediately.
-        
-        Args:
-            index (int): Index of the cathode (0-2)
-        """
-        if not self.power_supplies_initialized or not self.power_supplies:
-            self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
-            return
-
-        self.ramp_status[index] =  not self.ramp_status[index] # flips status
-
-        if self.ramp_status[index]:
-            self.ramp_toggle_buttons[index].config(text="RAMP", style='RampOn.TButton')
-            self.log(f"Enabled voltage ramping for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
-        else:
-            self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
-            self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
     def toggle_output(self, index, control_mode: str=None):
         if not self.power_supplies_initialized or not self.power_supplies:
@@ -1441,11 +1437,13 @@ class CathodeHeatingSubsystem:
                     step_size = slew_rate * step_delay
 
                     self.log(f"Starting current ramp with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.on_ramp_start(index)
                     self.power_supplies[index].ramp_current(
                         target_current,
                         step_size=step_size,
                         step_delay=step_delay,
-                        preset=3
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     ) 
                 if target_voltage is not None and control_mode == "voltage":
                     # Set current
@@ -1458,11 +1456,13 @@ class CathodeHeatingSubsystem:
                     step_size = slew_rate * step_delay
                     
                     self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.on_ramp_start(index)
                     self.power_supplies[index].ramp_voltage(
                         target_voltage,
                         step_size=step_size,
                         step_delay=step_delay,
-                        preset=3
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
             else: # ramp is off; Immediate Set both voltage and current
                 if not self.power_supplies[index].set_current(current=target_current, preset=3):
@@ -1475,6 +1475,7 @@ class CathodeHeatingSubsystem:
         else:
             # turning off the output
             self.power_supplies[index].set_output("0")
+            self.on_ramp_complete(index)
 
         # Update the toggle state and button image
         self.toggle_states[index] = new_state
@@ -1687,6 +1688,12 @@ class CathodeHeatingSubsystem:
         Updates predictions and display values based on entered current.
         """
         try:
+            # Check for active ramping
+            if self.is_ramping(index):
+                self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
+            
             new_current = float(target_current.get())
 
             if new_current < 0:
@@ -1728,6 +1735,12 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
+        # Check for active ramping
+        if self.is_ramping(index):
+                self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
+
         try:
             new_voltage = float(target_voltage.get())
 
@@ -1773,6 +1786,11 @@ class CathodeHeatingSubsystem:
         delta : float
             +0.01 → raise 10 mA   |   -0.01 → lower 10 mA.
         """
+        # Check for active ramping
+        if self.is_ramping(index):
+                self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
         # Pull whatever text is currently shown under “Set Heater (A)”.
         try:
             raw = self.heater_current_vars[index].get()
@@ -1816,6 +1834,12 @@ class CathodeHeatingSubsystem:
         delta : float
             +0.02 → raise 20 mV   |   -0.02 → lower 20 mV.
         """
+        # Check for active ramping
+        if self.is_ramping(index):
+                self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
+
         # Pull whatever text is currently shown under “Set Heater (V)”.
         try:
             raw = self.heater_voltage_vars[index].get()
@@ -2003,11 +2027,13 @@ class CathodeHeatingSubsystem:
             # Set current directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
+                    self.on_ramp_start(index)
                     self.power_supplies[index].ramp_current(
                         new_current,
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
-                        preset=3
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
                     self.current_set[index] = True
                 else:
@@ -2054,11 +2080,13 @@ class CathodeHeatingSubsystem:
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
+                    self.on_ramp_start(index)
                     self.power_supplies[index].ramp_voltage(
                         new_voltage,
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
-                        preset=3
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
                     self.voltage_set[index] = True
                 else:
@@ -2261,3 +2289,26 @@ class CathodeHeatingSubsystem:
             return (heater_voltage, heater_current, beam_current)
         else:
             raise ValueError("Lookup table not properly configured as DataFrame")
+    
+    # Ramping helper methods
+    def is_ramping(self, index:int) -> bool:
+        ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+        return bool(ps and ps.ramp_thread and ps.ramp_thread.is_alive())
+
+    def on_ramp_start(self, index:int):
+        self.stop_ramp_buttons[index]['state'] = 'normal'
+        self.stop_ramp_buttons[index].config(style='StopActive.TButton')
+
+    def on_ramp_complete(self, index:int):
+        self.stop_ramp_buttons[index]['state'] = 'disabled'
+        self.stop_ramp_buttons[index].config(style='StopInactive.TButton')
+
+    def stop_ramp(self, index:int):
+        """
+        UI callback - user pressed STOP RAMP.
+        """
+        ps = self.power_supplies[index]
+        if ps:
+            ps.stop_ramp()
+        self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
+        self.on_ramp_complete(index)
