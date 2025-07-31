@@ -229,6 +229,13 @@ class PowerSupply9104:
                     next_current = max(next_current, target_current)
 
                 for attempt in range(self.MAX_RETRIES):
+                    # Check for CV mode and abort if limit is reached; prevent background ramping
+                    _,_, op_mode = self.get_voltage_current_mode()
+                    if op_mode == "CV Mode":
+                        self.log("Voltage limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
+                        if callback:
+                            callback(False)
+
                     if self.stop_event.is_set():
                         self.log("Ramping thread stopped during setting current.", LogLevel.INFO)
                         if callback:
@@ -341,6 +348,13 @@ class PowerSupply9104:
                 
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
+                    # Check for CC mode and abort if limit is reached
+                    _,_, op_mode = self.get_voltage_current_mode()
+                    if op_mode == "CC Mode":
+                        self.log("Current limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
+                        if callback:
+                            callback(False)
+
                     try:
                         if not self.set_voltage(preset, next_voltage):
                             self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
