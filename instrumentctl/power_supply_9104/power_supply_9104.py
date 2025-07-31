@@ -173,9 +173,9 @@ class PowerSupply9104:
             preset (int): The preset number to use for setting voltage/current.
             callback (function): Optional function to call when ramping is complete.
         """
-        if self.ramp_thread and self.ramp_thread.is_alive():
-            self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
-            return
+        # if self.ramp_thread and self.ramp_thread.is_alive():
+        #     self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
+        #     return
 
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
@@ -302,9 +302,9 @@ class PowerSupply9104:
             ramp_rate (float): The rate at which to change the voltage in volts per second.
             callback (function): Optional function to call when ramping is complete.
         """        
-        if self.ramp_thread and self.ramp_thread.is_alive():
-            self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
-            return
+        # if self.ramp_thread and self.ramp_thread.is_alive():
+        #     self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
+        #     return
 
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
