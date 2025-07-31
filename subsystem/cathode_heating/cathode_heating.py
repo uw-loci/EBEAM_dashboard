@@ -253,6 +253,7 @@ class CathodeHeatingSubsystem:
         self.cathode_frames = []
         self.ramp_mode_vars = []
         self.ramp_radio_buttons = []
+        self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.toggle_button_clones = [[] for _ in range(3)]  # Store clones of toggle buttons for each cathode to sync Current and Voltage tabs
         self.slew_rate_vars = []
         heater_labels = ['Heater A Output Control', 'Heater B Output Control', 'Heater C Output Control']
@@ -415,10 +416,10 @@ class CathodeHeatingSubsystem:
                 style='StopInactive.TButton',
                 command=lambda i=i: self.stop_ramp(i)
             )
-            stop_ramp_btn.grid(row=0, column=1, padx=(6, 0))
+            stop_ramp_btn.grid(row=0, column=1, sticky='e',padx=(6, 0))
             self.stop_ramp_buttons.append(stop_ramp_btn)
             
-            ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
+            # ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
             # Predicted Values
             predictions_frame = ttk.Frame(main_tab)
@@ -448,8 +449,23 @@ class CathodeHeatingSubsystem:
             # Measured/Actual values
             measured_frame = ttk.Frame(main_tab)
             measured_frame.grid(row=2, column=0, sticky='w', pady=(10,0))
+            measured_frame.grid_rowconfigure(0, minsize=26)
 
             ttk.Label(measured_frame, text="Measured Values", style='Bold.TLabel').grid(row=0, column=0, sticky='w')
+
+            # CV / CC mode indicator
+            indicator_frame = ttk.Frame(measured_frame)        # keeps both labels together
+            indicator_frame.grid(row=0, column=1, rowspan=3, padx=(6, 0),sticky='n')
+
+            cv_label = tk.Label(indicator_frame, text='CV', width=3,
+                            fg='white', bg='grey', relief='ridge')
+            cv_label.grid(row=0, column=0, padx=1)
+
+            cc_label = tk.Label(indicator_frame, text='CC', width=3,
+                            fg='white', bg='grey', relief='ridge')
+            cc_label.grid(row=0, column=1, padx=1)
+
+            self.cv_cc_labels.append((cv_label, cc_label))
 
             # Actual heater current (A)
             ttk.Label(measured_frame, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='w')
@@ -1276,10 +1292,18 @@ class CathodeHeatingSubsystem:
                     
 
                     # Update mode display
-                    if mode in ["CV Mode", "CC Mode"]:
-                        self.operation_mode_var[i].set(f'Mode: {mode}')
-                    else:
-                        self.operation_mode_var[i].set('Mode: --')
+                    cv_lbl, cc_lbl = self.cv_cc_labels[i]
+
+                    if mode == "CV Mode":
+                        cv_lbl.config(bg='green')
+                        cc_lbl.config(bg='grey')
+                    elif mode == "CC Mode":
+                        cc_lbl.config(bg='green')
+                        cv_lbl.config(bg='grey')
+                    else: # supply off or error
+                        cv_lbl.config(bg='grey')
+                        cc_lbl.config(bg='grey')
+
     
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
