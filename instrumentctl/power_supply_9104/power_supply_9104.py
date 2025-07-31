@@ -193,6 +193,10 @@ class PowerSupply9104:
 
     def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback):
         """Main current ramping implementation."""
+        start_time = time.monotonic()
+        GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
+        limit_hits = 0
+
         try:
             # Get initial current
             _, current, _ = self.get_voltage_current_mode()
@@ -230,13 +234,12 @@ class PowerSupply9104:
                 else:
                     next_current = max(next_current, target_current)
 
-                limit_hits = 0
-
                 # Set new current
                 for attempt in range(self.MAX_RETRIES):
                     # Check for CV mode and abort if limit is reached; prevent background ramping
                     _,_, op_mode = self.get_voltage_current_mode()
-                    if op_mode == "CV Mode":
+                    current_time = time.monotonic() - start_time
+                    if op_mode == "CV Mode" and current_time < GRACE_PERIOD_SEC:
                         limit_hits += 1
                     else:
                         limit_hits = 0
@@ -322,6 +325,10 @@ class PowerSupply9104:
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
+        start_time = time.monotonic()
+        GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
+        limit_hits = 0
+
         try:
             # Get initial voltage
             voltage, _, _ = self.get_voltage_current_mode()
@@ -358,14 +365,13 @@ class PowerSupply9104:
                     next_voltage = min(next_voltage, target_voltage)
                 else:
                     next_voltage = max(next_voltage, target_voltage)
-                
-                limit_hits = 0
 
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
                     # Check for CC mode and abort if limit is reached
                     _,_, op_mode = self.get_voltage_current_mode()
-                    if op_mode == "CC Mode":
+                    current_time = time.monotonic() - start_time
+                    if op_mode == "CC Mode" and current_time < GRACE_PERIOD_SEC:
                         limit_hits += 1
                     else:
                         limit_hits = 0
