@@ -1304,6 +1304,15 @@ class CathodeHeatingSubsystem:
                         cv_lbl.config(bg='grey')
                         cc_lbl.config(bg='grey')
 
+                    # Fail safe check for ramping
+                    if self.is_ramping(i):                                         # helper:contentReference[oaicite:2]{index=2}
+                        ramp_type = self.ramp_control_mode[i]                      # "current" | "voltage"
+                        if (ramp_type == "voltage" and mode == "CC Mode") or \
+                        (ramp_type == "current" and mode == "CV Mode"):
+                            self.log(f"Limit reached – stopping ramp on Cathode {['A','B','C'][i]}",
+                                    LogLevel.WARNING)
+                            self.stop_ramp(i)    
+
     
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)

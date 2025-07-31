@@ -201,6 +201,8 @@ class PowerSupply9104:
                 current = 0.0
 
             current_current = current
+            time.sleep(0.5) # let power supply settle before starting ramp
+
             self.log(f"Starting ramp from {current_current:.2f}A to {target_current:.2f}A", LogLevel.INFO)
 
             # Calculate steps
@@ -228,13 +230,22 @@ class PowerSupply9104:
                 else:
                     next_current = max(next_current, target_current)
 
+                limit_hits = 0
+
+                # Set new current
                 for attempt in range(self.MAX_RETRIES):
                     # Check for CV mode and abort if limit is reached; prevent background ramping
                     _,_, op_mode = self.get_voltage_current_mode()
                     if op_mode == "CV Mode":
+                        limit_hits += 1
+                    else:
+                        limit_hits = 0
+                    
+                    if limit_hits >= 2:
                         self.log("Voltage limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
                         if callback:
                             callback(False)
+                        return
 
                     if self.stop_event.is_set():
                         self.log("Ramping thread stopped during setting current.", LogLevel.INFO)
@@ -319,6 +330,8 @@ class PowerSupply9104:
                 voltage = 0.0
                 
             current_voltage = voltage
+            time.sleep(0.5) # let power supply settle before starting ramp
+
             self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
             
             # Calculate steps
@@ -346,14 +359,22 @@ class PowerSupply9104:
                 else:
                     next_voltage = max(next_voltage, target_voltage)
                 
+                limit_hits = 0
+
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
                     # Check for CC mode and abort if limit is reached
                     _,_, op_mode = self.get_voltage_current_mode()
                     if op_mode == "CC Mode":
+                        limit_hits += 1
+                    else:
+                        limit_hits = 0
+                    
+                    if limit_hits >= 2:
                         self.log("Current limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
                         if callback:
                             callback(False)
+                        return
 
                     try:
                         if not self.set_voltage(preset, next_voltage):
