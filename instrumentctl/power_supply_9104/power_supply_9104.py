@@ -239,7 +239,7 @@ class PowerSupply9104:
                     # Check for CV mode and abort if limit is reached; prevent background ramping
                     _,_, op_mode = self.get_voltage_current_mode()
                     current_time = time.monotonic() - start_time
-                    if op_mode == "CV Mode" and current_time < GRACE_PERIOD_SEC:
+                    if op_mode == "CV Mode" and current_time > GRACE_PERIOD_SEC:
                         limit_hits += 1
                     else:
                         limit_hits = 0
@@ -371,7 +371,7 @@ class PowerSupply9104:
                     # Check for CC mode and abort if limit is reached
                     _,_, op_mode = self.get_voltage_current_mode()
                     current_time = time.monotonic() - start_time
-                    if op_mode == "CC Mode" and current_time < GRACE_PERIOD_SEC:
+                    if op_mode == "CC Mode" and current_time > GRACE_PERIOD_SEC:
                         limit_hits += 1
                     else:
                         limit_hits = 0
