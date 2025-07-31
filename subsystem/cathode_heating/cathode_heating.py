@@ -78,7 +78,6 @@ class CathodeHeatingSubsystem:
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
         self.toggle_buttons = []
-        # self.ramp_toggle_buttons = []
         self.stop_ramp_buttons = []
         self.user_set_voltages = [None, None, None]
         self.user_set_currents = [None, None, None]
@@ -253,6 +252,7 @@ class CathodeHeatingSubsystem:
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
         self.ramp_mode_vars = []
+        self.ramp_radio_buttons = []
         self.toggle_button_clones = [[] for _ in range(3)]  # Store clones of toggle buttons for each cathode to sync Current and Voltage tabs
         self.slew_rate_vars = []
         heater_labels = ['Heater A Output Control', 'Heater B Output Control', 'Heater C Output Control']
@@ -393,6 +393,7 @@ class CathodeHeatingSubsystem:
             immediate_radio.grid(row=2, column=0, sticky='w', padx=1, pady=1)
             
             self.ramp_mode_vars.append(ramp_var)
+            self.ramp_radio_buttons.append([gradual_voltage_radio, gradual_current_radio, immediate_radio])
 
             # Create frame for output buttons
             output_button_frame = ttk.Frame(output_control_frame)
@@ -2291,6 +2292,11 @@ class CathodeHeatingSubsystem:
             raise ValueError("Lookup table not properly configured as DataFrame")
     
     # Ramping helper methods
+    def set_output_button_state(self, index:int, state:str):
+        """Enable or disable the Ramp-Mode radio buttons for one cathode."""
+        for btn in self.ramp_radio_buttons[index]:
+            btn.config(state=state)
+
     def is_ramping(self, index:int) -> bool:
         ps = self.power_supplies[index] if index < len(self.power_supplies) else None
         return bool(ps and ps.ramp_thread and ps.ramp_thread.is_alive())
@@ -2298,10 +2304,12 @@ class CathodeHeatingSubsystem:
     def on_ramp_start(self, index:int):
         self.stop_ramp_buttons[index]['state'] = 'normal'
         self.stop_ramp_buttons[index].config(style='StopActive.TButton')
+        self.set_output_button_state(index, 'disabled')
 
     def on_ramp_complete(self, index:int):
         self.stop_ramp_buttons[index]['state'] = 'disabled'
         self.stop_ramp_buttons[index].config(style='StopInactive.TButton')
+        self.set_output_button_state(index, 'normal')
 
     def stop_ramp(self, index:int):
         """
