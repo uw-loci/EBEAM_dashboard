@@ -2356,13 +2356,15 @@ class CathodeHeatingSubsystem:
         ovp = self.get_ovp(index)
 
         if new_voltage < 0 or new_voltage is None:
-                msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
-                return
+            msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
+            return False
 
         if new_voltage > ovp:
             self.log(f"Calculated voltage ({new_voltage:.2f}V) exceeds OVP ({ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
             msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({new_voltage:.2f}V) exceeds the current OVP setting ({ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-            return
+            return False
+        
+        return True
     
     def validate_current(self, index:int, new_current: float):
         """
@@ -2372,10 +2374,12 @@ class CathodeHeatingSubsystem:
         ocp = self.get_ocp(index)
 
         if new_current < 0 or new_current is None:
-                msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
-                return
+            msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
+            return False
 
         if new_current > ocp:
             self.log(f"Calculated current ({new_current:.2f}A) exceeds OCP ({ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
             msgbox.showwarning("Current Exceeds OCP", f"The calculated current ({new_current:.2f}A) exceeds the current OCP setting ({ocp:.2f}A). Please adjust the OCP or choose a lower target current.")
-            return  
+            return False
+        
+        return True
