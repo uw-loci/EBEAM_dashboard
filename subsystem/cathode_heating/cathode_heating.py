@@ -2051,7 +2051,7 @@ class CathodeHeatingSubsystem:
                         preset=3,
                         callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
-                    self.current_set[index] = True
+                    self.voltage_set[index] = True
                 else: # Immediate set
                     self.power_supplies[index].set_current(3, new_current)
                     self.current_set[index] = True
@@ -2093,6 +2093,7 @@ class CathodeHeatingSubsystem:
             if not self.power_supplies and len(self.power_supplies) < index:
                 self.log(f"Cathode {['A', 'B', 'C'][index]} power supply uninitialized or lost connection", LogLevel.WARNING)
                 return False
+            
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
@@ -2116,7 +2117,7 @@ class CathodeHeatingSubsystem:
                         preset=3,
                         callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
-                    self.voltage_set[index] = True
+                    self.current_set[index] = True
                 else: # Immediate set
                     self.power_supplies[index].set_voltage(3, new_voltage)
                     self.voltage_set[index] = True

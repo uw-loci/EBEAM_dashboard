@@ -235,22 +235,19 @@ class PowerSupply9104:
 
                 # Set new current
                 for attempt in range(self.MAX_RETRIES):
-                    # Check for CV mode and abort if limit is reached; prevent background ramping
-                    _,_, op_mode = self.get_voltage_current_mode()
-                    current_time = time.monotonic() - start_time
-                    if op_mode == "CV Mode" and current_time > GRACE_PERIOD_SEC:
-                        self.log("Voltage limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
-                        if callback:
-                            callback(False)
-                        return
-
                     if self.stop_event.is_set():
                         self.log("Ramping thread stopped during setting current.", LogLevel.INFO)
                         if callback:
                             callback(False)
                         return
+                    
                     try:
                         if self.set_current(preset, next_current):
+                            if self.is_being_limited("current", start_time, next_current):
+                                self.log(f"Current limit engaged during ramping at {next_current:.2f}A - aborting ramp.", LogLevel.WARNING)
+                                if callback:
+                                    callback(False)
+                                return
                             break # Success, exit retry loop
                         else:
                             self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.ERROR)
@@ -269,6 +266,7 @@ class PowerSupply9104:
                 # Only log every few steps
                 if step % 5 == 0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_current:.2f}A", LogLevel.INFO)
+                
                 # Longer delay between steps
                 time.sleep(step_delay)
             
@@ -320,7 +318,6 @@ class PowerSupply9104:
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
         start_time = time.monotonic()
-        GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
 
         try:
             # Get initial voltage
@@ -361,26 +358,26 @@ class PowerSupply9104:
 
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
-                    # Check for CC mode and abort if limit is reached
-                    _,_, op_mode = self.get_voltage_current_mode()
-                    current_time = time.monotonic() - start_time
-                    if op_mode == "CC Mode" and current_time > GRACE_PERIOD_SEC:
-                        self.log("Current limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
+                    if self.stop_event.is_set():
+                        self.log("Ramping thread stopped during setting voltage.", LogLevel.INFO)
                         if callback:
                             callback(False)
                         return
 
                     try:
-                        if not self.set_voltage(preset, next_voltage):
+                        if self.set_voltage(preset, next_voltage):
+                            if self.is_being_limited("voltage", start_time, next_voltage):
+                                self.log(f"Voltage limit engaged during ramping at {next_voltage:.2f}V - aborting ramp.", LogLevel.WARNING)
+                                if callback:
+                                    callback(False)
+                                return
+                            break # Success, exit retry loop
+                        else:
                             self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
-
                     except Exception as e:
                         self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
-                        if callback:
-                            callback(False)
-                        return
-                    
-                if attempt > self.MAX_RETRIES:
+                        time.sleep(0.1) # Short delay before retrying
+                else:
                     self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp", LogLevel.ERROR)
                     if callback:
                         callback(False)
@@ -392,7 +389,7 @@ class PowerSupply9104:
                 # Only log every few steps
                 if step % 5 == 0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
-                    
+    
                 # Longer delay between steps
                 time.sleep(step_delay)
             
@@ -419,6 +416,48 @@ class PowerSupply9104:
         Safe to call even if no ramp is running.
         """
         self.stop_event.set()           # thread checks this each step
+
+    def is_being_limited(self, ramp_type: str, start_time: float, set_value: float) -> bool:
+        """
+        This function checks if the power supply is being limited during a ramp operation.
+
+        Args:
+            ramp_type (str): The type of ramp being performed, either "voltage" or "current".
+            start_time (float): The time when the ramp started, used to determine if the grace period has passed.
+            set_value (float): The recently set value (either voltage or current).
+        """
+        grace_period_sec = 1.0
+        voltage_offset = .02
+        current_offset = .01
+
+        if time.monotonic() - start_time < grace_period_sec:
+            # Ignore limits for the first second to allow for initial settling
+            return False
+
+        measured_voltage, measured_current, op_mode = self.get_voltage_current_mode()
+        
+        wrong_mode = (
+        (ramp_type == "current"  and op_mode == "CV Mode") or
+        (ramp_type == "voltage" and op_mode == "CC Mode")
+        )
+
+        if ramp_type == "voltage":
+            stalled = abs(measured_voltage - set_value) < voltage_offset
+        elif ramp_type == "current":
+            stalled = abs(measured_current - set_value) < current_offset
+        else:
+            raise ValueError(f"is_being_limited called with invalid ramp_type: {ramp_type}")
+
+
+        if stalled and wrong_mode:
+            self.log(f"Power supply is being limited during {ramp_type} ramp: "
+                     f"Measured {ramp_type}: {measured_voltage if ramp_type == 'voltage' else measured_current:.2f}, "
+                     f"Previous {ramp_type}: {set_value:.2f}, "
+                     f"Mode: {op_mode}", LogLevel.WARNING)
+            return True
+
+        return False
+        
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
