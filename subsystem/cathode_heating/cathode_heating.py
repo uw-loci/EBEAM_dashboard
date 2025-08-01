@@ -1741,7 +1741,7 @@ class CathodeHeatingSubsystem:
         if not prediction_success:
             self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
         
-        set_success = self.update_output_current(index, new_current)
+        set_success = self.update_output_from_current(index, new_current)
         if set_success:
             self.heater_current_vars[index].set(f"{new_current:.2f}")
             setattr(self, f"last_set_current_{index}", new_current)
@@ -1779,7 +1779,7 @@ class CathodeHeatingSubsystem:
         if not prediction_success:
             self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
         
-        set_success = self.update_output_voltage(index, new_voltage)
+        set_success = self.update_output_from_voltage(index, new_voltage)
         if set_success:
             self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
             setattr(self, f'last_set_voltage_{index}', new_voltage)
@@ -1823,7 +1823,7 @@ class CathodeHeatingSubsystem:
         if not prediction_success:
             self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
         
-        set_success = self.update_output_current(index, new_current)
+        set_success = self.update_output_from_current(index, new_current)
         if set_success:
             self.heater_current_vars[index].set(f"{new_current:.2f}")
             setattr(self, f"last_set_current_{index}", new_current)
@@ -1869,7 +1869,7 @@ class CathodeHeatingSubsystem:
         if not prediction_success:
             self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
         
-        set_success = self.update_output_voltage(index, new_voltage)
+        set_success = self.update_output_from_voltage(index, new_voltage)
         if set_success:
             self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
             setattr(self, f'last_set_voltage_{index}', new_voltage)
@@ -2011,7 +2011,7 @@ class CathodeHeatingSubsystem:
             # Improve message and error handling here
             return False
 
-    def update_output_current(self, index:int, new_current:float):
+    def update_output_from_current(self, index:int, new_current:float):
         """
         Updates the set current on the power supply. Assumes guard rails are checked prior to function call.
 
@@ -2031,6 +2031,7 @@ class CathodeHeatingSubsystem:
             # Set current directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
+                    # Ramp Current mode
                     self.on_ramp_start(index)
                     self.power_supplies[index].ramp_current(
                         new_current,
@@ -2040,7 +2041,18 @@ class CathodeHeatingSubsystem:
                         callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
                     self.current_set[index] = True
-                else:
+                elif self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
+                    # Ramp Voltage mode
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_voltage(
+                        self.user_set_voltages[index],
+                        step_size = self.vlt_slew_rate[index],
+                        step_delay = 1.0,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    )
+                    self.current_set[index] = True
+                else: # Immediate set
                     self.power_supplies[index].set_current(3, new_current)
                     self.current_set[index] = True
             self.user_set_currents[index] = new_current
@@ -2065,7 +2077,7 @@ class CathodeHeatingSubsystem:
             self.reset_related_variables(index)
             return False
         
-    def update_output_voltage(self, index: int, new_voltage:float):
+    def update_output_from_voltage(self, index: int, new_voltage:float):
         """
         Updates the set voltage on the power supply. Assumes guard rails are checked prior to function call.
 
@@ -2084,6 +2096,7 @@ class CathodeHeatingSubsystem:
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
+                    # Ramp Voltage mode
                     self.on_ramp_start(index)
                     self.power_supplies[index].ramp_voltage(
                         new_voltage,
@@ -2093,7 +2106,18 @@ class CathodeHeatingSubsystem:
                         callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
                     self.voltage_set[index] = True
-                else:
+                elif self.ramp_status[index] and self.ramp_control_mode[index] == "current":
+                    # Ramp Current mode
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_current(
+                        self.user_set_currents[index],
+                        step_size = self.curr_slew_rate[index],
+                        step_delay = 1.0,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    )
+                    self.voltage_set[index] = True
+                else: # Immediate set
                     self.power_supplies[index].set_voltage(3, new_voltage)
                     self.voltage_set[index] = True
             self.user_set_voltages[index] = new_voltage

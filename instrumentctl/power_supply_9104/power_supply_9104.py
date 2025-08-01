@@ -195,7 +195,6 @@ class PowerSupply9104:
         """Main current ramping implementation."""
         start_time = time.monotonic()
         GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
-        limit_hits = 0
 
         try:
             # Get initial current
@@ -240,11 +239,6 @@ class PowerSupply9104:
                     _,_, op_mode = self.get_voltage_current_mode()
                     current_time = time.monotonic() - start_time
                     if op_mode == "CV Mode" and current_time > GRACE_PERIOD_SEC:
-                        limit_hits += 1
-                    else:
-                        limit_hits = 0
-                    
-                    if limit_hits >= 2:
                         self.log("Voltage limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
                         if callback:
                             callback(False)
@@ -327,7 +321,6 @@ class PowerSupply9104:
         """Main voltage ramping implementation."""
         start_time = time.monotonic()
         GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
-        limit_hits = 0
 
         try:
             # Get initial voltage
@@ -372,11 +365,6 @@ class PowerSupply9104:
                     _,_, op_mode = self.get_voltage_current_mode()
                     current_time = time.monotonic() - start_time
                     if op_mode == "CC Mode" and current_time > GRACE_PERIOD_SEC:
-                        limit_hits += 1
-                    else:
-                        limit_hits = 0
-                    
-                    if limit_hits >= 2:
                         self.log("Current limit engaged during voltage ramp - aborting ramp.", LogLevel.WARNING)
                         if callback:
                             callback(False)
