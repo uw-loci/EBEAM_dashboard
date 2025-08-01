@@ -1767,9 +1767,9 @@ class CathodeHeatingSubsystem:
 
         try:
             new_voltage = float(target_voltage.get())
-            valid_input = self.validate_voltage_input(index, new_voltage)
+            valid_input = self.validate_voltage(index, new_voltage)
             if not valid_input:
-                # Error message already shown in validate_voltage_input
+                # Error message already shown in validate_voltage
                 return
         except (tk.TclError, ValueError):
             msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
@@ -1858,15 +1858,10 @@ class CathodeHeatingSubsystem:
 
         new_voltage = round(current_voltage + delta, 2)      # keep two decimals for UI
 
-        # Guard-rails: prevent < 0 V or exceeding the active OVP.
-        ovp = self.get_ovp(index)                
-        if new_voltage < 0:
-            msgbox.showwarning("Voltage below 0 V",
-                            "Requested voltage would be negative - action aborted.")
-            return
-        if ovp is not None and new_voltage > ovp:
-            msgbox.showwarning("Voltage > OVP",
-                            f"Requested {new_voltage:.2f} V exceeds OVP ({ovp:.2f} V).")
+        # Guard-rails
+        valid_input = self.validate_voltage(index, new_voltage)
+        if not valid_input:
+            # Error message already shown in validate_voltage
             return
 
         # Check values before set
