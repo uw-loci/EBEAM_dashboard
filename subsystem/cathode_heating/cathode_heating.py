@@ -1721,27 +1721,17 @@ class CathodeHeatingSubsystem:
         Shows a dialog for current input if output is disabled. 
         Updates predictions and display values based on entered current.
         """
-        try:
-            # Check for active ramping
-            if self.is_ramping(index):
-                self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
-                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
-                return
-            
-            new_current = float(target_current.get())
+        # Check for active ramping
+        if self.is_ramping(index):
+            self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+            msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+            return
 
-            if new_current < 0:
-                msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
-                return
-            
-            # Check against OCP
-            ocp = self.get_ocp(index)
-            if ocp is None:
-                self.log(f"Unable to get current OCP for Cathode {['A', 'B', 'C'][index]}. Aborting current set.", LogLevel.ERROR)
-                return
-            if new_current > ocp:
-                self.log(f"Calculated current ({new_current:.2f}A) exceeds OCP ({ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                msgbox.showwarning("Current Exceeds OCP", f"The calculated current ({new_current:.2f}A) exceeds the current OCP setting ({ocp:.2f}A). Please adjust the OCP or choose a lower target current.")
+        try:
+            new_current = float(target_current.get())
+            valid_input = self.validate_current(index, new_current)
+            if not valid_input:
+                # Error message already shown in validate_current
                 return
         except (tk.TclError, ValueError):
             msgbox.showerror("Invalid Input", "Please enter a valid current value.")
@@ -1777,21 +1767,10 @@ class CathodeHeatingSubsystem:
 
         try:
             new_voltage = float(target_voltage.get())
-
-            if new_voltage < 0 or new_voltage is None:
-                msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
+            valid_input = self.validate_voltage_input(index, new_voltage)
+            if not valid_input:
+                # Error message already shown in validate_voltage_input
                 return
-            
-            # Check against OVP
-            current_ovp = self.get_ovp(index)
-            if current_ovp is None:
-                self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                return
-            if new_voltage > current_ovp:
-                self.log(f"Calculated voltage ({new_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({new_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                return
-            
         except (tk.TclError, ValueError):
             msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
             return
@@ -1834,14 +1813,10 @@ class CathodeHeatingSubsystem:
 
         new_current = round(current_a + delta, 2)      # keep two decimals for UI
 
-        # Guard-rails: prevent < 0 A.
-        if new_current < 0:
-            msgbox.showwarning("Current below 0 A",
-                            "Requested current would be negative - action aborted.")
-            return
-        ocp = self.get_ocp(index)
-        if ocp is not None and new_current > ocp:
-            msgbox.showwarning("Current > OCP", f"Requested {new_current:.2f} A exceeds OCP ({ocp:.2f} A).")
+        # Guard-rails
+        valid_input = self.validate_current(index, new_current)
+        if not valid_input:
+            # Error message already shown in validate_current
             return
 
         prediction_success = self.update_predictions_from_current(index, new_current)
@@ -2353,3 +2328,35 @@ class CathodeHeatingSubsystem:
             ps.stop_ramp()
         self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
         self.on_ramp_complete(index)
+
+    def validate_voltage(self, index:int, new_voltage: float):
+        """
+        Checks new heater voltage is non-negative and does not exceed the OVP.
+        
+        """
+        ovp = self.get_ovp(index)
+
+        if new_voltage < 0 or new_voltage is None:
+                msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
+                return
+
+        if new_voltage > ovp:
+            self.log(f"Calculated voltage ({new_voltage:.2f}V) exceeds OVP ({ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+            msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({new_voltage:.2f}V) exceeds the current OVP setting ({ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+            return
+    
+    def validate_current(self, index:int, new_current: float):
+        """
+        Checks new heater current is non-negative and does not exceed the OCP.
+        
+        """
+        ocp = self.get_ocp(index)
+
+        if new_current < 0 or new_current is None:
+                msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
+                return
+
+        if new_current > ocp:
+            self.log(f"Calculated current ({new_current:.2f}A) exceeds OCP ({ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+            msgbox.showwarning("Current Exceeds OCP", f"The calculated current ({new_current:.2f}A) exceeds the current OCP setting ({ocp:.2f}A). Please adjust the OCP or choose a lower target current.")
+            return  
