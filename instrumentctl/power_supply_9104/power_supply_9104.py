@@ -363,7 +363,6 @@ class PowerSupply9104:
                         if callback:
                             callback(False)
                         return
-
                     try:
                         if self.set_voltage(preset, next_voltage):
                             if self.is_being_limited("voltage", start_time, next_voltage):
@@ -442,9 +441,9 @@ class PowerSupply9104:
         )
 
         if ramp_type == "voltage":
-            stalled = abs(measured_voltage - set_value) < voltage_offset
+            stalled = abs(measured_voltage - set_value) > voltage_offset
         elif ramp_type == "current":
-            stalled = abs(measured_current - set_value) < current_offset
+            stalled = abs(measured_current - set_value) > current_offset
         else:
             raise ValueError(f"is_being_limited called with invalid ramp_type: {ramp_type}")
 
