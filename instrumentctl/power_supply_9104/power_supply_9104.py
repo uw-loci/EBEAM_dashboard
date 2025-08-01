@@ -426,8 +426,8 @@ class PowerSupply9104:
             set_value (float): The recently set value (either voltage or current).
         """
         grace_period_sec = 1.0
-        voltage_offset = .02
-        current_offset = .01
+        voltage_offset = .04
+        current_offset = .04
 
         if time.monotonic() - start_time < grace_period_sec:
             # Ignore limits for the first second to allow for initial settling
