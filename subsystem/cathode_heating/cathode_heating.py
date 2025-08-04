@@ -517,38 +517,6 @@ class CathodeHeatingSubsystem:
 
             ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
-            # Add dropdown for lookup table dataset selection
-            lookup_table_label = ttk.Label(config_tab, text='Select LUT Dataset:', style='RightAlign.TLabel')
-            lookup_table_label.grid(row=1, column=0, sticky='e')
-
-            # Build options: all loaded LUT keys, with 'Default' first if present
-            lookup_table_options = list(self.current_options.keys())
-            if 'Default' in lookup_table_options:
-                lookup_table_options.remove('Default')
-                lookup_table_options.insert(0, 'Default')
-
-            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=28)
-            lookup_table_box.grid(row=1, column=1, sticky='w')
-
-            # Set the default value to 'Default' if present, else first option
-            if 'Default' in lookup_table_options:
-                lookup_table_box.set('Default')
-                self.selected_lut_files[i] = 'Default'
-            else:
-                lookup_table_box.set(lookup_table_options[0] if lookup_table_options else '')
-                self.selected_lut_files[i] = lookup_table_options[0] if lookup_table_options else None
-            # Set lookup_table_setting for this cathode
-            self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
-
-            # Bind LUT combobox to centralized class method
-            def lut_selection_callback(event, idx=i, box=lookup_table_box):
-                selected = box.get()
-                self.selected_lut_files[idx] = selected
-                self.lookup_table_setting[idx] = self.current_options.get(selected, None)
-                self.refresh_predictions(idx)
-            lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
-            self.lookup_table_comboboxes.append(lookup_table_box)
-
             # Overtemperature limit entry
             overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
             overtemp_label.grid(row=2, column=0, sticky='e')
@@ -607,44 +575,77 @@ class CathodeHeatingSubsystem:
             set_slew_rate_button.grid(row=6, column=1, sticky='e')
             ToolTip(slew_rate_label, "Rate of change for voltage output")
 
+            # Add dropdown for lookup table dataset selection
+            lookup_table_label = ttk.Label(config_tab, text='Select LUT Dataset:', style='RightAlign.TLabel')
+            lookup_table_label.grid(row=7, column=0, sticky='e')
+
+            # Build options: all loaded LUT keys, with 'Default' first if present
+            lookup_table_options = list(self.current_options.keys())
+            if 'Default' in lookup_table_options:
+                lookup_table_options.remove('Default')
+                lookup_table_options.insert(0, 'Default')
+
+            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=15)
+            lookup_table_box.grid(row=7, column=1, sticky='w')
+
+            # Set the default value to 'Default' if present, else first option
+            if 'Default' in lookup_table_options:
+                lookup_table_box.set('Default')
+                self.selected_lut_files[i] = 'Default'
+            else:
+                lookup_table_box.set(lookup_table_options[0] if lookup_table_options else '')
+                self.selected_lut_files[i] = lookup_table_options[0] if lookup_table_options else None
+            # Set lookup_table_setting for this cathode
+            self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
+
+            # Bind LUT combobox to centralized class method
+            def lut_selection_callback(event, idx=i, box=lookup_table_box):
+                selected = box.get()
+                self.selected_lut_files[idx] = selected
+                self.lookup_table_setting[idx] = self.current_options.get(selected, None)
+                self.refresh_predictions(idx)
+            lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
+            self.lookup_table_comboboxes.append(lookup_table_box)
+
+
             # 'Log Power Settings' button
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=7, column=0, sticky='w')
+            log_power_settings_button.grid(row=9, column=0, sticky='w')
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
             # Power supply readings
             display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
-            display_label.grid(row=8, column=0, columnspan=1, sticky='ew')
+            display_label.grid(row=10, column=0, columnspan=1, sticky='ew')
 
             voltage_display_var = tk.StringVar(value='Voltage: -- V')
             current_display_var = tk.StringVar(value='Current: -- A')
             operation_mode_var = tk.StringVar(value='Mode: --')
 
             voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
-            voltage_label.grid(row=9, column=0, sticky='w')
+            voltage_label.grid(row=11, column=0, sticky='w')
             mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=9, column=1, sticky='w')
+            mode_label.grid(row=11, column=1, sticky='w')
 
             # Store variables for later updates
             self.voltage_display_vars.append(voltage_display_var)
             self.current_display_vars.append(current_display_var)
 
             # Add label for Temperature Controller
-            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=10, column=0, columnspan=3, sticky="ew")
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=12, column=0, columnspan=3, sticky="ew")
 
             # Overtemperature status display
             overtemp_status_label = ttk.Label(config_tab, text='Overtemp Status:', style='LeftAlign.TLabel')
-            overtemp_status_label.grid(row=11, column=0, sticky='e')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=11, column=1, sticky='w')
+            overtemp_status_label.grid(row=12, column=0, sticky='e')
+            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=12, column=1, sticky='w')
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=14, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=15, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
             # Ensure the grid layout of config_tab accommodates the new buttons
             config_tab.columnconfigure(0, weight=1)
