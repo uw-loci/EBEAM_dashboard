@@ -443,8 +443,8 @@ class PowerSupply9104:
             start_time (float): The time when the ramp started, used to determine if the grace period has passed.
             set_value (float): The recently set value (either voltage or current).
         """
-        voltage_offset = .02
-        current_offset = .01
+        voltage_offset = .06
+        current_offset = .06
 
         if time.monotonic() - start_time < self.GRACE_PERIOD_SEC:
             # Ignore limits for the first second to allow for initial settling
@@ -468,7 +468,7 @@ class PowerSupply9104:
 
         if stalled and wrong_mode:
             if hit_count["hits"] == 0:
-                stored_value["last good"] = set_value
+                stored_value["last good"] = measured_voltage if ramp_type == "voltage" else measured_current
             hit_count["hits"] += 1
         else:
             hit_count["hits"] = 0   
