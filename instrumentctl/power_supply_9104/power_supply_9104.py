@@ -72,9 +72,7 @@ class PowerSupply9104:
                 response = f"{response}\r{additional}"
 
             if not response or response == '': # no reply, label port as disconnected
-                self.log("No response from power supply. Marking as disconnected.", LogLevel.ERROR)
-                self.ser.close()
-                return None
+                raise ValueError("No response received from 9104 supply")
             if 'OK' not in response:
                 self.log(f"Acknowledgement not in 9104 supply response")
 
