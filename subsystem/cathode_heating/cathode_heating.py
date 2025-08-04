@@ -19,6 +19,7 @@ import numpy as np
 import serial.tools.list_ports
 from utils import LogLevel
 from decimal import Decimal
+import time
 
 def resource_path(relative_path):
     """
@@ -84,6 +85,7 @@ class CathodeHeatingSubsystem:
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
         self.ramp_status = [False, False, False]
+        self.offline_since = [0, 0, 0]  # Track when each power supply went offline
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
         self.current_options = {
             "Cathode A" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
@@ -1267,11 +1269,16 @@ class CathodeHeatingSubsystem:
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 try:
                     if not self.power_supplies[i].is_connected():
+                        # Attempt to reconnect if the power supply is disconnected every 5 seconds
+                        if time.monotonic() - self.offline_since[i] < 5:
+                            continue  # Skip this cycle if not enough time has passed
                         self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
                         if self.retry_connection(i):
                             self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
+                            self.offline_since[i] = 0
                         else:
                             self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
+                            self.offline_since[i] = time.monotonic()
                             continue
                     
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
@@ -1279,17 +1286,6 @@ class CathodeHeatingSubsystem:
                     
                     self.actual_heater_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")     
-
-                    
-                    # # Update heater voltage display
-                    # if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                    #     last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                    #     self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
-                    # elif voltage is not None:
-                    #     self.heater_voltage_vars[i].set(f"{voltage:.2f}")
-                    # else:
-                    #     self.heater_voltage_vars[i].set("-- V")
-                    
 
                     # Update mode display
                     cv_lbl, cc_lbl = self.cv_cc_labels[i]
