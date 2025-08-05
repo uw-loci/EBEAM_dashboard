@@ -545,16 +545,37 @@ class CathodeHeatingSubsystem:
             set_overvoltage_button.grid(row=3, column=1, sticky='e')
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
-            # Overcurrent limit entry
-            overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
-            overcurrent_label.grid(row=4, column=0, sticky='e')
 
+            # Over Current Limit controls (inline, no section title)
+            ocl_label = ttk.Label(config_tab, text='Set Over Current Limit (A):', style='RightAlign.TLabel')
+            ocl_label.grid(row=4, column=0, sticky='e', padx=(2, 2), pady=(2, 2))
             temp_overcurrent_var = self.overcurrent_limit_vars[i]
-            overcurrent_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
-            overcurrent_entry.grid(row=4, column=1, sticky='w')
-            set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_overcurrent_button.grid(row=4, column=1, sticky='e')
-            ToolTip(overcurrent_label, "OCP must be a value greater than 0.1 A and less than or equal to 10 A")
+            ocl_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
+            ocl_entry.grid(row=4, column=1, sticky='w', padx=(2, 2))
+            set_ocl_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
+            set_ocl_button.grid(row=4, column=2, sticky='w', padx=(2, 2))
+            ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
+
+            # Over Current Limit live readback display
+            ocl_readback = tk.StringVar()
+            ocl_readback_label = ttk.Label(config_tab, textvariable=ocl_readback, style='Bold.TLabel')
+            ocl_readback_label.grid(row=5, column=0, columnspan=3, sticky='w', padx=(2, 2), pady=(0, 2))
+
+            def update_ocl_readback():
+                value = None
+                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+                    try:
+                        value = self.power_supplies[i].get_over_current_protection()
+                    except Exception:
+                        value = None
+                if value is not None:
+                    ocl_readback.set(f"Current Over Current Limit: {value:.2f} A")
+                else:
+                    ocl_readback.set("Current Over Current Limit: --")
+                # Schedule next update (every 2 seconds)
+                config_tab.after(2000, update_ocl_readback)
+
+            update_ocl_readback()
 
             # Current slew rate setting
             current_slew_rate_label = ttk.Label(config_tab, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
