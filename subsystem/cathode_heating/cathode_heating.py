@@ -524,42 +524,111 @@ class CathodeHeatingSubsystem:
             self.log_power_settings_buttons.append(log_power_settings_button)
 
 
-            # Overtemperature limit entry
-            overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
-            overtemp_label.grid(row=2, column=0, sticky='e')
+
+            # Overtemperature limit controls in a frame, with live value next to label
+            otl_control_frame = ttk.Frame(config_tab)
+            otl_control_frame.grid(row=2, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            # Frame to hold label and live value side-by-side
+            otl_label_frame = ttk.Frame(otl_control_frame)
+            otl_label_frame.grid(row=0, column=0, sticky='w')
+            overtemp_label = ttk.Label(otl_label_frame, text='Overtemp Limit (C):', style='RightAlign.TLabel')
+            overtemp_label.pack(side='left')
+            # Live value display (styled box)
+            otl_display_frame = tk.Frame(otl_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            otl_display_frame.configure(bg='#d9d9d9')
+            otl_display_frame.pack(side='left', padx=(8, 0))
+            otl_readback = tk.StringVar()
+            otl_live_label = ttk.Label(otl_display_frame, textvariable=otl_readback, style='Bold.TLabel', width=6, anchor='e')
+            otl_live_label.pack(side='left')
+            otl_unit_label = ttk.Label(otl_display_frame, text=" C", style="Bold.TLabel")
+            otl_unit_label.pack(side='left')
 
             temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
-            overtemp_entry = ttk.Entry(config_tab, textvariable=temp_overtemp_var, width=7)
-            overtemp_entry.grid(row=2, column=1, sticky='w')
-            set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
-            set_overtemp_button.grid(row=2, column=1, sticky='e')
+            overtemp_entry = ttk.Entry(otl_control_frame, textvariable=temp_overtemp_var, width=7)
+            overtemp_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            set_overtemp_button = ttk.Button(otl_control_frame, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
+            set_overtemp_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
 
-            # Overvoltage limit entry
-            overvoltage_label = ttk.Label(config_tab, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
-            overvoltage_label.grid(row=3, column=0, sticky='e')
+            def update_otl_readback():
+                # Always show the current in-memory value
+                try:
+                    value = float(self.overtemp_limit_vars[i].get())
+                    otl_readback.set(f"{value:.2f}")
+                except Exception:
+                    otl_readback.set("--")
+            update_otl_readback()
+
+
+            # Overvoltage limit controls in a frame, with live value next to label
+            ovl_control_frame = ttk.Frame(config_tab)
+            ovl_control_frame.grid(row=3, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            # Frame to hold label and live value side-by-side
+            ovl_label_frame = ttk.Frame(ovl_control_frame)
+            ovl_label_frame.grid(row=0, column=0, sticky='w')
+            overvoltage_label = ttk.Label(ovl_label_frame, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
+            overvoltage_label.pack(side='left')
+            # Live value display (styled box)
+            ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            ovl_display_frame.configure(bg='#d9d9d9')
+            ovl_display_frame.pack(side='left', padx=(8, 0))
+            ovl_readback = tk.StringVar()
+            ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=6, anchor='e')
+            ovl_live_label.pack(side='left')
+            ovl_unit_label = ttk.Label(ovl_display_frame, text=" V", style="Bold.TLabel")
+            ovl_unit_label.pack(side='left')
 
             temp_overvoltage_var = self.overvoltage_limit_vars[i]
-            overvoltage_entry = ttk.Entry(config_tab, textvariable=temp_overvoltage_var, width=7)
-            overvoltage_entry.grid(row=3, column=1, sticky='w')
-            set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=3, column=1, sticky='e')
+            overvoltage_entry = ttk.Entry(ovl_control_frame, textvariable=temp_overvoltage_var, width=7)
+            overvoltage_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
+            set_overvoltage_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
+            def update_ovl_readback():
+                value = None
+                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+                    try:
+                        value = self.power_supplies[i].get_over_voltage_protection()
+                    except Exception:
+                        value = None
+                if value is not None:
+                    ovl_readback.set(f"{value:.2f}")
+                else:
+                    ovl_readback.set("--")
+                # Schedule next update (every 2 seconds)
+                config_tab.after(2000, update_ovl_readback)
 
-            # Over Current Limit controls (inline, no section title)
-            ocl_label = ttk.Label(config_tab, text='Set Over Current Limit (A):', style='RightAlign.TLabel')
-            ocl_label.grid(row=4, column=0, sticky='e', padx=(2, 2), pady=(2, 2))
-            temp_overcurrent_var = self.overcurrent_limit_vars[i]
-            ocl_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
-            ocl_entry.grid(row=4, column=1, sticky='w', padx=(2, 2))
-            set_ocl_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_ocl_button.grid(row=4, column=2, sticky='w', padx=(2, 2))
-            ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
+            update_ovl_readback()
 
-            # Over Current Limit live readback display
+
+            # Over Current Limit controls in a frame, with live value next to entry
+            ocl_control_frame = ttk.Frame(config_tab)
+            ocl_control_frame.grid(row=4, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+
+            # Frame to hold label and live value side-by-side
+            ocl_label_frame = ttk.Frame(ocl_control_frame)
+            ocl_label_frame.grid(row=0, column=0, sticky='w')
+            ocl_label = ttk.Label(ocl_label_frame, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
+            ocl_label.pack(side='left')
+            # Live value display (styled box)
+            ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            ocl_display_frame.configure(bg='#d9d9d9')
+            ocl_display_frame.pack(side='left', padx=(8, 0))
             ocl_readback = tk.StringVar()
-            ocl_readback_label = ttk.Label(config_tab, textvariable=ocl_readback, style='Bold.TLabel')
-            ocl_readback_label.grid(row=5, column=0, columnspan=3, sticky='w', padx=(2, 2), pady=(0, 2))
+            ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=6, anchor='e')
+            ocl_live_label.pack(side='left')
+            ocl_unit_label = ttk.Label(ocl_display_frame, text=" A", style="Bold.TLabel")
+            ocl_unit_label.pack(side='left')
+
+            temp_overcurrent_var = self.overcurrent_limit_vars[i]
+            ocl_entry = ttk.Entry(ocl_control_frame, textvariable=temp_overcurrent_var, width=7)
+            ocl_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
+            set_ocl_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
+            ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
 
             def update_ocl_readback():
                 value = None
@@ -569,35 +638,79 @@ class CathodeHeatingSubsystem:
                     except Exception:
                         value = None
                 if value is not None:
-                    ocl_readback.set(f"Current Over Current Limit: {value:.2f} A")
+                    ocl_readback.set(f"{value:.2f}")
                 else:
-                    ocl_readback.set("Current Over Current Limit: --")
+                    ocl_readback.set("--")
                 # Schedule next update (every 2 seconds)
                 config_tab.after(2000, update_ocl_readback)
 
             update_ocl_readback()
 
-            # Current slew rate setting
-            current_slew_rate_label = ttk.Label(config_tab, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
-            current_slew_rate_label.grid(row=5, column=0, sticky='e')
+
+            # Current slew rate controls in a frame, with live value next to label
+            csr_control_frame = ttk.Frame(config_tab)
+            csr_control_frame.grid(row=5, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            csr_label_frame = ttk.Frame(csr_control_frame)
+            csr_label_frame.grid(row=0, column=0, sticky='w')
+            current_slew_rate_label = ttk.Label(csr_label_frame, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
+            current_slew_rate_label.pack(side='left')
+            csr_display_frame = tk.Frame(csr_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            csr_display_frame.configure(bg='#d9d9d9')
+            csr_display_frame.pack(side='left', padx=(8, 0))
+            csr_readback = tk.StringVar()
+            csr_live_label = ttk.Label(csr_display_frame, textvariable=csr_readback, style='Bold.TLabel', width=7, anchor='e')
+            csr_live_label.pack(side='left')
+            csr_unit_label = ttk.Label(csr_display_frame, text=" A/s", style="Bold.TLabel")
+            csr_unit_label.pack(side='left')
 
             current_slew_rate_var = tk.StringVar(value='0.01')  # Default value
-            current_slew_rate_entry = ttk.Entry(config_tab, textvariable=current_slew_rate_var, width=7)
-            current_slew_rate_entry.grid(row=5, column=1, sticky='w')
-            set_current_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
-            set_current_slew_rate_button.grid(row=5, column=1, sticky='e')
+            current_slew_rate_entry = ttk.Entry(csr_control_frame, textvariable=current_slew_rate_var, width=7)
+            current_slew_rate_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            set_current_slew_rate_button = ttk.Button(csr_control_frame, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
+            set_current_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(current_slew_rate_label, "Rate of change for current output")
 
-            # Voltage slew rate setting
-            slew_rate_label = ttk.Label(config_tab, text='Voltage Slew Rate (V/s):', style='RightAlign.TLabel')
-            slew_rate_label.grid(row=6, column=0, sticky='e')
+            def update_csr_readback():
+                try:
+                    value = float(self.curr_slew_rate[i])
+                    csr_readback.set(f"{value:.3f}")
+                except Exception:
+                    csr_readback.set("--")
+            update_csr_readback()
+
+
+            # Voltage slew rate controls in a frame, with live value next to label
+            vsr_control_frame = ttk.Frame(config_tab)
+            vsr_control_frame.grid(row=6, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            vsr_label_frame = ttk.Frame(vsr_control_frame)
+            vsr_label_frame.grid(row=0, column=0, sticky='w')
+            slew_rate_label = ttk.Label(vsr_label_frame, text='Voltage Slew Rate (V/s):', style='RightAlign.TLabel')
+            slew_rate_label.pack(side='left')
+            vsr_display_frame = tk.Frame(vsr_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            vsr_display_frame.configure(bg='#d9d9d9')
+            vsr_display_frame.pack(side='left', padx=(8, 0))
+            vsr_readback = tk.StringVar()
+            vsr_live_label = ttk.Label(vsr_display_frame, textvariable=vsr_readback, style='Bold.TLabel', width=7, anchor='e')
+            vsr_live_label.pack(side='left')
+            vsr_unit_label = ttk.Label(vsr_display_frame, text=" V/s", style="Bold.TLabel")
+            vsr_unit_label.pack(side='left')
 
             slew_rate_var = tk.StringVar(value='0.02')  # Default value
-            slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
-            slew_rate_entry.grid(row=6, column=1, sticky='w')
-            set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
-            set_slew_rate_button.grid(row=6, column=1, sticky='e')
+            slew_rate_entry = ttk.Entry(vsr_control_frame, textvariable=slew_rate_var, width=7)
+            slew_rate_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            set_slew_rate_button = ttk.Button(vsr_control_frame, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
+            set_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(slew_rate_label, "Rate of change for voltage output")
+
+            def update_vsr_readback():
+                try:
+                    value = float(self.vlt_slew_rate[i])
+                    vsr_readback.set(f"{value:.3f}")
+                except Exception:
+                    vsr_readback.set("--")
+            update_vsr_readback()
 
             # Add dropdown for lookup table dataset selection
             lookup_table_label = ttk.Label(config_tab, text='Select LUT Dataset:', style='RightAlign.TLabel')
