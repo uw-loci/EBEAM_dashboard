@@ -71,7 +71,7 @@ class PowerSupply9104:
                 additional = self.ser.read_until(b'\r').decode().strip()
                 response = f"{response}\r{additional}"
 
-            if not response or response == '': # no reply, label port as disconnected
+            if not response:
                 raise ValueError("No response received from 9104 supply")
             if 'OK' not in response:
                 self.log(f"Acknowledgement not in 9104 supply response")
@@ -175,9 +175,9 @@ class PowerSupply9104:
             preset (int): The preset number to use for setting voltage/current.
             callback (function): Optional function to call when ramping is complete.
         """
-        # if self.ramp_thread and self.ramp_thread.is_alive():
-        #     self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
-        #     return
+        if self.ramp_thread and self.ramp_thread.is_alive():
+            self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
+            return
 
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
@@ -196,7 +196,6 @@ class PowerSupply9104:
     def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback):
         """Main current ramping implementation."""
         start_time = time.monotonic()
-        GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
 
         try:
             # Get initial current
@@ -306,9 +305,9 @@ class PowerSupply9104:
             ramp_rate (float): The rate at which to change the voltage in volts per second.
             callback (function): Optional function to call when ramping is complete.
         """        
-        # if self.ramp_thread and self.ramp_thread.is_alive():
-        #     self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
-        #     return
+        if self.ramp_thread and self.ramp_thread.is_alive():
+            self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
+            return
 
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(

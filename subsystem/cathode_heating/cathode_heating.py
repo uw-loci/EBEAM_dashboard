@@ -84,7 +84,6 @@ class CathodeHeatingSubsystem:
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
         self.ramp_status = [False, False, False]
-        self.offline_since = [0, 0, 0]  # Track when each power supply went offline
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
         self.current_options = {
             "Cathode A" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
