@@ -523,7 +523,7 @@ class CathodeHeatingSubsystem:
 
             # Overtemperature limit controls in a frame, with live value next to label
             otl_control_frame = ttk.Frame(config_tab)
-            otl_control_frame.grid(row=2, column=0, columnspan=3, sticky='w', pady=(2, 2))
+            otl_control_frame.grid(row=11, column=0, columnspan=3, sticky='w', pady=(2, 2))
 
             # Frame to hold label and live value side-by-side
             otl_label_frame = ttk.Frame(otl_control_frame)
@@ -566,7 +566,7 @@ class CathodeHeatingSubsystem:
             ovl_display_frame.configure(bg='#d9d9d9')
             ovl_display_frame.pack(side='left', padx=(8, 0))
             ovl_readback = tk.StringVar()
-            ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=6, anchor='e')
+            ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
             ovl_live_label.pack(side='left')
             ovl_unit_label = ttk.Label(ovl_display_frame, text=" V", style="Bold.TLabel")
             ovl_unit_label.pack(side='left')
@@ -610,7 +610,7 @@ class CathodeHeatingSubsystem:
             ocl_display_frame.configure(bg='#d9d9d9')
             ocl_display_frame.pack(side='left', padx=(8, 0))
             ocl_readback = tk.StringVar()
-            ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=6, anchor='e')
+            ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
             ocl_live_label.pack(side='left')
             ocl_unit_label = ttk.Label(ocl_display_frame, text=" A", style="Bold.TLabel")
             ocl_unit_label.pack(side='left')
@@ -652,7 +652,7 @@ class CathodeHeatingSubsystem:
             csr_display_frame.pack(side='left', padx=(8, 0))
             # Bind live value to the actual curr_slew_rate
             csr_var = tk.StringVar(value=f"{self.curr_slew_rate[i]:.2f}")
-            csr_live_label = ttk.Label(csr_display_frame, textvariable=csr_var, style='Bold.TLabel', width=7, anchor='e')
+            csr_live_label = ttk.Label(csr_display_frame, textvariable=csr_var, style='Bold.TLabel', width=4, anchor='e')
             csr_live_label.pack(side='left')
             csr_unit_label = ttk.Label(csr_display_frame, text=" A/s", style="Bold.TLabel")
             csr_unit_label.pack(side='left')
@@ -688,7 +688,7 @@ class CathodeHeatingSubsystem:
             vsr_display_frame.pack(side='left', padx=(8, 0))
             # Bind live value to the actual vlt_slew_rate
             vsr_var = tk.StringVar(value=f"{self.vlt_slew_rate[i]:.2f}")
-            vsr_live_label = ttk.Label(vsr_display_frame, textvariable=vsr_var, style='Bold.TLabel', width=7, anchor='e')
+            vsr_live_label = ttk.Label(vsr_display_frame, textvariable=vsr_var, style='Bold.TLabel', width=4, anchor='e')
             vsr_live_label.pack(side='left')
             vsr_unit_label = ttk.Label(vsr_display_frame, text=" V/s", style="Bold.TLabel")
             vsr_unit_label.pack(side='left')
@@ -743,38 +743,39 @@ class CathodeHeatingSubsystem:
             lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
             self.lookup_table_comboboxes.append(lookup_table_box)
 
-            # Power supply readings
-            display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
-            display_label.grid(row=10, column=0, columnspan=1, sticky='ew')
+            # # Power supply readings
+            # display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
+            # display_label.grid(row=10, column=0, columnspan=1, sticky='ew')
 
-            voltage_display_var = tk.StringVar(value='Voltage: -- V')
-            current_display_var = tk.StringVar(value='Current: -- A')
-            operation_mode_var = tk.StringVar(value='Mode: --')
+            # voltage_display_var = tk.StringVar(value='Voltage: -- V')
+            # current_display_var = tk.StringVar(value='Current: -- A')
+            # operation_mode_var = tk.StringVar(value='Mode: --')
 
-            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
-            voltage_label.grid(row=11, column=0, sticky='w')
-            mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=11, column=1, sticky='w')
+            # voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
+            # voltage_label.grid(row=11, column=0, sticky='w')
+            # mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
+            # mode_label.grid(row=11, column=1, sticky='w')
 
-            # Store variables for later updates
-            self.voltage_display_vars.append(voltage_display_var)
-            self.current_display_vars.append(current_display_var)
+            # # Store variables for later updates
+            # self.voltage_display_vars.append(voltage_display_var)
+            # self.current_display_vars.append(current_display_var)
 
             # Add label for Temperature Controller
-            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=12, column=0, columnspan=3, sticky="ew")
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
 
             # Overtemperature status display
             overtemp_status_label = ttk.Label(config_tab, text='Overtemp Status:', style='LeftAlign.TLabel')
-            overtemp_status_label.grid(row=12, column=0, sticky='e')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=12, column=1, sticky='w')
+            overtemp_status_label.grid(row=10, column=0, sticky='w')
+            # overtemp_status_label.pack(side='left')
+            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=14, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=15, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
             # Ensure the grid layout of config_tab accommodates the new buttons
             config_tab.columnconfigure(0, weight=1)
@@ -1168,6 +1169,7 @@ class CathodeHeatingSubsystem:
                 # vsr_var.set not needed; sync function will update
                 if hasattr(self, '_sync_vsr_funcs') and self._sync_vsr_funcs[index]:
                     self._sync_vsr_funcs[index]()
+            self.parent.update()
         except ValueError as e:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
