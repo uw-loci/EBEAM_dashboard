@@ -105,8 +105,8 @@ class CathodeHeatingSubsystem:
         self.ramp_toggle_buttons = []
         self.user_set_voltages = [None, None, None]
         self.user_set_currents = [None, None, None]
-        self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
-        self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
+        self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is minimum ps resolution
+        self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is minimum ps resolution
         self.ramp_status = [True, True, True]
         # Determine dataset file for each cathode
         lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
@@ -514,16 +514,12 @@ class CathodeHeatingSubsystem:
             canvas.draw()
             canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, pady=0.1)
 
-
-
             ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
             log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(40, 0))
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
-
-
 
             # Overtemperature limit controls in a frame, with live value next to label
             otl_control_frame = ttk.Frame(config_tab)
@@ -538,26 +534,22 @@ class CathodeHeatingSubsystem:
             otl_display_frame = tk.Frame(otl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             otl_display_frame.configure(bg='#d9d9d9')
             otl_display_frame.pack(side='left', padx=(8, 0))
-            otl_readback = tk.StringVar()
-            otl_live_label = ttk.Label(otl_display_frame, textvariable=otl_readback, style='Bold.TLabel', width=6, anchor='e')
+            # Bind live value to the actual overtemp_limit_vars[i]
+            otl_live_label = ttk.Label(otl_display_frame, textvariable=self.overtemp_limit_vars[i], style='Bold.TLabel', width=6, anchor='e')
             otl_live_label.pack(side='left')
             otl_unit_label = ttk.Label(otl_display_frame, text=" C", style="Bold.TLabel")
             otl_unit_label.pack(side='left')
 
-            temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
+            temp_overtemp_var = tk.StringVar(value=str(self.overtemp_limit_vars[i].get()))
             overtemp_entry = ttk.Entry(otl_control_frame, textvariable=temp_overtemp_var, width=7)
             overtemp_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
             set_overtemp_button = ttk.Button(otl_control_frame, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
             set_overtemp_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
 
-            def update_otl_readback():
-                # Always show the current in-memory value
-                try:
-                    value = float(self.overtemp_limit_vars[i].get())
-                    otl_readback.set(f"{value:.2f}")
-                except Exception:
-                    otl_readback.set("--")
-            update_otl_readback()
+            # Keep entry in sync with live value
+            def sync_otl_entry(*args, idx=i, var=temp_overtemp_var):
+                var.set(str(self.overtemp_limit_vars[idx].get()))
+            self.overtemp_limit_vars[i].trace_add('write', sync_otl_entry)
 
 
             # Overvoltage limit controls in a frame, with live value next to label
@@ -658,27 +650,30 @@ class CathodeHeatingSubsystem:
             csr_display_frame = tk.Frame(csr_label_frame, bd=2, relief='groove', padx=2, pady=1)
             csr_display_frame.configure(bg='#d9d9d9')
             csr_display_frame.pack(side='left', padx=(8, 0))
-            csr_readback = tk.StringVar()
-            csr_live_label = ttk.Label(csr_display_frame, textvariable=csr_readback, style='Bold.TLabel', width=7, anchor='e')
+            # Bind live value to the actual curr_slew_rate
+            csr_var = tk.StringVar(value=f"{self.curr_slew_rate[i]:.2f}")
+            csr_live_label = ttk.Label(csr_display_frame, textvariable=csr_var, style='Bold.TLabel', width=7, anchor='e')
             csr_live_label.pack(side='left')
             csr_unit_label = ttk.Label(csr_display_frame, text=" A/s", style="Bold.TLabel")
             csr_unit_label.pack(side='left')
 
-            current_slew_rate_var = tk.StringVar(value='0.01')  # Default value
+            current_slew_rate_var = tk.StringVar(value=f"{self.curr_slew_rate[i]:.2f}")
             current_slew_rate_entry = ttk.Entry(csr_control_frame, textvariable=current_slew_rate_var, width=7)
             current_slew_rate_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
             set_current_slew_rate_button = ttk.Button(csr_control_frame, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
             set_current_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(current_slew_rate_label, "Rate of change for current output")
 
-            def update_csr_readback():
-                try:
-                    value = float(self.curr_slew_rate[i])
-                    csr_readback.set(f"{value:.3f}")
-                except Exception:
-                    csr_readback.set("--")
-            update_csr_readback()
+            # Keep entry and live label in sync with value
+            def sync_csr(*args, idx=i, var=csr_var, entry_var=current_slew_rate_var):
+                val = self.curr_slew_rate[idx]
+                var.set(f"{val:.2f}")
+                entry_var.set(f"{val:.2f}")
+            sync_csr()
 
+            if not hasattr(self, '_sync_csr_funcs'):
+                self._sync_csr_funcs = []
+            self._sync_csr_funcs.append(sync_csr)
 
             # Voltage slew rate controls in a frame, with live value next to label
             vsr_control_frame = ttk.Frame(config_tab)
@@ -691,29 +686,33 @@ class CathodeHeatingSubsystem:
             vsr_display_frame = tk.Frame(vsr_label_frame, bd=2, relief='groove', padx=2, pady=1)
             vsr_display_frame.configure(bg='#d9d9d9')
             vsr_display_frame.pack(side='left', padx=(8, 0))
-            vsr_readback = tk.StringVar()
-            vsr_live_label = ttk.Label(vsr_display_frame, textvariable=vsr_readback, style='Bold.TLabel', width=7, anchor='e')
+            # Bind live value to the actual vlt_slew_rate
+            vsr_var = tk.StringVar(value=f"{self.vlt_slew_rate[i]:.2f}")
+            vsr_live_label = ttk.Label(vsr_display_frame, textvariable=vsr_var, style='Bold.TLabel', width=7, anchor='e')
             vsr_live_label.pack(side='left')
             vsr_unit_label = ttk.Label(vsr_display_frame, text=" V/s", style="Bold.TLabel")
             vsr_unit_label.pack(side='left')
 
-            slew_rate_var = tk.StringVar(value='0.02')  # Default value
+            slew_rate_var = tk.StringVar(value=f"{self.vlt_slew_rate[i]:.2f}")
             slew_rate_entry = ttk.Entry(vsr_control_frame, textvariable=slew_rate_var, width=7)
             slew_rate_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
             set_slew_rate_button = ttk.Button(vsr_control_frame, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
             set_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(slew_rate_label, "Rate of change for voltage output")
 
-            def update_vsr_readback():
-                try:
-                    value = float(self.vlt_slew_rate[i])
-                    vsr_readback.set(f"{value:.3f}")
-                except Exception:
-                    vsr_readback.set("--")
-            update_vsr_readback()
+            # Keep entry and live label in sync with value
+            def sync_vsr(*args, idx=i, var=vsr_var, entry_var=slew_rate_var):
+                val = self.vlt_slew_rate[idx]
+                var.set(f"{val:.2f}")
+                entry_var.set(f"{val:.2f}")
+            sync_vsr()
+
+            if not hasattr(self, '_sync_vsr_funcs'):
+                self._sync_vsr_funcs = []
+            self._sync_vsr_funcs.append(sync_vsr)
 
             # Add dropdown for lookup table dataset selection
-            lookup_table_label = ttk.Label(config_tab, text='Select LUT Dataset:', style='RightAlign.TLabel')
+            lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table Dataset:', style='LeftAlign.TLabel')
             lookup_table_label.grid(row=7, column=0, sticky='e')
 
             # Build options: all loaded LUT keys, with 'Default' first if present
@@ -1156,13 +1155,19 @@ class CathodeHeatingSubsystem:
             new_slew_rate = float(var.get())
             if new_slew_rate <= 0:
                 raise ValueError("Slew rate must be positive.")
-            
             if control_mode == "current":
-                self.curr_slew_rate[index] = new_slew_rate
-                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} A/s", LogLevel.INFO)
+                self.curr_slew_rate[index] = round(new_slew_rate, 2)
+                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {self.curr_slew_rate[index]:.2f} A/s", LogLevel.INFO)
+                # Update live label and entry if sync function exists
+                # csr_var.set not needed; sync function will update
+                if hasattr(self, '_sync_csr_funcs') and self._sync_csr_funcs[index]:
+                    self._sync_csr_funcs[index]()
             else:  # control_mode == "voltage"
-                self.vlt_slew_rate[index] = new_slew_rate
-                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} V/s", LogLevel.INFO)
+                self.vlt_slew_rate[index] = round(new_slew_rate, 2)
+                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {self.vlt_slew_rate[index]:.2f} V/s", LogLevel.INFO)
+                # vsr_var.set not needed; sync function will update
+                if hasattr(self, '_sync_vsr_funcs') and self._sync_vsr_funcs[index]:
+                    self._sync_vsr_funcs[index]()
         except ValueError as e:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
