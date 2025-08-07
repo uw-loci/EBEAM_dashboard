@@ -41,6 +41,11 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class CathodeHeatingSubsystem:
+    def _init_ocl_live_values(self):
+        self.ocl_live_values = [None, None, None]
+
+    def _init_ovl_live_values(self):
+        self.ovl_live_values = [None, None, None]
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     ERROR_COLORS = {
@@ -255,6 +260,8 @@ class CathodeHeatingSubsystem:
         self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
 
     def setup_gui(self):
+        self._init_ocl_live_values()
+        self._init_ovl_live_values()
         cathode_labels = ['A', 'B', 'C']
         style = ttk.Style()
         style.configure('Flat.TButton', padding=(0, 0, 0, 0), relief='flat', borderwidth=0)
@@ -578,21 +585,35 @@ class CathodeHeatingSubsystem:
             set_overvoltage_button.grid(row=0, column=2, sticky='w', padx=(8, 2))
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
-            def update_ovl_readback(idx=i):
-                value = None
-                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
-                    try:
-                        value = self.power_supplies[idx].get_over_voltage_protection()
-                    except Exception:
-                        value = None
-                if value is not None and isinstance(value, (int, float)):
-                    ovl_readback.set(f"{value:.2f}")
+            # In-memory OVL live value display
+            def update_ovl_live_box(idx=i):
+                val = self.ovl_live_values[idx]
+                if val is not None:
+                    ovl_readback.set(f"{val:.2f}")
                 else:
                     ovl_readback.set("--")
-                # Schedule next update (every 2 seconds)
-                config_tab.after(2000, lambda: update_ovl_readback(idx))
+            # On startup, try to read initial value from hardware
+            val_ovl = None
+            if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+                try:
+                    val_ovl = self.power_supplies[i].get_over_voltage_protection()
+                except Exception:
+                    val_ovl = None
+            self.ovl_live_values[i] = val_ovl
+            update_ovl_live_box(i)
 
-            update_ovl_readback(i)
+            # Set button updates memory and live box on success
+            def set_and_update_ovl(idx=i):
+                if self.set_overvoltage_limit(idx):
+                    val = None
+                    if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
+                        try:
+                            val = self.power_supplies[idx].get_over_voltage_protection()
+                        except Exception:
+                            val = None
+                    self.ovl_live_values[idx] = val
+                    update_ovl_live_box(idx)
+            set_overvoltage_button.configure(command=set_and_update_ovl)
 
 
             # Over Current Limit controls in a frame, with live value next to entry
@@ -622,21 +643,35 @@ class CathodeHeatingSubsystem:
             set_ocl_button.grid(row=0, column=2, sticky='w', padx=(8, 2))
             ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
 
-            def update_ocl_readback(idx=i):
-                value = None
-                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
-                    try:
-                        value = self.power_supplies[idx].get_over_current_protection()
-                    except Exception:
-                        value = None
-                if value is not None and isinstance(value, (int, float)):
-                    ocl_readback.set(f"{value:.2f}")
+            # In-memory OCL live value display
+            def update_ocl_live_box(idx=i):
+                val = self.ocl_live_values[idx]
+                if val is not None:
+                    ocl_readback.set(f"{val:.2f}")
                 else:
                     ocl_readback.set("--")
-                # Schedule next update (every 2 seconds)
-                config_tab.after(2000, lambda: update_ocl_readback(idx))
+            # On startup, try to read initial value from hardware
+            val_ocl = None
+            if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+                try:
+                    val_ocl = self.power_supplies[i].get_over_current_protection()
+                except Exception:
+                    val_ocl = None
+            self.ocl_live_values[i] = val_ocl
+            update_ocl_live_box(i)
 
-            update_ocl_readback(i)
+            # Set button updates memory and live box on success
+            def set_and_update_ocl(idx=i):
+                if self.set_overcurrent_limit(idx):
+                    val = None
+                    if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
+                        try:
+                            val = self.power_supplies[idx].get_over_current_protection()
+                        except Exception:
+                            val = None
+                    self.ocl_live_values[idx] = val
+                    update_ocl_live_box(idx)
+            set_ocl_button.configure(command=set_and_update_ocl)
 
 
             # Current slew rate controls in a frame, with live value next to label
