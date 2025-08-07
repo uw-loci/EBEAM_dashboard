@@ -564,7 +564,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ovl_display_frame.configure(bg='#d9d9d9')
-            ovl_display_frame.pack(side='left', padx=(8, 0))
+            ovl_display_frame.pack(side='left', padx=(16, 0))
             ovl_readback = tk.StringVar()
             ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
             ovl_live_label.pack(side='left')
@@ -573,26 +573,26 @@ class CathodeHeatingSubsystem:
 
             temp_overvoltage_var = self.overvoltage_limit_vars[i]
             overvoltage_entry = ttk.Entry(ovl_control_frame, textvariable=temp_overvoltage_var, width=7)
-            overvoltage_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            overvoltage_entry.grid(row=0, column=1, sticky='w', padx=(12, 2))
             set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
+            set_overvoltage_button.grid(row=0, column=2, sticky='w', padx=(8, 2))
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
-            def update_ovl_readback():
+            def update_ovl_readback(idx=i):
                 value = None
-                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
                     try:
-                        value = self.power_supplies[i].get_over_voltage_protection()
+                        value = self.power_supplies[idx].get_over_voltage_protection()
                     except Exception:
                         value = None
-                if value is not None:
+                if value is not None and isinstance(value, (int, float)):
                     ovl_readback.set(f"{value:.2f}")
                 else:
                     ovl_readback.set("--")
                 # Schedule next update (every 2 seconds)
-                config_tab.after(2000, update_ovl_readback)
+                config_tab.after(2000, lambda: update_ovl_readback(idx))
 
-            update_ovl_readback()
+            update_ovl_readback(i)
 
 
             # Over Current Limit controls in a frame, with live value next to entry
@@ -608,7 +608,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ocl_display_frame.configure(bg='#d9d9d9')
-            ocl_display_frame.pack(side='left', padx=(8, 0))
+            ocl_display_frame.pack(side='left', padx=(16, 0))
             ocl_readback = tk.StringVar()
             ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
             ocl_live_label.pack(side='left')
@@ -617,26 +617,26 @@ class CathodeHeatingSubsystem:
 
             temp_overcurrent_var = self.overcurrent_limit_vars[i]
             ocl_entry = ttk.Entry(ocl_control_frame, textvariable=temp_overcurrent_var, width=7)
-            ocl_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            ocl_entry.grid(row=0, column=1, sticky='w', padx=(12, 2))
             set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_ocl_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
+            set_ocl_button.grid(row=0, column=2, sticky='w', padx=(8, 2))
             ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
 
-            def update_ocl_readback():
+            def update_ocl_readback(idx=i):
                 value = None
-                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+                if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
                     try:
-                        value = self.power_supplies[i].get_over_current_protection()
+                        value = self.power_supplies[idx].get_over_current_protection()
                     except Exception:
                         value = None
-                if value is not None:
+                if value is not None and isinstance(value, (int, float)):
                     ocl_readback.set(f"{value:.2f}")
                 else:
                     ocl_readback.set("--")
                 # Schedule next update (every 2 seconds)
-                config_tab.after(2000, update_ocl_readback)
+                config_tab.after(2000, lambda: update_ocl_readback(idx))
 
-            update_ocl_readback()
+            update_ocl_readback(i)
 
 
             # Current slew rate controls in a frame, with live value next to label
