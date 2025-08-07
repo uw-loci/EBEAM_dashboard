@@ -571,7 +571,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ovl_display_frame.configure(bg='#d9d9d9')
-            ovl_display_frame.pack(side='left', padx=(16, 0))
+            ovl_display_frame.pack(side='left', padx=(34, 0))  # Bumped 2px more to the right
             ovl_readback = tk.StringVar()
             ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
             ovl_live_label.pack(side='left')
@@ -580,9 +580,11 @@ class CathodeHeatingSubsystem:
 
             temp_overvoltage_var = self.overvoltage_limit_vars[i]
             overvoltage_entry = ttk.Entry(ovl_control_frame, textvariable=temp_overvoltage_var, width=7)
-            overvoltage_entry.grid(row=0, column=1, sticky='w', padx=(12, 2))
+            overvoltage_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))  # Bumped 2px more to the right
             set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=0, column=2, sticky='w', padx=(8, 2))
+            set_overvoltage_button.grid(row=0, column=3, sticky='w', padx=(1, 2))  # Bumped 2px more to the right
+            # Also move the live value display to column 1
+            ovl_label_frame.grid(row=0, column=1, sticky='w')
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
             # In-memory OVL live value display
@@ -620,7 +622,6 @@ class CathodeHeatingSubsystem:
             ocl_control_frame = ttk.Frame(config_tab)
             ocl_control_frame.grid(row=4, column=0, columnspan=3, sticky='w', pady=(2, 2))
 
-
             # Frame to hold label and live value side-by-side
             ocl_label_frame = ttk.Frame(ocl_control_frame)
             ocl_label_frame.grid(row=0, column=0, sticky='w')
@@ -629,7 +630,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ocl_display_frame.configure(bg='#d9d9d9')
-            ocl_display_frame.pack(side='left', padx=(16, 0))
+            ocl_display_frame.pack(side='left', padx=(34, 0))  # Bumped 2px more to the right
             ocl_readback = tk.StringVar()
             ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
             ocl_live_label.pack(side='left')
@@ -638,9 +639,11 @@ class CathodeHeatingSubsystem:
 
             temp_overcurrent_var = self.overcurrent_limit_vars[i]
             ocl_entry = ttk.Entry(ocl_control_frame, textvariable=temp_overcurrent_var, width=7)
-            ocl_entry.grid(row=0, column=1, sticky='w', padx=(12, 2))
+            ocl_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))  # Bumped 2px more to the right
             set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_ocl_button.grid(row=0, column=2, sticky='w', padx=(8, 2))
+            set_ocl_button.grid(row=0, column=3, sticky='w', padx=(1, 2))  # Bumped 2px more to the right
+            # Also move the live value display to column 1
+            ocl_label_frame.grid(row=0, column=1, sticky='w')
             ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
 
             # In-memory OCL live value display
