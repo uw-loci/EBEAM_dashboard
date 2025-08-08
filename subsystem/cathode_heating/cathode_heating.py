@@ -110,6 +110,8 @@ class CathodeHeatingSubsystem:
         self.ramp_toggle_buttons = []
         self.user_set_voltages = [None, None, None]
         self.user_set_currents = [None, None, None]
+        self.ovl_live_values = [None, None, None]
+        self.ocl_live_values = [None, None, None]
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is minimum ps resolution
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is minimum ps resolution
         self.ramp_status = [True, True, True]
@@ -572,7 +574,7 @@ class CathodeHeatingSubsystem:
             ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ovl_display_frame.configure(bg='#d9d9d9')
             ovl_display_frame.pack(side='left', padx=(34, 0))  # Bumped 2px more to the right
-            ovl_readback = tk.StringVar()
+            ovl_readback = tk.StringVar(value="--")
             ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
             ovl_live_label.pack(side='left')
             ovl_unit_label = ttk.Label(ovl_display_frame, text=" V", style="Bold.TLabel")
@@ -604,6 +606,10 @@ class CathodeHeatingSubsystem:
             self.ovl_live_values[i] = val_ovl
             update_ovl_live_box(i)
 
+            # Force placeholder if no PS object yet
+            if len(self.power_supplies) <= i or self.power_supplies[i] is None:
+                ovl_readback.set("--")
+
             # Set button updates memory and live box on success
             def set_and_update_ovl(idx=i):
                 if self.set_overvoltage_limit(idx):
@@ -631,7 +637,7 @@ class CathodeHeatingSubsystem:
             ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ocl_display_frame.configure(bg='#d9d9d9')
             ocl_display_frame.pack(side='left', padx=(34, 0))  # Bumped 2px more to the right
-            ocl_readback = tk.StringVar()
+            ocl_readback = tk.StringVar(value="--")
             ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
             ocl_live_label.pack(side='left')
             ocl_unit_label = ttk.Label(ocl_display_frame, text=" A", style="Bold.TLabel")
@@ -662,6 +668,10 @@ class CathodeHeatingSubsystem:
                     val_ocl = None
             self.ocl_live_values[i] = val_ocl
             update_ocl_live_box(i)
+
+            # Force placeholder if no PS object yet
+            if len(self.power_supplies) <= i or self.power_supplies[i] is None:
+                ocl_readback.set("--")
 
             # Set button updates memory and live box on success
             def set_and_update_ocl(idx=i):
