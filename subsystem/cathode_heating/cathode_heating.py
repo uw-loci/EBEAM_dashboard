@@ -525,8 +525,8 @@ class CathodeHeatingSubsystem:
 
             ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
-            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(40, 0))
+            log_power_settings_button = ttk.Button(config_tab, text="Log P.S. Settings", width=15, command=lambda x=i: self.log_power_and_check_settings(x))
+            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(182, 0))
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
@@ -542,7 +542,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             otl_display_frame = tk.Frame(otl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             otl_display_frame.configure(bg='#d9d9d9')
-            otl_display_frame.pack(side='left', padx=(8, 0))
+            otl_display_frame.pack(side='left', padx=(29, 0))
             # Bind live value to the actual overtemp_limit_vars[i]
             otl_live_label = ttk.Label(otl_display_frame, textvariable=self.overtemp_limit_vars[i], style='Bold.TLabel', width=6, anchor='e')
             otl_live_label.pack(side='left')
@@ -551,7 +551,7 @@ class CathodeHeatingSubsystem:
 
             temp_overtemp_var = tk.StringVar(value=str(self.overtemp_limit_vars[i].get()))
             overtemp_entry = ttk.Entry(otl_control_frame, textvariable=temp_overtemp_var, width=7)
-            overtemp_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            overtemp_entry.grid(row=0, column=1, sticky='w', padx=(6, 2))
             set_overtemp_button = ttk.Button(otl_control_frame, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
             set_overtemp_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
 
@@ -559,7 +559,6 @@ class CathodeHeatingSubsystem:
             def sync_otl_entry(*args, idx=i, var=temp_overtemp_var):
                 var.set(str(self.overtemp_limit_vars[idx].get()))
             self.overtemp_limit_vars[i].trace_add('write', sync_otl_entry)
-
 
             # Overvoltage limit controls in a frame, with live value next to label
             ovl_control_frame = ttk.Frame(config_tab)
@@ -573,7 +572,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ovl_display_frame.configure(bg='#d9d9d9')
-            ovl_display_frame.pack(side='left', padx=(34, 0))  # Bumped 2px more to the right
+            ovl_display_frame.pack(side='left', padx=(34, 0))
             ovl_readback = tk.StringVar(value="--")
             ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
             ovl_live_label.pack(side='left')
@@ -582,47 +581,55 @@ class CathodeHeatingSubsystem:
 
             temp_overvoltage_var = self.overvoltage_limit_vars[i]
             overvoltage_entry = ttk.Entry(ovl_control_frame, textvariable=temp_overvoltage_var, width=7)
-            overvoltage_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))  # Bumped 2px more to the right
-            set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=0, column=3, sticky='w', padx=(1, 2))  # Bumped 2px more to the right
+            overvoltage_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))
+            set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4)
+            set_overvoltage_button.grid(row=0, column=3, sticky='w', padx=(1, 2))
             # Also move the live value display to column 1
             ovl_label_frame.grid(row=0, column=1, sticky='w')
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
-            # In-memory OVL live value display
-            def update_ovl_live_box(idx=i):
-                val = self.ovl_live_values[idx]
-                if val is not None:
-                    ovl_readback.set(f"{val:.2f}")
-                else:
-                    ovl_readback.set("--")
+            # FIXED: Create update function with proper closure
+            def create_ovl_update_function(cathode_idx, readback_var):
+                def update_ovl_live_box():
+                    val = self.ovl_live_values[cathode_idx]
+                    if val is not None:
+                        readback_var.set(f"{val:.2f}")
+                    else:
+                        readback_var.set("--")
+                return update_ovl_live_box
+
+            update_ovl_live_box = create_ovl_update_function(i, ovl_readback)
+            
             # On startup, try to read initial value from hardware
             val_ovl = None
-            if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+            if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > i and self.power_supplies[i] is not None:
                 try:
                     val_ovl = self.power_supplies[i].get_over_voltage_protection()
                 except Exception:
                     val_ovl = None
             self.ovl_live_values[i] = val_ovl
-            update_ovl_live_box(i)
+            update_ovl_live_box()
 
             # Force placeholder if no PS object yet
             if len(self.power_supplies) <= i or self.power_supplies[i] is None:
                 ovl_readback.set("--")
 
-            # Set button updates memory and live box on success
-            def set_and_update_ovl(idx=i):
-                if self.set_overvoltage_limit(idx):
-                    val = None
-                    if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
-                        try:
-                            val = self.power_supplies[idx].get_over_voltage_protection()
-                        except Exception:
-                            val = None
-                    self.ovl_live_values[idx] = val
-                    update_ovl_live_box(idx)
-            set_overvoltage_button.configure(command=set_and_update_ovl)
+            # FIXED: Create set function with proper closure
+            def create_ovl_set_function(cathode_idx, update_func):
+                def set_and_update_ovl():
+                    if self.set_overvoltage_limit(cathode_idx):
+                        val = None
+                        if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None:
+                            try:
+                                val = self.power_supplies[cathode_idx].get_over_voltage_protection()
+                            except Exception:
+                                val = None
+                        self.ovl_live_values[cathode_idx] = val
+                        update_func()
+                return set_and_update_ovl
 
+            set_and_update_ovl = create_ovl_set_function(i, update_ovl_live_box)
+            set_overvoltage_button.configure(command=set_and_update_ovl)
 
             # Over Current Limit controls in a frame, with live value next to entry
             ocl_control_frame = ttk.Frame(config_tab)
@@ -636,7 +643,7 @@ class CathodeHeatingSubsystem:
             # Live value display (styled box)
             ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ocl_display_frame.configure(bg='#d9d9d9')
-            ocl_display_frame.pack(side='left', padx=(34, 0))  # Bumped 2px more to the right
+            ocl_display_frame.pack(side='left', padx=(34, 0))
             ocl_readback = tk.StringVar(value="--")
             ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
             ocl_live_label.pack(side='left')
@@ -645,47 +652,55 @@ class CathodeHeatingSubsystem:
 
             temp_overcurrent_var = self.overcurrent_limit_vars[i]
             ocl_entry = ttk.Entry(ocl_control_frame, textvariable=temp_overcurrent_var, width=7)
-            ocl_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))  # Bumped 2px more to the right
-            set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_ocl_button.grid(row=0, column=3, sticky='w', padx=(1, 2))  # Bumped 2px more to the right
+            ocl_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))
+            set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4)
+            set_ocl_button.grid(row=0, column=3, sticky='w', padx=(1, 2))
             # Also move the live value display to column 1
             ocl_label_frame.grid(row=0, column=1, sticky='w')
             ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
 
-            # In-memory OCL live value display
-            def update_ocl_live_box(idx=i):
-                val = self.ocl_live_values[idx]
-                if val is not None:
-                    ocl_readback.set(f"{val:.2f}")
-                else:
-                    ocl_readback.set("--")
+            # FIXED: Create update function with proper closure
+            def create_ocl_update_function(cathode_idx, readback_var):
+                def update_ocl_live_box():
+                    val = self.ocl_live_values[cathode_idx]
+                    if val is not None:
+                        readback_var.set(f"{val:.2f}")
+                    else:
+                        readback_var.set("--")
+                return update_ocl_live_box
+
+            update_ocl_live_box = create_ocl_update_function(i, ocl_readback)
+            
             # On startup, try to read initial value from hardware
             val_ocl = None
-            if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[i] is not None:
+            if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > i and self.power_supplies[i] is not None:
                 try:
                     val_ocl = self.power_supplies[i].get_over_current_protection()
                 except Exception:
                     val_ocl = None
             self.ocl_live_values[i] = val_ocl
-            update_ocl_live_box(i)
+            update_ocl_live_box()
 
             # Force placeholder if no PS object yet
             if len(self.power_supplies) <= i or self.power_supplies[i] is None:
                 ocl_readback.set("--")
 
-            # Set button updates memory and live box on success
-            def set_and_update_ocl(idx=i):
-                if self.set_overcurrent_limit(idx):
-                    val = None
-                    if hasattr(self, 'power_supplies') and self.power_supplies and self.power_supplies[idx] is not None:
-                        try:
-                            val = self.power_supplies[idx].get_over_current_protection()
-                        except Exception:
-                            val = None
-                    self.ocl_live_values[idx] = val
-                    update_ocl_live_box(idx)
-            set_ocl_button.configure(command=set_and_update_ocl)
+            # FIXED: Create set function with proper closure
+            def create_ocl_set_function(cathode_idx, update_func):
+                def set_and_update_ocl():
+                    if self.set_overcurrent_limit(cathode_idx):
+                        val = None
+                        if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None:
+                            try:
+                                val = self.power_supplies[cathode_idx].get_over_current_protection()
+                            except Exception:
+                                val = None
+                        self.ocl_live_values[cathode_idx] = val
+                        update_func()
+                return set_and_update_ocl
 
+            set_and_update_ocl = create_ocl_set_function(i, update_ocl_live_box)
+            set_ocl_button.configure(command=set_and_update_ocl)
 
             # Current slew rate controls in a frame, with live value next to label
             csr_control_frame = ttk.Frame(config_tab)
@@ -759,9 +774,13 @@ class CathodeHeatingSubsystem:
                 self._sync_vsr_funcs = []
             self._sync_vsr_funcs.append(sync_vsr)
 
-            # Add dropdown for lookup table dataset selection
-            lookup_table_label = ttk.Label(config_tab, text='Select Lookup Table Dataset:', style='LeftAlign.TLabel')
-            lookup_table_label.grid(row=7, column=0, sticky='e')
+
+            # Add dropdown for lookup table dataset selection in its own frame
+            lut_frame = ttk.Frame(config_tab)
+            lut_frame.grid(row=7, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            lookup_table_label = ttk.Label(lut_frame, text='Select Lookup Table Dataset:', style='LeftAlign.TLabel')
+            lookup_table_label.pack(side='left')
 
             # Build options: all loaded LUT keys, with 'Default' first if present
             lookup_table_options = list(self.current_options.keys())
@@ -769,8 +788,8 @@ class CathodeHeatingSubsystem:
                 lookup_table_options.remove('Default')
                 lookup_table_options.insert(0, 'Default')
 
-            lookup_table_box = ttk.Combobox(config_tab, values=lookup_table_options, state='readonly', width=15)
-            lookup_table_box.grid(row=7, column=1, sticky='w')
+            lookup_table_box = ttk.Combobox(lut_frame, values=lookup_table_options, state='readonly', width=19)
+            lookup_table_box.pack(side='left', padx=(8, 0))
 
             # Set the default value to 'Default' if present, else first option
             if 'Default' in lookup_table_options:
@@ -811,11 +830,12 @@ class CathodeHeatingSubsystem:
             # Add label for Temperature Controller
             ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
 
-            # Overtemperature status display
-            overtemp_status_label = ttk.Label(config_tab, text='Overtemp Status:', style='LeftAlign.TLabel')
-            overtemp_status_label.grid(row=10, column=0, sticky='w')
-            # overtemp_status_label.pack(side='left')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=10, column=1, sticky='w')
+            # Overtemperature status display in its own frame
+            overtemp_status_frame = ttk.Frame(config_tab)
+            overtemp_status_frame.grid(row=10, column=0, columnspan=3, sticky='w', pady=(2, 2))
+            overtemp_status_label = ttk.Label(overtemp_status_frame, text='Overtemp Status:', style='LeftAlign.TLabel')
+            overtemp_status_label.pack(side='left')
+            ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
