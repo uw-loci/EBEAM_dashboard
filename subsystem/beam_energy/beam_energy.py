@@ -31,34 +31,29 @@ class BeamEnergySubsystem:
         self.poll()
 
     def poll(self):
-        try:
-            line = self.driver.readline() if hasattr(self.driver, "readline") else None
-            if line:
-                vals = {k.upper(): v.strip() for k, v in self.pattern_match.findall(line)}
-                if all(k in vals for k in ("SET", "HV", "I")):
-                    s, hv, i = vals["SET"], vals["HV"], vals["I"]
+        self.frame.after(self.poll_ms, self.poll)
+        line = self.driver.readline() if hasattr(self.driver, "readline") else None
+        if line:
+            vals = {k.upper(): v.strip() for k, v in self.pattern_match.findall(line)}
+            if all(k in vals for k in ("SET", "HV", "I")):
+                s, hv, i = vals["SET"], vals["HV"], vals["I"]
 
-                    self.var_set.set(s)
-                    self.var_voltage.set(hv)
-                    self.var_current.set(i)
+                self.var_set.set(s)
+                self.var_voltage.set(hv)
+                self.var_current.set(i)
 
-                    self.log(
-                        f"Set: {vals.get('SET','--')}, High Voltage: {vals.get('HV','--')}, Current: {vals.get('I','--')}",
-                        level=LogLevel.DEBUG
-                    )
+                self.log(
+                    f"Set: {vals.get('SET','--')}, High Voltage: {vals.get('HV','--')}, Current: {vals.get('I','--')}",
+                    level=LogLevel.DEBUG
+                )
 
-                    if self.logger and hasattr(self.logger, "update_field"):
-                        self.logger.update_field("Set", vals.get("SET", "--"))
-                        self.logger.update_field("High Voltage", vals.get("HV",  "--"))
-                        self.logger.update_field("Current", vals.get("I",   "--"))
-                else:
-                    self.log(line)
-
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(f"[BeamEnergySubsystem] poll error: {e}")
-        finally:
-            self.frame.after(self.poll_ms, self.poll)
+                if self.logger and hasattr(self.logger, "update_field"):
+                    self.logger.update_field("Set", vals.get("SET", "--"))
+                    self.logger.update_field("High Voltage", vals.get("HV",  "--"))
+                    self.logger.update_field("Current", vals.get("I",   "--"))
+            else:
+                self.log(line)
+            
 
     def update_com_port(self, com_port):
         if hasattr(self.driver, "update_port"):
