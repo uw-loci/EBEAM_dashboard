@@ -34,7 +34,6 @@ class BeamEnergySubsystem:
         try:
             line = self.driver.readline() if hasattr(self.driver, "readline") else None
             if line:
-                parts = line.split(',')
                 vals = {k.upper(): v.strip() for k, v in self.pattern_match.findall(line)}
                 if all(k in vals for k in ("SET", "HV", "I")):
                     s, hv, i = vals["SET"], vals["HV"], vals["I"]
@@ -43,11 +42,15 @@ class BeamEnergySubsystem:
                     self.var_voltage.set(hv)
                     self.var_current.set(i)
 
-                    self.log(f"Set: {vals['SET']}, High Voltage: {vals['HV']}, Current: {vals['I']}")
+                    self.log(
+                        f"Set: {vals.get('SET','--')}, High Voltage: {vals.get('HV','--')}, Current: {vals.get('I','--')}",
+                        level=LogLevel.DEBUG
+                    )
 
-                    self.logger.update_field('High Voltage', vals['HV'])
-                    self.logger.update_field('Current', vals['I'])
-                    self.logger.update_field('Set', vals['SET'])
+                    if self.logger and hasattr(self.logger, "update_field"):
+                        self.logger.update_field("Set", vals.get("SET", "--"))
+                        self.logger.update_field("High Voltage", vals.get("HV",  "--"))
+                        self.logger.update_field("Current", vals.get("I",   "--"))
                 else:
                     self.log(line)
 
