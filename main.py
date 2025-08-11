@@ -15,7 +15,7 @@ SUBSYSTEMS = [
     'TempControllers', 
     'Interlocks', 
     'ProcessMonitors',
-    'BeamEnergySubsystem'
+    'BeamEnergy'
 ]
 
 def create_dummy_port_labels(subsystems):

@@ -2,7 +2,7 @@ import serial
 from utils import LogLevel
 from serial import EIGHTBITS, PARITY_NONE, STOPBITS_ONE
 
-class BeamEnergy:
+class BeamEnergyDriver:
     def __init__(self, port="", baudrate=9600, timeout=1.0, logger=None):
         self.port = port or ""
         self.baudrate = baudrate
@@ -42,12 +42,13 @@ class BeamEnergy:
     def readline(self):
         """Return one decoded line or None."""
         if not self.is_connected():
-            self.log(f"Connection failed on {self.port}: {e}", LogLevel.WARNING)
+            return None
         try:
             raw = self.ser.readline()
-            self.log(raw.decode(errors="ignore").strip() if raw else None)
-        except Exception as e:
-            self.log(f"Serial read error on {self.port}: {e}", LogLevel.WARNING)
+            return raw.decode(errors="ignore").strip() if raw else None
+        except Exception as exc:
+            self.log(f"Serial read error on {self.port}: {exc}", LogLevel.WARNING)
+            return None
 
 
     def log(self, message, level=LogLevel.INFO):

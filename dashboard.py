@@ -303,7 +303,7 @@ class EBEAMSystemDashboard:
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             ),
-            'Beam Energy': subsystem.BeamEnergySubsystem(
+            'Beam Energy': subsystem.BeamEnergy(
                 self.frames['Beam Energy'],
                 com_port = self.com_ports.get('BeamEnergy', ''),
                 logger=self.logger

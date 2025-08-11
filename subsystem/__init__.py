@@ -1,5 +1,5 @@
 from .vtrx.vtrx import VTRXSubsystem
-from .beam_energy.beam_energy import BeamEnergySubsystem
+from .beam_energy.beam_energy import BeamEnergy
 from .process_monitor.process_monitor import ProcessMonitorSubsystem
 from .interlocks.interlocks import InterlocksSubsystem
 from .oil_system.oil_system import OilSubsystem
@@ -19,5 +19,5 @@ __all__ = [
     'BeamExtractionSubsystem',
     'BeamPulseSubsystem',
     'DeflectionMonitorSubsystem',
-    'BeamEnergySubsystem'
+    'BeamEnergy'
 ]
