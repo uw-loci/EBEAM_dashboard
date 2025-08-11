@@ -595,7 +595,20 @@ class CathodeHeatingSubsystem:
                     if val is not None:
                         readback_var.set(f"{val:.2f}")
                     else:
-                        readback_var.set("--")
+                        # Try to get current value from power supply if available
+                        if (hasattr(self, 'power_supplies') and self.power_supplies and 
+                            len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None):
+                            try:
+                                current_val = self.power_supplies[cathode_idx].get_over_voltage_protection()
+                                if current_val is not None:
+                                    self.ovl_live_values[cathode_idx] = current_val
+                                    readback_var.set(f"{current_val:.2f}")
+                                else:
+                                    readback_var.set("N/A")
+                            except Exception:
+                                readback_var.set("N/A")
+                        else:
+                            readback_var.set("N/A")
                 return update_ovl_live_box
 
             update_ovl_live_box = create_ovl_update_function(i, ovl_readback)
@@ -610,21 +623,13 @@ class CathodeHeatingSubsystem:
             self.ovl_live_values[i] = val_ovl
             update_ovl_live_box()
 
-            # Force placeholder if no PS object yet
-            if len(self.power_supplies) <= i or self.power_supplies[i] is None:
-                ovl_readback.set("--")
-
             # FIXED: Create set function with proper closure
             def create_ovl_set_function(cathode_idx, update_func):
                 def set_and_update_ovl():
                     if self.set_overvoltage_limit(cathode_idx):
-                        val = None
-                        if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None:
-                            try:
-                                val = self.power_supplies[cathode_idx].get_over_voltage_protection()
-                            except Exception:
-                                val = None
-                        self.ovl_live_values[cathode_idx] = val
+                        # Update live value directly with the set value instead of polling
+                        set_value = float(self.overvoltage_limit_vars[cathode_idx].get())
+                        self.ovl_live_values[cathode_idx] = set_value
                         update_func()
                 return set_and_update_ovl
 
@@ -666,7 +671,20 @@ class CathodeHeatingSubsystem:
                     if val is not None:
                         readback_var.set(f"{val:.2f}")
                     else:
-                        readback_var.set("--")
+                        # Try to get current value from power supply if available
+                        if (hasattr(self, 'power_supplies') and self.power_supplies and 
+                            len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None):
+                            try:
+                                current_val = self.power_supplies[cathode_idx].get_over_current_protection()
+                                if current_val is not None:
+                                    self.ocl_live_values[cathode_idx] = current_val
+                                    readback_var.set(f"{current_val:.2f}")
+                                else:
+                                    readback_var.set("N/A")
+                            except Exception:
+                                readback_var.set("N/A")
+                        else:
+                            readback_var.set("N/A")
                 return update_ocl_live_box
 
             update_ocl_live_box = create_ocl_update_function(i, ocl_readback)
@@ -681,21 +699,13 @@ class CathodeHeatingSubsystem:
             self.ocl_live_values[i] = val_ocl
             update_ocl_live_box()
 
-            # Force placeholder if no PS object yet
-            if len(self.power_supplies) <= i or self.power_supplies[i] is None:
-                ocl_readback.set("--")
-
             # FIXED: Create set function with proper closure
             def create_ocl_set_function(cathode_idx, update_func):
                 def set_and_update_ocl():
                     if self.set_overcurrent_limit(cathode_idx):
-                        val = None
-                        if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None:
-                            try:
-                                val = self.power_supplies[cathode_idx].get_over_current_protection()
-                            except Exception:
-                                val = None
-                        self.ocl_live_values[cathode_idx] = val
+                        # Update live value directly with the set value instead of polling
+                        set_value = float(self.overcurrent_limit_vars[cathode_idx].get())
+                        self.ocl_live_values[cathode_idx] = set_value
                         update_func()
                 return set_and_update_ocl
 
@@ -1295,10 +1305,19 @@ class CathodeHeatingSubsystem:
                         f"{raw_value:.2f} V", LogLevel.INFO
                     )
                     msgbox.showinfo("Success", f"OVP set to {raw_value:.2f} V for Cathode {['A','B','C'][index]}")
+                    return True  # Return True to indicate success
 
         except ValueError as e:
             self.log(f"Invalid input for OVP limit for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Error", f"Invalid input for OVP limit: {str(e)}")
+            return False  # Return False to indicate failure
+
+        except Exception as e:
+            self.log(f"Unexpected error setting OVP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Unexpected error setting OVP: {str(e)}")
+            return False
+
+        return False  # Return False if we get here without success
 
     def set_overcurrent_limit(self, index):
         if not self.power_supply_status[index]:
@@ -1327,10 +1346,19 @@ class CathodeHeatingSubsystem:
             else:
                 self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {raw_value:.2f}A", LogLevel.INFO)
                 msgbox.showinfo("Success", f"OCP set to {raw_value:.2f}A for Cathode {['A', 'B', 'C'][index]}")
+                return True  # Return True to indicate success
 
-        except ValueError:
-            self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-            msgbox.showerror("Error", "Invalid input for OCP limit. Please enter a valid number.")
+        except ValueError as e:
+            self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Invalid input for OCP limit: {str(e)}")
+            return False  # Return False to indicate failure
+
+        except Exception as e:
+            self.log(f"Unexpected error setting OCP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Unexpected error setting OCP: {str(e)}")
+            return False
+
+        return False  # Return False if we get here without success
 
     def update_log_power_settings_button_states(self):
         for i, power_supply in enumerate(self.power_supplies):
