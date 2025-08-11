@@ -190,11 +190,11 @@ class DP16ProcessMonitor:
                 # Check if client is still connected
                 if not self.client.is_socket_open():
                     self.consecutive_connection_errors += 1
-                    # Mark all disconnected if we exceed error threshold
-                    if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
-                        with self.response_lock:
-                            for unit in self.unit_numbers:
-                                self.temperature_readings[unit] = self.DISCONNECTED
+                    # # Mark all disconnected if we exceed error threshold
+                    # if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
+                    #     with self.response_lock:
+                    #         for unit in self.unit_numbers:
+                    #             self.temperature_readings[unit] = self.DISCONNECTED
                     
                     # Try to reconnect
                     if not self.connect():
@@ -210,7 +210,7 @@ class DP16ProcessMonitor:
                         self._poll_single_unit(unit) 
                         self.consecutive_connection_errors = 0  # Reset on successful poll
                         time.sleep(0.1)
-                    except ModbusIOException as e:
+                    except (ModbusIOException, ValueError) as e:
                         self._handle_poll_error(unit, e)
                         
                         # Rate limited error logging
