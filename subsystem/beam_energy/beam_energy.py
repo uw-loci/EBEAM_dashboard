@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from instrumentctl.Beam_Energy.beamEnergy_driver import BeamEnergy
 import re
+from utils import LogLevel
 
 class BeamEnergySubsystem:
     def __init__(self, parent, com_port="", logger=None, poll_ms=100):
