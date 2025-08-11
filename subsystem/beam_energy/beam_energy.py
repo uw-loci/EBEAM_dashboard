@@ -45,10 +45,10 @@ class BeamEnergy:
             if "HV"  in vals: self.var_voltage.set(vals["HV"])
             if "I"   in vals: self.var_current.set(vals["I"])
 
-            if self.logger and hasattr(self.logger, "update_field"):
-                self.logger.update_field("Set",          vals.get("SET", "--"))
-                self.logger.update_field("High Voltage", vals.get("HV",  "--"))
-                self.logger.update_field("Current",      vals.get("I",   "--"))
+            
+            self.logger.update_field("Set", vals.get("SET", "--"))
+            self.logger.update_field("High Voltage", vals.get("HV",  "--"))
+            self.logger.update_field("Current", vals.get("I",   "--"))
 
             self.log(f"Set: {vals.get('SET','--')}, HV: {vals.get('HV','--')}, I: {vals.get('I','--')}",
                     level=LogLevel.DEBUG)
