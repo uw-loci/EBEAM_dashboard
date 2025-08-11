@@ -549,7 +549,8 @@ class CathodeHeatingSubsystem:
             otl_unit_label = ttk.Label(otl_display_frame, text=" C", style="Bold.TLabel")
             otl_unit_label.pack(side='left')
 
-            temp_overtemp_var = tk.StringVar(value=str(self.overtemp_limit_vars[i].get()))
+            # temp_overtemp_var = tk.StringVar(value=str(self.overtemp_limit_vars[i].get()))
+            temp_overtemp_var = tk.StringVar(value="")
             overtemp_entry = ttk.Entry(otl_control_frame, textvariable=temp_overtemp_var, width=7)
             overtemp_entry.grid(row=0, column=1, sticky='w', padx=(6, 2))
             set_overtemp_button = ttk.Button(otl_control_frame, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
@@ -579,7 +580,8 @@ class CathodeHeatingSubsystem:
             ovl_unit_label = ttk.Label(ovl_display_frame, text=" V", style="Bold.TLabel")
             ovl_unit_label.pack(side='left')
 
-            temp_overvoltage_var = self.overvoltage_limit_vars[i]
+            # temp_overvoltage_var = self.overvoltage_limit_vars[i]
+            temp_overvoltage_var = tk.StringVar(value="")  # Initialize with an empty string
             overvoltage_entry = ttk.Entry(ovl_control_frame, textvariable=temp_overvoltage_var, width=7)
             overvoltage_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))
             set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4)
@@ -607,16 +609,29 @@ class CathodeHeatingSubsystem:
             update_ovl_live_box()
 
             # FIXED: Create set function with proper closure
-            def create_ovl_set_function(cathode_idx, update_func):
+            def create_ovl_set_function(cathode_idx, update_func, entry_var):
                 def set_and_update_ovl():
+                    # First, update the internal variable with the value from the entry box
+                    try:
+                        entry_value = entry_var.get()
+                        if entry_value.strip() == "":
+                            msgbox.showerror("Error", "Please enter a value for overvoltage limit.")
+                            return
+                        self.overvoltage_limit_vars[cathode_idx].set(float(entry_value))
+                    except ValueError:
+                        msgbox.showerror("Error", "Please enter a valid number for overvoltage limit.")
+                        return
+                    
+                    # Now call the set function
                     if self.set_overvoltage_limit(cathode_idx):
                         # Update live value directly with the set value instead of polling
                         set_value = float(self.overvoltage_limit_vars[cathode_idx].get())
                         self.ovl_live_values[cathode_idx] = set_value
                         update_func()
+                        entry_var.set("")  # Clear the entry box
                 return set_and_update_ovl
 
-            set_and_update_ovl = create_ovl_set_function(i, update_ovl_live_box)
+            set_and_update_ovl = create_ovl_set_function(i, update_ovl_live_box, temp_overvoltage_var)
             set_overvoltage_button.configure(command=set_and_update_ovl)
 
             # Over Current Limit controls in a frame, with live value next to entry
@@ -638,7 +653,8 @@ class CathodeHeatingSubsystem:
             ocl_unit_label = ttk.Label(ocl_display_frame, text=" A", style="Bold.TLabel")
             ocl_unit_label.pack(side='left')
 
-            temp_overcurrent_var = self.overcurrent_limit_vars[i]
+            # temp_overcurrent_var = self.overcurrent_limit_vars[i]
+            temp_overcurrent_var = tk.StringVar(value="")
             ocl_entry = ttk.Entry(ocl_control_frame, textvariable=temp_overcurrent_var, width=7)
             ocl_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))
             set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4)
@@ -666,16 +682,29 @@ class CathodeHeatingSubsystem:
             update_ocl_live_box()
 
             # FIXED: Create set function with proper closure
-            def create_ocl_set_function(cathode_idx, update_func):
+            def create_ocl_set_function(cathode_idx, update_func, entry_var):
                 def set_and_update_ocl():
+                    # First, update the internal variable with the value from the entry box
+                    try:
+                        entry_value = entry_var.get()
+                        if entry_value.strip() == "":
+                            msgbox.showerror("Error", "Please enter a value for overcurrent limit.")
+                            return
+                        self.overcurrent_limit_vars[cathode_idx].set(float(entry_value))
+                    except ValueError:
+                        msgbox.showerror("Error", "Please enter a valid number for overcurrent limit.")
+                        return
+                    
+                    # Now call the set function
                     if self.set_overcurrent_limit(cathode_idx):
                         # Update live value directly with the set value instead of polling
                         set_value = float(self.overcurrent_limit_vars[cathode_idx].get())
                         self.ocl_live_values[cathode_idx] = set_value
                         update_func()
+                        entry_var.set("")  # Clear the entry box
                 return set_and_update_ocl
 
-            set_and_update_ocl = create_ocl_set_function(i, update_ocl_live_box)
+            set_and_update_ocl = create_ocl_set_function(i, update_ocl_live_box, temp_overcurrent_var)
             set_ocl_button.configure(command=set_and_update_ocl)
 
             # Current slew rate controls in a frame, with live value next to label
