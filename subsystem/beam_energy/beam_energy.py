@@ -36,7 +36,14 @@ class BeamEnergySubsystem:
                 parts = line.split(',')
                 vals = {k.upper(): v.strip() for k, v in self.pattern_match.findall(line)}
                 if all(k in vals for k in ("Set", "HV", "I")):
+                    s, hv, i = vals["SET"], vals["HV"], vals["I"]
+
+                    self.var_set.set(s)
+                    self.var_voltage.set(hv)
+                    self.var_current.set(i)
+
                     self.log(f"Set: {vals['Set']}, High Voltage: {vals['HV']}, Current: {vals['I']}")
+                    
                     self.logger.update_field('High Voltage', vals['HV'])
                     self.logger.update_field('Current', vals['I'])
                     self.logger.update_field('Set', vals['Set'])
