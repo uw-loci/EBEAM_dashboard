@@ -9,9 +9,9 @@ class BeamEnergySubsystem:
         self.poll_ms = poll_ms
         self.frame = parent
 
-        self.var_set     = tk.StringVar(value="—")
-        self.var_current= tk.StringVar(value="—")
-        self.var_voltage = tk.StringVar(value="—")
+        self.var_set     = tk.StringVar(value="--")
+        self.var_current= tk.StringVar(value="--")
+        self.var_voltage = tk.StringVar(value="--")
 
         self.pattern_match = re.compile(r'\b(Set|HV|I)\s*:\s*([^,]+)')
 
@@ -35,18 +35,18 @@ class BeamEnergySubsystem:
             if line:
                 parts = line.split(',')
                 vals = {k.upper(): v.strip() for k, v in self.pattern_match.findall(line)}
-                if all(k in vals for k in ("Set", "HV", "I")):
+                if all(k in vals for k in ("SET", "HV", "I")):
                     s, hv, i = vals["SET"], vals["HV"], vals["I"]
 
                     self.var_set.set(s)
                     self.var_voltage.set(hv)
                     self.var_current.set(i)
 
-                    self.log(f"Set: {vals['Set']}, High Voltage: {vals['HV']}, Current: {vals['I']}")
-                    
+                    self.log(f"Set: {vals['SET']}, High Voltage: {vals['HV']}, Current: {vals['I']}")
+
                     self.logger.update_field('High Voltage', vals['HV'])
                     self.logger.update_field('Current', vals['I'])
-                    self.logger.update_field('Set', vals['Set'])
+                    self.logger.update_field('Set', vals['SET'])
                 else:
                     self.log(line)
 
@@ -65,3 +65,9 @@ class BeamEnergySubsystem:
             try: self.driver.ser.close()
             except: pass
             self.driver.ser = None
+
+    def log(self, message, level=LogLevel.INFO):
+        if self.logger:
+            self.logger.log(message, level)
+        else:
+            print(f"{level.name}: {message}")

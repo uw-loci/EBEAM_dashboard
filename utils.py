@@ -41,7 +41,10 @@ class Logger:
             "Cathode C - Heater Current: ": None,
             "Cathode A - Heater Voltage: ": None,
             "Cathode B - Heater Voltage: ": None,
-            "Cathode C - Heater Voltage: ": None
+            "Cathode C - Heater Voltage: ": None,
+            "High Voltage": None, 
+            "Current": None,
+            "Set": None
             }
         if log_to_file:
             self.setup_log_file()
