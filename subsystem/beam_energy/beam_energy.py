@@ -5,7 +5,7 @@ import re
 from utils import LogLevel
 
 class BeamEnergy:
-    def __init__(self, parent, com_port="", logger=None, poll_ms=100):
+    def __init__(self, parent, com_port="", logger=None, poll_ms=500):
         self.logger = logger
         self.poll_ms = poll_ms
         self.frame = parent
