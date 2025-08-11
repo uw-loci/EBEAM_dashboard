@@ -595,31 +595,14 @@ class CathodeHeatingSubsystem:
                     if val is not None:
                         readback_var.set(f"{val:.2f}")
                     else:
-                        # Try to get current value from power supply if available
-                        if (hasattr(self, 'power_supplies') and self.power_supplies and 
-                            len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None):
-                            try:
-                                current_val = self.power_supplies[cathode_idx].get_over_voltage_protection()
-                                if current_val is not None:
-                                    self.ovl_live_values[cathode_idx] = current_val
-                                    readback_var.set(f"{current_val:.2f}")
-                                else:
-                                    readback_var.set("N/A")
-                            except Exception:
-                                readback_var.set("N/A")
-                        else:
-                            readback_var.set("N/A")
+                        readback_var.set("N/A")
                 return update_ovl_live_box
 
             update_ovl_live_box = create_ovl_update_function(i, ovl_readback)
             
-            # On startup, try to read initial value from hardware
-            val_ovl = None
-            if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > i and self.power_supplies[i] is not None:
-                try:
-                    val_ovl = self.power_supplies[i].get_over_voltage_protection()
-                except Exception:
-                    val_ovl = None
+            # Initialize with default value (1.0V) instead of reading from hardware
+            # Power supplies are locked when connected, so no manual changes possible
+            val_ovl = 1.0  # Default overvoltage limit value
             self.ovl_live_values[i] = val_ovl
             update_ovl_live_box()
 
@@ -671,31 +654,14 @@ class CathodeHeatingSubsystem:
                     if val is not None:
                         readback_var.set(f"{val:.2f}")
                     else:
-                        # Try to get current value from power supply if available
-                        if (hasattr(self, 'power_supplies') and self.power_supplies and 
-                            len(self.power_supplies) > cathode_idx and self.power_supplies[cathode_idx] is not None):
-                            try:
-                                current_val = self.power_supplies[cathode_idx].get_over_current_protection()
-                                if current_val is not None:
-                                    self.ocl_live_values[cathode_idx] = current_val
-                                    readback_var.set(f"{current_val:.2f}")
-                                else:
-                                    readback_var.set("N/A")
-                            except Exception:
-                                readback_var.set("N/A")
-                        else:
-                            readback_var.set("N/A")
+                        readback_var.set("N/A")
                 return update_ocl_live_box
 
             update_ocl_live_box = create_ocl_update_function(i, ocl_readback)
             
-            # On startup, try to read initial value from hardware
-            val_ocl = None
-            if hasattr(self, 'power_supplies') and self.power_supplies and len(self.power_supplies) > i and self.power_supplies[i] is not None:
-                try:
-                    val_ocl = self.power_supplies[i].get_over_current_protection()
-                except Exception:
-                    val_ocl = None
+            # Initialize with default value (9.0A) instead of reading from hardware  
+            # Power supplies are locked when connected, so no manual changes possible
+            val_ocl = 9.0  # Default overcurrent limit value
             self.ocl_live_values[i] = val_ocl
             update_ocl_live_box()
 
