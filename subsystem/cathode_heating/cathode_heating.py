@@ -1349,7 +1349,7 @@ class CathodeHeatingSubsystem:
                         f"OVP successfully set and confirmed for Cathode {['A','B','C'][index]}: "
                         f"{raw_value:.2f} V", LogLevel.INFO
                     )
-                    msgbox.showinfo("Success", f"OVP set to {raw_value:.2f} V for Cathode {['A','B','C'][index]}")
+                    # msgbox.showinfo("Success", f"OVP set to {raw_value:.2f} V for Cathode {['A','B','C'][index]}")
                     return True  # Return True to indicate success
 
         except ValueError as e:
@@ -1390,7 +1390,7 @@ class CathodeHeatingSubsystem:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:.2f}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
                 self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {raw_value:.2f}A", LogLevel.INFO)
-                msgbox.showinfo("Success", f"OCP set to {raw_value:.2f}A for Cathode {['A', 'B', 'C'][index]}")
+                # msgbox.showinfo("Success", f"OCP set to {raw_value:.2f}A for Cathode {['A', 'B', 'C'][index]}")
                 return True  # Return True to indicate success
 
         except ValueError as e:
