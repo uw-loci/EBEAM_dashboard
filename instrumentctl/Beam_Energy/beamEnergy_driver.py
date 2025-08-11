@@ -41,13 +41,6 @@ class BeamEnergy:
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
 
-    def flush_serial(self):
-        if self.is_connected():
-            self.log("Flushing serial input buffer for Beam Energy", LogLevel.DEBUG)
-            self.ser.reset_input_buffer()
-        else:
-            self.log("Serial port for Beam Energy is not open. Cannot flush.", LogLevel.Warning)
-
     def read_stream(self):
         """
         Continuously read lines and log them (no parsing).
@@ -62,13 +55,11 @@ class BeamEnergy:
             raw = self.ser.readline()
             if not raw:
                 continue
-
             line = raw.decode(errors="ignore").rstrip("\r\n")
             ts = time.strftime('%Y-%m-%d %H:%M:%S.%f')
             entry = f"[{ts}] {line}"
 
             self.log(entry, LogLevel.INFO)
-
 
         except KeyboardInterrupt:
             self.log("Stopped reading stream (KeyboardInterrupt).", LogLevel.INFO)
