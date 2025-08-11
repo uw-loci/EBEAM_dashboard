@@ -617,18 +617,20 @@ class CathodeHeatingSubsystem:
                         if entry_value.strip() == "":
                             msgbox.showerror("Error", "Please enter a value for overvoltage limit.")
                             return
-                        self.overvoltage_limit_vars[cathode_idx].set(float(entry_value))
+                        new_value = float(entry_value)
+                        self.overvoltage_limit_vars[cathode_idx].set(new_value)
+                        
+                        # Update live value and clear entry box regardless of power supply communication
+                        self.ovl_live_values[cathode_idx] = new_value
+                        update_func()
+                        entry_var.set("")  # Clear the entry box
+                        
+                        # Try to set the actual power supply value
+                        self.set_overvoltage_limit(cathode_idx)
+                        
                     except ValueError:
                         msgbox.showerror("Error", "Please enter a valid number for overvoltage limit.")
                         return
-                    
-                    # Now call the set function
-                    if self.set_overvoltage_limit(cathode_idx):
-                        # Update live value directly with the set value instead of polling
-                        set_value = float(self.overvoltage_limit_vars[cathode_idx].get())
-                        self.ovl_live_values[cathode_idx] = set_value
-                        update_func()
-                        entry_var.set("")  # Clear the entry box
                 return set_and_update_ovl
 
             set_and_update_ovl = create_ovl_set_function(i, update_ovl_live_box, temp_overvoltage_var)
@@ -690,18 +692,20 @@ class CathodeHeatingSubsystem:
                         if entry_value.strip() == "":
                             msgbox.showerror("Error", "Please enter a value for overcurrent limit.")
                             return
-                        self.overcurrent_limit_vars[cathode_idx].set(float(entry_value))
+                        new_value = float(entry_value)
+                        self.overcurrent_limit_vars[cathode_idx].set(new_value)
+                        
+                        # Update live value and clear entry box regardless of power supply communication
+                        self.ocl_live_values[cathode_idx] = new_value
+                        update_func()
+                        entry_var.set("")  # Clear the entry box
+                        
+                        # Try to set the actual power supply value
+                        self.set_overcurrent_limit(cathode_idx)
+                        
                     except ValueError:
                         msgbox.showerror("Error", "Please enter a valid number for overcurrent limit.")
                         return
-                    
-                    # Now call the set function
-                    if self.set_overcurrent_limit(cathode_idx):
-                        # Update live value directly with the set value instead of polling
-                        set_value = float(self.overcurrent_limit_vars[cathode_idx].get())
-                        self.ocl_live_values[cathode_idx] = set_value
-                        update_func()
-                        entry_var.set("")  # Clear the entry box
                 return set_and_update_ocl
 
             set_and_update_ocl = create_ocl_set_function(i, update_ocl_live_box, temp_overcurrent_var)
@@ -725,9 +729,28 @@ class CathodeHeatingSubsystem:
             csr_unit_label = ttk.Label(csr_display_frame, text=" A/s", style="Bold.TLabel")
             csr_unit_label.pack(side='left')
 
-            current_slew_rate_var = tk.StringVar(value=f"{self.curr_slew_rate[i]:.2f}")
-            current_slew_rate_entry = ttk.Entry(csr_control_frame, textvariable=current_slew_rate_var, width=7)
-            current_slew_rate_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            current_slew_rate_var = tk.StringVar(value="")
+            
+            def current_slew_command():
+                # Called when spinbox arrows are clicked
+                current_val = current_slew_rate_var.get()
+                if current_val == "" or current_val.strip() == "":
+                    # If empty, populate with current slew rate + increment
+                    new_val = self.curr_slew_rate[i] + 0.01
+                    current_slew_rate_var.set(f"{new_val:.2f}")
+                else:
+                    try:
+                        val = float(current_val)
+                        if val <= 0:
+                            current_slew_rate_var.set("0.01")
+                    except ValueError:
+                        current_slew_rate_var.set(f"{self.curr_slew_rate[i]:.2f}")
+            
+            current_slew_rate_spinbox = ttk.Spinbox(csr_control_frame, textvariable=current_slew_rate_var, 
+                                                  width=5, from_=0.01, to=10.0, increment=0.01, 
+                                                  format="%.2f", command=current_slew_command)
+            current_slew_rate_spinbox.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            
             set_current_slew_rate_button = ttk.Button(csr_control_frame, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
             set_current_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(current_slew_rate_label, "Rate of change for current output")
@@ -736,7 +759,7 @@ class CathodeHeatingSubsystem:
             def sync_csr(*args, idx=i, var=csr_var, entry_var=current_slew_rate_var):
                 val = self.curr_slew_rate[idx]
                 var.set(f"{val:.2f}")
-                entry_var.set(f"{val:.2f}")
+                # Don't update entry_var during sync - only update live display
             sync_csr()
 
             if not hasattr(self, '_sync_csr_funcs'):
@@ -761,9 +784,28 @@ class CathodeHeatingSubsystem:
             vsr_unit_label = ttk.Label(vsr_display_frame, text=" V/s", style="Bold.TLabel")
             vsr_unit_label.pack(side='left')
 
-            slew_rate_var = tk.StringVar(value=f"{self.vlt_slew_rate[i]:.2f}")
-            slew_rate_entry = ttk.Entry(vsr_control_frame, textvariable=slew_rate_var, width=7)
-            slew_rate_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            slew_rate_var = tk.StringVar(value="")
+            
+            def voltage_slew_command():
+                # Called when spinbox arrows are clicked
+                current_val = slew_rate_var.get()
+                if current_val == "" or current_val.strip() == "":
+                    # If empty, populate with current slew rate + increment
+                    new_val = self.vlt_slew_rate[i] + 0.02
+                    slew_rate_var.set(f"{new_val:.2f}")
+                else:
+                    try:
+                        val = float(current_val)
+                        if val <= 0:
+                            slew_rate_var.set("0.02")
+                    except ValueError:
+                        slew_rate_var.set(f"{self.vlt_slew_rate[i]:.2f}")
+            
+            slew_rate_spinbox = ttk.Spinbox(vsr_control_frame, textvariable=slew_rate_var, 
+                                          width=5, from_=0.02, to=10.0, increment=0.02, 
+                                          format="%.2f", command=voltage_slew_command)
+            slew_rate_spinbox.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            
             set_slew_rate_button = ttk.Button(vsr_control_frame, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
             set_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(slew_rate_label, "Rate of change for voltage output")
@@ -772,7 +814,7 @@ class CathodeHeatingSubsystem:
             def sync_vsr(*args, idx=i, var=vsr_var, entry_var=slew_rate_var):
                 val = self.vlt_slew_rate[idx]
                 var.set(f"{val:.2f}")
-                entry_var.set(f"{val:.2f}")
+                # Don't update entry_var during sync - only update live display
             sync_vsr()
 
             if not hasattr(self, '_sync_vsr_funcs'):
@@ -1226,22 +1268,30 @@ class CathodeHeatingSubsystem:
             ValueError: If slew rate is invalid or negative
         """
         try:
-            new_slew_rate = float(var.get())
+            # Check if entry box is empty
+            entry_value = var.get().strip()
+            if not entry_value:
+                self.log(f"Please enter a value for slew rate for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
+                msgbox.showwarning("Empty Input", "Please enter a value for the slew rate.")
+                return
+
+            new_slew_rate = float(entry_value)
             if new_slew_rate <= 0:
                 raise ValueError("Slew rate must be positive.")
             if control_mode == "current":
                 self.curr_slew_rate[index] = round(new_slew_rate, 2)
                 self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {self.curr_slew_rate[index]:.2f} A/s", LogLevel.INFO)
-                # Update live label and entry if sync function exists
-                # csr_var.set not needed; sync function will update
+                # Update live label and clear entry box
                 if hasattr(self, '_sync_csr_funcs') and self._sync_csr_funcs[index]:
                     self._sync_csr_funcs[index]()
+                var.set("")  # Clear the entry box
             else:  # control_mode == "voltage"
                 self.vlt_slew_rate[index] = round(new_slew_rate, 2)
                 self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {self.vlt_slew_rate[index]:.2f} V/s", LogLevel.INFO)
-                # vsr_var.set not needed; sync function will update
+                # Update live label and clear entry box
                 if hasattr(self, '_sync_vsr_funcs') and self._sync_vsr_funcs[index]:
                     self._sync_vsr_funcs[index]()
+                var.set("")  # Clear the entry box
             self.parent.update()
         except ValueError as e:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
