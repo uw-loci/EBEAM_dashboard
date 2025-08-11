@@ -1,70 +1,54 @@
 import serial
-import time
 from utils import LogLevel
+from serial import EIGHTBITS, PARITY_NONE, STOPBITS_ONE
 
 class BeamEnergy:
-    def __init__(self, port, baudrate=9600, timeout=1.0, logger=None, debug_mode=False):
-        self.port = port
+    def __init__(self, port="", baudrate=9600, timeout=1.0, logger=None):
+        self.port = port or ""
         self.baudrate = baudrate
         self.timeout = timeout
         self.logger = logger
-        self.debug_mode = debug_mode
-        self.stopbits = serial.STOPBITS_ONE
-        self.bytesize = serial.EIGHTBITS
-        self.parity = serial.PARITY_NONE
         self.ser = None
-        self.setup_serial()
+        if self.port:
+            self._open()
 
-    def setup_serial(self):
+    def _open(self):
         try:
             self.ser = serial.Serial(
                 port=self.port,
                 baudrate=self.baudrate,
-                bytesize=self.bytesize,
-                parity=self.parity,
-                stopbits=self.stopbits,
+                bytesize=EIGHTBITS,
+                parity=PARITY_NONE,
+                stopbits=STOPBITS_ONE,
                 timeout=self.timeout
             )
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
-        except serial.SerialException as e:
+        except Exception as e:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
 
-    def update_com_port(self, new_port):
-        self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
+    def update_port(self, new_port):
         if self.ser:
             try: self.ser.close()
-            finally: self.ser = None
-        self.port = new_port
-        self.setup_serial()
+            except: pass
+            self.ser = None
+        self.port = new_port or ""
+        if self.port:
+            self._open()
 
     def is_connected(self):
-        return self.ser is not None and self.ser.is_open
+        return bool(self.ser and self.ser.is_open)
 
-    def read_stream(self):
-        """
-        Continuously read lines and log them (no parsing).
-        If `command` is provided, it is sent before each read (for polling-style devices).
-        Ctrl+C to stop.
-        """
+    def readline(self):
+        """Return one decoded line or None."""
         if not self.is_connected():
-            self.log("Serial port is not open. Cannot read stream.", LogLevel.ERROR)
-            return
-
+            self.log(f"Connection failed on {self.port}: {e}", LogLevel.WARNING)
         try:
             raw = self.ser.readline()
-            if not raw:
-                continue
-            line = raw.decode(errors="ignore").rstrip("\r\n")
-            ts = time.strftime('%Y-%m-%d %H:%M:%S.%f')
-            entry = f"[{ts}] {line}"
+            self.log(raw.decode(errors="ignore").strip() if raw else None)
+        except Exception as e:
+            self.log(f"Serial read error on {self.port}: {e}", LogLevel.WARNING)
 
-            self.log(entry, LogLevel.INFO)
-
-        except KeyboardInterrupt:
-            self.log("Stopped reading stream (KeyboardInterrupt).", LogLevel.INFO)
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:

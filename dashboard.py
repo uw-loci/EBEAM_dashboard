@@ -302,6 +302,11 @@ class EBEAMSystemDashboard:
                 com_ports=self.com_ports,
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
+            ),
+            'Beam Energy': subsystem.BeamEnergySubsystem(
+                self.frames['Beam Energy'],
+                com_port = self.com_ports.get('BeamEnergy', ''),
+                logger=self.logger
             )
         }
 
@@ -384,6 +389,8 @@ class EBEAMSystemDashboard:
                     subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
                 elif subsystem_name == 'Cathode Heating':
                     subsystem.update_com_ports(new_com_ports)
+                elif subsystem_name == 'Beam Energy':
+                    subsystem.update_com_port(new_com_ports.get('BeamEnergy'))
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
