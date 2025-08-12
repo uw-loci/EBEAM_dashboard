@@ -33,7 +33,7 @@ class BeamEnergy:
 
     def poll(self):
         try:
-            line = self.driver.read() if hasattr(self.driver, "read") else None
+            line = self.driver.readline() if hasattr(self.driver, "readline") else None
             if not line:
                 return
 
