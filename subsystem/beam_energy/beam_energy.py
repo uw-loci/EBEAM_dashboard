@@ -24,7 +24,7 @@ class BeamEnergy:
             ttk.Label(grid, text=label).grid(row=r, column=0, sticky="w")
             ttk.Label(grid, textvariable=var, font=("Helvetica", 12, "bold")).grid(row=r, column=1, sticky="e")
 
-        row(0, "Set:",          self.var_set)
+        row(0, "Set:", self.var_set)
         row(1, "Beam Current:", self.var_current)
         row(2, "Beam High Voltage:", self.var_voltage)
 
@@ -33,9 +33,7 @@ class BeamEnergy:
 
     def poll(self):
         try:
-            self.frame.after(self.poll_ms, self.poll)
-
-            line = self.driver.readline() if hasattr(self.driver, "readline") else None
+            line = self.driver.read() if hasattr(self.driver, "read") else None
             if not line:
                 return
 
@@ -45,15 +43,12 @@ class BeamEnergy:
             if "HV"  in vals: self.var_voltage.set(vals["HV"])
             if "I"   in vals: self.var_current.set(vals["I"])
 
-            
-            self.logger.update_field("Set", vals.get("SET", "--"))
-            self.logger.update_field("High Voltage", vals.get("HV",  "--"))
-            self.logger.update_field("Current", vals.get("I",   "--"))
-
             self.log(f"Set: {vals.get('SET','--')}, HV: {vals.get('HV','--')}, I: {vals.get('I','--')}",
                     level=LogLevel.DEBUG)
         except Exception as exc:
             self.log(f"Unexpected error in poll: {exc}", level=LogLevel.ERROR)
+        finally:
+            self.frame.after(self.poll_ms, self.poll)
 
     def update_com_port(self, com_port):
         if hasattr(self.driver, "update_port"):

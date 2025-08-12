@@ -3,7 +3,7 @@ from utils import LogLevel
 from serial import EIGHTBITS, PARITY_NONE, STOPBITS_ONE
 
 class BeamEnergyDriver:
-    def __init__(self, port="", baudrate=9600, timeout=1.0, logger=None):
+    def __init__(self, port="", baudrate=9600, timeout=0.5, logger=None):
         self.port = port or ""
         self.baudrate = baudrate
         self.timeout = timeout
