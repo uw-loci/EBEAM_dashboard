@@ -22,7 +22,7 @@ class BeamEnergy:
 
         def row(r, label, var):
             ttk.Label(grid, text=label).grid(row=r, column=0, sticky="w")
-            ttk.Label(grid, textvariable=var, font=("Helvetica", 12, "bold")).grid(row=r, column=1, sticky="e")
+            ttk.Label(grid, textvariable=var, font=("Helvetica", 8)).grid(row=r, column=1, sticky="e")
 
         row(0, "Set:", self.var_set)
         row(1, "Beam Current:", self.var_current)
@@ -33,7 +33,7 @@ class BeamEnergy:
 
     def poll(self):
         try:
-            line = self.driver.read() if hasattr(self.driver, "read") else None
+            line = self.driver.readline() if hasattr(self.driver, "readline") else None
             if not line:
                 return
 
