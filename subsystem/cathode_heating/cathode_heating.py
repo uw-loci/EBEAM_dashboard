@@ -2166,6 +2166,12 @@ class CathodeHeatingSubsystem:
         if new_voltage < 0 or new_voltage is None:
             msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
             return False
+        
+        remainder = new_voltage % 0.02
+        if abs(remainder) > 1e-10 and abs(remainder - 0.02) > 1e-10:
+            self.log(f"Calculated voltage ({new_voltage:.2f}V) is not divisible by 0.02 for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+            msgbox.showwarning("Invalid Voltage", f"The voltage entered ({new_voltage:.2f}V) is invalid. Please enter a voltage that is a multiple of 0.02V.")
+            return False
 
         if new_voltage > ovp:
             self.log(f"Calculated voltage ({new_voltage:.2f}V) exceeds OVP ({ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
