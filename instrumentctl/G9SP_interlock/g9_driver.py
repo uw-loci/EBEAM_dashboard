@@ -252,8 +252,14 @@ class G9Driver:
         }
         self.log(f"Safety Output Terminal Data Flags: {binary_data['sotdf']}", LogLevel.DEBUG)
         self.log(f"Safety Input Terminal Data Flags: {binary_data['sitdf']}", LogLevel.DEBUG)
+<<<<<<< HEAD
         self.logger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
         self.logger.update_field("safetyInputDataFlags", binary_data["sitdf"])
+=======
+        if self.logger and hasattr(self.logger, "update_field"):
+            self.logger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
+            self.logger.update_field("safetyInputDataFlags", binary_data["sitdf"])
+>>>>>>> 0718e27cac71158eb15abdb731b3693665f14057
 
         # Check for errors
         self._check_unit_status(status_data['unit_status'])
