@@ -104,8 +104,8 @@ class Logger:
                 file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
-            except Exception as e:
-                print(f"Error writing to log file: {str(e)}")   
+        except Exception as e:
+            print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
         if field in self.dict:
             self.dict[field] = value
