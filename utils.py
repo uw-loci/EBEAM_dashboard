@@ -96,19 +96,15 @@ class Logger:
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
 
-        # write to log file if enabled
-        if self.log_to_file:
-            now = datetime.datetime.now()
-            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
-                self.setup_log_file()
-            # if self.webMonitor_log_start_time == None or (now - self.webMonitor_log_start_time).total_seconds() > 4*60*60:
-            #     self.setup_wm_logfile()
-            try:
-                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-                self.log_file.write(file_formatted_message)
-                self.log_file.flush()
-            except Exception as e:
-                print(f"Error writing to log file: {str(e)}")   
+        now = datetime.datetime.now()
+        if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+            self.setup_log_file()
+        try:
+            file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+            self.log_file.write(file_formatted_message)
+            self.log_file.flush()
+        except Exception as e:
+            print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
         if field in self.dict:
             self.dict[field] = value
