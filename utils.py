@@ -97,11 +97,10 @@ class Logger:
             self.text_widget.see(tk.END)
 
         # write to log file if enabled
-        if self.log_to_file:
+        try:
             now = datetime.datetime.now()
             if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                 self.setup_log_file()
-            try:
                 file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
@@ -117,8 +116,6 @@ class Logger:
         try:
             now = datetime.datetime.now()
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4*60*60:
-                if self.webMonitor_log_file:
-                    self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
             entry = {
                 "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
