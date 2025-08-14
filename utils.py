@@ -97,15 +97,16 @@ class Logger:
             self.text_widget.see(tk.END)
 
         # write to log file if enabled
-        try:
+        if self.log_to_file:
             now = datetime.datetime.now()
             if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                 self.setup_log_file()
+            try:
                 file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
-        except Exception as e:
-            print(f"Error writing to log file: {str(e)}")   
+            except Exception as e:
+                print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
         if field in self.dict:
             self.dict[field] = value
@@ -116,7 +117,12 @@ class Logger:
         try:
             now = datetime.datetime.now()
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4*60*60:
+                if self.webMonitor_log_file:
+                    self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
+                
+            # self.webMonitor_log_file.seek(0)
+            # self.webMonitor_log_file.truncate()
             entry = {
                 "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
                 "status": update_dict
@@ -154,13 +160,8 @@ class Logger:
             except Exception as e:
                 print(f"Error closing log file {str(e)}")
 
-        if self.webMonitor_log_file:
-            try:
-                self.webMonitor_log_file.close()
-                self.webMonitor_log_file = None
-            except Exception as e:
-                print(f"Error closing web monitor log file {str(e)}")
-
+import tkinter as tk
+import sys
 
 import tkinter as tk
 import sys
