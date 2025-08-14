@@ -523,10 +523,10 @@ class CathodeHeatingSubsystem:
             canvas.draw()
             canvas.get_tk_widget().grid(row=10, column=0, columnspan=3, pady=0.1)
 
-            ttk.Label(config_tab, text="Power Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+            ttk.Label(config_tab, text="Power Supply", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
-            log_power_settings_button = ttk.Button(config_tab, text="Log P.S. Settings", width=15, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(182, 0))
+            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
+            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(166, 0))
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
@@ -802,7 +802,7 @@ class CathodeHeatingSubsystem:
                         slew_rate_var.set(f"{self.vlt_slew_rate[i]:.2f}")
             
             slew_rate_spinbox = ttk.Spinbox(vsr_control_frame, textvariable=slew_rate_var, 
-                                          width=5, from_=0.02, to=10.0, increment=0.02, 
+                                          width=5, from_=0.02, to=0.06, increment=0.02, 
                                           format="%.2f", command=voltage_slew_command)
             slew_rate_spinbox.grid(row=0, column=1, sticky='w', padx=(5, 2))
             
@@ -885,10 +885,10 @@ class CathodeHeatingSubsystem:
             ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
 
             # Place echoback and temperature buttons on the config tab
-            echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
+            echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {chr(i+65)}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
             echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-            read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
+            read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {chr(i+65)}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
             read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
