@@ -154,8 +154,13 @@ class Logger:
             except Exception as e:
                 print(f"Error closing log file {str(e)}")
 
-import tkinter as tk
-import sys
+        if self.webMonitor_log_file:
+            try:
+                self.webMonitor_log_file.close()
+                self.webMonitor_log_file = None
+            except Exception as e:
+                print(f"Error closing web monitor log file {str(e)}")
+
 
 import tkinter as tk
 import sys
