@@ -76,7 +76,6 @@ class Logger:
             
             # Create the web monitor log file with the old naming pattern
             webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-            # close the existing log file at intervals of 8 hours and create a new one
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
 
@@ -95,9 +94,11 @@ class Logger:
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
+        # return early if file logging is disabled
         if not self.log_to_file:
             return
         now = datetime.datetime.now()
+        # close the log file at intervals of 8 hours and create a new one
         if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
             self.setup_log_file()
         try:
@@ -113,10 +114,12 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")      
     def log_dict_update(self, update_dict):
+        # return early if file logging is disabled
         if not self.log_to_file:
                 return
         try:
             now = datetime.datetime.now()
+            # close the existing log file at intervals of 4 hours and create a new one
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4*60*60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
