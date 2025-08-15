@@ -2441,10 +2441,10 @@ class CathodeHeatingSubsystem:
 
             # Perform the echoback test
             result = self.temperature_controller.perform_echoback_test(unit=unit)
-            self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.INFO)
+            self.log(f"Echoback test result for Unit {chr(unit + 64)}: {result}", LogLevel.INFO)
         except Exception as e:
-            self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
+            self.log(f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}")
 
     def read_and_log_temperature(self, unit):
         """
@@ -2455,16 +2455,20 @@ class CathodeHeatingSubsystem:
             if not self.temperature_controller:
                 raise ValueError(f"Temperature Controller is not connected or initialized.")
 
-            temperature = self.temperature_controller.read_temperature(unit=unit)
-            if temperature is not None:
+            # Use the non-blocking method to get the latest temperature
+            temperature = self.temperature_controller.get_latest_temperature(unit)
+            
+            if temperature is not None and isinstance(temperature, (int, float)):
                 message = f"Temperature from Unit {unit}: {temperature:.2f} C"
                 self.log(message, LogLevel.VERBOSE)
+            elif isinstance(temperature, str) and temperature == "ERROR":
+                raise Exception("Temperature controller returned an error")
             else:
-                raise Exception("Failed to read temperature")
+                raise Exception("No temperature data available - controller may not be reading")
         except Exception as e:
-            self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
-    
+            self.log(f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}")
+
     def close_com_ports(self):
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.
