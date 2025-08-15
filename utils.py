@@ -113,6 +113,8 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")      
     def log_dict_update(self, update_dict):
+        if not self.log_to_file:
+                return
         try:
             now = datetime.datetime.now()
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4*60*60:
