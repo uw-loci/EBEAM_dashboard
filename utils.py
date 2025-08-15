@@ -35,12 +35,12 @@ class Logger:
             "safetyInputDataFlags": None,
             "temperatures": None,
             "vacuumBits": None,
-            "Cathode A - Heater Current: ": None,
-            "Cathode B - Heater Current: ": None,
-            "Cathode C - Heater Current: ": None,
-            "Cathode A - Heater Voltage: ": None,
-            "Cathode B - Heater Voltage: ": None,
-            "Cathode C - Heater Voltage: ": None
+            "Cathode A - Heater Current:": None,
+            "Cathode B - Heater Current:": None,
+            "Cathode C - Heater Current:": None,
+            "Cathode A - Heater Voltage:": None,
+            "Cathode B - Heater Voltage:": None,
+            "Cathode C - Heater Voltage:": None
             }
         if log_to_file:
             self.setup_log_file()
@@ -119,9 +119,6 @@ class Logger:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
-                
-            # self.webMonitor_log_file.seek(0)
-            # self.webMonitor_log_file.truncate()
             entry = {
                 "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
                 "status": update_dict

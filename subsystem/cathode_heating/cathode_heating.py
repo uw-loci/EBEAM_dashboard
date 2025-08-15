@@ -1056,10 +1056,10 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
 
                     cathode_label = ['A', 'B', 'C'][i]
-                    key_current = f"Cathode {cathode_label} - Heater Current: "
+                    key_current = f"Cathode {cathode_label} - Heater Current:"
                     value_current = current
 
-                    key_voltage = f"Cathode {cathode_label} - Heater Voltage: "
+                    key_voltage = f"Cathode {cathode_label} - Heater Voltage:"
                     value_voltage = voltage
 
                     self.logger.update_field(key_current, value_current)
