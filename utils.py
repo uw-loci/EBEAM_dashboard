@@ -29,7 +29,7 @@ class Logger:
         self.webMonitor_log_start_time = None
         self.log_filepath = None
         self.webMonitor_log_filepath = None
-        self.dict = {
+        self.dict_logger = {
             "pressure": None,
             "safetyOutputDataFlags": None,
             "safetyInputDataFlags": None,
@@ -90,12 +90,13 @@ class Logger:
         """ Log a message to the text widget and optionally to local file """
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-        if level >= self.log_level:
+        if level >= self.log_level and self.text_widget is not None:
             # Write to text widget
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
             self.text_widget.see(tk.END)
-
+        if not self.log_to_file:
+            return
         now = datetime.datetime.now()
         if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
             self.setup_log_file()
@@ -106,9 +107,9 @@ class Logger:
         except Exception as e:
             print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
-        if field in self.dict:
-            self.dict[field] = value
-            self.log_dict_update(self.dict)
+        if field in self.dict_logger:
+            self.dict_logger[field] = value
+            self.log_dict_update(self.dict_logger)
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")      
     def log_dict_update(self, update_dict):
@@ -514,4 +515,3 @@ class MachineStatus():
                 if name in self.status_labels and name != "Machine Status":  # Don't change main label
                     new_color = "#57cce7" if is_active else "#dbd9d9"
                     self.status_labels[name].config(bg=new_color)
-
