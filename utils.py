@@ -161,9 +161,6 @@ class Logger:
 import tkinter as tk
 import sys
 
-import tkinter as tk
-import sys
-
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
 
