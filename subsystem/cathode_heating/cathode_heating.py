@@ -97,6 +97,7 @@ class CathodeHeatingSubsystem:
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
         self.entry_fields = []  # Initialize entry fields list
+        self.adjustment_buttons = []  # Track +/- buttons for enabling/disabling during ramps
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -353,6 +354,9 @@ class CathodeHeatingSubsystem:
             inc_voltage_button.grid(row=0, column=1, sticky='w', padx=(2,0))
             dec_voltage_button = ttk.Button(voltage_control_frame, text="-0.02V", width=6, command=lambda i=i: self.adjust_voltage(i, -0.02))
             dec_voltage_button.grid(row=1, column=1, sticky='w', padx=(2,0))
+
+            # Store adjustment buttons for enabling/disabling during ramps
+            self.adjustment_buttons.append([inc_current_button, dec_current_button, inc_voltage_button, dec_voltage_button])
 
             # Output Control
             # Create entries and display labels
@@ -2139,11 +2143,13 @@ class CathodeHeatingSubsystem:
         self.stop_ramp_buttons[index]['state'] = 'normal'
         self.stop_ramp_buttons[index].config(style='StopActive.TButton')
         self.set_output_button_state(index, 'disabled')
+        self.set_adjustment_buttons_state(index, 'disabled')
 
     def on_ramp_complete(self, index:int):
         self.stop_ramp_buttons[index]['state'] = 'disabled'
         self.stop_ramp_buttons[index].config(style='StopInactive.TButton')
         self.set_output_button_state(index, 'normal')
+        self.set_adjustment_buttons_state(index, 'normal')
 
     def stop_ramp(self, index:int):
         """
@@ -2154,6 +2160,12 @@ class CathodeHeatingSubsystem:
             ps.stop_ramp()
         self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
         self.on_ramp_complete(index)
+
+    def set_adjustment_buttons_state(self, index: int, state: str):
+        """Enable or disable the +/- adjustment buttons for one cathode."""
+        if index < len(self.adjustment_buttons):
+            for btn in self.adjustment_buttons[index]:
+                btn.config(state=state)
 
     # Input validation methods
     def validate_voltage(self, index:int, new_voltage: float):
