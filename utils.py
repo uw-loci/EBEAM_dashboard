@@ -47,7 +47,7 @@ class Logger:
             self.setup_wm_logfile()
 
     def setup_log_file(self):
-        """Setup a new log file and web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+        """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
             # Use the EBEAM_dashboard directory
             base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
@@ -67,7 +67,7 @@ class Logger:
             print(f"Error creating log file: {str(e)}")
 
     def setup_wm_logfile(self):
-        """Setup a new log file and web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+        """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
             # Use the EBEAM_dashboard directory
             base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
