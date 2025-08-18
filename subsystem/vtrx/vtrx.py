@@ -455,7 +455,7 @@ class VTRXSubsystem:
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             self.logger.update_field("vacuumBits", subsystem_bits)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
-            self.logger.update_field("pressure", pressure_raw)
+            self.logger.update_field("pressure", float(pressure_raw))
 
     def update_plot(self):
         """Update plot with current display window data."""
