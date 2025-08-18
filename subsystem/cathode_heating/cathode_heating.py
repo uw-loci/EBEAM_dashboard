@@ -1061,9 +1061,9 @@ class CathodeHeatingSubsystem:
 
                     key_voltage = f"Cathode {cathode_label} - Heater Voltage:"
                     value_voltage = voltage
-
-                    self.logger.update_field(key_current, value_current)
-                    self.logger.update_field(key_voltage, value_voltage)
+                    if self.logger and hasattr(self.logger, "update_field"):
+                        self.logger.update_field(key_current, value_current)
+                        self.logger.update_field(key_voltage, value_voltage)
                     
                     # Update heater voltage display
                     if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
