@@ -236,6 +236,7 @@ class MessagesFrame:
             if self.logger.log_file:
                 try:
                     self.logger.log_file.close()
+                    self.logger.webMonitor_log_file.close()
                 except Exception as e:
                     print(f"Error closing log file: {e}")
                 self.logger.log_file = None
