@@ -353,6 +353,9 @@ class CathodeHeatingSubsystem:
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
             clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
+            if self.logger and hasattr(self.logger, "update_field"):
+                labels = ["A", "B", "C"]
+                self.logger.update_field(f"clamp_temperature_{labels[i]}", clamp_temperature[i])
 
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))

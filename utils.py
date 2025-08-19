@@ -40,7 +40,10 @@ class Logger:
             "Cathode C - Heater Current:": None,
             "Cathode A - Heater Voltage:": None,
             "Cathode B - Heater Voltage:": None,
-            "Cathode C - Heater Voltage:": None
+            "Cathode C - Heater Voltage:": None,
+            "clamp_temperature_A" : None,
+            "clamp_temperature_B" : None,
+            "clamp_temperature_C" : None
             }
         if log_to_file:
             self.setup_log_file()
