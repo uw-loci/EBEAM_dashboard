@@ -247,7 +247,8 @@ class ProcessMonitorSubsystem:
                         formatted_temps[unit] = str(value)
                         
                 self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
-                self.logger.update_field("temperatures", formatted_temps)
+                if self.logger and hasattr(self.logger, "update_field"):
+                    self.logger.update_field("temperatures", formatted_temps)
 
                 if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):
