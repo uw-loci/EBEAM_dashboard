@@ -1091,7 +1091,7 @@ class CathodeHeatingSubsystem:
 
             temperature = self.read_temperature(i)
             if self.logger and hasattr(self.logger, "update_field"):
-                cathode_label = [A, B, C][i]
+                cathode_label = ['A', 'B', 'C'][i]
                 self.logger.update_field(f"clamp_temperature_{cathode_label}", temperature)
 
 

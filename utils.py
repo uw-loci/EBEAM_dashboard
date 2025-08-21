@@ -78,10 +78,9 @@ class Logger:
             os.makedirs(log_dir, exist_ok=True)
             
             # Create the web monitor log file with the old naming pattern
-            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+            webMonitor_log_file_name = f"webMonitor_log.txt"
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
-
             self.webMonitor_log_file = open(os.path.join(log_dir, webMonitor_log_file_name), 'w')
             self.webMonitor_log_start_time = datetime.datetime.now()
             print(f"WebMonitor Log File created at {os.path.join(log_dir, webMonitor_log_file_name)}")
@@ -123,7 +122,7 @@ class Logger:
         try:
             now = datetime.datetime.now()
             # close the existing log file at intervals of 4 hours and create a new one
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4*60*60:
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
