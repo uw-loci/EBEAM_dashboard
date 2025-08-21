@@ -255,6 +255,9 @@ class G9Driver:
         if self.logger and hasattr(self.logger, "update_field"):
             self.logger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
             self.logger.update_field("safetyInputDataFlags", binary_data["sitdf"])
+            self.logger.update_field("safetyOutputStatusFlags", binary_data["sotsf"])
+            self.logger.update_field("safetyInputStatusFlags", binary_data["sitsf"])
+
 
         # Check for errors
         self._check_unit_status(status_data['unit_status'])

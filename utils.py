@@ -33,6 +33,8 @@ class Logger:
             "pressure": None,
             "safetyOutputDataFlags": None,
             "safetyInputDataFlags": None,
+            "safetyOutputStatusFlags": None,
+            "safetyInputStatusFlags": None,
             "temperatures": None,
             "vacuumBits": None,
             "Cathode A - Heater Current:": None,
