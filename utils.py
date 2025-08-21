@@ -121,7 +121,7 @@ class Logger:
                 return
         try:
             now = datetime.datetime.now()
-            # close the existing log file at intervals of 4 hours and create a new one
+            # overwrite logs on the same webMonitor file every hour
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
