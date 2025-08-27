@@ -76,16 +76,16 @@ class Logger:
         try:
             # Use the EBEAM_dashboard directory
             base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
-            os.makedirs(log_dir, exist_ok=True)
+            wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
+            os.makedirs(wm_log_dir, exist_ok=True)
             
             # Create the web monitor log file with the old naming pattern
             webMonitor_log_file_name = f"webMonitor_log.txt"
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
-            self.webMonitor_log_file = open(os.path.join(log_dir, webMonitor_log_file_name), 'w')
+            self.webMonitor_log_file = open(os.path.join(wm_log_dir, webMonitor_log_file_name), 'w')
             self.webMonitor_log_start_time = datetime.datetime.now()
-            print(f"WebMonitor Log File created at {os.path.join(log_dir, webMonitor_log_file_name)}")
+            print(f"WebMonitor Log File created at {os.path.join(wm_log_dir, webMonitor_log_file_name)}")
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
 
@@ -222,6 +222,7 @@ class MessagesFrame:
 
         # Ensure that the log directory exists
         self.ensure_log_directory()
+        self.ensure_wm_log_directory()
 
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
@@ -292,6 +293,24 @@ class MessagesFrame:
                 os.makedirs(self.log_dir)
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
+    
+    def ensure_wm_log_directory(self):
+        ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
+        try:
+            # For PyInstaller, _MEIPASS is the path to the temporary folder where the app is unpacked.
+            # os.path.abspath(".") gives the path to the current directory when running the script normally.
+            if hasattr(sys, '_MEIPASS'):
+                # If running as a bundled executable
+                base_path = os.path.expanduser("~")  # Gets the home directory
+            else:
+                # If running as a script (e.g., python main.py)
+                base_path = os.path.abspath(".")
+
+            self.wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
+            if not os.path.exists(self.wm_log_dir):
+                os.makedirs(self.wm_log_dir)
+        except Exception as e:
+            print(f"Failed to create wm log directory: {str(e)}")
 
     def export_log(self):
         """ Export the current log contents to a user-specified file. """
