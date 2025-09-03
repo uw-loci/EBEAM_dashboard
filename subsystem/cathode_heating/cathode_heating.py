@@ -1236,6 +1236,35 @@ class CathodeHeatingSubsystem:
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)
+
+    def turn_off_all_heaters(self):
+        """
+        Turn off all cathode heaters by disabling power supply outputs.
+
+        Side effects:
+            - Disables output on all initialized power supplies
+            - Updates toggle button states and images
+            - Logs actions and any errors
+        """
+        if not self.power_supplies_initialized or not self.power_supplies:
+            self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+            return
+
+        for i, ps in enumerate(self.power_supplies):
+            if ps and self.power_supply_status[i]:
+                try:
+                    if ps.set_output("0"):
+                        self.log(f"Turned off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.INFO)
+                    else:
+                        self.log(f"Failed to turn off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.ERROR)
+                    
+                    # Update toggle state and button image
+                    self.toggle_states[i] = False
+                    self.toggle_buttons[i].config(image=self.toggle_off_image)
+                except Exception as e:
+                    self.log(f"Error turning off heater for Cathode {['A', 'B', 'C'][i]}: {str(e)}", LogLevel.ERROR)
+            else:
+                self.log(f"Power supply for Cathode {['A', 'B', 'C'][i]} is not initialized; cannot turn off heater.", LogLevel.WARNING)
         
     def set_target_current(self, index, entry_field):
         """
