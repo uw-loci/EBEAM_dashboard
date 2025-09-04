@@ -1917,6 +1917,8 @@ class CathodeHeatingSubsystem:
                 self.log(f"Cathode {['A', 'B', 'C'][index]} power supply uninitialized or lost connection", LogLevel.WARNING)
                 return False
             
+            self.user_set_voltages[index] = new_voltage
+            
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
@@ -1944,7 +1946,6 @@ class CathodeHeatingSubsystem:
                 else: # Immediate set
                     self.power_supplies[index].set_voltage(3, new_voltage)
                     self.voltage_set[index] = True
-            self.user_set_voltages[index] = new_voltage
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_voltage:.2f}V", LogLevel.INFO)
 
             return True
