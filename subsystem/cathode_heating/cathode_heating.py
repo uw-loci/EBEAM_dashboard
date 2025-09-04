@@ -1864,6 +1864,8 @@ class CathodeHeatingSubsystem:
                 self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
                 return
             
+            self.user_set_currents[index] = new_current
+
             # Set current directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
@@ -1891,7 +1893,6 @@ class CathodeHeatingSubsystem:
                 else: # Immediate set
                     self.power_supplies[index].set_current(3, new_current)
                     self.current_set[index] = True
-            self.user_set_currents[index] = new_current
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_current:.2f}A", LogLevel.INFO)
 
             return True
@@ -1918,7 +1919,7 @@ class CathodeHeatingSubsystem:
                 return False
             
             self.user_set_voltages[index] = new_voltage
-            
+
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
