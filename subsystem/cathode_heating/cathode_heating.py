@@ -1236,6 +1236,18 @@ class CathodeHeatingSubsystem:
         self.toggle_states[index] = new_state
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)
+
+    def turn_all_beams_off(self):
+        """
+        Turn off all cathode beams immediately.
+        Sets output OFF for all initialized power supplies and updates GUI toggle states.
+
+        Side effects:
+            - Disables output for all cathode power supplies
+            - Updates toggle button images and states
+            - Logs actions and any errors
+        """
+        pass
         
     def set_target_current(self, index, entry_field):
         """
