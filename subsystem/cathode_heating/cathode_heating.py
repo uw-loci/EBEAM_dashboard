@@ -885,12 +885,12 @@ class CathodeHeatingSubsystem:
             ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
 
             # Place echoback and temperature buttons on the config tab
-            echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {chr(i+65)}",
-                                        command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-            read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {chr(i+65)}",
-                                        command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            # echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {chr(i+65)}",
+            #                             command=lambda unit=i+1: self.perform_echoback_test(unit))
+            # echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            # read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {chr(i+65)}",
+            #                             command=lambda unit=i+1: self.read_and_log_temperature(unit))
+            # read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
             # Ensure the grid layout of config_tab accommodates the new buttons
             config_tab.columnconfigure(0, weight=1)
@@ -2429,45 +2429,45 @@ class CathodeHeatingSubsystem:
         else:
             print(f"{level.name}: {message}")
 
-    def perform_echoback_test(self, unit):
-        """
-        Perform an echoback test on the specified unit.
-        This method checks if the temperature controllers are connected before proceeding.
-        """
-        try:
-            # Ensure that the unit index is within the range of connected controllers
-            if not self.temperature_controller:
-                raise ValueError(f"Temperature Controller is not connected or initialized.")
+    # def perform_echoback_test(self, unit):
+    #     """
+    #     Perform an echoback test on the specified unit.
+    #     This method checks if the temperature controllers are connected before proceeding.
+    #     """
+    #     try:
+    #         # Ensure that the unit index is within the range of connected controllers
+    #         if not self.temperature_controller:
+    #             raise ValueError(f"Temperature Controller is not connected or initialized.")
 
-            # Perform the echoback test
-            result = self.temperature_controller.perform_echoback_test(unit=unit)
-            self.log(f"Echoback test result for Unit {chr(unit + 64)}: {result}", LogLevel.INFO)
-        except Exception as e:
-            self.log(f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}")
+    #         # Perform the echoback test
+    #         result = self.temperature_controller.perform_echoback_test(unit=unit)
+    #         self.log(f"Echoback test result for Unit {chr(unit + 64)}: {result}", LogLevel.INFO)
+    #     except Exception as e:
+    #         self.log(f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
+    #         msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}")
 
-    def read_and_log_temperature(self, unit):
-        """
-        Read the temperature from the specified unit and log the result.
-        Ensures the unit is connected before attempting to read.
-        """
-        try:
-            if not self.temperature_controller:
-                raise ValueError(f"Temperature Controller is not connected or initialized.")
+    # def read_and_log_temperature(self, unit):
+    #     """
+    #     Read the temperature from the specified unit and log the result.
+    #     Ensures the unit is connected before attempting to read.
+    #     """
+    #     try:
+    #         if not self.temperature_controller:
+    #             raise ValueError(f"Temperature Controller is not connected or initialized.")
 
-            # Use the non-blocking method to get the latest temperature
-            temperature = self.temperature_controller.get_latest_temperature(unit)
+    #         # Use the non-blocking method to get the latest temperature
+    #         temperature = self.temperature_controller.get_latest_temperature(unit)
             
-            if temperature is not None and isinstance(temperature, (int, float)):
-                message = f"Temperature from Unit {unit}: {temperature:.2f} C"
-                self.log(message, LogLevel.VERBOSE)
-            elif isinstance(temperature, str) and temperature == "ERROR":
-                raise Exception("Temperature controller returned an error")
-            else:
-                raise Exception("No temperature data available - controller may not be reading")
-        except Exception as e:
-            self.log(f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}")
+    #         if temperature is not None and isinstance(temperature, (int, float)):
+    #             message = f"Temperature from Unit {unit}: {temperature:.2f} C"
+    #             self.log(message, LogLevel.VERBOSE)
+    #         elif isinstance(temperature, str) and temperature == "ERROR":
+    #             raise Exception("Temperature controller returned an error")
+    #         else:
+    #             raise Exception("No temperature data available - controller may not be reading")
+    #     except Exception as e:
+    #         self.log(f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
+    #         msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}")
 
     def close_com_ports(self):
         """
