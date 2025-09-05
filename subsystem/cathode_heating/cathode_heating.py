@@ -99,6 +99,7 @@ class CathodeHeatingSubsystem:
         self.entry_fields = []  # Initialize entry fields list
         self.curr_adjustment_buttons = []  # Track current +/- buttons for enabling/disabling during ramps
         self.vlt_adjustment_buttons = []  # Track voltage +/- buttons for enabling/disabling during ramps
+        self.set_button_states = [] # Track both voltage and current set button states to disable during ramp
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -336,9 +337,11 @@ class CathodeHeatingSubsystem:
             voltage_entry_field.grid(row=0, column=1, sticky='w', padx=(5,2))
             self.entry_fields.append(voltage_entry_field)
 
-            set_button = ttk.Button(voltage_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.on_voltage_label_click(i, entry_field))
-            set_button.grid(row=0, column=2, sticky='w')
+            set_voltage_button = ttk.Button(voltage_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.on_voltage_label_click(i, entry_field))
+            set_voltage_button.grid(row=0, column=2, sticky='w')
             
+            self.set_button_states.append([set_voltage_button, set_current_button])
+
             # Frame to hold value + unit side-by-side
             voltage_display_frame = tk.Frame(voltage_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             voltage_display_frame.configure(bg='#d9d9d9')
@@ -1004,13 +1007,25 @@ class CathodeHeatingSubsystem:
             self.ramp_status[index] = True
             self.ramp_control_mode[index] = "current"
             mode_str = "gradual current."
+
+            # Disable current adjustment buttons when in current ramp mode
+            self.set_curr_adjustment_buttons_state(index, 'disabled')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
         elif mode == "ramp_voltage":
             self.ramp_status[index] = True
             self.ramp_control_mode[index] = "voltage"
             mode_str = "gradual voltage."
+
+            # Disable voltage adjustment buttons when in voltage ramp mode
+            self.set_vlt_adjustment_buttons_state(index, 'disabled')
+            self.set_curr_adjustment_buttons_state(index, 'normal')
         else: # immediate
             self.ramp_status[index] = False
             mode_str = "immediate set."
+
+            # Enable both sets of adjustment buttons when not ramping
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
         
 
@@ -2147,13 +2162,19 @@ class CathodeHeatingSubsystem:
         self.stop_ramp_buttons[index]['state'] = 'normal'
         self.stop_ramp_buttons[index].config(style='StopActive.TButton')
         self.set_output_button_state(index, 'disabled')
-        self.set_adjustment_buttons_state(index, 'disabled')
+        self.set_vlt_adjustment_buttons_state(index, 'disabled')
+        self.set_curr_adjustment_buttons_state(index, 'disabled')
+        self.set_text_set_buttons_state(index, 'disabled')
 
     def on_ramp_complete(self, index:int):
         self.stop_ramp_buttons[index]['state'] = 'disabled'
         self.stop_ramp_buttons[index].config(style='StopInactive.TButton')
         self.set_output_button_state(index, 'normal')
-        self.set_adjustment_buttons_state(index, 'normal')
+        if self.ramp_control_mode[index] == "voltage":
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+        elif self.ramp_control_mode[index] == "current":
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        self.set_text_set_buttons_state(index, 'normal')
 
     def stop_ramp(self, index:int):
         """
@@ -2165,18 +2186,23 @@ class CathodeHeatingSubsystem:
         self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
         self.on_ramp_complete(index)
 
-    def set_adjustment_buttons_state(self, index: int, state: str):
-        """Enable or disable the corresponding +/- adjustment buttons for one cathode."""
-        if self.ramp_control_mode[index] == "current":
-            if index < len(self.curr_adjustment_buttons):
-                for btn in self.curr_adjustment_buttons[index]:
-                    btn.config(state=state)
-        elif self.ramp_control_mode[index] == "voltage":
-            if index < len(self.vlt_adjustment_buttons):
-                for btn in self.vlt_adjustment_buttons[index]:
-                    btn.config(state=state)
-        else:
-            self.log(f"Unknown ramp control mode '{self.ramp_control_mode[index]}' for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+    def set_curr_adjustment_buttons_state(self, index: int, state: str):
+        """Enable or disable the current +/- adjustment buttons for one cathode."""
+        if index < len(self.curr_adjustment_buttons):
+            for btn in self.curr_adjustment_buttons[index]:
+                btn.config(state=state)
+
+    def set_vlt_adjustment_buttons_state(self, index: int, state: str):
+        """Enable or disable the current +/- adjustment buttons for one cathode."""  
+        if index < len(self.vlt_adjustment_buttons):
+            for btn in self.vlt_adjustment_buttons[index]:
+                btn.config(state=state)
+
+    def set_text_set_buttons_state(self, index:int, state: str):
+        """Enable or disable textbox set buttons during ramp operations on one cathode."""
+        if index < len(self.set_button_states):
+            for btn in self.set_button_states[index]:
+                btn.config(state=state)
 
     # Input validation methods
     def validate_voltage(self, index:int, new_voltage: float):
