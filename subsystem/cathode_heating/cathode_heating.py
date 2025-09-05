@@ -475,10 +475,6 @@ class CathodeHeatingSubsystem:
             ttk.Label(voltage_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
             ttk.Label(voltage_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
 
-            # # Predicted cathode temperature (C)
-            # ttk.Label(voltage_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
-            # ttk.Label(voltage_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
-
             # Create entries and display labels
             heater_label = ttk.Label(voltage_tab, text=heater_labels[i], style='Bold.TLabel')
             heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
@@ -496,10 +492,6 @@ class CathodeHeatingSubsystem:
             # Actual heater voltage (V)
             ttk.Label(voltage_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
             ttk.Label(voltage_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
-            
-            # # Actual target current (mA)
-            # ttk.Label(voltage_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
-            # ttk.Label(voltage_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
             
             # Temperature monitoring (C)
             ttk.Label(voltage_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
@@ -526,7 +518,7 @@ class CathodeHeatingSubsystem:
             ttk.Label(config_tab, text="Power Supply", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
             log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
-            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(166, 0))
+            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(184, 0))
             log_power_settings_button['state'] = 'disabled'
             self.log_power_settings_buttons.append(log_power_settings_button)
 
@@ -590,7 +582,6 @@ class CathodeHeatingSubsystem:
             ovl_label_frame.grid(row=0, column=1, sticky='w')
             ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
 
-            # FIXED: Create update function with proper closure
             def create_ovl_update_function(cathode_idx, readback_var):
                 def update_ovl_live_box():
                     val = self.ovl_live_values[cathode_idx]
@@ -608,7 +599,6 @@ class CathodeHeatingSubsystem:
             self.ovl_live_values[i] = val_ovl
             update_ovl_live_box()
 
-            # FIXED: Create set function with proper closure
             def create_ovl_set_function(cathode_idx, update_func, entry_var):
                 def set_and_update_ovl():
                     # First, update the internal variable with the value from the entry box
@@ -665,7 +655,6 @@ class CathodeHeatingSubsystem:
             ocl_label_frame.grid(row=0, column=1, sticky='w')
             ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
 
-            # FIXED: Create update function with proper closure
             def create_ocl_update_function(cathode_idx, readback_var):
                 def update_ocl_live_box():
                     val = self.ocl_live_values[cathode_idx]
@@ -857,23 +846,6 @@ class CathodeHeatingSubsystem:
             lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
             self.lookup_table_comboboxes.append(lookup_table_box)
 
-            # # Power supply readings
-            # display_label = ttk.Label(config_tab, text='\nProtection Settings', style='Bold.TLabel')
-            # display_label.grid(row=10, column=0, columnspan=1, sticky='ew')
-
-            # voltage_display_var = tk.StringVar(value='Voltage: -- V')
-            # current_display_var = tk.StringVar(value='Current: -- A')
-            # operation_mode_var = tk.StringVar(value='Mode: --')
-
-            # voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var)
-            # voltage_label.grid(row=11, column=0, sticky='w')
-            # mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            # mode_label.grid(row=11, column=1, sticky='w')
-
-            # # Store variables for later updates
-            # self.voltage_display_vars.append(voltage_display_var)
-            # self.current_display_vars.append(current_display_var)
-
             # Add label for Temperature Controller
             ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
 
@@ -883,18 +855,6 @@ class CathodeHeatingSubsystem:
             overtemp_status_label = ttk.Label(overtemp_status_frame, text='Overtemp Status:', style='LeftAlign.TLabel')
             overtemp_status_label.pack(side='left')
             ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
-
-            # Place echoback and temperature buttons on the config tab
-            # echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {chr(i+65)}",
-            #                             command=lambda unit=i+1: self.perform_echoback_test(unit))
-            # echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-            # read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {chr(i+65)}",
-            #                             command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            # read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-
-            # Ensure the grid layout of config_tab accommodates the new buttons
-            config_tab.columnconfigure(0, weight=1)
-            config_tab.columnconfigure(1, weight=1)
 
     def refresh_predictions(self, cathode_idx):
         """
@@ -1569,11 +1529,9 @@ class CathodeHeatingSubsystem:
             self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'DISCONNECTED')
 
-
         # Set temperature to zero as default
         self.clamp_temperature_vars[index].set("-- C")
         return None
-
     
     def update_data(self):
         current_time = datetime.datetime.now()
@@ -1601,18 +1559,7 @@ class CathodeHeatingSubsystem:
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")     
-
-                    
-                    # # Update heater voltage display
-                    # if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                    #     last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                    #     self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
-                    # elif voltage is not None:
-                    #     self.heater_voltage_vars[i].set(f"{voltage:.2f}")
-                    # else:
-                    #     self.heater_voltage_vars[i].set("-- V")
-                    
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
 
                     # Update mode display
                     if mode in ["CV Mode", "CC Mode"]:
@@ -1774,10 +1721,6 @@ class CathodeHeatingSubsystem:
                     # BUILD RAMPING FUNCTION FOR CURRENT AND USE HERE
                     
                 if target_voltage is not None and control_mode == "voltage":
-                    # Set voltage to 0 before starting the ramp-up
-                    # self.power_supplies[index].set_voltage(3, 0.0)
-                    # self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
-                    
                     # Ramp up to the target voltage
                     slew_rate = self.vlt_slew_rate[index]
                     step_delay = 1.0  # seconds
@@ -1874,17 +1817,6 @@ class CathodeHeatingSubsystem:
                 self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
                 self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
 
-                # set_voltage handles these checks now
-                # current_ovp = self.get_ovp(index)
-                # if current_ovp is None:
-                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                #     return
-
-                # if heater_voltage > current_ovp:
-                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                #     return
-
                 # Set Upper Current Limit on the power supply
                 if self.power_supplies and len(self.power_supplies) > index:
                     self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
@@ -1902,7 +1834,6 @@ class CathodeHeatingSubsystem:
                     
                     # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
                     current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    
                     
                     if current_set_success:
                         self.user_set_voltages[index] = heater_voltage
@@ -2312,9 +2243,8 @@ class CathodeHeatingSubsystem:
             if not min(self.cur_cathode_model.x_data) <= heater_current <= max(self.cur_cathode_model.x_data):
                 self.log(f"Heater current {heater_current:.3f} is out of range [{min(self.cur_cathode_model.x_data):.3f}, {max(self.cur_cathode_model.x_data):.3f}]", LogLevel.WARNING)
 
-            # Set voltage and current on the power supply
+            # Set current on the power supply
             if self.power_supplies and len(self.power_supplies) > index:
-                # voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
                 current_set_success = self.power_supplies[index].set_current(3, heater_current)
                 if not current_set_success:
                     self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
@@ -2362,7 +2292,6 @@ class CathodeHeatingSubsystem:
             self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
             self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-            # self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
             self.heater_voltage_vars[index].set(f'{heater_voltage:.2f} V')
             setattr(self, f'last_set_voltage_{index}', heater_voltage)
             
@@ -2428,46 +2357,6 @@ class CathodeHeatingSubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
-
-    # def perform_echoback_test(self, unit):
-    #     """
-    #     Perform an echoback test on the specified unit.
-    #     This method checks if the temperature controllers are connected before proceeding.
-    #     """
-    #     try:
-    #         # Ensure that the unit index is within the range of connected controllers
-    #         if not self.temperature_controller:
-    #             raise ValueError(f"Temperature Controller is not connected or initialized.")
-
-    #         # Perform the echoback test
-    #         result = self.temperature_controller.perform_echoback_test(unit=unit)
-    #         self.log(f"Echoback test result for Unit {chr(unit + 64)}: {result}", LogLevel.INFO)
-    #     except Exception as e:
-    #         self.log(f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
-    #         msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {chr(unit + 64)}: {str(e)}")
-
-    # def read_and_log_temperature(self, unit):
-    #     """
-    #     Read the temperature from the specified unit and log the result.
-    #     Ensures the unit is connected before attempting to read.
-    #     """
-    #     try:
-    #         if not self.temperature_controller:
-    #             raise ValueError(f"Temperature Controller is not connected or initialized.")
-
-    #         # Use the non-blocking method to get the latest temperature
-    #         temperature = self.temperature_controller.get_latest_temperature(unit)
-            
-    #         if temperature is not None and isinstance(temperature, (int, float)):
-    #             message = f"Temperature from Unit {unit}: {temperature:.2f} C"
-    #             self.log(message, LogLevel.VERBOSE)
-    #         elif isinstance(temperature, str) and temperature == "ERROR":
-    #             raise Exception("Temperature controller returned an error")
-    #         else:
-    #             raise Exception("No temperature data available - controller may not be reading")
-    #     except Exception as e:
-    #         self.log(f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}", LogLevel.ERROR)
-    #         msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {chr(unit + 64)}: {str(e)}")
 
     def close_com_ports(self):
         """
