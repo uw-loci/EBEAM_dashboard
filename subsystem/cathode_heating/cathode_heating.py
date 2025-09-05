@@ -1241,13 +1241,24 @@ class CathodeHeatingSubsystem:
         """
         Turn off all cathode beams immediately.
         Sets output to OFF for all initialized power supplies and updates GUI toggle states.
+        Redundantly sets power supply outputs to OFF regardless of their current 'toggle_states' status.
 
         Side effects:
             - Disables output for all cathode power supplies
             - Updates toggle button images and states
             - Logs actions and any errors
         """
-        pass
+        for index in range(3):
+            try:
+                if self.power_supply_status[index]:
+                    self.power_supplies[index].set_output("0")  # Turn OFF the output
+                    self.toggle_states[index] = False
+                    self.toggle_buttons[index].config(image=self.toggle_off_image)  # Update toggle button image
+                    self.log(f"Turned off output for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+                else:
+                    self.log(f"Power supply {index + 1} is not initialized. Skipping.", LogLevel.WARNING)
+            except Exception as e:
+                self.log(f"Failed to turn off output for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
         
     def set_target_current(self, index, entry_field):
         """
