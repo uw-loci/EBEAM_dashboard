@@ -463,7 +463,7 @@ class CathodeHeatingSubsystem:
             self.parent,
             text="Beams OFF",
             style='BeamsOff.TButton',
-            command=self.turn_all_beams_off
+            command=self.turn_off_all_beams
         )
         self.beams_off_button.pack(side="top", fill="x", padx=10, pady=8)
 
