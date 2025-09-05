@@ -97,7 +97,8 @@ class CathodeHeatingSubsystem:
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
         self.entry_fields = []  # Initialize entry fields list
-        self.adjustment_buttons = []  # Track +/- buttons for enabling/disabling during ramps
+        self.curr_adjustment_buttons = []  # Track current +/- buttons for enabling/disabling during ramps
+        self.vlt_adjustment_buttons = []  # Track voltage +/- buttons for enabling/disabling during ramps
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -356,7 +357,8 @@ class CathodeHeatingSubsystem:
             dec_voltage_button.grid(row=1, column=1, sticky='w', padx=(2,0))
 
             # Store adjustment buttons for enabling/disabling during ramps
-            self.adjustment_buttons.append([inc_current_button, dec_current_button, inc_voltage_button, dec_voltage_button])
+            self.curr_adjustment_buttons.append([inc_current_button, dec_current_button])
+            self.vlt_adjustment_buttons.append([inc_voltage_button, dec_voltage_button])
 
             # Output Control
             # Create entries and display labels
@@ -2164,10 +2166,17 @@ class CathodeHeatingSubsystem:
         self.on_ramp_complete(index)
 
     def set_adjustment_buttons_state(self, index: int, state: str):
-        """Enable or disable the +/- adjustment buttons for one cathode."""
-        if index < len(self.adjustment_buttons):
-            for btn in self.adjustment_buttons[index]:
-                btn.config(state=state)
+        """Enable or disable the corresponding +/- adjustment buttons for one cathode."""
+        if self.ramp_control_mode[index] == "current":
+            if index < len(self.curr_adjustment_buttons):
+                for btn in self.curr_adjustment_buttons[index]:
+                    btn.config(state=state)
+        elif self.ramp_control_mode[index] == "voltage":
+            if index < len(self.vlt_adjustment_buttons):
+                for btn in self.vlt_adjustment_buttons[index]:
+                    btn.config(state=state)
+        else:
+            self.log(f"Unknown ramp control mode '{self.ramp_control_mode[index]}' for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
 
     # Input validation methods
     def validate_voltage(self, index:int, new_voltage: float):
