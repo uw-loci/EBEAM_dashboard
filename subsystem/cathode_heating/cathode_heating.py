@@ -1240,7 +1240,7 @@ class CathodeHeatingSubsystem:
     def turn_all_beams_off(self):
         """
         Turn off all cathode beams immediately.
-        Sets output OFF for all initialized power supplies and updates GUI toggle states.
+        Sets output to OFF for all initialized power supplies and updates GUI toggle states.
 
         Side effects:
             - Disables output for all cathode power supplies
