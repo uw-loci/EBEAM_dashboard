@@ -193,6 +193,7 @@ class CathodeHeatingSubsystem:
         style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
         style.configure('RampOn.TButton', background='green', foreground='black', font=('Helvetica', 8, 'bold'))
         style.configure('RampOff.TButton', background='red', foreground='black', font=('Helvetica', 8, 'bold')) # Ramp button style
+        style.configure('BeamsOff.TButton', background='red', foreground='red', font=('Helvetica', 12, 'bold'))
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -456,6 +457,15 @@ class CathodeHeatingSubsystem:
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
         config_tab.columnconfigure(1, weight=1)
+
+        # Beams Off safety button
+        self.beams_off_button = ttk.Button(
+            self.parent,
+            text="Beams OFF",
+            style='BeamsOff.TButton',
+            command=self.turn_all_beams_off
+        )
+        self.beams_off_button.pack(side="top", fill="x", padx=10, pady=8)
 
         self.init_time = datetime.datetime.now()
 
@@ -1237,9 +1247,9 @@ class CathodeHeatingSubsystem:
         current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
         self.toggle_buttons[index].config(image=current_image)
 
-    def turn_off_all_heaters(self):
+    def turn_off_all_beams(self):
         """
-        Turn off all cathode heaters by disabling power supply outputs.
+        Redundantly turns off all cathode heaters by disabling power supply outputs.
 
         Side effects:
             - Disables output on all initialized power supplies
@@ -1255,14 +1265,15 @@ class CathodeHeatingSubsystem:
                 try:
                     if ps.set_output("0"):
                         self.log(f"Turned off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.INFO)
+                        # Update toggle state and button image
+                        self.toggle_states[i] = False
+                        self.toggle_buttons[i].config(image=self.toggle_off_image)
                     else:
-                        self.log(f"Failed to turn off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.ERROR)
-                    
-                    # Update toggle state and button image
-                    self.toggle_states[i] = False
-                    self.toggle_buttons[i].config(image=self.toggle_off_image)
+                        self.log(f"Failed to turn off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.ERROR)       
+
                 except Exception as e:
                     self.log(f"Error turning off heater for Cathode {['A', 'B', 'C'][i]}: {str(e)}", LogLevel.ERROR)
+
             else:
                 self.log(f"Power supply for Cathode {['A', 'B', 'C'][i]} is not initialized; cannot turn off heater.", LogLevel.WARNING)
         
