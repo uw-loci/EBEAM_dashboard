@@ -132,8 +132,17 @@ class G9Driver:
                         self._update_queue(result)
 
             except (ValueError, TimeoutError) as e:
-                self.log(f"Error was throw while getting package from G9: {e}", LogLevel.CRITICAL)
-           
+                self.log(f"Error was thrown while getting package from G9: {e}", LogLevel.CRITICAL)
+                self._update_queue()
+                if hasattr(self.logger, "clear_value"):
+                    for field in ["safetyOutputDataFlags",
+                        "safetyInputDataFlags",
+                        "safetyOutputStatusFlags",
+                        "safetyInputStatusFlags"]:
+                        try:
+                            self.logger.clear_value(field)
+                        except KeyError:
+                            self.log(f"Tried to clear non-existent field: {field}", LogLevel.DEBUG)
             except PermissionError as e:
                 self.log(f"PermissionError while reading from serial port: {str(e)}", LogLevel.ERROR)
                 self._update_queue()

@@ -54,7 +54,7 @@ class EBEAMSystemDashboard:
         "AG0KLEQ8A" : "Interlocks"
     }
 
-    subsystem_mappings = {
+    CLEAR_MAP = {
         "Interlocks": [
         "safetyOutputDataFlags",
         "safetyInputDataFlags",
@@ -446,7 +446,7 @@ class EBEAMSystemDashboard:
                 self.subsystems[subsystem_str].update_com_port(str_port)
             #TODO: Need to add Vacuum system and Cathode Heating
         if str_port is None:
-            for comp in self.subsystem_mappings.get(subsystem_str, []):
+            for comp in self.CLEAR_MAP.get(subsystem_str, []):
                 try:
                     self.logger.clear_value(comp)
                 except KeyError:
