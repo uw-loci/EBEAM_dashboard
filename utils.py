@@ -116,7 +116,13 @@ class Logger:
             self.dict_logger[field] = value
             self.log_dict_update(self.dict_logger)
         else:
-            raise KeyError(f"'{field}' is not a valid key in status dict.")      
+            raise KeyError(f"'{field}' is not a valid key in status dict.")
+    def clear_value(self, field):
+        if field in self.dict_logger:
+            self.dict_logger[field] = None
+            self.log_dict_update(self.dict_logger)
+        else:
+            raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
         # return early if file logging is disabled
         if not self.log_to_file:
