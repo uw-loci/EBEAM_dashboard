@@ -193,7 +193,7 @@ class CathodeHeatingSubsystem:
         style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
         style.configure('RampOn.TButton', background='green', foreground='black', font=('Helvetica', 8, 'bold'))
         style.configure('RampOff.TButton', background='red', foreground='black', font=('Helvetica', 8, 'bold')) # Ramp button style
-        style.configure('BeamsOff.TButton', background='red', foreground='red', font=('Helvetica', 12, 'bold'))
+        style.configure('BeamsOff.TButton', background='red', foreground='white', font=('Helvetica', 12, 'bold'))
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
