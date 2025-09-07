@@ -1263,7 +1263,7 @@ class CathodeHeatingSubsystem:
         for i, ps in enumerate(self.power_supplies):
             if ps and self.power_supply_status[i]:
                 try:
-                    if ps.set_output("0"):
+                    if ps.set_output("0"): # Turn off beam
                         self.log(f"Turned off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.INFO)
                         # Update toggle state and button image
                         self.toggle_states[i] = False
