@@ -268,7 +268,6 @@ class CathodeHeatingSubsystem:
 
             frame.columnconfigure(1, weight=1)  # Allow notebook to expand
             frame.columnconfigure(2, weight=0)
-            frame.columnconfigure(3, weight=0)
 
             notebook = ttk.Notebook(frame)
             notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
@@ -543,7 +542,7 @@ class CathodeHeatingSubsystem:
             ax.set_title(f'Cathode {["A", "B", "C"][i]} Temperature', fontsize=8, fontweight='bold')
 
             # Initial y-range; real autoscale happens in update_plot
-            ax.set_ylim(20, 70)
+            ax.set_ylim(50, 200)
 
             # Light grid for readability
             ax.grid(True, which='major', alpha=0.3, linewidth=0.6)
@@ -1241,7 +1240,7 @@ class CathodeHeatingSubsystem:
                 # Attempt to read temperature from the connected temperature controller
                 temperature = self.temperature_controller.temperatures[index]
                 if isinstance(temperature, float):
-                    self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
+                    self.clamp_temperature_vars[index].set(f"{temperature:.2f}")
 
                     # Check for overtemperature condition
                     if temperature > self.overtemp_limit_vars[index].get():
@@ -1267,12 +1266,6 @@ class CathodeHeatingSubsystem:
             self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'DISCONNECTED')
 
-
-        # Set temperature to zero as default
-        self.clamp_temperature_vars[index].set("--")
-        return None
-
-    
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
@@ -1327,7 +1320,7 @@ class CathodeHeatingSubsystem:
             temperature = self.read_temperature(i)
 
             if isinstance(temperature, float):
-                self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
+                self.clamp_temperature_vars[i].set(f"{temperature:.2f}")
             elif isinstance(temperature, str):
                 self.clamp_temperature_vars[i].set("--")
                 self.clamp_temp_labels[i].config(foreground='orange')
@@ -1416,7 +1409,7 @@ class CathodeHeatingSubsystem:
 
         # Smooth transitions so axes don’t jump every frame
         cur_lo, cur_hi = ax.get_ylim()
-        alpha = 0.35                        # smoothing factor (0=no smooth, 1=instant)
+        alpha = 1                       # smoothing factor (0=no smooth, 1=instant)
         new_lo = cur_lo + alpha * (target_lo - cur_lo)
         new_hi = cur_hi + alpha * (target_hi - cur_hi)
         ax.set_ylim(new_lo, new_hi)
