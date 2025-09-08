@@ -458,15 +458,6 @@ class CathodeHeatingSubsystem:
         config_tab.columnconfigure(0, weight=1)
         config_tab.columnconfigure(1, weight=1)
 
-        # Beams Off safety button
-        self.beams_off_button = ttk.Button(
-            self.parent,
-            text="Beams OFF",
-            style='BeamsOff.TButton',
-            command=self.turn_off_all_beams
-        )
-        self.beams_off_button.pack(side="top", fill="x", padx=10, pady=8)
-
         self.init_time = datetime.datetime.now()
 
     def update_com_ports(self, new_com_ports):
