@@ -55,7 +55,7 @@ class TestG9Driver(unittest.TestCase):
         self.driver.ser.read_until.return_value = msg_with_checksum
         
         try:
-            sitsf, sitdf, g9Active, _ , _, _ = self.driver._process_response(msg_with_checksum)
+            sitsf, sitdf, g9Active, _ , _, _, _ = self.driver._process_response(msg_with_checksum)
             self.assertEqual(len(sitsf), self.driver.NUMIN)
             self.assertEqual(len(sitdf), self.driver.NUMIN)
             self.assertTrue(all(bit == 1 for bit in sitsf))
