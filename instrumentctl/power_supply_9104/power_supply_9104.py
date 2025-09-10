@@ -5,6 +5,8 @@ from utils import LogLevel
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
+    HIT_LIMIT = 3 # number of times to hit limit before stopping ramp
+    GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.port = port
@@ -55,6 +57,9 @@ class PowerSupply9104:
         """Send a command to the power supply and read the response."""
         # with self.serial_lock:
         try:
+            if not self.is_connected():
+                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                return None # return immediately to prevent blocking GUI on serial read
             self.flush_serial()
             
             self.log(f"Sending command: {command}", LogLevel.DEBUG)
@@ -93,6 +98,10 @@ class PowerSupply9104:
             self.log(f"Cannot switch on output. Check voltage vs. OVP", LogLevel.ERROR)
             return False
         else:
+            if self.ramp_thread and self.ramp_thread.is_alive():
+                self.log("Ramping thread is running, stopping it before changing output state", LogLevel.INFO)
+                self.stop_event.set()
+            
             command = f"SOUT{state}"
             response = self.send_command(command)
             self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
@@ -154,6 +163,138 @@ class PowerSupply9104:
             self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
             return False
 
+    def ramp_current(self, target_current, step_size=0.01, step_delay=2.0, preset=3, callback=None):
+        """
+        Slowly ramp the current to the target current at the specified ramp rate.
+        Runs in a separate thread to avoid blocking the GUI
+        
+        Args:
+            target_current (float): The target current to reach in amps.
+            step_size (float): The amount to increase/decrease current each step in amps.
+            step_delay (float): Delay between steps in seconds.
+            preset (int): The preset number to use for setting voltage/current.
+            callback (function): Optional function to call when ramping is complete.
+        """
+        if self.ramp_thread and self.ramp_thread.is_alive():
+            self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
+            return
+
+        self.stop_event.clear()  # Clear the stop flag before starting
+        self.ramp_thread = threading.Thread(
+            target=self._ramp_current_thread,
+            args=(target_current, step_size, step_delay, preset, callback),
+            daemon=True
+        )
+        try:
+            self.ramp_thread.start()
+            self.log(f"Ramping current to {target_current:.2f}A started.", LogLevel.INFO)
+        except Exception as e:
+            self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
+            if callback:
+                callback(False)
+
+    def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback):
+        """Main current ramping implementation."""
+        start_time = time.monotonic()
+
+        try:
+            # Get initial current
+            _, current, _ = self.get_voltage_current_mode()
+            if current is None:
+                self.log("Could not get initial current reading, using 0A", LogLevel.WARNING)
+                current = 0.0
+
+            current_current = current
+            limit_hit_count = {"hits": 0} # tracks limit hits during ramp
+            store_good_value = {"last good": None} # stores last good current value
+
+            self.log(f"Starting ramp from {current_current:.2f}A to {target_current:.2f}A", LogLevel.INFO)
+
+            # Calculate steps
+            current_difference = target_current - current_current
+            num_steps = max(1, int(abs(current_difference) / step_size))
+            current_step = current_difference / num_steps
+
+            # Simple ramping loop
+            for step in range(num_steps):
+                if self.stop_event.is_set(): # Check if stop is requested
+                    self.log("Ramping thread stopped.", LogLevel.INFO)
+                    if callback:
+                        callback(False)
+                    return
+                
+                if not self.is_connected():
+                    self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
+                    if callback:
+                        callback(False)
+                    return
+                
+                next_current = current_current + current_step
+                if current_step > 0:
+                    next_current = min(next_current, target_current)
+                else:
+                    next_current = max(next_current, target_current)
+
+                # Set new current
+                for attempt in range(self.MAX_RETRIES):
+                    if self.stop_event.is_set():
+                        self.log("Ramping thread stopped during setting current.", LogLevel.INFO)
+                        if callback:
+                            callback(False)
+                        return
+                    
+                    try:
+                        if self.set_current(preset, next_current):
+                            if self.is_being_limited("current", limit_hit_count, start_time, next_current, store_good_value):
+                                self.log(f"Current limit engaged during ramping at {next_current:.2f}A - aborting ramp.", LogLevel.WARNING)
+
+                                if store_good_value["last good"] is not None:
+                                    self.log(f"Using last good value: {store_good_value['last good']:.2f}A", LogLevel.INFO)
+                                    if not self.set_current(preset, store_good_value["last good"]):
+                                        self.log("Failed to set last good current value. Aborting ramp.", LogLevel.ERROR)
+
+                                if callback:
+                                    callback(False)
+                                return
+                            break # Success, exit retry loop
+                        else:
+                            self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.ERROR)
+                    except Exception as e:
+                        self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
+                        time.sleep(0.1)  # Short delay before retrying
+                else:
+                    self.log(f"Failed to set current to {next_current:.2f}A after {self.MAX_RETRIES} attempts. Aborting ramp", LogLevel.ERROR)
+                    if callback:
+                        callback(False)
+                    return
+                
+                # Update tracking current without querying device
+                current_current = next_current
+
+                # Only log every few steps
+                if step % 5 == 0:
+                    self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_current:.2f}A", LogLevel.INFO)
+                
+                # Longer delay between steps
+                time.sleep(step_delay)
+            
+            # Final verification after settling
+            time.sleep(1.0)  # Extra settling time
+            _, final_current, _ = self.get_voltage_current_mode()
+
+            if final_current is not None:
+                self.log(f"Ramp complete. Target: {target_current:.2f}A, Final: {final_current:.2f}A", LogLevel.INFO)
+            else:
+                self.log("Ramp complete but could not verify final current", LogLevel.WARNING)
+            
+            if callback:
+                callback(True)
+        except Exception as e:
+            self.log(f"Error during current ramp: {str(e)}", LogLevel.ERROR)
+            if callback:
+                callback(False)
+            
+
     def ramp_voltage(self, target_voltage, step_size=0.02, step_delay=2.0, preset=3, callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
@@ -184,6 +325,8 @@ class PowerSupply9104:
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
+        start_time = time.monotonic()
+
         try:
             # Get initial voltage
             voltage, _, _ = self.get_voltage_current_mode()
@@ -192,6 +335,9 @@ class PowerSupply9104:
                 voltage = 0.0
                 
             current_voltage = voltage
+            limit_hit_count = {"hits": 0} # tracks limit hits during ramp
+            store_good_value = {"last good": None} # stores last good voltage value
+
             self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
             
             # Calculate steps
@@ -218,20 +364,34 @@ class PowerSupply9104:
                     next_voltage = min(next_voltage, target_voltage)
                 else:
                     next_voltage = max(next_voltage, target_voltage)
-                
+
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
-                    try:
-                        if not self.set_voltage(preset, next_voltage):
-                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
-
-                    except Exception as e:
-                        self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
+                    if self.stop_event.is_set():
+                        self.log("Ramping thread stopped during setting voltage.", LogLevel.INFO)
                         if callback:
                             callback(False)
                         return
-                    
-                if attempt > self.MAX_RETRIES:
+                    try:
+                        if self.set_voltage(preset, next_voltage):
+                            if self.is_being_limited("voltage", limit_hit_count, start_time, next_voltage, store_good_value):
+                                self.log(f"Voltage limit engaged during ramping at {next_voltage:.2f}V - aborting ramp.", LogLevel.WARNING)
+
+                                if store_good_value["last good"] is not None:
+                                    self.log(f"Using last good value: {store_good_value['last good']:.2f}V", LogLevel.INFO)
+                                    if not self.set_voltage(preset, store_good_value["last good"]):
+                                        self.log("Failed to set last good voltage value. Aborting ramp.", LogLevel.ERROR)
+
+                                if callback:
+                                    callback(False)
+                                return
+                            break # Success, exit retry loop
+                        else:
+                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
+                    except Exception as e:
+                        self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
+                        time.sleep(0.1) # Short delay before retrying
+                else:
                     self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp", LogLevel.ERROR)
                     if callback:
                         callback(False)
@@ -243,7 +403,7 @@ class PowerSupply9104:
                 # Only log every few steps
                 if step % 5 == 0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
-                    
+    
                 # Longer delay between steps
                 time.sleep(step_delay)
             
@@ -263,6 +423,63 @@ class PowerSupply9104:
             self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
+
+    def stop_ramp(self):
+        """
+        Signal any active ramp thread to exit cleanly.
+        Safe to call even if no ramp is running.
+        """
+        self.stop_event.set()           # thread checks this each step
+
+    def is_being_limited(self, ramp_type: str, hit_count:dict, start_time: float, set_value: float, stored_value: dict) -> bool:
+        """
+        This function checks if the power supply is being limited during a ramp operation.
+
+        Args:
+            ramp_type (str): The type of ramp being performed, either "voltage" or "current".
+            start_time (float): The time when the ramp started, used to determine if the grace period has passed.
+            set_value (float): The recently set value (either voltage or current).
+        """
+        voltage_offset = .06
+        current_offset = .06
+
+        if time.monotonic() - start_time < self.GRACE_PERIOD_SEC:
+            # Ignore limits for the first second to allow for initial settling
+            hit_count["hits"] = 0
+            return False
+
+        measured_voltage, measured_current, op_mode = self.get_voltage_current_mode()
+        
+        wrong_mode = (
+        (ramp_type == "current"  and op_mode == "CV Mode") or
+        (ramp_type == "voltage" and op_mode == "CC Mode")
+        )
+
+        if ramp_type == "voltage":
+            stalled = abs(measured_voltage - set_value) > voltage_offset
+        elif ramp_type == "current":
+            stalled = abs(measured_current - set_value) > current_offset
+        else:
+            raise ValueError(f"is_being_limited called with invalid ramp_type: {ramp_type}")
+
+
+        if stalled and wrong_mode:
+            if hit_count["hits"] == 0:
+                stored_value["last good"] = measured_voltage if ramp_type == "voltage" else measured_current
+            hit_count["hits"] += 1
+        else:
+            hit_count["hits"] = 0   
+            stored_value["last good"] = None
+        
+        if hit_count["hits"] >= self.HIT_LIMIT:
+            self.log(f"Power supply is being limited during {ramp_type} ramp: "
+                     f"Measured {ramp_type}: {measured_voltage if ramp_type == 'voltage' else measured_current:.2f}, "
+                     f"Previous {ramp_type}: {set_value:.2f}, "
+                     f"Mode: {op_mode}", LogLevel.WARNING)
+            return True
+
+        return False
+        
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
