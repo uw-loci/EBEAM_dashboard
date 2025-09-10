@@ -272,7 +272,11 @@ class InterlocksSubsystem:
                         self.parent.after(self.update_interval, self.update_data)
                         return
                 
-                sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms = status
+                sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms, debug_data = status
+
+                # Log debug data for web monitor
+                self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.DEBUG)
+                self.log(f"Safety Input Terminal Data Flags: {debug_data['sitdf']}", LogLevel.DEBUG)
 
                 # parse unit status
                 for k, v in unit_status.items():

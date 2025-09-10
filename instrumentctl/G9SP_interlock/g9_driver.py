@@ -223,6 +223,12 @@ class G9Driver:
             'sotdf': self._extract_flags(status_data['sotdf'], 7),
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
+        
+        # Store data flags to be logged in interlock.py for web monitor
+        debug_data = {
+            'sotdf': binary_data['sotdf'],
+            'sitdf': binary_data['sitdf']
+        }
 
         unit_status_flags = self._extract_flags(status_data['unit_status'], 16)
 
@@ -232,7 +238,8 @@ class G9Driver:
                     binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_active
                     unit_flags,                                             # unit_status
                     data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input 
-                    data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:])   # output 
+                    data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:],   # output
+                    debug_data)                                             # debug data for terminal flags
 
     def _validate_response_format(self, data):
         """
