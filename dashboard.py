@@ -14,22 +14,22 @@ frames_config = [
     ("Interlocks", 0, 1, 0.05),
     
     # Row 1
-    ("Oil System", 1, 0.35, 0.12),
-    ("Beam Steering", 1, 0.35, 0.12),
-    ("Beam Energy", 1, 0.3, 0.12),
+    ("Oil System", 1, 0.32, 0.12),
+    ("Beam Steering", 1, 0.4, 0.12),
+    ("Beam Energy", 1, 0.28, 0.12),
     
     # Row 2
-    ("Vacuum System", 2, 0.35, 0.31),
-    ("Beam Pulse", 2, 0.35, 0.31),
-    ("Main Control", 2, 0.3, 0.31),
+    ("Vacuum System", 2, 0.32, 0.38),
+    ("Beam Pulse", 2, 0.4, 0.38),
+    ("Main Control", 2, 0.28, 0.38),
     
     # Row 4
-    ("Process Monitor", 3, 0.2, 0.4),
-    ("Cathode Heating", 3, 0.6, 0.4),
-    ("Messages Frame", 3, 0.2, 0.4),
+    ("Process Monitor", 3, 0.16, 0.41),
+    ("Cathode Heating", 3, 0.56, 0.41),
+    ("Messages Frame", 3, 0.28, 0.41),
 
     # Row 5
-    ("Machine Status", 4, 1, 0.03)
+    ("Machine Status", 4, 1, 0.04)
 ]
 
 class EBEAMSystemDashboard:
