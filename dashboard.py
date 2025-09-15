@@ -11,25 +11,25 @@ import serial.tools.list_ports
 
 frames_config = [
     # Row 0
-    ("Interlocks", 0, 1916, 41),
+    ("Interlocks", 0, 1, 0.05),
     
     # Row 1
-    ("Oil System", 1, 604, 130),
-    ("Beam Steering", 1, 778, 130),
-    ("Beam Energy", 1, 528, 130),
+    ("Oil System", 1, 0.35, 0.12),
+    ("Beam Steering", 1, 0.35, 0.12),
+    ("Beam Energy", 1, 0.3, 0.12),
     
     # Row 2
-    ("Vacuum System", 2, 604, 438),
-    ("Beam Pulse", 2, 777, 438),
-    ("Main Control", 2, 529, 438),
+    ("Vacuum System", 2, 0.35, 0.31),
+    ("Beam Pulse", 2, 0.35, 0.31),
+    ("Main Control", 2, 0.3, 0.31),
     
     # Row 4
-    ("Process Monitor", 3, 339, 458),
-    ("Cathode Heating", 3, 1041, 458),
-    ("Messages Frame", 3, 539, 458),
+    ("Process Monitor", 3, 0.2, 0.4),
+    ("Cathode Heating", 3, 0.6, 0.4),
+    ("Messages Frame", 3, 0.2, 0.4),
 
     # Row 5
-    ("Machine Status", 4, 1916, 38)
+    ("Machine Status", 4, 1, 0.03)
 ]
 
 class EBEAMSystemDashboard:
@@ -111,10 +111,17 @@ class EBEAMSystemDashboard:
         Each frame is added to its designated row in the main pane.
         """
         global frames_config
+        # Get screen dimensions to calculate frame sizes
+        root_w = self.root.winfo_screenwidth()
+        root_h = self.root.winfo_screenheight()
 
-        for title, row, width, height in frames_config:
-            if width and height and title:
-                frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
+        for title, row, rel_width, rel_height in frames_config:
+            #  Calculate pixel dimensions based on relative sizes
+            w = int(rel_width * root_w)
+            h = int(rel_height * root_h)
+
+            if rel_width and rel_height and title:
+                frame = tk.Frame(self.rows[row], borderwidth=1, relief="solid", width=w, height=h)
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
@@ -310,7 +317,15 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
+        # Get screen dimensions to calculate frame size
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        # Calculate pixel dimensions based on relative sizes from frames_config
+        rel_w, rel_h = frames_config[-2][2], frames_config[-2][3]
+        px_w = int(rel_w * screen_w)
+        px_h = int(rel_h * screen_h)
+
+        self.messages_frame = MessagesFrame(self.rows[3], width = px_w, height = px_h)
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
