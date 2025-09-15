@@ -45,6 +45,8 @@ def start_main_app(com_ports):
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
+    # Set tkinter scaling to avoid contents running out of frames
+    root.tk.call('tk', 'scaling', 0.94)
 
     # Track fullscreen state
     fullscreen = False
