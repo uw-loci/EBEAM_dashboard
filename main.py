@@ -1,5 +1,6 @@
 import sys
 import tkinter as tk
+from hidpi_tk import DPIAwareTk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
 
@@ -42,11 +43,11 @@ def start_main_app(com_ports):
 
     :param com_ports: Dict mapping subsystems to their selected COM ports.
     """
-    root = tk.Tk()
+    root = DPIAwareTk()
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
     # Set tkinter scaling to avoid contents running out of frames
-    root.tk.call('tk', 'scaling', 0.94)
+
 
     # Track fullscreen state
     fullscreen = False
