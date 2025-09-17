@@ -416,10 +416,10 @@ class MachineStatus():
 
             label = tk.Label(
                 self.machine_status_frame, text=name, anchor="w", padx=5,
-                bg=bg_color, fg=fg_color, width=12, height=2,
-                wraplength=80, justify="left"
+                bg=bg_color, fg=fg_color, width=20, height=2,
+                wraplength=190, justify="left"
             )
-            label.grid(row=0, column=i * 2, sticky='ew')
+            label.grid(row=0, column=i * 2, sticky='ew', pady = (0,2))
 
             self.status_labels[name] = label
 
@@ -458,3 +458,7 @@ class MachineStatus():
                 if name in self.status_labels and name != "Machine Status":  # Don't change main label
                     new_color = "#57cce7" if is_active else "#dbd9d9"
                     self.status_labels[name].config(bg=new_color)
+
+
+class ScaleConfig:
+    scale = 1.0

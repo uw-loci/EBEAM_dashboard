@@ -6,6 +6,7 @@ import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
+from utils import ScaleConfig
 
 
 SUBSYSTEMS = [
@@ -46,8 +47,10 @@ def start_main_app(com_ports):
     root = DPIAwareTk()
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
-    # Set tkinter scaling to avoid contents running out of frames
 
+    dpi = root.winfo_fpixels('1i')
+    # this display's dpi relative to the base dpi (on lab machine)
+    ScaleConfig.scale = dpi/95.8921348 
 
     # Track fullscreen state
     fullscreen = False
