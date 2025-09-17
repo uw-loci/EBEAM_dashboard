@@ -416,10 +416,10 @@ class MachineStatus():
 
             label = tk.Label(
                 self.machine_status_frame, text=name, anchor="w", padx=5,
-                bg=bg_color, fg=fg_color, width=20, height=2,
-                wraplength=190, justify="left"
+                bg=bg_color, fg=fg_color, width=int(12*ScaleConfig.scale), height=2,
+                wraplength=int(80*ScaleConfig.scale), justify="left"
             )
-            label.grid(row=0, column=i * 2, sticky='ew', pady = (0,2))
+            label.grid(row=0, column=i * 2, sticky='ew')
 
             self.status_labels[name] = label
 

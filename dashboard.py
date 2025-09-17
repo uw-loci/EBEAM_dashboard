@@ -5,7 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
+from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus, ScaleConfig
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 
@@ -29,7 +29,7 @@ frames_config = [
     ("Messages Frame", 3, 0.28, 0.41),
 
     # Row 5
-    ("Machine Status", 4, 1, 0.045)
+    ("Machine Status", 4, 1, 0.04 if int(ScaleConfig.scale)==1 else 0.045)
 ]
 
 class EBEAMSystemDashboard:
