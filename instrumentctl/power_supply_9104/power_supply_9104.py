@@ -206,7 +206,6 @@ class PowerSupply9104:
 
             current_current = current
             limit_hit_count = {"hits": 0} # tracks limit hits during ramp
-            store_good_value = {"last good": None} # stores last good current value
 
             self.log(f"Starting ramp from {current_current:.2f}A to {target_current:.2f}A", LogLevel.INFO)
 
@@ -245,13 +244,15 @@ class PowerSupply9104:
                     
                     try:
                         if self.set_current(preset, next_current):
-                            if self.is_being_limited("current", limit_hit_count, start_time, next_current, store_good_value):
-                                self.log(f"Current limit engaged during ramping at {next_current:.2f}A - aborting ramp.", LogLevel.WARNING)
+                            if self.is_being_limited("current", limit_hit_count, start_time, next_current):
+                                self.log(f"Current limit engaged during ramping at {next_current:.2f}A - aborting ramp in place.", LogLevel.WARNING)
 
-                                if store_good_value["last good"] is not None:
-                                    self.log(f"Using last good value: {store_good_value['last good']:.2f}A", LogLevel.INFO)
-                                    if not self.set_current(preset, store_good_value["last good"]):
-                                        self.log("Failed to set last good current value. Aborting ramp.", LogLevel.ERROR)
+                                _, measured_current, _ = self.get_voltage_current_mode()
+
+                                if measured_current is not None:
+                                    self.log(f"Snapping set value down to measured limit: {measured_current:.2f}A", LogLevel.INFO)
+                                    if not self.set_current(preset, measured_current):
+                                        self.log("Failed to snap current value to measured. Aborting ramp.", LogLevel.ERROR)
 
                                 if callback:
                                     callback(False)
@@ -336,7 +337,6 @@ class PowerSupply9104:
                 
             current_voltage = voltage
             limit_hit_count = {"hits": 0} # tracks limit hits during ramp
-            store_good_value = {"last good": None} # stores last good voltage value
 
             self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
             
@@ -374,13 +374,15 @@ class PowerSupply9104:
                         return
                     try:
                         if self.set_voltage(preset, next_voltage):
-                            if self.is_being_limited("voltage", limit_hit_count, start_time, next_voltage, store_good_value):
+                            if self.is_being_limited("voltage", limit_hit_count, start_time, next_voltage):
                                 self.log(f"Voltage limit engaged during ramping at {next_voltage:.2f}V - aborting ramp.", LogLevel.WARNING)
 
-                                if store_good_value["last good"] is not None:
-                                    self.log(f"Using last good value: {store_good_value['last good']:.2f}V", LogLevel.INFO)
-                                    if not self.set_voltage(preset, store_good_value["last good"]):
-                                        self.log("Failed to set last good voltage value. Aborting ramp.", LogLevel.ERROR)
+                                measured_voltage, _,_ = self.get_voltage_current_mode()
+
+                                if voltage is not None:
+                                    self.log(f"Snapping set value down to measured limit: {measured_voltage:.2f}V", LogLevel.INFO)
+                                    if not self.set_voltage(preset, measured_voltage):
+                                        self.log("Failed to snap voltage value to measured. Aborting ramp.", LogLevel.ERROR)
 
                                 if callback:
                                     callback(False)
@@ -431,7 +433,7 @@ class PowerSupply9104:
         """
         self.stop_event.set()           # thread checks this each step
 
-    def is_being_limited(self, ramp_type: str, hit_count:dict, start_time: float, set_value: float, stored_value: dict) -> bool:
+    def is_being_limited(self, ramp_type: str, hit_count:dict, start_time: float, set_value: float) -> bool:
         """
         This function checks if the power supply is being limited during a ramp operation.
 
@@ -440,8 +442,8 @@ class PowerSupply9104:
             start_time (float): The time when the ramp started, used to determine if the grace period has passed.
             set_value (float): The recently set value (either voltage or current).
         """
-        voltage_offset = .06
-        current_offset = .06
+        voltage_offset = .04
+        current_offset = .04
 
         if time.monotonic() - start_time < self.GRACE_PERIOD_SEC:
             # Ignore limits for the first second to allow for initial settling
@@ -464,12 +466,13 @@ class PowerSupply9104:
 
 
         if stalled and wrong_mode:
-            if hit_count["hits"] == 0:
-                stored_value["last good"] = measured_voltage if ramp_type == "voltage" else measured_current
+            self.log(f"Detected limit condition during {ramp_type} ramp: "
+                     f"Measured {ramp_type}: {measured_voltage if ramp_type == 'voltage' else measured_current:.2f}, "
+                     f"Set {ramp_type}: {set_value:.2f}, "
+                     f"Mode: {op_mode}", LogLevel.DEBUG)
             hit_count["hits"] += 1
         else:
             hit_count["hits"] = 0   
-            stored_value["last good"] = None
         
         if hit_count["hits"] >= self.HIT_LIMIT:
             self.log(f"Power supply is being limited during {ramp_type} ramp: "
