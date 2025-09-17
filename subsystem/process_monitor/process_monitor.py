@@ -2,7 +2,7 @@ import time
 import tkinter as tk
 from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
-from utils import LogLevel
+from utils import LogLevel, ScaleConfig
 
 class TemperatureBar(tk.Canvas):
 
@@ -20,17 +20,17 @@ class TemperatureBar(tk.Canvas):
     }
 
     def __init__(self, parent, name: str, height: int = 400, width: int = 40):
-        super().__init__(parent, height=height, width=width)
+        super().__init__(parent, height=height*ScaleConfig.scale, width=width*ScaleConfig.scale)
         self.name = name
-        self.height = height
-        self.width = width
-        self.bar_width = 15
+        self.height = height*ScaleConfig.scale
+        self.width = width*ScaleConfig.scale
+        self.bar_width = 15*ScaleConfig.scale
         self.value = 0
         
         # Create title
         self.create_text(
-            width//2, 
-            75, 
+            width//2*ScaleConfig.scale, 
+            75*ScaleConfig.scale, 
             text=name, 
             font=('Arial', 8, 'bold'), 
             anchor='n',
@@ -42,9 +42,9 @@ class TemperatureBar(tk.Canvas):
         
     def create_scale(self):
         # Scale line
-        scale_x = self.width - 20
-        top_y = 35
-        bottom_y = self.height - 20
+        scale_x = self.width - 20*ScaleConfig.scale
+        top_y = 35*ScaleConfig.scale
+        bottom_y = self.height - 20*ScaleConfig.scale
         scale_height = bottom_y - top_y
         
         self.create_line(scale_x, top_y, scale_x, bottom_y)
@@ -66,9 +66,9 @@ class TemperatureBar(tk.Canvas):
         for i in range(self.temp_min, self.temp_max + 1, 10):    
             relative_pos = (i - self.temp_min) / temp_range
             y = bottom_y - (relative_pos * scale_height)
-            self.create_line(scale_x-2, y, scale_x+2, y)
+            self.create_line(scale_x-2*ScaleConfig.scale, y, scale_x+2*ScaleConfig.scale, y)
             self.create_text(
-                scale_x-6, 
+                scale_x-6*ScaleConfig.scale, 
                 y, 
                 text=str(i), 
                 anchor='w', 
