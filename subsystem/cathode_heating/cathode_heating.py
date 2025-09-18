@@ -1890,7 +1890,12 @@ class CathodeHeatingSubsystem:
                     )
                     self.current_set[index] = True
                 elif self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
-                    # Ramp Voltage mode
+                    # Ramp Voltage Mode
+                    #Immediate set new current
+                    if not self.power_supplies[index].set_current(3, new_current):
+                        self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
+
+                    # Ramp Voltage
                     self.on_ramp_start(index)
                     self.power_supplies[index].ramp_voltage(
                         self.user_set_voltages[index],
@@ -1945,6 +1950,11 @@ class CathodeHeatingSubsystem:
                     self.voltage_set[index] = True
                 elif self.ramp_status[index] and self.ramp_control_mode[index] == "current":
                     # Ramp Current mode
+                    # Immediate set new voltage
+                    if not self.power_supplies[index].set_voltage(3, new_voltage):
+                        self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
+
+                    # Ramp Current
                     self.on_ramp_start(index)
                     self.power_supplies[index].ramp_current(
                         self.user_set_currents[index],
