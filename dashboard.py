@@ -29,7 +29,7 @@ frames_config = [
     ("Messages Frame", 3, 0.28, 0.41),
 
     # Row 5
-    ("Machine Status", 4, 1, 0.04 if int(ScaleConfig.scale)==1 else 0.045)
+    ("Machine Status", 4, 1, 0.04)
 ]
 
 class EBEAMSystemDashboard:
