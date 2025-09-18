@@ -167,7 +167,7 @@ class VTRXSubsystem:
 
     def _resize_indicator(self, canvas, event):
         width, height = event.width, event.height
-        side = min(width, height) - 4
+        side = min(width, height) - 10
         x0 = (width-side) / 2
         y0 = (width - side) / 2
         # Update the coordinates of the existing oval without deleting it.
@@ -379,8 +379,8 @@ class VTRXSubsystem:
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
-        self.fig, self.ax = plt.subplots(figsize=(2,2))
-        self.fig.subplots_adjust(left=0.2, right=0.99, top=0.95, bottom=0.15)
+        self.fig, self.ax = plt.subplots()
+        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.95, bottom=0.05)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
