@@ -4,7 +4,7 @@ from tkinter import messagebox
 import datetime
 import serial
 import threading
-from utils import LogLevel
+from utils import LogLevel, ScaleConfig
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import ttk
 import matplotlib.pyplot as plt
@@ -167,10 +167,12 @@ class VTRXSubsystem:
 
     def _resize_indicator(self, canvas, event):
         width, height = event.width, event.height
-        margin = min(width, height) // 4
+        side = min(width, height) - 4
+        x0 = (width-side) / 2
+        y0 = (width - side) / 2
         # Update the coordinates of the existing oval without deleting it.
         if hasattr(canvas, '_oval_id'):
-            canvas.coords(canvas._oval_id, margin, margin, width - margin, height - margin)
+            canvas.coords(canvas._oval_id, x0, y0, x0 + side, y0 + side)
 
     def process_queue(self):
         """
@@ -377,8 +379,8 @@ class VTRXSubsystem:
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
-        self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.05)
+        self.fig, self.ax = plt.subplots(figsize=(2,2))
+        self.fig.subplots_adjust(left=0.2, right=0.99, top=0.95, bottom=0.15)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
