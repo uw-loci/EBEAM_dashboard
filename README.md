@@ -160,6 +160,8 @@ The `main` branch contains the latest production code.
 
 #### Development Process 
 
+**If you are new to git submodules, always use the `--recursive` flag when cloning. This ensures all required submodules are initialized automatically.**
+
 Clone the repo to your machine (including the lookup table submodule):
 ```
 git clone --recursive https://github.com/bwalkerMIR/EBEAM_dashboard.git
