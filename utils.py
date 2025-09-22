@@ -413,7 +413,9 @@ class MachineStatus():
         for i, (name, _) in enumerate(self.MACHINE_STATUS.items()):
             bg_color = "black" if name == "Machine Status" else "#dbd9d9"
             fg_color = "white" if name == "Machine Status" else "black"
-            font = ("Helvetica", 8) if (int(ScaleConfig.scale) > 1) else ("Helvetica", 10)
+            font = ("Helvetica", 9) if (ScaleConfig.scale > 1.01) else ("Helvetica", 10)
+
+            print("scale: ", ScaleConfig.scale)
 
             label = tk.Label(
                 self.machine_status_frame, text=name, font=font, anchor="w", padx=5,
