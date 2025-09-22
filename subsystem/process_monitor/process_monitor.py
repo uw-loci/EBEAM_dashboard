@@ -42,7 +42,7 @@ class TemperatureBar(tk.Canvas):
         
     def create_scale(self):
         # Scale line
-        scale_x = self.width - 20*ScaleConfig.scale
+        scale_x = self.width - (23*ScaleConfig.scale) if ScaleConfig.scale > 1.01 else 20
         top_y = 35*ScaleConfig.scale
         bottom_y = self.height - 20*ScaleConfig.scale
         scale_height = bottom_y - top_y
