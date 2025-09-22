@@ -8,6 +8,17 @@ from pymodbus.exceptions import ModbusIOException
 from typing import Dict
 
 class DP16ProcessMonitor:
+    class StderrRedirector:
+        def __init__(self, logger, level=LogLevel.ERROR):
+            self.logger = logger
+            self.level = level
+        def write(self, msg):
+            msg = msg.strip()
+            if msg:
+                if self.logger:
+                    self.logger.log(msg, self.level)
+        def flush(self):
+            pass
     """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
 
     PROCESS_VALUE_REG = 0x210   # Page 8: CNPt Series Programming User's Guide Modbus Interface
@@ -66,49 +77,49 @@ class DP16ProcessMonitor:
         Returns:
             bool: True if the connection is successful, False otherwise.
         """
-        with self.modbus_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.log("Reusing existing PMON Modbus connection", LogLevel.DEBUG)
-                    return True
-                
-                self.log(f"Attempting to connect on port {self.client}", LogLevel.DEBUG)
-                if not self.client.connect():
-                    return False
-                
-                # Check if any unit responds
-                working_units = set()
-                for unit in self.unit_numbers:
-                    status = self.client.read_holding_registers(
-                        address=self.STATUS_REG,
-                        count=1,
-                        slave=unit
-                    )
-                    if not status.isError():
-                        working_units.add(unit)
-                        self.log(
-                            f"DP16 Unit {unit} responded with status: {status.registers[0]}", 
-                            LogLevel.VERBOSE
+        import sys
+        old_stderr = sys.stderr
+        sys.stderr = self.StderrRedirector(self.logger, LogLevel.ERROR)
+        try:
+            with self.modbus_lock:
+                try:
+                    if self.client.is_socket_open():
+                        self.log("Reusing existing PMON Modbus connection", LogLevel.DEBUG)
+                        return True
+                    self.log(f"Attempting to connect on port {self.client}", LogLevel.DEBUG)
+                    if not self.client.connect():
+                        return False
+                    # Check if any unit responds
+                    working_units = set()
+                    for unit in self.unit_numbers:
+                        status = self.client.read_holding_registers(
+                            address=self.STATUS_REG,
+                            count=1,
+                            slave=unit
                         )
-                    else:
-                        self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
-                        # with self.response_lock:
-                        #     self.temperature_readings[unit] = self.DISCONNECTED
-
-                if working_units:
-                    self.log(
-                        f"Connected to {len(working_units)}/{len(self.unit_numbers)} DP16 units", 
-                        LogLevel.INFO
-                    )
-                    return True
-                return False
-
-            except ModbusIOException as e:
-                self.log(f"Modbus IO error during DP16 connection: {e}", LogLevel.ERROR)
-                return False
-            except Exception as e:
-                self.log(f"DP16 Error connecting: {str(e)}", LogLevel.ERROR)
-                return False
+                        if not status.isError():
+                            working_units.add(unit)
+                            self.log(
+                                f"DP16 Unit {unit} responded with status: {status.registers[0]}", 
+                                LogLevel.VERBOSE
+                            )
+                        else:
+                            self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
+                    if working_units:
+                        self.log(
+                            f"Connected to {len(working_units)}/{len(self.unit_numbers)} DP16 units", 
+                            LogLevel.INFO
+                        )
+                        return True
+                    return False
+                except ModbusIOException as e:
+                    self.log(f"Modbus IO error during DP16 connection: {e}", LogLevel.ERROR)
+                    return False
+                except Exception as e:
+                    self.log(f"DP16 Error connecting: {str(e)}", LogLevel.ERROR)
+                    return False
+        finally:
+            sys.stderr = old_stderr
 
     def get_reading_config(self, unit):
         """Get reading configuration format
