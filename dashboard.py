@@ -20,6 +20,72 @@ try:
 except Exception:
     _HAS_MATPLOTLIB = False
 
+    import threading
+
+
+    class SafetyMonitor:
+        """Background monitor for BeamPulseSubsystem safety conditions.
+
+        The monitor polls a small set of registers and invokes `callback(reason)` when a fault
+        condition is detected. This is intentionally simple; replace thresholds and checks
+        with real PSU/interlock registers when available.
+        """
+
+        def __init__(self, beam_pulse, callback=None, interval=0.2):
+            self.bp = beam_pulse
+            self.callback = callback
+            self.interval = interval
+            self._stop = threading.Event()
+            self._thread = None
+
+            # example thresholds (tunable)
+            self.max_amplitude = 60000  # example: treat amplitude > this as fault
+            self.max_pulser_duty = 250  # near 8-bit max
+
+        def start(self):
+            if self._thread and self._thread.is_alive():
+                return
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run, name='SafetyMonitor', daemon=True)
+            self._thread.start()
+
+        def stop(self):
+            self._stop.set()
+            if self._thread:
+                self._thread.join(timeout=1.0)
+
+        def _run(self):
+            while not self._stop.is_set():
+                try:
+                    # check amplitudes
+                    for i in (1, 2, 3):
+                        val = self.bp.read_register(f'BEAM_{i}_AMPLITUDE')
+                        if val is not None and val > self.max_amplitude:
+                            reason = f'Beam {i} amplitude too high: {val}'
+                            if self.callback:
+                                self.callback(reason)
+                            # perform safe shutdown
+                            self.bp.safe_shutdown(reason)
+                            self._stop.set()
+                            break
+
+                    # check pulser duties
+                    for i in (1, 2, 3):
+                        val = self.bp.read_register(f'PULSER_{i}_DUTY')
+                        if val is not None and val > self.max_pulser_duty:
+                            reason = f'Pulser {i} duty too high: {val}'
+                            if self.callback:
+                                self.callback(reason)
+                            self.bp.safe_shutdown(reason)
+                            self._stop.set()
+                            break
+
+                except Exception:
+                    # keep running; will try again
+                    pass
+
+                self._stop.wait(self.interval)
+
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1916, 41),
@@ -370,6 +436,52 @@ class EBEAMSystemDashboard:
         self._bp_canvas = FigureCanvasTkAgg(fig, master=parent_frame)
         self._bp_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        # stats panel under each subplot
+        stats_frame = ttk.Frame(parent_frame)
+        stats_frame.pack(fill=tk.X)
+        self._bp_stats = {}
+        for i in (1, 2, 3):
+            f = ttk.Frame(stats_frame, padding=4, relief='groove')
+            f.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
+            ttk.Label(f, text=f'Beam {i} stats', font=('Helvetica', 9, 'bold')).pack(anchor='nw')
+            last_lbl = ttk.Label(f, text='Last: N/A')
+            last_lbl.pack(anchor='nw')
+            mean_lbl = ttk.Label(f, text='Mean: N/A')
+            mean_lbl.pack(anchor='nw')
+            min_lbl = ttk.Label(f, text='Min: N/A')
+            min_lbl.pack(anchor='nw')
+            max_lbl = ttk.Label(f, text='Max: N/A')
+            max_lbl.pack(anchor='nw')
+            self._bp_stats[i] = {'last': last_lbl, 'mean': mean_lbl, 'min': min_lbl, 'max': max_lbl}
+
+        # Safety monitor controls
+        ctl_frame = ttk.Frame(parent_frame)
+        ctl_frame.pack(fill=tk.X)
+        self._safety_monitor = None
+        self._safety_running = tk.BooleanVar(value=False)
+        self._safety_btn = ttk.Button(ctl_frame, text='Start Safety Monitor', command=self.toggle_safety_monitor)
+        self._safety_btn.pack(side=tk.LEFT, padx=4, pady=4)
+
+    def toggle_safety_monitor(self):
+        if not self._safety_running.get():
+            # start monitor
+            self._safety_monitor = SafetyMonitor(self.beam_pulse, callback=self.on_safety_trigger)
+            self._safety_monitor.start()
+            self._safety_running.set(True)
+            self._safety_btn.config(text='Stop Safety Monitor')
+        else:
+            if self._safety_monitor:
+                self._safety_monitor.stop()
+            self._safety_running.set(False)
+            self._safety_btn.config(text='Start Safety Monitor')
+
+    def on_safety_trigger(self, reason: str):
+        # invoked when SafetyMonitor detects a fault
+        message = f"Safety trigger: {reason}"
+        self.logger.warning(message)
+        # perform UI update / flash
+        messagebox.showwarning('Safety Trigger', message)
+
         # ring buffers for past and future samples (simple lists with capped length)
         self._bp_history_len = 200
         self._bp_future_len = 50
@@ -405,6 +517,21 @@ class EBEAMSystemDashboard:
                 # naive future prediction: repeat last value (placeholder for real predictive model)
                 fut = [buf[-1]] * self._bp_future_len
                 self._bp_data[i]['future'] = fut
+
+                # update stats
+                try:
+                    last = buf[-1]
+                    mean = sum(buf) / len(buf)
+                    vmin = min(buf)
+                    vmax = max(buf)
+                    stats = self._bp_stats.get(i)
+                    if stats:
+                        stats['last'].config(text=f'Last: {last}')
+                        stats['mean'].config(text=f'Mean: {mean:.1f}')
+                        stats['min'].config(text=f'Min: {vmin}')
+                        stats['max'].config(text=f'Max: {vmax}')
+                except Exception:
+                    pass
 
             # redraw plots
             for idx, ax in enumerate(self._bp_axes, start=1):

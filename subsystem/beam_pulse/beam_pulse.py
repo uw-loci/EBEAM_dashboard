@@ -196,6 +196,46 @@ class BeamPulseSubsystem:
             time.sleep(0.01)
         return out
 
+    # --- safety / shutdown helpers ---
+    def safe_shutdown(self, reason: Optional[str] = None) -> bool:
+        """Perform a safe shutdown of pulses/waveforms on the BCON device.
+
+        This tries to set pulser duties and durations to zero and place the
+        device in a safe command state. Returns True if all writes succeed.
+        """
+        self._log(f"Initiating safe shutdown: {reason}", LogLevel.INFO)
+        ok = True
+        try:
+            # zero pulser duties
+            for i in (1, 2, 3):
+                try:
+                    self.write_register(f"PULSER_{i}_DUTY", 0)
+                except Exception:
+                    ok = False
+
+            # zero durations
+            for i in (1, 2, 3):
+                try:
+                    self.write_register(f"PULSER_{i}_DURATION", 0)
+                except Exception:
+                    ok = False
+
+            # set safe command (use 0 as default direct write mode which won't start waves)
+            try:
+                self.set_command(0)
+            except Exception:
+                ok = False
+
+        except Exception as e:
+            self._log(f"Exception during safe_shutdown: {e}", LogLevel.ERROR)
+            return False
+
+        if ok:
+            self._log("Safe shutdown completed", LogLevel.INFO)
+        else:
+            self._log("Safe shutdown encountered errors", LogLevel.WARNING)
+        return ok
+
     # --- internal helpers ---
     def _log(self, msg: str, level: LogLevel = LogLevel.INFO) -> None:
         if self.logger:
