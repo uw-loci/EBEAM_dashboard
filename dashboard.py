@@ -8,6 +8,17 @@ from tkinter import messagebox
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
+try:
+    from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
+except Exception:
+    BeamPulseSubsystem = None
+
+try:
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    _HAS_MATPLOTLIB = True
+except Exception:
+    _HAS_MATPLOTLIB = False
 
 frames_config = [
     # Row 0
@@ -305,6 +316,21 @@ class EBEAMSystemDashboard:
             )
         }
 
+        # Beam Pulse subsystem (BCON)
+        try:
+            bp_port = self.com_ports.get('BeamPulse', self.com_ports.get('Beam Pulse', ''))
+            if BeamPulseSubsystem is not None:
+                self.subsystems['Beam Pulse'] = BeamPulseSubsystem(port=bp_port, unit=1, logger=self.logger)
+                # create UI for beam pulse
+                self.create_beam_pulse_ui(self.frames['Beam Pulse'], self.subsystems['Beam Pulse'])
+            else:
+                # placeholder if module not importable
+                self.frames['Beam Pulse'].pack_propagate(True)
+                lbl = ttk.Label(self.frames['Beam Pulse'], text="BeamPulse subsystem not installed")
+                lbl.pack(fill=tk.BOTH, expand=True)
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}")
+
         # Updates machine status progress bar
         self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
 
@@ -316,6 +342,88 @@ class EBEAMSystemDashboard:
     def create_machine_status_frame(self):
         """Create a frame for displaying machine status information."""
         self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
+
+    def create_beam_pulse_ui(self, parent_frame, beam_pulse_subsystem):
+        """Create UI elements for the Beam Pulse pane, including three plots (one per beam).
+
+        The plotting uses matplotlib if available; otherwise a placeholder label is shown.
+        """
+        self.beam_pulse = beam_pulse_subsystem
+        parent_frame.columnconfigure(0, weight=1)
+        parent_frame.rowconfigure(0, weight=1)
+
+        if not _HAS_MATPLOTLIB:
+            lbl = ttk.Label(parent_frame, text="matplotlib not available — install matplotlib to see plots")
+            lbl.pack(fill=tk.BOTH, expand=True)
+            return
+
+        # create a matplotlib figure with 3 subplots
+        fig = Figure(figsize=(6, 4))
+        axs = [fig.add_subplot(3, 1, i + 1) for i in range(3)]
+        for ax in axs:
+            ax.set_xlabel('sample index')
+            ax.set_ylabel('value')
+            ax.grid(True)
+
+        self._bp_fig = fig
+        self._bp_axes = axs
+        self._bp_canvas = FigureCanvasTkAgg(fig, master=parent_frame)
+        self._bp_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # ring buffers for past and future samples (simple lists with capped length)
+        self._bp_history_len = 200
+        self._bp_future_len = 50
+        self._bp_data = {
+            1: {'past': [0] * self._bp_history_len, 'future': [0] * self._bp_future_len},
+            2: {'past': [0] * self._bp_history_len, 'future': [0] * self._bp_future_len},
+            3: {'past': [0] * self._bp_history_len, 'future': [0] * self._bp_future_len},
+        }
+
+        # start periodic updates
+        self._bp_update_interval_ms = 200  # update 5x per second
+        self.root.after(self._bp_update_interval_ms, self.update_beam_pulse)
+
+    def update_beam_pulse(self):
+        """Poll beam_pulse subsystem for new values and update plots."""
+        try:
+            # Read amplitude registers for beams as a proxy for current waveform
+            # (Amplitude/phase/offset can be combined to synthesize a waveform; for now plot amplitude)
+            if not hasattr(self, 'beam_pulse') or self.beam_pulse is None:
+                return
+
+            for i in (1, 2, 3):
+                regname = f'BEAM_{i}_AMPLITUDE'
+                val = self.beam_pulse.read_register(regname)
+                if val is None:
+                    val = 0
+                # push to history
+                buf = self._bp_data[i]['past']
+                buf.append(val)
+                if len(buf) > self._bp_history_len:
+                    buf.pop(0)
+
+                # naive future prediction: repeat last value (placeholder for real predictive model)
+                fut = [buf[-1]] * self._bp_future_len
+                self._bp_data[i]['future'] = fut
+
+            # redraw plots
+            for idx, ax in enumerate(self._bp_axes, start=1):
+                ax.cla()
+                past = self._bp_data[idx]['past']
+                future = self._bp_data[idx]['future']
+                ax.plot(range(-len(past), 0), past, label='past')
+                ax.plot(range(0, len(future)), future, linestyle='--', label='predicted')
+                ax.set_title(f'Beam {idx} amplitude')
+                ax.legend()
+
+            self._bp_canvas.draw()
+
+        except Exception as e:
+            self.logger.error(f'Error updating Beam Pulse UI: {e}')
+
+        finally:
+            # schedule next update
+            self.root.after(self._bp_update_interval_ms, self.update_beam_pulse)
 
     def create_com_port_frame(self, parent_frame):
         """
@@ -344,6 +452,17 @@ class EBEAMSystemDashboard:
             dropdown = ttk.Combobox(frame, textvariable=port_var)
             dropdown.pack(side=tk.RIGHT)
             self.port_dropdowns[subsystem] = dropdown
+
+        # ensure Beam Pulse key is present for users
+        if 'Beam Pulse' not in self.port_selections:
+            frame = ttk.Frame(self.com_port_menu)
+            frame.pack(fill=tk.X, padx=5, pady=2)
+            ttk.Label(frame, text="Beam Pulse:").pack(side=tk.LEFT)
+            port_var = tk.StringVar(value=self.com_ports.get('Beam Pulse', ''))
+            self.port_selections['Beam Pulse'] = port_var
+            dropdown = ttk.Combobox(frame, textvariable=port_var)
+            dropdown.pack(side=tk.RIGHT)
+            self.port_dropdowns['Beam Pulse'] = dropdown
 
         ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
 
