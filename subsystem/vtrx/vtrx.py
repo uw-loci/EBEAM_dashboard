@@ -4,7 +4,7 @@ from tkinter import messagebox
 import datetime
 import serial
 import threading
-from utils import LogLevel, ScaleConfig
+from utils import LogLevel
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import ttk
 import matplotlib.pyplot as plt
