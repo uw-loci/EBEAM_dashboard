@@ -409,11 +409,12 @@ class MachineStatus():
         for i in range(num_columns):
             self.machine_status_frame.grid_columnconfigure(i * 2, weight=1)  # Status box
             self.machine_status_frame.grid_columnconfigure(i * 2 + 1, weight=0)  # Thin separator line
+            self.machine_status_frame.grid_rowconfigure(0, weight=1)
         
         for i, (name, _) in enumerate(self.MACHINE_STATUS.items()):
             bg_color = "black" if name == "Machine Status" else "#dbd9d9"
             fg_color = "white" if name == "Machine Status" else "black"
-            font = ("Helvetica", 9) if (ScaleConfig.scale > 1.01) else ("Helvetica", 10)
+            font = ("Helvetica", 8) if (ScaleConfig.scale > 1.01) else ("Helvetica", 10)
 
             print("scale: ", ScaleConfig.scale)
 
@@ -429,7 +430,7 @@ class MachineStatus():
             # Add a **very thin** black separator frame (1px wide)
             if i < len(self.MACHINE_STATUS) - 1:
                 separator = tk.Frame(self.machine_status_frame, bg="black", width=1)  # 1px width black separator
-                separator.grid(row=0, column=i * 2 + 1, sticky="ns")
+                separator.grid(row=0, column=i * 2 + 1, sticky="nsew")
 
     def update_status(self, status_dict=None):
         """
