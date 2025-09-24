@@ -7,6 +7,7 @@ from .visualization_gas_control.visualization_gas_control import VisualizationGa
 from .beam_extraction.beam_extraction import BeamExtractionSubsystem
 from .beam_pulse.beam_pulse import BeamPulseSubsystem
 from .deflection_monitor.deflection_monitor import DeflectionMonitorSubsystem
+from .beam_energy.beam_energy import BeamEnergySubsystem
 
 __all__ = [
     'VTRXSubsystem',
