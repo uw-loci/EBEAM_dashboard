@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk
 
@@ -10,8 +9,10 @@ class BeamEnergySubsystem:
     - -1kV Matsusada  
     - +3kV Bertran
     - +20kV Bertran
-    - Glassman (indicator only)
+    - +80kV Glassman (indicator only)
     """
+
+    displayFont = "Arial"
 
     def __init__(self, parent_frame, logger=None):
         """
@@ -37,12 +38,12 @@ class BeamEnergySubsystem:
     def setup_ui(self):
         """Create the user interface with four vertical boxes for power supplies plus Glassman indicator."""
         # Main container frame
-        main_frame = ttk.Frame(self.parent_frame, padding="5")
+        main_frame = ttk.Frame(self.parent_frame, padding="2")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Glassman power supply indicator (centered, below title)
         glassman_container = ttk.Frame(main_frame)
-        glassman_container.pack(fill=tk.X, pady=(0, 10))
+        glassman_container.pack(fill=tk.X, pady=(0, 5))
         self.create_glassman_indicator(glassman_container)
         
         # Power supplies container frame
@@ -57,9 +58,9 @@ class BeamEnergySubsystem:
             ps_frame = ttk.LabelFrame(
                 ps_container, 
                 text=ps_config["name"], 
-                padding="10"
+                padding="5"
             )
-            ps_frame.grid(row=0, column=i, sticky="nsew", padx=5, pady=5)
+            ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
             
             # Configure grid weights for responsive layout
             ps_container.grid_columnconfigure(i, weight=1)
@@ -74,8 +75,8 @@ class BeamEnergySubsystem:
         """Create a small Glassman power supply output indicator, centered below title."""
         glassman_frame = ttk.LabelFrame(
             parent_frame, 
-            text="Glassman", 
-            padding="8"
+            text="+80kV Glassman", 
+            padding="5"
         )
         # Center the frame horizontally
         glassman_frame.pack(anchor=tk.CENTER)
@@ -84,15 +85,15 @@ class BeamEnergySubsystem:
         output_frame = ttk.Frame(glassman_frame)
         output_frame.pack()
         
-        ttk.Label(output_frame, text="Output:", font=("Helvetica", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(output_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
         self.glassman_status_label = ttk.Label(
             output_frame, 
             text="OFF", 
             foreground="red",
-            font=("Helvetica", 10, "bold"),
+            font=(self.displayFont, 9, "bold"),
             background="white",
             relief="sunken",
-            width=6,
+            width=5,
             anchor=tk.CENTER
         )
         self.glassman_status_label.pack(side=tk.LEFT)
@@ -108,68 +109,68 @@ class BeamEnergySubsystem:
         """
         # Output status indicator
         status_frame = ttk.Frame(frame)
-        status_frame.pack(fill=tk.X, pady=(0, 15))
+        status_frame.pack(fill=tk.X, pady=(0, 8))
         
-        ttk.Label(status_frame, text="Output:", font=("Helvetica", 9)).pack(side=tk.LEFT)
+        ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT)
         status_label = ttk.Label(
             status_frame, 
             text="OFF", 
             foreground="red",
-            font=("Helvetica", 11, "bold"),
+            font=(self.displayFont, 9, "bold"),
             background="white",
             relief="sunken",
-            width=6,
+            width=5,
             anchor=tk.CENTER
         )
         status_label.pack(side=tk.RIGHT)
         
         # Set voltage display
         setpoint_frame = ttk.Frame(frame)
-        setpoint_frame.pack(fill=tk.X, pady=(0, 10))
+        setpoint_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(setpoint_frame, text="Set Voltage:", font=("Helvetica", 9)).pack(anchor=tk.W)
+        ttk.Label(setpoint_frame, text="Set Voltage:", font=("Segoe UI", 8)).pack(anchor=tk.W)
         setpoint_display = ttk.Label(
             setpoint_frame, 
             text="0.0 V", 
-            font=("Courier", 16, "bold"),
+            font=(self.displayFont, 12, "bold"),
             background="lightgray",
             relief="sunken",
-            width=12,
+            width=10,
             anchor=tk.CENTER
         )
-        setpoint_display.pack(fill=tk.X, pady=(2, 0))
+        setpoint_display.pack(fill=tk.X, pady=(1, 0))
         
         # Actual voltage display
         voltage_frame = ttk.Frame(frame)
-        voltage_frame.pack(fill=tk.X, pady=(0, 10))
+        voltage_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(voltage_frame, text="Actual Voltage:", font=("Helvetica", 9)).pack(anchor=tk.W)
+        ttk.Label(voltage_frame, text="Actual Voltage:", font=("Segoe UI", 8)).pack(anchor=tk.W)
         voltage_display = ttk.Label(
             voltage_frame, 
             text="0.0 V", 
-            font=("Courier", 16, "bold"),
+            font=(self.displayFont, 12, "bold"),
             background="white",
             relief="sunken",
-            width=12,
+            width=10,
             anchor=tk.CENTER
         )
-        voltage_display.pack(fill=tk.X, pady=(2, 0))
+        voltage_display.pack(fill=tk.X, pady=(1, 0))
         
         # Actual current display
         current_frame = ttk.Frame(frame)
-        current_frame.pack(fill=tk.X, pady=(0, 10))
+        current_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(current_frame, text="Actual Current:", font=("Helvetica", 9)).pack(anchor=tk.W)
+        ttk.Label(current_frame, text="Actual Current:", font=("Segoe UI", 8)).pack(anchor=tk.W)
         current_display = ttk.Label(
             current_frame, 
             text="0.0 mA", 
-            font=("Courier", 16, "bold"),
+            font=(self.displayFont, 12, "bold"),
             background="white",
             relief="sunken",
-            width=12,
+            width=10,
             anchor=tk.CENTER
         )
-        current_display.pack(fill=tk.X, pady=(2, 0))
+        current_display.pack(fill=tk.X, pady=(1, 0))
         
         # Store references for later use
         if not hasattr(self, 'ui_elements'):
