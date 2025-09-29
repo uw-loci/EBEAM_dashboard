@@ -8,6 +8,8 @@ from pymodbus.exceptions import ModbusIOException
 from typing import Dict
 
 class DP16ProcessMonitor:
+    """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
+    
     class StderrRedirector:
         def __init__(self, logger, level=LogLevel.ERROR):
             self.logger = logger
@@ -17,9 +19,8 @@ class DP16ProcessMonitor:
             if msg:
                 if self.logger:
                     self.logger.log(msg, self.level)
-        def flush(self):
+        def flush(self): # must exist but can be no-op
             pass
-    """Driver for Omega iSeries DP16PT Process Monitor - Modbus RTU"""
 
     PROCESS_VALUE_REG = 0x210   # Page 8: CNPt Series Programming User's Guide Modbus Interface
     RDGCNF_REG = 0x248          # Page 9: CNPt Series Programming User's Guide Modbus Interface
