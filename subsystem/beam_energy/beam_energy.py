@@ -1,5 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
+import threading
+import time
+from instrumentctl.Knob_box_modbus.Knob_box_modbus import KnobBoxModbus
 
 
 class BeamEnergySubsystem:
@@ -32,6 +35,19 @@ class BeamEnergySubsystem:
             {"name": "+3kV Bertran", "type": "bertran", "voltage": 3000},
             {"name": "+20kV Bertran", "type": "bertran", "voltage": 20000}
         ]
+        
+        # Hardware communication
+        self.knob_box = None
+        self.glassman_thread = None
+        self.glassman_stop_event = threading.Event()
+        self.is_hardware_connected = False
+        
+        # Data storage for latest readings
+        self.latest_data = {
+            'ps_data': [None, None, None, None],  # Data for 4 power supplies
+            'glassman_status': False
+        }
+        self.data_lock = threading.Lock()
         
         self.setup_ui()
         
@@ -97,6 +113,78 @@ class BeamEnergySubsystem:
             anchor=tk.CENTER
         )
         self.glassman_status_label.pack(side=tk.LEFT)
+
+    def initialize_hardware(self, port="COM3"):
+        """
+        Initialize hardware communication with the KnobBox Modbus device.
+        
+        Args:
+            port: Serial port for KnobBox communication (default: COM3)
+            
+        Returns:
+            bool: True if initialization successful, False otherwise
+        """
+        try:
+            if self.logger:
+                self.logger.info(f"Initializing KnobBox Modbus on port {port}")
+                
+            # Initialize KnobBox for the 4 main power supplies
+            self.knob_box = KnobBoxModbus(
+                port=port,
+                logger=self.logger,
+                debug_mode=False
+            )
+            
+            # Start reading power supply data
+            if self.knob_box.start_reading_power_supply_data():
+                self.is_hardware_connected = True
+                if self.logger:
+                    self.logger.info("KnobBox Modbus initialized successfully")
+                return True
+            else:
+                if self.logger:
+                    self.logger.error("Failed to start KnobBox data reading")
+                return False
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error initializing KnobBox: {str(e)}")
+            return False
+
+    def start_glassman_polling(self):
+        """
+        Start separate polling thread for Glassman power supply.
+        This runs independently from the KnobBox polling.
+        """
+        if self.glassman_thread and self.glassman_thread.is_alive():
+            return  # Already running
+            
+        self.glassman_stop_event.clear()
+        self.glassman_thread = threading.Thread(target=self._glassman_polling_loop, daemon=True)
+        self.glassman_thread.start()
+        
+        if self.logger:
+            self.logger.info("Started Glassman polling thread")
+            
+    def _glassman_polling_loop(self):
+        """
+        Internal polling loop for Glassman power supply.
+        Runs in separate thread.
+        """
+        while not self.glassman_stop_event.is_set():
+            try:
+                # TODO: Implement actual Glassman communication
+                # For now, simulate some data
+                with self.data_lock:
+                    # Placeholder - replace with actual Glassman reading
+                    self.latest_data['glassman_status'] = False
+                    
+                time.sleep(1.0)  # Poll every second
+                
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error in Glassman polling: {str(e)}")
+                time.sleep(2.0)  # Wait longer on error
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -231,15 +319,59 @@ class BeamEnergySubsystem:
         Update voltage and current readings from hardware.
         This method should be called periodically to refresh displays.
         """
-        # TODO: Implement actual hardware communication
-        # Example placeholder data:
-        # self.update_power_supply_display(0, set_voltage=1000.0, actual_voltage=999.8, actual_current=15.23, output_status=True)
-        # self.update_glassman_status(True)
-        pass
+        if not self.is_hardware_connected or not self.knob_box:
+            # No hardware connected, use placeholder data for testing
+            return
+            
+        try:
+            # Get data from KnobBox for the 4 main power supplies
+            with self.knob_box.voltages_lock:
+                voltages = self.knob_box.voltages.copy()
+            with self.knob_box.currents_lock:
+                currents = self.knob_box.currents.copy()
+            with self.knob_box.statuses_lock:
+                statuses = self.knob_box.output_statuses.copy()
+                
+            # Update each power supply display
+            for i in range(min(4, len(voltages))):
+                if voltages[i] is not None or currents[i] is not None or statuses[i] is not None:
+                    self.update_power_supply_display(
+                        ps_index=i,
+                        set_voltage=None,  # TODO: Add set voltage reading if available
+                        actual_voltage=voltages[i],
+                        actual_current=currents[i],
+                        output_status=statuses[i]
+                    )
+                    
+            # Update Glassman status from separate polling
+            with self.data_lock:
+                glassman_status = self.latest_data['glassman_status']
+            self.update_glassman_status(glassman_status)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error updating readings: {str(e)}")
         
     def close_com_ports(self):
-        """Close any open communication ports."""
-        # TODO: Implement when hardware communication is added
+        """Close any open communication ports and stop all polling threads."""
         if self.logger:
             self.logger.info("Beam Energy subsystem: Closing communication ports")
-        pass
+            
+        # Stop Glassman polling thread
+        if self.glassman_thread and self.glassman_thread.is_alive():
+            self.glassman_stop_event.set()
+            self.glassman_thread.join(timeout=3.0)
+            if self.logger:
+                self.logger.info("Glassman polling thread stopped")
+                
+        # Stop KnobBox communication
+        if self.knob_box:
+            try:
+                self.knob_box.stop_reading()
+                if self.logger:
+                    self.logger.info("KnobBox communication stopped")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error stopping KnobBox: {str(e)}")
+                    
+        self.is_hardware_connected = False
