@@ -17,7 +17,7 @@ class BeamEnergySubsystem:
 
     displayFont = "Arial"
 
-    def __init__(self, parent_frame, logger=None):
+    def __init__(self, parent_frame, com_ports, logger=None):
         """
         Initialize the Beam Energy subsystem interface.
         
@@ -26,6 +26,7 @@ class BeamEnergySubsystem:
             logger: Logger instance for system messages
         """
         self.parent_frame = parent_frame
+        self.com_ports = com_ports
         self.logger = logger
         
         # Main power supply configurations

@@ -1,6 +1,6 @@
 import threading
 import time
-from pymodbus.client import ModbussSerialClient as ModbusClient
+from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
 class KnobBoxModbus:
