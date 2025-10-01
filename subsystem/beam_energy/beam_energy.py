@@ -43,6 +43,12 @@ class BeamEnergySubsystem:
         self.glassman_stop_event = threading.Event()
         self.is_hardware_connected = False
         
+        # Connection status tracking
+        self.connection_status = {
+            'knob_box': False,      # Main 4 power supplies only (Matsusada + Bertran)
+            'glassman': False,      # Glassman power supply (separate driver)
+        }
+        
         # Data storage for latest readings
         self.latest_data = {
             'ps_data': [None, None, None, None],  # Data for 4 power supplies
@@ -75,7 +81,8 @@ class BeamEnergySubsystem:
             ps_frame = ttk.LabelFrame(
                 ps_container, 
                 text=ps_config["name"], 
-                padding="5"
+                padding="5",
+                labelanchor="n"  # Center the title at the top
             )
             ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
             
@@ -93,18 +100,36 @@ class BeamEnergySubsystem:
         glassman_frame = ttk.LabelFrame(
             parent_frame, 
             text="+80kV Glassman", 
-            padding="5"
+            padding="5",
+            labelanchor="n"  # Center the title at the top
         )
         # Center the frame horizontally
         glassman_frame.pack(anchor=tk.CENTER)
+
+        # Combined connection and output status indicator (same line to save vertical space)
+        status_frame = ttk.Frame(glassman_frame)
+        status_frame.pack(fill=tk.X)
         
-        # Output status indicator
-        output_frame = ttk.Frame(glassman_frame)
-        output_frame.pack()
+        # Connection status (left side)
+        self.glassman_connection_label = ttk.Label(
+            status_frame,
+            text="DISCONNECTED",
+            foreground="red",
+            font=(self.displayFont, 8, "bold"),
+            background="white",
+            relief="sunken",
+            width=15,
+            anchor=tk.CENTER
+        )
+        self.glassman_connection_label.pack(side=tk.LEFT)
         
-        ttk.Label(output_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
+        # Spacer label for consistent spacing
+        ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        
+        # Output status (right side)
+        ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
         self.glassman_status_label = ttk.Label(
-            output_frame, 
+            status_frame, 
             text="OFF", 
             foreground="red",
             font=(self.displayFont, 9, "bold"),
@@ -139,15 +164,18 @@ class BeamEnergySubsystem:
             # Start reading power supply data
             if self.knob_box.start_reading_power_supply_data():
                 self.is_hardware_connected = True
+                self.update_connection_status('knob_box', True)
                 if self.logger:
                     self.logger.info("KnobBox Modbus initialized successfully")
                 return True
             else:
+                self.update_connection_status('knob_box', False)
                 if self.logger:
                     self.logger.error("Failed to start KnobBox data reading")
                 return False
                 
         except Exception as e:
+            self.update_connection_status('knob_box', False)
             if self.logger:
                 self.logger.error(f"Error initializing KnobBox: {str(e)}")
             return False
@@ -163,6 +191,9 @@ class BeamEnergySubsystem:
         self.glassman_stop_event.clear()
         self.glassman_thread = threading.Thread(target=self._glassman_polling_loop, daemon=True)
         self.glassman_thread.start()
+        
+        # Update connection status
+        self.update_connection_status('glassman', True)
         
         if self.logger:
             self.logger.info("Started Glassman polling thread")
@@ -196,11 +227,30 @@ class BeamEnergySubsystem:
             ps_config: Power supply configuration dict
             index: Index of the power supply (0-3)
         """
+        # Connection status indicator (at top)
+        connection_frame = ttk.Frame(frame)
+        connection_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        connection_label = ttk.Label(
+            connection_frame, 
+            text="DISCONNECTED", 
+            foreground="red",
+            font=(self.displayFont, 8, "bold"),
+            background="white",
+            relief="sunken",
+            width=15,
+            anchor=tk.CENTER
+        )
+        connection_label.pack(anchor=tk.CENTER)
+        
         # Output status indicator
         status_frame = ttk.Frame(frame)
         status_frame.pack(fill=tk.X, pady=(0, 8))
         
-        ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        # Create a centered layout with consistent spacing
+        output_label = ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8))
+        output_label.pack(anchor=tk.CENTER)
+        
         status_label = ttk.Label(
             status_frame, 
             text="OFF", 
@@ -211,7 +261,7 @@ class BeamEnergySubsystem:
             width=5,
             anchor=tk.CENTER
         )
-        status_label.pack(side=tk.RIGHT)
+        status_label.pack(anchor=tk.CENTER, pady=(2, 0))
         
         # Set voltage display
         setpoint_frame = ttk.Frame(frame)
@@ -266,6 +316,7 @@ class BeamEnergySubsystem:
             self.ui_elements = []
         
         self.ui_elements.append({
+            'connection_label': connection_label,
             'status_label': status_label,
             'setpoint_display': setpoint_display,
             'voltage_display': voltage_display,
@@ -315,11 +366,69 @@ class BeamEnergySubsystem:
         else:
             self.glassman_status_label.config(text="OFF", foreground="red")
     
+    def update_connection_status(self, device, connected):
+        """
+        Update connection status indicators for power supplies.
+        
+        Args:
+            device: 'knob_box' for main 4 power supplies (Matsusada + Bertran), 
+                   'glassman' for Glassman power supply (separate driver)
+            connected: True if connected, False if disconnected
+        """
+        self.connection_status[device] = connected
+        
+        if device == 'knob_box':
+            # Update all 4 main power supply connection indicators
+            for i in range(min(4, len(self.ui_elements))):
+                element = self.ui_elements[i]
+                if connected:
+                    element['connection_label'].config(
+                        text="CONNECTED", 
+                        foreground="green"
+                    )
+                else:
+                    element['connection_label'].config(
+                        text="DISCONNECTED", 
+                        foreground="red"
+                    )
+                    
+        elif device == 'glassman':
+            # Update Glassman connection indicator
+            if hasattr(self, 'glassman_connection_label'):
+                if connected:
+                    self.glassman_connection_label.config(
+                        text="CONNECTED", 
+                        foreground="green"
+                    )
+                else:
+                    self.glassman_connection_label.config(
+                        text="DISCONNECTED", 
+                        foreground="red"
+                    )
+    
+    def update_all_connection_status(self):
+        """
+        Update connection status for all devices based on current hardware state.
+        """
+        # Check KnobBox connection
+        knob_box_connected = (self.knob_box is not None and 
+                             hasattr(self.knob_box, 'connected') and 
+                             self.knob_box.connected)
+        self.update_connection_status('knob_box', knob_box_connected)
+        
+        # Check Glassman connection (will use separate driver when implemented)
+        glassman_connected = (self.glassman_thread is not None and 
+                             self.glassman_thread.is_alive())
+        self.update_connection_status('glassman', glassman_connected)
+    
     def update_readings(self):
         """
         Update voltage and current readings from hardware.
         This method should be called periodically to refresh displays.
         """
+        # Update connection status for all devices
+        self.update_all_connection_status()
+        
         if not self.is_hardware_connected or not self.knob_box:
             # No hardware connected, use placeholder data for testing
             return
@@ -362,6 +471,7 @@ class BeamEnergySubsystem:
         if self.glassman_thread and self.glassman_thread.is_alive():
             self.glassman_stop_event.set()
             self.glassman_thread.join(timeout=3.0)
+            self.update_connection_status('glassman', False)
             if self.logger:
                 self.logger.info("Glassman polling thread stopped")
                 
@@ -369,6 +479,7 @@ class BeamEnergySubsystem:
         if self.knob_box:
             try:
                 self.knob_box.stop_reading()
+                self.update_connection_status('knob_box', False)
                 if self.logger:
                     self.logger.info("KnobBox communication stopped")
             except Exception as e:
