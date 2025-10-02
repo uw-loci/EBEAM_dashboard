@@ -423,12 +423,20 @@ class EBEAMSystemDashboard:
             lbl.pack(fill=tk.BOTH, expand=True)
             return
 
-        # create a matplotlib figure with 3 subplots
-        fig = Figure(figsize=(6, 4))
-        axs = [fig.add_subplot(3, 1, i + 1) for i in range(3)]
+        # create a matplotlib figure with 3 subplots laid out horizontally (1 row x 3 cols)
+        # Make each subplot narrower and use constrained_layout to avoid overlap
+        fig = Figure(figsize=(8, 2.4), constrained_layout=True)
+        axs = [fig.add_subplot(1, 3, i + 1) for i in range(3)]
+        # add horizontal spacing between subplots
+        try:
+            fig.subplots_adjust(wspace=0.45)
+        except Exception:
+            pass
         for ax in axs:
-            ax.set_xlabel('sample index')
-            ax.set_ylabel('value')
+            ax.set_xlabel('sample index', fontsize=8)
+            ax.set_ylabel('value', fontsize=8)
+            ax.tick_params(labelsize=7)
+            ax.title.set_fontsize(9)
             ax.grid(True)
 
         self._bp_fig = fig
