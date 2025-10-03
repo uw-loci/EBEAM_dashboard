@@ -5,6 +5,10 @@ from utils import LogLevel  # Ensure this module is correctly implemented
 
 class KnobBoxModbus:
     # TODO verify addresses for reading output status, set voltage, actual voltage, actual current
+    OUTPUT_STATUS_ADDRESS = 0x0000  # Placeholder address for reading output status
+    SET_VOLTAGE_ADDRESS = 0x0001    # Placeholder address for reading set voltage
+    ACTUAL_VOLTAGE_ADDRESS = 0x0002  # Placeholder address for reading actual voltage
+    ACTUAL_CURRENT_ADDRESS = 0x0003  # Placeholder address for reading actual current
     UNIT_NUMBERS = [1, 2, 3, 4, 5] # Unit numbers for each power supply
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
@@ -113,23 +117,171 @@ class KnobBoxModbus:
 
     def read_output_status(self, unit):
         """Read the output status (on/off) for a specific power supply unit."""
-        # TODO implement reading output status
-        pass
+        attempts = 0
+        while attempts < self.MAX_ATTEMPTS:
+            # Check connection status prior to reading
+            try:
+                with self.modbus_lock:
+                    is_connected = self.check_connection()
+                    if not is_connected:
+                        self.log(f"Modbus not connected when reading output status for unit {unit}", LogLevel.ERROR)
+                        attempts += 1
+                        time.sleep(0.1)
+                        continue
+            except Exception as e:
+                self.log(f"Error reading output status for unit {unit}: {str(e)}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+                continue
+            
+            # READ REGISTER: THIS NEEDS TO BE VERIFIED WITH TIANRUI FIRMWARE
+            response = self.client.read_holding_registers(
+                address = self.OUTPUT_STATUS_ADDRESS,
+                count = 1, # clarify what this means with Tianrui firmware
+                slave = unit
+            )
+
+            if response and not response.isError():
+                self.connected = True
+                status = response.registers[0]  # clarify how to read this value with Tianrui firmware
+                self.log(f"Output status from unit {unit}: {status}", LogLevel.DEBUG)
+                return status
+            else:
+                self.log(f"Error reading output status from unit {unit}: {response}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+        return None
 
     def read_set_voltage(self, unit):
         """Read the set voltage for a specific power supply unit."""
-        # TODO implement reading set voltage
-        pass
+        attempts = 0
+        while attempts < self.MAX_ATTEMPTS:
+            # Check connection status prior to reading
+            try:
+                with self.modbus_lock:
+                    is_connected = self.check_connection()
+                    if not is_connected:
+                        self.log(f"Modbus not connected when reading set voltage for unit {unit}", LogLevel.ERROR)
+                        attempts += 1
+                        time.sleep(0.1)
+                        continue
+            except Exception as e:
+                self.log(f"Error reading set voltage for unit {unit}: {str(e)}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+                continue
+            
+            # READ REGISTER: THIS NEEDS TO BE VERIFIED WITH TIANRUI FIRMWARE
+            response = self.client.read_holding_registers(
+                address = self.SET_VOLTAGE_ADDRESS,
+                count = 2, # clarify what this means with Tianrui firmware
+                slave = unit
+            )
+
+            if response and not response.isError():
+                self.connected = True
+                voltage = response.registers[0] / 10.0  # clarify how to read this value with Tianrui firmware
+                self.log(f"Set voltage from unit {unit}: {voltage:.2f} V", LogLevel.DEBUG)
+                return voltage
+            else:
+                self.log(f"Error reading set voltage from unit {unit}: {response}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1) 
+        return None
 
     def read_actual_voltage(self, unit):
         """Read the actual voltage for a specific power supply unit."""
-        # TODO implement reading actual voltage
-        pass
+        attempts = 0
+        while attempts < self.MAX_ATTEMPTS:
+            # Check connection status prior to reading
+            try:
+                with self.modbus_lock:
+                    is_connected = self.check_connection()
+                    if not is_connected:
+                        self.log(f"Modbus not connected when reading actual voltage for unit {unit}", LogLevel.ERROR)
+                        attempts += 1
+                        time.sleep(0.1)
+                        continue
+            except Exception as e:
+                self.log(f"Error reading actual voltage for unit {unit}: {str(e)}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+                continue
+            
+            # READ REGISTER: THIS NEEDS TO BE VERIFIED WITH TIANRUI FIRMWARE
+            response = self.client.read_holding_registers(
+                address = self.ACTUAL_VOLTAGE_ADDRESS,
+                count = 2, # clarify what this means with Tianrui firmware
+                slave = unit
+            )
+
+            if response and not response.isError():
+                self.connected = True
+                voltage = response.registers[0] / 10.0  # clarify how to read this value with Tianrui firmware
+                self.log(f"Actual voltage from unit {unit}: {voltage:.2f} V", LogLevel.DEBUG)
+                return voltage
+            else:
+                self.log(f"Error reading actual voltage from unit {unit}: {response}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+        return None
 
     def read_actual_current(self, unit):
         """Read the actual current for a specific power supply unit."""
-        # TODO implement reading actual current
-        pass
+        attempts = 0
+        while attempts < self.MAX_ATTEMPTS:
+            # Check connection status prior to reading
+            try:
+                with self.modbus_lock:
+                    is_connected = self.check_connection()
+                    if not is_connected:
+                        self.log(f"Modbus not connected when reading actual current for unit {unit}", LogLevel.ERROR)
+                        attempts += 1
+                        time.sleep(0.1)
+                        continue
+            except Exception as e:
+                self.log(f"Error reading actual current for unit {unit}: {str(e)}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+                continue
+
+            # READ REGISTER: THIS NEEDS TO BE VERIFIED WITH TIANRUI FIRMWARE
+            response = self.client.read_holding_registers(
+                address = self.ACTUAL_CURRENT_ADDRESS,
+                count = 2, # clarify what this means with Tianrui firmware
+                slave = unit
+            )
+
+            if response and not response.isError():
+                self.connected = True
+                current = response.registers[0] / 10.0  # clarify how to read this value with Tianrui firmware
+                self.log(f"Actual current from unit {unit}: {current:.2f} A", LogLevel.DEBUG)
+                return current
+            else:
+                self.log(f"Error reading actual current from unit {unit}: {response}", LogLevel.ERROR)
+                attempts += 1
+                time.sleep(0.1)
+        return None
+        
+    def check_connection(self):
+        """Check if the Modbus client is connected and attempt to reconnect if not."""
+        if self.client.is_socket_open():
+            return True
+        else:
+            try:
+                if self.client.connect():
+                    time.sleep(0.1)  # Small delay to ensure connection stability
+                    if hasattr(self.client, 'socket'):
+                        self.client.socket.reset_input_buffer()
+                    return True
+                else:
+                    self.log(f"Failed to reconnect to {self.port}", LogLevel.ERROR)
+                    self.connected = False
+                    return False
+            except Exception as e:
+                self.log(f"Error reconnecting to {self.port}: {str(e)}", LogLevel.ERROR)
+                self.connected = False
+                return False
 
     def stop_reading(self):
         """Stop all reading threads and disconnect from the Modbus device."""
