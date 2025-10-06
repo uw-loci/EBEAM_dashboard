@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import time
-from instrumentctl.Knob_box_modbus.Knob_box_modbus import KnobBoxModbus
+from instrumentctl.knob_box.knob_box import KnobBoxPowerSupply
 
 
 class BeamEnergySubsystem:
@@ -55,7 +55,10 @@ class BeamEnergySubsystem:
             'glassman_status': False
         }
         self.data_lock = threading.Lock()
-        
+
+        self.power_supply_instances = []  # Instances of KnobBoxPowerSupply
+        self.initialize_power_supplies(com_ports)
+
         self.setup_ui()
         
     def setup_ui(self):
@@ -140,45 +143,25 @@ class BeamEnergySubsystem:
         )
         self.glassman_status_label.pack(side=tk.LEFT)
 
-    def initialize_hardware(self, port="COM3"):
-        """
-        Initialize hardware communication with the KnobBox Modbus device.
-        
-        Args:
-            port: Serial port for KnobBox communication (default: COM3)
-            
-        Returns:
-            bool: True if initialization successful, False otherwise
-        """
-        try:
-            if self.logger:
-                self.logger.info(f"Initializing KnobBox Modbus on port {port}")
-                
-            # Initialize KnobBox for the 4 main power supplies
-            self.knob_box = KnobBoxModbus(
-                port=port,
-                logger=self.logger,
-                debug_mode=False
-            )
-            
-            # Start reading power supply data
-            if self.knob_box.start_reading_power_supply_data():
-                self.is_hardware_connected = True
-                self.update_connection_status('knob_box', True)
-                if self.logger:
-                    self.logger.info("KnobBox Modbus initialized successfully")
-                return True
+    def initialize_power_supplies(self, com_ports):
+        """Initialize hardware communication with KnobBox power supplies and create a KnobBoxPowerSupply instance for each."""
+        self.power_supply_instances = []
+        for i, ps_config in enumerate(self.power_supplies):
+            port = com_ports.get(ps_config["name"]) # adjust for incoming COMPORT format
+            if port:
+                ps_instance = KnobBoxPowerSupply(
+                    port=port,
+                    power_supply_id=i+1,  # IDs are 1-based
+                    baudrate=9600,
+                    timeout=1,
+                    logger=self.logger,
+                    debug_mode=False
+                )
+                self.power_supply_instances.append(ps_instance)
+                self.logger.info(f"Initialized {ps_config['name']} on port {port}")
             else:
-                self.update_connection_status('knob_box', False)
-                if self.logger:
-                    self.logger.error("Failed to start KnobBox data reading")
-                return False
-                
-        except Exception as e:
-            self.update_connection_status('knob_box', False)
-            if self.logger:
-                self.logger.error(f"Error initializing KnobBox: {str(e)}")
-            return False
+                self.logger.warning(f"No COM port specified for {ps_config['name']}, skipping initialization")
+                self.power_supply_instances.append(None)
 
     def start_glassman_polling(self):
         """
