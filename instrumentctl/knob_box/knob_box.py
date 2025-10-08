@@ -7,7 +7,7 @@ class KnobBoxPowerSupply:
     MAX_RETRIES = 3
 
     def __init__(self, port, power_supply_id, baudrate=9600, timeout=1, logger=None, debug_mode=False):
-        """Driver for Arduino power supply pair monitoring in knob box."""
+        """Driver for Arduino & power supply pair monitoring in knob box."""
         self.port = port
         self.power_supply_id = power_supply_id
         self.baudrate = baudrate
@@ -21,7 +21,7 @@ class KnobBoxPowerSupply:
         self.stop_event = threading.Event()
 
         self.power_supply_data = {
-            'output_status': None,
+            # 'output_status': None, ## ignore until added to firmware
             'set_voltage': None,
             'meas_voltage': None,
             'meas_current': None,
@@ -73,28 +73,32 @@ class KnobBoxPowerSupply:
                     if data:
                         # Update global data variable
                         self.power_supply_data.update({
-                            'output_status': data['output_status'],
+                            # 'output_status': data['output_status'],
                             'set_voltage': data['set_voltage'],
                             'meas_voltage': data['meas_voltage'],
-                            'meas_current': data['meas_current']
+                            'meas_current': data['meas_current'],
+                            'connected': True
                         })
 
-                time.sleep(0.1)  # Adjust sleep time as needed
+                time.sleep(0.2)  # should match arduino display_value timer
             except Exception as e:
                 self.log(f"Error reading from power supply: {e}", LogLevel.ERROR)
                 time.sleep(1)  # wait before retrying or handle reconnection
 
     def parse_data(self, line):
-        """Parse a line of data from the power supply."""
+        """
+        Parse a line of data from the power supply.
+        Expected format: set_voltage,measured_voltage,measured_current
+        """
         try:
-            # Expected format - "output_status,set_voltage,meas_voltage,meas_current"
-            output_status, set_voltage, meas_voltage, meas_current = map(float, line.split(','))
-            return {
-                'output_status': output_status,
-                'set_voltage': set_voltage,
-                'meas_voltage': meas_voltage,
-                'meas_current': meas_current
-            }
+                # Split line into values and convert to float
+                values = [float(x) for x in line.strip().split(',')]
+                    
+                return {
+                    'set_voltage': values[0],
+                    'meas_voltage': values[1],
+                    'meas_current': values[2]
+                }
         except ValueError as ve:
             self.log(f"Failed to parse data: {line} - {ve}", LogLevel.ERROR)
             return None
