@@ -386,9 +386,13 @@ class EBEAMSystemDashboard:
         try:
             bp_port = self.com_ports.get('BeamPulse', self.com_ports.get('Beam Pulse', ''))
             if BeamPulseSubsystem is not None:
-                self.subsystems['Beam Pulse'] = BeamPulseSubsystem(port=bp_port, unit=1, logger=self.logger)
-                # create UI for beam pulse
-                self.create_beam_pulse_ui(self.frames['Beam Pulse'], self.subsystems['Beam Pulse'])
+                # Create BeamPulseSubsystem with GUI integrated
+                self.subsystems['Beam Pulse'] = BeamPulseSubsystem(
+                    parent_frame=self.frames['Beam Pulse'], 
+                    port=bp_port, 
+                    unit=1, 
+                    logger=self.logger
+                )
             else:
                 # placeholder if module not importable
                 self.frames['Beam Pulse'].pack_propagate(True)
