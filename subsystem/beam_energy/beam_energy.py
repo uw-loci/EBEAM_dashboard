@@ -7,12 +7,11 @@ from instrumentctl.knob_box.knob_box import KnobBoxPowerSupply
 
 class BeamEnergySubsystem:
     """
-    Manages the beam energy system with four main power supplies plus Glassman:
+    Manages the beam energy system with four main power supplies:
     - +1kV Matsusada
     - -1kV Matsusada  
     - +3kV Bertran
     - +20kV Bertran
-    - +80kV Glassman (indicator only)
     """
 
     displayFont = "Arial"
@@ -31,8 +30,8 @@ class BeamEnergySubsystem:
             "+1kV Matsusada": "COM3", 
             "-1kV Matsusada": "COM6", 
             "+3kV Bertran": "COM7", 
-            #"+20kV Bertran": "COM6", removed for testing
-            #"+80kV Glassman": "COM7"
+            "+20kV Bertran": "COM9",
+            # "+80kV Glassman": "COM7"  # Indicator only
         }
         self.logger = logger
         
@@ -41,46 +40,37 @@ class BeamEnergySubsystem:
             {"name": "+1kV Matsusada", "type": "matsusada", "voltage": 1000},
             {"name": "-1kV Matsusada", "type": "matsusada", "voltage": -1000},
             {"name": "+3kV Bertran", "type": "bertran", "voltage": 3000},
-            # {"name": "+20kV Bertran", "type": "bertran", "voltage": 20000}, removed for testing
+            {"name": "+20kV Bertran", "type": "bertran", "voltage": 20000},
             # {"name": "+80kV Glassman", "type": "glassman", "voltage": 80000}  # Indicator only
         ]
-        
-        # Connection status tracking
-        self.connection_status = {
-            'matsusada_pos1kV': False,      
-            'matsusada_neg1kV': False,
-            'bertran_pos3kV': False,      
-            # 'bertran_pos20kV': False,
-            # 'glassman_pos80kV': False
-        }
 
         # Global data storing each power supply's latest readings
-        self.latest_power_supply_data = {
-            'matsusada_pos1kV': {'output_status': 'OFF', 'set_voltage': 0.0, 'meas_voltage': 0.0, 'meas_current': 0.0},
-            'matsusada_neg1kV': {'output_status': 'OFF', 'set_voltage': 0.0, 'meas_voltage': 0.0, 'meas_current': 0.0},
-            'bertran_pos3kV': {'output_status': 'OFF', 'set_voltage': 0.0, 'meas_voltage': 0.0, 'meas_current': 0.0},
-            # 'bertran_pos20kV': {},
-            # 'glassman_pos80kV': {}
-        }
+        self.set_voltages = [tk.StringVar(value="-- V") for _ in range(len(self.power_supplies))]
+        self.actual_voltages = [tk.StringVar(value="-- V") for _ in range(len(self.power_supplies))]
+        self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
+        self.output_status = [tk.StringVar(value="OFF") for _ in range(len(self.power_supplies))]
+        self.connection_status_vars = [tk.StringVar(value="DISCONNECTED") for _ in range(len(self.power_supplies))]
+
+        self.ui_elements = []  # To hold references to UI elements for updates
 
         self.data_lock = threading.Lock()
         self.stop_monitoring_event = threading.Event()
 
         self.power_supply_instances = []  # List of KnobBoxPowerSupply instances
-        self.initialize_power_supplies(com_ports)
-
         self.setup_ui()
+        self.initialize_power_supplies()
+        self.update_readings()
         
     def setup_ui(self):
-        """Create the user interface with four vertical boxes for power supplies plus Glassman indicator."""
+        """Create the user interface with four vertical boxes for power supplies."""
         # Main container frame
         main_frame = ttk.Frame(self.parent_frame, padding="2")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Glassman power supply indicator (centered, below title)
-        glassman_container = ttk.Frame(main_frame)
-        glassman_container.pack(fill=tk.X, pady=(0, 5))
-        self.create_glassman_indicator(glassman_container)
+
+        # Glassman power supply container
+        # glassman_container = ttk.Frame(main_frame)
+        # glassman_container.pack(fill=tk.X, pady=(0, 5))
+        # self.create_glassman_indicator(glassman_container)
         
         # Power supplies container frame
         ps_container = ttk.Frame(main_frame)
@@ -88,8 +78,8 @@ class BeamEnergySubsystem:
         
         # Create four vertical boxes arranged horizontally
         self.ps_frames = []
-        
-        for i, ps_config in enumerate(self.power_supplies):
+
+        for i, ps_config in enumerate(self.power_supplies): # Exclude Glassman
             # Individual power supply frame
             ps_frame = ttk.LabelFrame(
                 ps_container, 
@@ -108,109 +98,101 @@ class BeamEnergySubsystem:
         # Configure main grid
         ps_container.grid_rowconfigure(0, weight=1)
         
-    def create_glassman_indicator(self, parent_frame):
-        """Create a small Glassman power supply output indicator, centered below title."""
-        glassman_frame = ttk.LabelFrame(
-            parent_frame, 
-            text="+80kV Glassman", 
-            padding="5",
-            labelanchor="n"  # Center the title at the top
-        )
-        # Center the frame horizontally
-        glassman_frame.pack(anchor=tk.CENTER)
+    # def create_glassman_indicator(self, parent_frame):
+    #     """Create a small Glassman power supply output indicator, centered below title."""
+    #     glassman_frame = ttk.LabelFrame(
+    #         parent_frame, 
+    #         text="+80kV Glassman", 
+    #         padding="5",
+    #         labelanchor="n"  # Center the title at the top
+    #     )
+    #     # Center the frame horizontally
+    #     glassman_frame.pack(anchor=tk.CENTER)
 
-        # Combined connection and output status indicator (same line to save vertical space)
-        status_frame = ttk.Frame(glassman_frame)
-        status_frame.pack(fill=tk.X)
+    #     # Combined connection and output status indicator (same line to save vertical space)
+    #     status_frame = ttk.Frame(glassman_frame)
+    #     status_frame.pack(fill=tk.X)
         
-        # Connection status (left side)
-        self.glassman_connection_label = ttk.Label(
-            status_frame,
-            text="DISCONNECTED",
-            foreground="red",
-            font=(self.displayFont, 8, "bold"),
-            background="white",
-            relief="sunken",
-            width=15,
-            anchor=tk.CENTER
-        )
-        self.glassman_connection_label.pack(side=tk.LEFT)
+    #     # Connection status (left side)
+    #     self.glassman_connection_label = ttk.Label(
+    #         status_frame,
+    #         textvariable=self.connection_status_vars[len(self.power_supplies)-1],  # Last index for Glassman
+    #         foreground="red",
+    #         font=(self.displayFont, 8, "bold"),
+    #         background="white",
+    #         relief="sunken",
+    #         width=15,
+    #         anchor=tk.CENTER
+    #     )
+    #     self.glassman_connection_label.pack(side=tk.LEFT)
         
-        # Spacer label for consistent spacing
-        ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+    #     # Spacer label for consistent spacing
+    #     ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
         
-        # Output status (right side)
-        ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
-        self.glassman_status_label = ttk.Label(
-            status_frame, 
-            text="OFF", 
-            foreground="red",
-            font=(self.displayFont, 9, "bold"),
-            background="white",
-            relief="sunken",
-            width=5,
-            anchor=tk.CENTER
-        )
-        self.glassman_status_label.pack(side=tk.LEFT)
+    #     # Output status (right side)
+    #     ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
+    #     self.glassman_status_label = ttk.Label(
+    #         status_frame, 
+    #         textvariable=self.output_status[len(self.power_supplies)-1],  # Last index for Glassman
+    #         foreground="red",
+    #         font=(self.displayFont, 9, "bold"),
+    #         background="white",
+    #         relief="sunken",
+    #         width=5,
+    #         anchor=tk.CENTER
+    #     )
+    #     self.glassman_status_label.pack(side=tk.LEFT)
 
-    def initialize_power_supplies(self, com_ports):
+    def initialize_power_supplies(self):
         """Initialize hardware communication with KnobBox power supplies and create a KnobBoxPowerSupply instance for each."""
         self.power_supply_instances = [] # Reset list
 
-        for i, ps_config in enumerate(self.power_supplies):
-            port = com_ports.get(ps_config["name"]) # coordinate com ports with main app
+        for ps_config in self.power_supplies:
+            port = self.com_ports.get(ps_config["name"]) # coordinate com ports with main app
             if port:
-                ps_instance = KnobBoxPowerSupply(
+                power_supply_instance = KnobBoxPowerSupply(
                     port=port,
-                    power_supply_id=i, # Use index as ID
+                    power_supply_id=len(self.power_supply_instances), # Use index as ID
                     baudrate=9600,
                     timeout=1,
                     logger=self.logger,
                     debug_mode=False
                 )
-                self.power_supply_instances.append(ps_instance)
-                self.logger.info(f"Initialized {ps_config['name']} on port {port}")
+                self.power_supply_instances.append(power_supply_instance)
+
+                try:
+                    self.update_connection_status(len(self.power_supply_instances)-1, power_supply_instance.is_connected())
+                    self.logger.info(f"Initialized {ps_config['name']} on port {port}")
+                except Exception as e:
+                    self.logger.error(f"Error initializing {ps_config['name']} on port {port}: {e}")
+                    self.update_connection_status(len(self.power_supply_instances)-1, False)
             else:
                 self.logger.warning(f"No COM port specified for {ps_config['name']}, skipping initialization")
                 self.power_supply_instances.append(None)
+                self.update_connection_status(len(self.power_supply_instances)-1, False)
 
-    # def start_glassman_polling(self):
-    #     """
-    #     Start separate polling thread for Glassman power supply.
-    #     This runs independently from the KnobBox polling.
-    #     """
-    #     if self.glassman_thread and self.glassman_thread.is_alive():
-    #         return  # Already running
-            
-    #     self.glassman_stop_event.clear()
-    #     self.glassman_thread = threading.Thread(target=self._glassman_polling_loop, daemon=True)
-    #     self.glassman_thread.start()
-        
-    #     # Update connection status
-    #     self.update_connection_status('glassman', True)
-        
-    #     if self.logger:
-    #         self.logger.info("Started Glassman polling thread")
-            
-    # def _glassman_polling_loop(self):
-    #     """
-    #     Internal polling loop for Glassman power supply.
-    #     Runs in separate thread.
-    #     """
-    #     while not self.glassman_stop_event.is_set():
-    #         try:
-    #             # TODO: Implement actual Glassman communication
-    #             # For now, simulate some data
-    #             with self.data_lock:
-    #                 # Placeholder - replace with actual Glassman reading
-    #                 self.latest_data['glassman_status'] = False
-                    
-    #             time.sleep(1.0)  # Poll every second
-                
-    #         except Exception as e:
-    #             if self.logger:
-    #                 self.logger.error(f"Error in Glassman polling: {str(e)}")
-    #             time.sleep(2.0)  # Wait longer on error
+    def attempt_reconnect(self, index):
+        """Attempt to reconnect to a disconnected power supply."""
+        port = self.com_ports.get(self.power_supplies[index]["name"])
+        if port and self.power_supply_instances[index] is not None:
+            try:
+                power_supply_instance = KnobBoxPowerSupply(
+                    port=port,
+                    power_supply_id=index,
+                    baudrate=9600,
+                    timeout=1,
+                    logger=self.logger,
+                    debug_mode=False
+                )
+                self.power_supply_instances[index] = power_supply_instance
+
+                try:
+                    self.update_connection_status(index, power_supply_instance.is_connected())
+                except Exception as e:
+                    self.update_connection_status(index, False)
+            except Exception as e:
+                self.logger.error(f"Error reconnecting {self.power_supplies[index]['name']} on port {port}: {e}")
+                self.update_connection_status(index, False)
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -227,7 +209,7 @@ class BeamEnergySubsystem:
         
         connection_label = ttk.Label(
             connection_frame, 
-            text="DISCONNECTED", 
+            textvariable=self.connection_status_vars[index], 
             foreground="red",
             font=(self.displayFont, 8, "bold"),
             background="white",
@@ -247,7 +229,7 @@ class BeamEnergySubsystem:
         
         status_label = ttk.Label(
             status_frame, 
-            text="OFF", 
+            textvariable=self.output_status[index], 
             foreground="red",
             font=(self.displayFont, 9, "bold"),
             background="white",
@@ -264,7 +246,7 @@ class BeamEnergySubsystem:
         ttk.Label(setpoint_frame, text="Set Voltage:", font=("Segoe UI", 8)).pack(anchor=tk.W)
         setpoint_display = ttk.Label(
             setpoint_frame, 
-            text="0.0 V", 
+            textvariable=self.set_voltages[index], 
             font=(self.displayFont, 12, "bold"),
             background="lightgray",
             relief="sunken",
@@ -280,7 +262,7 @@ class BeamEnergySubsystem:
         ttk.Label(voltage_frame, text="Actual Voltage:", font=("Segoe UI", 8)).pack(anchor=tk.W)
         voltage_display = ttk.Label(
             voltage_frame, 
-            text="0.0 V", 
+            textvariable=self.actual_voltages[index], 
             font=(self.displayFont, 12, "bold"),
             background="white",
             relief="sunken",
@@ -296,7 +278,7 @@ class BeamEnergySubsystem:
         ttk.Label(current_frame, text="Actual Current:", font=("Segoe UI", 8)).pack(anchor=tk.W)
         current_display = ttk.Label(
             current_frame, 
-            text="0.0 mA", 
+            textvariable=self.actual_currents[index], 
             font=(self.displayFont, 12, "bold"),
             background="white",
             relief="sunken",
@@ -310,216 +292,81 @@ class BeamEnergySubsystem:
             self.ui_elements = []
         
         self.ui_elements.append({
-            'connection_label': connection_label,
+            'connection_label': connection_label, # label and display variables used for updating colors
             'status_label': status_label,
             'setpoint_display': setpoint_display,
             'voltage_display': voltage_display,
             'current_display': current_display
         })
-        
-    def update_power_supply_display(self, ps_index, set_voltage=None, actual_voltage=None, actual_current=None, output_status=None):
-        """
-        Update the display values for a specific power supply.
-        
-        Args:
-            ps_index: Index of the power supply (0-3)
-            set_voltage: Set voltage value (V)
-            actual_voltage: Actual voltage reading (V)  
-            actual_current: Actual current reading (mA)
-            output_status: Output status (True for ON, False for OFF)
-        """
-        if ps_index < 0 or ps_index >= len(self.ui_elements):
-            return
-            
-        element = self.ui_elements[ps_index]
-        
-        if set_voltage is not None:
-            element['setpoint_display'].config(text=f"{set_voltage:.1f} V")
-            
-        if actual_voltage is not None:
-            element['voltage_display'].config(text=f"{actual_voltage:.1f} V")
-            
-        if actual_current is not None:
-            element['current_display'].config(text=f"{actual_current:.2f} mA")
-            
-        if output_status is not None:
-            if output_status:
-                element['status_label'].config(text="ON", foreground="green")
-            else:
-                element['status_label'].config(text="OFF", foreground="red")
-    
-    # def update_glassman_status(self, output_status):
-    #     """
-    #     Update the Glassman power supply output status.
-        
-    #     Args:
-    #         output_status: True for ON, False for OFF
-    #     """
-    #     if output_status:
-    #         self.glassman_status_label.config(text="ON", foreground="green")
-    #     else:
-    #         self.glassman_status_label.config(text="OFF", foreground="red")
     
     def update_connection_status(self, index, connected):
-        """
-        Update connection status indicators for power supplies.
-        
-        Args:
-                index: index of the power supply (0-3) or 'glassman' for Glassman
-            connected: True if connected, False if disconnected
-        """
-        self.connection_status[self.power_supplies['name'][index]] = connected
-
-        # TODO Update UI indicators based on index for each individual power supply
-        # if index < 4:
-        #     # Update all 4 main power supply connection indicators
-        #     for i in range(min(4, len(self.ui_elements))):
-        #         element = self.ui_elements[i]
-        #         if connected:
-        #             element['connection_label'].config(
-        #                 text="CONNECTED", 
-        #                 foreground="green"
-        #             )
-        #         else:
-        #             element['connection_label'].config(
-        #                 text="DISCONNECTED", 
-        #                 foreground="red"
-        #             )  
-        # elif device == 'glassman':
-        #     # Update Glassman connection indicator
-        #     if hasattr(self, 'glassman_connection_label'):
-        #         if connected:
-        #             self.glassman_connection_label.config(
-        #                 text="CONNECTED", 
-        #                 foreground="green"
-        #             )
-        #         else:
-        #             self.glassman_connection_label.config(
-        #                 text="DISCONNECTED", 
-        #                 foreground="red"
-        #             )
-    
-    def update_all_connection_status(self):
-        """
-        Update connection status for all devices based on current hardware state.
-        """
-        for i, ps in enumerate(self.power_supply_instances):
-            if ps is not None:
-                try:
-                    is_connected = ps.is_connected()
-                    self.update_connection_status(self.power_supplies['name'][i], is_connected)
-                except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"Error checking connection for power supply {i}: {str(e)}")
-                    self.update_connection_status(self.power_supplies['name'][i], False)
+        """Update connection status indicators."""
+        if index < len(self.ui_elements):
+            if connected:
+                self.connection_status_vars[index].set("CONNECTED")
+                self.ui_elements[index]['connection_label'].config(foreground="green")
             else:
-                self.update_connection_status(self.power_supplies['name'][i], False)
+                self.connection_status_vars[index].set("DISCONNECTED")
+                self.ui_elements[index]['connection_label'].config(foreground="red")
+    
+    def update_output_status(self, index, status):
+        """Update output status indicators."""
+        if index < len(self.ui_elements):
+            if status:
+                self.output_status[index].set("ON")
+                self.ui_elements[index]['status_label'].config(foreground="green")
+            else:
+                self.output_status[index].set("OFF")
+                self.ui_elements[index]['status_label'].config(foreground="red")
+
     
     def update_readings(self):
         """
         Update voltage and current readings from hardware.
         This method should be called periodically to refresh displays.
         """
-        # Update connection status for all devices
-        self.update_all_connection_status()
-
+        # Loop through each power supply and access the data via its "power_supply_data" dictionary
         for i, ps in enumerate(self.power_supply_instances):
-            if ps is not None and self.connection_status[self.power_supplies['name'][i]]:
-                try:
-                    set_voltage = self.get_set_voltage(index=i)
-                    actual_voltage = self.get_measured_voltage(index=i)
-                    actual_current = self.get_measured_current(index=i)
-                    # output_status = self.get_output_status(index=i)
-
-                    self.update_power_supply_display(
-                        ps_index=i,
-                        set_voltage=set_voltage,
-                        actual_voltage=actual_voltage,
-                        actual_current=actual_current,
-                        # output_status=output_status
-                    )
-                except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"Error updating readings for power supply {i}: {str(e)}")
-            else:
-                # Power supply not connected, set displays to default
-                self.update_power_supply_display(
-                    ps_index=i,
-                    set_voltage=0.0,
-                    actual_voltage=0.0,
-                    actual_current=0.0,
-                    output_status=False
-                )
-
-    def get_set_voltage(self, ps_index):
-        """
-        Get the set voltage for a specific power supply.
-        
-        Args:
-            ps_index: Index of the power supply (0-3)
-        Returns:
-            Set voltage in volts, or None if unavailable
-        """
-        if ps_index < 0 or ps_index >= len(self.power_supply_instances):
-            return None
-        
-        ps = self.power_supply_instances[ps_index]
-        if ps is not None and self.connection_status[self.power_supplies['name'][ps_index]]:
             try:
-                data = ps.power_supply_data
-                return data['set_voltage'] if 'set_voltage' in data else None
+                if ps and ps.is_connected():
+                    try:
+                        data = ps.get_power_supply_data()
+
+                        # Extract relevant data with defaults
+                        set_v = data.get('set_voltage', 0.0)
+                        meas_v = data.get('meas_voltage', 0.0)
+                        meas_c = data.get('meas_current', 0.0)
+
+                        # Update display variables with formatted strings
+                        self.set_voltages[i].set(f"{set_v:.1f} V" if set_v is not None else "-- V")
+                        self.actual_voltages[i].set(f"{meas_v:.1f} V" if meas_v is not None else "-- V")
+                        self.actual_currents[i].set(f"{meas_c:.3f} A" if meas_c is not None else "-- A")
+                        
+                        self.update_connection_status(i, True)
+                        self.update_output_status(i, True)  # TODO Implement actual output status retrieval
+
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Error updating readings for power supply {i}: {str(e)}")
+                        self.set_default_values(i)
+                else:
+                    # Power supply not connected, set displays to default
+                    self.set_default_values(i)
+                    self.attempt_reconnect(i)  # Try to reconnect if disconnected
             except Exception as e:
                 if self.logger:
-                    self.logger.error(f"Error getting set voltage for power supply {ps_index}: {str(e)}")
-                return None
-        return None
-    
-    def get_measured_voltage(self, ps_index):
-        """
-        Get the measured voltage for a specific power supply.
-        
-        Args:
-            ps_index: Index of the power supply (0-3)
-        Returns:
-            Measured voltage in volts, or None if unavailable
-        """
-        if ps_index < 0 or ps_index >= len(self.power_supply_instances):
-            return None
-        
-        ps = self.power_supply_instances[ps_index]
-        if ps is not None and self.connection_status[self.power_supplies['name'][ps_index]]:
-            try:
-                data = ps.power_supply_data
-                return data['meas_voltage'] if 'meas_voltage' in data else None
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Error getting measured voltage for power supply {ps_index}: {str(e)}")
-                return None
-        return None
-    
-    def get_measured_current(self, ps_index):
-        """
-        Get the measured current for a specific power supply.
-        
-        Args:
-            ps_index: Index of the power supply (0-3)
-        Returns:
-            Measured current in milliamps, or None if unavailable
-        """
-        if ps_index < 0 or ps_index >= len(self.power_supply_instances):
-            return None
-        
-        ps = self.power_supply_instances[ps_index]
-        if ps is not None and self.connection_status[self.power_supplies['name'][ps_index]]:
-            try:
-                data = ps.power_supply_data
-                return data['meas_current'] if 'meas_current' in data else None
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Error getting measured current for power supply {ps_index}: {str(e)}")
-                return None
-        return None
+                    self.logger.error(f"Error accessing power supply {i}: {str(e)}")
+                self.set_default_values(i)
 
+        self.parent_frame.after(500, self.update_readings)  # Schedule next update after 500 ms
+
+    def set_default_values(self, index):
+        """Set display values to default '--'."""
+        self.set_voltages[index].set("-- V")
+        self.actual_voltages[index].set("-- V")
+        self.actual_currents[index].set("-- A")
+        self.update_connection_status(index, False)
+        self.update_output_status(index, False)
 
     def close_com_ports(self):
         """Close any open communication ports and stop all polling threads."""
@@ -533,3 +380,8 @@ class BeamEnergySubsystem:
                 except Exception as e:
                     if self.logger:
                         self.logger.error(f"Error closing power supply port: {str(e)}")
+
+# TODO: Implement output status retrieval in KnobBoxPowerSupply and update_output_status method
+# TODO: Readd Glassman
+# TODO: Add config menu support for COM port selection
+# TODO: Add error handling for power supply disconnect and reconnect (currently not working)

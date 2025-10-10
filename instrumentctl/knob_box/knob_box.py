@@ -35,6 +35,8 @@ class KnobBoxPowerSupply:
         """Set up the serial connection to the power supply."""
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+            if self.ser:
+                self.ser.reset_input_buffer()  # Clear any stale data
             self.power_supply_data['connected'] = True
             self.log(f"Connected to Knob Box Power Supply on {self.port}", LogLevel.INFO)
         except Exception as e:
@@ -58,19 +60,18 @@ class KnobBoxPowerSupply:
                     time.sleep(1)
                     continue
 
-                with self.lock:
-                    # Read data from the power supply
-                    line =  self.ser.readline()
+                # Read data from the power supply
+                line =  self.ser.readline()
 
-                    if not line:
-                        continue  # No data received
+                if not line:
+                    continue  # No data received
 
-                    data_str = line.decode('ascii').strip() # decode bytes to string - check ascii vs utf-8
-                    if self.debug_mode:
-                        self.log(f"Received data: {data_str}", LogLevel.DEBUG)
-                    
-                    data = self.parse_data(data_str) # Parse data and check for issues
-                    if data:
+                data_str = line.decode('ascii').strip() # decode bytes to string - check ascii vs utf-8
+            
+                data = self.parse_data(data_str) # Parse data and check for issues
+                if data:
+                    # Only hold lock while updating shared data
+                    with self.lock:
                         # Update global data variable
                         self.power_supply_data.update({
                             # 'output_status': data['output_status'],
@@ -90,18 +91,35 @@ class KnobBoxPowerSupply:
         Parse a line of data from the power supply.
         Expected format: set_voltage,measured_voltage,measured_current
         """
-        try:
+        try:    
                 # Split line into values and convert to float
-                values = [float(x) for x in line.strip().split(',')]
-                    
-                return {
-                    'set_voltage': values[0],
-                    'meas_voltage': values[1],
-                    'meas_current': values[2]
-                }
+                line = line.strip()
+                values = line.split(',')
+                if len(values) != 3:
+                    self.log(f"Unexpected data format: {line}", LogLevel.ERROR)
+                    return None
+                
+                try:
+                    set_v = float(values[0]) if values[0] else 0.0
+                    meas_v = float(values[1]) if values[1] else 0.0
+                    meas_c = float(values[2]) if values[2] else 0.0
+
+                    return {
+                        'set_voltage': set_v,
+                        'meas_voltage': meas_v,
+                        'meas_current': meas_c
+                    }
+                except Exception as e:
+                    self.log(f"Error converting data to float: {e}", LogLevel.ERROR)
+                    return None
         except ValueError as ve:
             self.log(f"Failed to parse data: {line} - {ve}", LogLevel.ERROR)
             return None
+        
+    def get_power_supply_data(self):
+        """Get the latest power supply data."""
+        with self.lock:
+            return self.power_supply_data.copy()
 
     def update_com_port(self, new_port):
         """Update the COM port and re-establish the connection."""
