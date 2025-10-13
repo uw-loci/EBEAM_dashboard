@@ -83,10 +83,14 @@ class BeamPulseSubsystem:
 
         # GUI variables for controls
         self.wave_gen_enabled = tk.BooleanVar(value=False)
-        self.wave_type = tk.StringVar(value="Triangle")
+        self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
         self.frequency_hz = tk.DoubleVar(value=1000.0)
         self.wave_amplitude = tk.DoubleVar(value=5.0)
         self.expected_current = tk.DoubleVar(value=1.0)
+        
+        # Config tab variables
+        self.deflection_lower_bound = tk.DoubleVar(value=-10.0)
+        self.deflection_upper_bound = tk.DoubleVar(value=10.0)
         
         # Toggle state for wave gen
         self.wave_gen_toggle_state = False
@@ -95,6 +99,7 @@ class BeamPulseSubsystem:
         self.bop_amp_status = False
         self.sol1_temp_status = False  
         self.sol2_temp_status = False
+        self.bcon_connection_status = False  # New BCON connection status
 
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
@@ -135,9 +140,33 @@ class BeamPulseSubsystem:
             self.setup_ui()
 
     def setup_ui(self):
-        """Create the user interface with controls in a row at the top and plots below."""
+        """Create the user interface with Main and Config tabs."""
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.parent_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create Main tab
+        self.main_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.main_tab, text="Main")
+        
+        # Create Config tab
+        self.config_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.config_tab, text="Config")
+        
+        # Setup Main tab content
+        self.setup_main_tab()
+        
+        # Setup Config tab content
+        self.setup_config_tab()
+        
+        # Start live monitoring of deflection stats (optional demo)
+        # Remove this line if you don't want the demo animation
+        self.start_deflection_stats_monitoring()
+
+    def setup_main_tab(self):
+        """Setup the Main tab with all the main controls and displays."""
         # Main container frame
-        main_frame = ttk.Frame(self.parent_frame, padding="5")
+        main_frame = ttk.Frame(self.main_tab, padding="5")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Top control row frame
@@ -153,10 +182,14 @@ class BeamPulseSubsystem:
         self.create_expected_current_control(control_row, 5)
         self.create_sol1_temp_status(control_row, 6)
         self.create_sol2_temp_status(control_row, 7)
+        self.create_bcon_connection_status(control_row, 8)
         
-        # Configure column weights for responsive layout
-        for i in range(8):
+        # Configure column weights for responsive layout (now 9 columns)
+        for i in range(9):
             control_row.grid_columnconfigure(i, weight=1)
+        
+        # Set initial state of frequency spinbox based on default wave type
+        self.update_frequency_spinbox_state()
         
         # Bottom section with three columns: deflection stats, monitor graph, print bed plots
         bottom_frame = ttk.Frame(main_frame)
@@ -186,10 +219,138 @@ class BeamPulseSubsystem:
         
         # Create the plots
         self.create_plots(plots_frame)
+
+        # Start BCON connection monitoring
+        self.start_bcon_connection_monitoring()
+
+    def start_bcon_connection_monitoring(self):
+        """Start periodic monitoring of BCON connection status."""
+        def check_connection():
+            # Check if we have a modbus connection and if it's alive
+            if self.modbus and hasattr(self.modbus, 'client'):
+                try:
+                    # Check if the client is connected and socket is open
+                    if hasattr(self.modbus.client, 'is_socket_open') and self.modbus.client.is_socket_open():
+                        # Try a simple temperature read to verify connection is working
+                        result = self.modbus.read_temperature(1)  # Try unit 1
+                        # If we get a numeric result, connection is working
+                        self.set_bcon_connection_status(isinstance(result, (int, float)))
+                    else:
+                        self.set_bcon_connection_status(False)
+                except Exception:
+                    self.set_bcon_connection_status(False)
+            else:
+                # No modbus connection configured
+                self.set_bcon_connection_status(False)
+            
+            # Schedule next check (every 5000ms = 5 seconds)
+            if hasattr(self, 'parent_frame') and self.parent_frame:
+                self.parent_frame.after(5000, check_connection)
         
-        # Start live monitoring of deflection stats (optional demo)
-        # Remove this line if you don't want the demo animation
-        self.start_deflection_stats_monitoring()
+        # Start the monitoring loop
+        if hasattr(self, 'parent_frame') and self.parent_frame:
+            self.parent_frame.after(1000, check_connection)  # Start after 1 second
+
+    def setup_config_tab(self):
+        """Setup the Config tab with deflection amplitude bounds settings."""
+        # Main container frame
+        config_frame = ttk.Frame(self.config_tab, padding="10")
+        config_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(config_frame, text="Deflection Amplitude Configuration", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=(0, 20))
+        
+        # Deflection bounds frame
+        bounds_frame = ttk.LabelFrame(config_frame, text="Deflection Amplitude Bounds", 
+                                     padding="15", labelanchor="n")
+        bounds_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # Lower bound setting
+        lower_frame = ttk.Frame(bounds_frame)
+        lower_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(lower_frame, text="Lower Bound (cm):", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.lower_bound_spinbox = tk.Spinbox(
+            lower_frame,
+            from_=-50.0,
+            to=50.0,
+            increment=0.1,
+            textvariable=self.deflection_lower_bound,  # Link to class variable
+            width=8,
+            format="%.1f"
+        )
+        self.lower_bound_spinbox.pack(side=tk.RIGHT)
+        
+        # Upper bound setting
+        upper_frame = ttk.Frame(bounds_frame)
+        upper_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(upper_frame, text="Upper Bound (cm):", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.upper_bound_spinbox = tk.Spinbox(
+            upper_frame,
+            from_=-50.0,
+            to=50.0,
+            increment=0.1,
+            textvariable=self.deflection_upper_bound,  # Link to class variable
+            width=8,
+            format="%.1f"
+        )
+        self.upper_bound_spinbox.pack(side=tk.RIGHT)
+        
+        # Apply button
+        apply_button = ttk.Button(bounds_frame, text="Apply Settings", 
+                                 command=self.apply_deflection_bounds)
+        apply_button.pack(pady=(10, 0))
+        
+        # Status display
+        self.config_status_label = ttk.Label(config_frame, text="Settings ready to apply", 
+                                           font=("Arial", 9), foreground="blue")
+        self.config_status_label.pack(pady=(10, 0))
+
+    def apply_deflection_bounds(self):
+        """Apply the deflection amplitude bounds settings."""
+        try:
+            lower_bound = float(self.lower_bound_spinbox.get())
+            upper_bound = float(self.upper_bound_spinbox.get())
+            
+            # Validate bounds
+            if lower_bound >= upper_bound:
+                self.config_status_label.configure(text="Error: Lower bound must be less than upper bound", 
+                                                 foreground="red")
+                return
+            
+            # Store the bounds
+            self.deflection_lower_bound.set(lower_bound)
+            self.deflection_upper_bound.set(upper_bound)
+            
+            # Update status
+            self.config_status_label.configure(
+                text=f"Applied: Lower={lower_bound:.1f}cm, Upper={upper_bound:.1f}cm", 
+                foreground="green"
+            )
+            
+            # Log the change
+            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f}cm, Upper={upper_bound:.1f}cm", 
+                     LogLevel.INFO)
+            
+        except ValueError as e:
+            self.config_status_label.configure(text="Error: Invalid number format", 
+                                             foreground="red")
+            self._log(f"Error applying deflection bounds: {e}", LogLevel.ERROR)
+
+    def get_deflection_bounds(self):
+        """Get current deflection amplitude bounds."""
+        return {
+            'lower': self.deflection_lower_bound.get(),
+            'upper': self.deflection_upper_bound.get()
+        }
+
+    def is_deflection_within_bounds(self, value):
+        """Check if a deflection value is within the configured bounds."""
+        bounds = self.get_deflection_bounds()
+        return bounds['lower'] <= value <= bounds['upper']
 
     def create_wave_gen_control(self, parent, column):
         """Create Wave Gen toggle control."""
@@ -225,8 +386,8 @@ class BeamPulseSubsystem:
         # Label
         ttk.Label(frame, text="Wave Type", font=("Arial", 9, "bold")).pack()
         
-        # Dropdown (Combobox)
-        wave_types = ["Triangle", "Sine", "Square", "Sawtooth"]
+        # Dropdown (Combobox) with three specified options
+        wave_types = ["Sine", "Triangle", "Fixed"]
         self.wave_type_combo = ttk.Combobox(
             frame,
             textvariable=self.wave_type,
@@ -338,6 +499,28 @@ class BeamPulseSubsystem:
         self.sol2_temp_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
         self.sol2_temp_canvas.pack(pady=(2, 0))
         self.update_sol2_temp_status()
+
+    def create_bcon_connection_status(self, parent, column):
+        """Create BCON Connection status indicator."""
+        frame = ttk.Frame(parent)
+        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
+        
+        # Label
+        ttk.Label(frame, text="BCON Conn", font=("Arial", 9, "bold")).pack()
+        
+        # Circular status indicator
+        self.bcon_connection_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
+        self.bcon_connection_canvas.pack(pady=(2, 0))
+        self.update_bcon_connection_status()
+
+    def update_frequency_spinbox_state(self):
+        """Update the frequency spinbox state based on current wave type."""
+        if hasattr(self, 'frequency_spinbox'):
+            wave_type = self.wave_type.get()
+            if wave_type.lower() == "fixed":
+                self.frequency_spinbox.configure(state="disabled")
+            else:
+                self.frequency_spinbox.configure(state="normal")
 
     def create_deflection_stats(self, parent):
         """Create the Deflection Stats section with four live status displays."""
@@ -511,7 +694,14 @@ class BeamPulseSubsystem:
 
     def on_wave_type_change(self, event=None):
         """Handle wave type dropdown change."""
-        self._log(f"Wave Type changed to: {self.wave_type.get()}", LogLevel.DEBUG)
+        wave_type = self.wave_type.get()
+        self._log(f"Wave Type changed to: {wave_type}", LogLevel.DEBUG)
+        
+        # Enable/disable frequency spinbox based on wave type
+        if wave_type.lower() == "fixed":
+            self.frequency_spinbox.configure(state="disabled")
+        else:
+            self.frequency_spinbox.configure(state="normal")
 
     def on_frequency_change(self):
         """Handle frequency spinbox change."""
@@ -544,6 +734,12 @@ class BeamPulseSubsystem:
         self.sol2_temp_canvas.delete("all")
         self.sol2_temp_canvas.create_oval(2, 2, 18, 18, fill=color, outline="darkgray")
 
+    def update_bcon_connection_status(self):
+        """Update BCON Connection status indicator."""
+        color = "green" if self.bcon_connection_status else "red"
+        self.bcon_connection_canvas.delete("all")
+        self.bcon_connection_canvas.create_oval(2, 2, 18, 18, fill=color, outline="darkgray")
+
     # Status update methods for external use
     def set_bop_amp_status(self, status: bool):
         """Set BOP Amp status and update indicator."""
@@ -562,6 +758,12 @@ class BeamPulseSubsystem:
         self.sol2_temp_status = status
         if hasattr(self, 'sol2_temp_canvas'):
             self.update_sol2_temp_status()
+
+    def set_bcon_connection_status(self, status: bool):
+        """Set BCON Connection status and update indicator."""
+        self.bcon_connection_status = status
+        if hasattr(self, 'bcon_connection_canvas'):
+            self.update_bcon_connection_status()
 
     # Deflection stats update methods
     def update_deflection_stats(self):
