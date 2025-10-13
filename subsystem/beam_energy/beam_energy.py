@@ -8,6 +8,7 @@ from instrumentctl.knob_box.knob_box import KnobBoxPowerSupply
 class BeamEnergySubsystem:
     """
     Manages the beam energy system with four main power supplies:
+    - +80kV Glassman (indicator only)
     - +1kV Matsusada
     - -1kV Matsusada  
     - +3kV Bertran
@@ -27,21 +28,21 @@ class BeamEnergySubsystem:
         self.parent_frame = parent_frame
         #self.com_ports = com_ports # temporarily overwrite for testing
         self.com_ports = {
-            "+1kV Matsusada": "COM3", 
+            "+80kV Glassman": "COM3", # Indicator only
+            "+1kV Matsusada": "COM30", 
             "-1kV Matsusada": "COM6", 
             "+3kV Bertran": "COM7", 
-            "+20kV Bertran": "COM9",
-            # "+80kV Glassman": "COM7"  # Indicator only
+            "+20kV Bertran": "COM9"
         }
         self.logger = logger
         
         # Main power supply configurations
         self.power_supplies = [
+            {"name": "+80kV Glassman", "type": "glassman", "voltage": 80000},  # Indicator only
             {"name": "+1kV Matsusada", "type": "matsusada", "voltage": 1000},
             {"name": "-1kV Matsusada", "type": "matsusada", "voltage": -1000},
             {"name": "+3kV Bertran", "type": "bertran", "voltage": 3000},
             {"name": "+20kV Bertran", "type": "bertran", "voltage": 20000},
-            # {"name": "+80kV Glassman", "type": "glassman", "voltage": 80000}  # Indicator only
         ]
 
         # Global data storing each power supply's latest readings
@@ -67,11 +68,14 @@ class BeamEnergySubsystem:
         main_frame = ttk.Frame(self.parent_frame, padding="2")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Initialize ui_elements list, one for each power supply
+        self.ui_elements = [None] * len(self.power_supplies)  
+
         # Glassman power supply container
-        # glassman_container = ttk.Frame(main_frame)
-        # glassman_container.pack(fill=tk.X, pady=(0, 5))
-        # self.create_glassman_indicator(glassman_container)
-        
+        glassman_container = ttk.Frame(main_frame)
+        glassman_container.pack(fill=tk.X, pady=(0, 5))
+        self.create_glassman_indicator(glassman_container)
+                
         # Power supplies container frame
         ps_container = ttk.Frame(main_frame)
         ps_container.pack(fill=tk.BOTH, expand=True)
@@ -79,7 +83,7 @@ class BeamEnergySubsystem:
         # Create four vertical boxes arranged horizontally
         self.ps_frames = []
 
-        for i, ps_config in enumerate(self.power_supplies): # Exclude Glassman
+        for i, ps_config in enumerate(self.power_supplies[:-1], 1): # Exclude Glassman
             # Individual power supply frame
             ps_frame = ttk.LabelFrame(
                 ps_container, 
@@ -98,50 +102,55 @@ class BeamEnergySubsystem:
         # Configure main grid
         ps_container.grid_rowconfigure(0, weight=1)
         
-    # def create_glassman_indicator(self, parent_frame):
-    #     """Create a small Glassman power supply output indicator, centered below title."""
-    #     glassman_frame = ttk.LabelFrame(
-    #         parent_frame, 
-    #         text="+80kV Glassman", 
-    #         padding="5",
-    #         labelanchor="n"  # Center the title at the top
-    #     )
-    #     # Center the frame horizontally
-    #     glassman_frame.pack(anchor=tk.CENTER)
+    def create_glassman_indicator(self, parent_frame):
+        """Create a small Glassman power supply output indicator, centered below title."""
+        glassman_frame = ttk.LabelFrame(
+            parent_frame, 
+            text="+80kV Glassman", 
+            padding="5",
+            labelanchor="n"  # Center the title at the top
+        )
+        # Center the frame horizontally
+        glassman_frame.pack(anchor=tk.CENTER)
 
-    #     # Combined connection and output status indicator (same line to save vertical space)
-    #     status_frame = ttk.Frame(glassman_frame)
-    #     status_frame.pack(fill=tk.X)
+        # Combined connection and output status indicator (same line to save vertical space)
+        status_frame = ttk.Frame(glassman_frame)
+        status_frame.pack(fill=tk.X)
         
-    #     # Connection status (left side)
-    #     self.glassman_connection_label = ttk.Label(
-    #         status_frame,
-    #         textvariable=self.connection_status_vars[len(self.power_supplies)-1],  # Last index for Glassman
-    #         foreground="red",
-    #         font=(self.displayFont, 8, "bold"),
-    #         background="white",
-    #         relief="sunken",
-    #         width=15,
-    #         anchor=tk.CENTER
-    #     )
-    #     self.glassman_connection_label.pack(side=tk.LEFT)
+        # Connection status (left side)
+        self.glassman_connection_label = ttk.Label(
+            status_frame,
+            textvariable=self.connection_status_vars[-1],  # Last index for Glassman
+            foreground="red",
+            font=(self.displayFont, 8, "bold"),
+            background="white",
+            relief="sunken",
+            width=15,
+            anchor=tk.CENTER
+        )
+        self.glassman_connection_label.pack(side=tk.LEFT)
         
-    #     # Spacer label for consistent spacing
-    #     ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        # Spacer label for consistent spacing
+        ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
         
-    #     # Output status (right side)
-    #     ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
-    #     self.glassman_status_label = ttk.Label(
-    #         status_frame, 
-    #         textvariable=self.output_status[len(self.power_supplies)-1],  # Last index for Glassman
-    #         foreground="red",
-    #         font=(self.displayFont, 9, "bold"),
-    #         background="white",
-    #         relief="sunken",
-    #         width=5,
-    #         anchor=tk.CENTER
-    #     )
-    #     self.glassman_status_label.pack(side=tk.LEFT)
+        # Output status (right side)
+        ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
+        self.glassman_status_label = ttk.Label(
+            status_frame, 
+            textvariable=self.output_status[-1],  # Last index for Glassman
+            foreground="red",
+            font=(self.displayFont, 9, "bold"),
+            background="white",
+            relief="sunken",
+            width=5,
+            anchor=tk.CENTER
+        )
+        self.glassman_status_label.pack(side=tk.LEFT)
+
+        self.ui_elements[0] = {
+            "connection_label": self.glassman_connection_label,
+            "status_label": self.glassman_status_label
+        }
 
     def initialize_power_supplies(self):
         """Initialize hardware communication with KnobBox power supplies and create a KnobBoxPowerSupply instance for each."""
@@ -290,14 +299,14 @@ class BeamEnergySubsystem:
         # Store references for later use
         if not hasattr(self, 'ui_elements'):
             self.ui_elements = []
-        
-        self.ui_elements.append({
+
+        self.ui_elements[index] = {
             'connection_label': connection_label, # label and display variables used for updating colors
             'status_label': status_label,
             'setpoint_display': setpoint_display,
             'voltage_display': voltage_display,
             'current_display': current_display
-        })
+        }
     
     def update_connection_status(self, index, connected):
         """Update connection status indicators."""
@@ -332,18 +341,23 @@ class BeamEnergySubsystem:
                     try:
                         data = ps.get_power_supply_data()
 
-                        # Extract relevant data with defaults
-                        set_v = data.get('set_voltage', 0.0)
-                        meas_v = data.get('meas_voltage', 0.0)
-                        meas_c = data.get('meas_current', 0.0)
+                        if i == len(self.power_supplies) - 1:  # Glassman special case
+                            # Glassman behavior
+                            self.update_connection_status(i, True)
+                            self.update_output_status(i, False)  # output status not implemented
+                        else:
+                            # Normal power supply behavior - Extract relevant data with defaults
+                            set_v = data.get('set_voltage', 0.0)
+                            meas_v = data.get('meas_voltage', 0.0)
+                            meas_c = data.get('meas_current', 0.0)
 
-                        # Update display variables with formatted strings
-                        self.set_voltages[i].set(f"{set_v:.1f} V" if set_v is not None else "-- V")
-                        self.actual_voltages[i].set(f"{meas_v:.1f} V" if meas_v is not None else "-- V")
-                        self.actual_currents[i].set(f"{meas_c:.3f} A" if meas_c is not None else "-- A")
-                        
-                        self.update_connection_status(i, True)
-                        self.update_output_status(i, True)  # TODO Implement actual output status retrieval
+                            # Update display variables with formatted strings
+                            self.set_voltages[i].set(f"{set_v:.1f} V" if set_v is not None else "-- V")
+                            self.actual_voltages[i].set(f"{meas_v:.1f} V" if meas_v is not None else "-- V")
+                            self.actual_currents[i].set(f"{meas_c:.3f} A" if meas_c is not None else "-- A")
+                            
+                            self.update_connection_status(i, True)
+                            self.update_output_status(i, True)  # TODO Implement actual output status retrieval
 
                     except Exception as e:
                         if self.logger:
@@ -382,6 +396,5 @@ class BeamEnergySubsystem:
                         self.logger.error(f"Error closing power supply port: {str(e)}")
 
 # TODO: Implement output status retrieval in KnobBoxPowerSupply and update_output_status method
-# TODO: Readd Glassman
 # TODO: Add config menu support for COM port selection
 # TODO: Add error handling for power supply disconnect and reconnect (currently not working)
