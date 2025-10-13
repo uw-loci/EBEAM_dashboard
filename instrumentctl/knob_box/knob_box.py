@@ -38,9 +38,9 @@ class KnobBoxPowerSupply:
             if self.ser:
                 self.ser.reset_input_buffer()  # Clear any stale data
             self.power_supply_data['connected'] = True
-            self.log(f"Connected to Knob Box Power Supply on {self.port}", LogLevel.INFO)
+            # self.log(f"Connected to Knob Box Power Supply on {self.port}", LogLevel.INFO)
         except Exception as e:
-            self.log(f"Failed to connect to Knob Box Power Supply on {self.port}: {e}", LogLevel.ERROR)
+            # self.log(f"Failed to connect to Knob Box Power Supply on {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
 
     def start_monitoring(self):
@@ -53,23 +53,32 @@ class KnobBoxPowerSupply:
 
     def monitor_data_continuously(self):
         """Continuously monitor the power supply for data."""
+        consecutive_failures = 0
+
         while not self.stop_event.is_set():
             try:
                 if not self.is_connected():
-                    # handle reconnection logic here if needed
-                    time.sleep(1)
+                    # Attempt to reconnect
+                    self.handle_disconnect()
+                    self.setup_serial_connection()
                     continue
 
+                if not self.ser.is_open:
+                    raise serial.SerialException("Serial port is not open")
+                
                 # Read data from the power supply
                 line =  self.ser.readline()
-
                 if not line:
+                    consecutive_failures += 1
+                    if consecutive_failures >= self.MAX_RETRIES:
+                        self.handle_disconnect()
                     continue  # No data received
 
                 data_str = line.decode('ascii').strip() # decode bytes to string - check ascii vs utf-8
-            
                 data = self.parse_data(data_str) # Parse data and check for issues
+
                 if data:
+                    consecutive_failures = 0  # Reset on successful read
                     # Only hold lock while updating shared data
                     with self.lock:
                         # Update global data variable
@@ -80,10 +89,18 @@ class KnobBoxPowerSupply:
                             'meas_current': data['meas_current'],
                             'connected': True
                         })
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= self.MAX_RETRIES:
+                        self.handle_disconnect()
 
-                time.sleep(0.2)  # should match arduino display_value timer
+                # time.sleep(0.2)  # should match arduino display_value timer
+            except (serial.SerialException, OSError) as se:
+                self.handle_disconnect()
             except Exception as e:
-                self.log(f"Error reading from power supply: {e}", LogLevel.ERROR)
+                consecutive_failures += 1
+                if consecutive_failures >= self.MAX_RETRIES:
+                    self.handle_disconnect()
                 time.sleep(1)  # wait before retrying or handle reconnection
 
     def parse_data(self, line):
@@ -96,7 +113,7 @@ class KnobBoxPowerSupply:
                 line = line.strip()
                 values = line.split(',')
                 if len(values) != 3:
-                    self.log(f"Unexpected data format: {line}", LogLevel.ERROR)
+                    # self.log(f"Unexpected data format: {line}", LogLevel.ERROR)
                     return None
                 
                 try:
@@ -110,10 +127,10 @@ class KnobBoxPowerSupply:
                         'meas_current': meas_c
                     }
                 except Exception as e:
-                    self.log(f"Error converting data to float: {e}", LogLevel.ERROR)
+                    # self.log(f"Error converting data to float: {e}", LogLevel.ERROR)
                     return None
         except ValueError as ve:
-            self.log(f"Failed to parse data: {line} - {ve}", LogLevel.ERROR)
+            # self.log(f"Failed to parse data: {line} - {ve}", LogLevel.ERROR)
             return None
         
     def get_power_supply_data(self):
@@ -130,10 +147,21 @@ class KnobBoxPowerSupply:
         self.port = new_port
         self.setup_serial_connection()
 
-        if self.ser is not None:
-            self.log(f"Updated COM port to {new_port}", LogLevel.INFO)
-        else:
-            self.log(f"Failed to update COM port to {new_port}", LogLevel.ERROR)
+        # if self.ser is not None:
+        #     self.log(f"Updated COM port to {new_port}", LogLevel.INFO)
+        # else:
+        #     self.log(f"Failed to update COM port to {new_port}", LogLevel.ERROR)
+
+    def handle_disconnect(self):
+        """Handle disconnection and update data accordingly."""
+        with self.lock:
+            self.power_supply_data['connected'] = False
+            self.power_supply_data['set_voltage'] = None
+            self.power_supply_data['meas_voltage'] = None
+            self.power_supply_data['meas_current'] = None
+        if self.ser:
+            self.ser.close()
+            self.ser = None
 
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
@@ -152,4 +180,6 @@ class KnobBoxPowerSupply:
         if self.ser is not None:
             self.ser.close()
             self.ser = None
-        self.log("Closed connection to Knob Box Power Supply", LogLevel.INFO)
+        # self.log("Closed connection to Knob Box Power Supply", LogLevel.INFO)
+
+# TODO: Add output status retrieval in KnobBoxPowerSupply and update_output_status method
