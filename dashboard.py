@@ -306,8 +306,11 @@ class EBEAMSystemDashboard:
             'Beam Energy': subsystem.BeamEnergySubsystem(
                 self.frames['Beam Energy'],
                 com_ports={
-                    'Beam Energy': self.com_ports.get('Beam Energy'),
-                    'Glassman PS': self.com_ports.get('Glassman PS')
+                    "+80kV Glassman PS": self.com_ports['+80kV Glassman PS'], 
+                    "+1kV Matsusada PS": self.com_ports['+1kV Matsusada PS'], 
+                    "-1kV Matsusada PS": self.com_ports['-1kV Matsusada PS'], 
+                    "+3kV Bertran PS": self.com_ports['+3kV Bertran PS'], 
+                    "+20kV Bertran PS": self.com_ports['+20kV Bertran PS']
                 },
                 logger=self.logger
             )
@@ -343,7 +346,10 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors', 'Beam Energy', 'Glassman PS']:
+        for subsystem in [
+            'VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 
+            'TempControllers', 'Interlocks', 'ProcessMonitors', '+80kV Glassman PS', 
+            '+1kV Matsusada PS', '-1kV Matsusada PS', '+3kV Bertran PS', '+20kV Bertran PS']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
@@ -391,6 +397,8 @@ class EBEAMSystemDashboard:
                 if subsystem_name == 'Vacuum System':
                     subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
                 elif subsystem_name == 'Cathode Heating':
+                    subsystem.update_com_ports(new_com_ports)
+                elif subsystem_name == 'Beam Energy':
                     subsystem.update_com_ports(new_com_ports)
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")

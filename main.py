@@ -15,8 +15,11 @@ SUBSYSTEMS = [
     'TempControllers', 
     'Interlocks', 
     'ProcessMonitors',
-    'Beam Energy',
-    'Glassman PS'
+    '+80kV Glassman PS',
+    '+1kV Matsusada PS',
+    '-1kV Matsusada PS',
+    '+3kV Bertran PS',
+    '+20kV Bertran PS'
 ]
 
 def create_dummy_port_labels(subsystems):
