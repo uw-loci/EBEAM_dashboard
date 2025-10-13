@@ -83,7 +83,7 @@ class BeamEnergySubsystem:
         # Create four vertical boxes arranged horizontally
         self.ps_frames = []
 
-        for i, ps_config in enumerate(self.power_supplies[:-1], 1): # Exclude Glassman
+        for i, ps_config in enumerate(self.power_supplies[1:], 1): # Exclude Glassman
             # Individual power supply frame
             ps_frame = ttk.LabelFrame(
                 ps_container, 
@@ -95,7 +95,7 @@ class BeamEnergySubsystem:
             
             # Configure grid weights for responsive layout
             ps_container.grid_columnconfigure(i, weight=1)
-            
+
             self.ps_frames.append(ps_frame)
             self.create_power_supply_displays(ps_frame, ps_config, i)
         
@@ -210,7 +210,7 @@ class BeamEnergySubsystem:
         Args:
             frame: Frame to contain the displays
             ps_config: Power supply configuration dict
-            index: Index of the power supply (0-3)
+            index: Index of the power supply (1-4, since 0 is Glassman)
         """
         # Connection status indicator (at top)
         connection_frame = ttk.Frame(frame)
