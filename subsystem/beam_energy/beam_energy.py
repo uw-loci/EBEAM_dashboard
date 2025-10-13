@@ -26,23 +26,23 @@ class BeamEnergySubsystem:
             logger: Logger instance for system messages
         """
         self.parent_frame = parent_frame
-        #self.com_ports = com_ports # temporarily overwrite for testing
-        self.com_ports = {
-            "+80kV Glassman": "COM3", # Indicator only
-            "+1kV Matsusada": "COM30", 
-            "-1kV Matsusada": "COM6", 
-            "+3kV Bertran": "COM7", 
-            "+20kV Bertran": "COM9"
-        }
+        self.com_ports = com_ports # temporarily overwrite for testing
+        # self.com_ports = {
+        #     "+80kV Glassman": "COM3", # Indicator only
+        #     "+1kV Matsusada": "COM30", 
+        #     "-1kV Matsusada": "COM6", 
+        #     "+3kV Bertran": "COM7", 
+        #     "+20kV Bertran": "COM9"
+        # }
         self.logger = logger
         
         # Main power supply configurations
         self.power_supplies = [
-            {"name": "+80kV Glassman", "type": "glassman", "voltage": 80000},  # Indicator only
-            {"name": "+1kV Matsusada", "type": "matsusada", "voltage": 1000},
-            {"name": "-1kV Matsusada", "type": "matsusada", "voltage": -1000},
-            {"name": "+3kV Bertran", "type": "bertran", "voltage": 3000},
-            {"name": "+20kV Bertran", "type": "bertran", "voltage": 20000},
+            {"name": "+80kV Glassman PS", "type": "glassman", "voltage": 80000},  # Indicator only
+            {"name": "+1kV Matsusada PS", "type": "matsusada", "voltage": 1000},
+            {"name": "-1kV Matsusada PS", "type": "matsusada", "voltage": -1000},
+            {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
+            {"name": "+20kV Bertran PS", "type": "bertran", "voltage": 20000},
         ]
 
         # Global data storing each power supply's latest readings
@@ -341,23 +341,18 @@ class BeamEnergySubsystem:
                     try:
                         data = ps.get_power_supply_data()
 
-                        if i == len(self.power_supplies) - 1:  # Glassman special case
-                            # Glassman behavior
-                            self.update_connection_status(i, True)
-                            self.update_output_status(i, False)  # output status not implemented
-                        else:
-                            # Normal power supply behavior - Extract relevant data with defaults
-                            set_v = data.get('set_voltage', 0.0)
-                            meas_v = data.get('meas_voltage', 0.0)
-                            meas_c = data.get('meas_current', 0.0)
+                        # Extract readings with default values if keys are missing
+                        set_v = data.get('set_voltage', 0.0)
+                        meas_v = data.get('meas_voltage', 0.0)
+                        meas_c = data.get('meas_current', 0.0)
 
-                            # Update display variables with formatted strings
-                            self.set_voltages[i].set(f"{set_v:.1f} V" if set_v is not None else "-- V")
-                            self.actual_voltages[i].set(f"{meas_v:.1f} V" if meas_v is not None else "-- V")
-                            self.actual_currents[i].set(f"{meas_c:.3f} A" if meas_c is not None else "-- A")
-                            
-                            self.update_connection_status(i, True)
-                            self.update_output_status(i, True)  # TODO Implement actual output status retrieval
+                        # Update display variables with formatted strings
+                        self.set_voltages[i].set(f"{set_v:.1f} V" if set_v is not None else "-- V")
+                        self.actual_voltages[i].set(f"{meas_v:.1f} V" if meas_v is not None else "-- V")
+                        self.actual_currents[i].set(f"{meas_c:.3f} A" if meas_c is not None else "-- A")
+                        
+                        self.update_connection_status(i, True)
+                        self.update_output_status(i, True)  # TODO Implement actual output status retrieval
 
                     except Exception as e:
                         if self.logger:
@@ -382,6 +377,22 @@ class BeamEnergySubsystem:
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
 
+    def update_com_ports(self, new_com_ports):
+        """Update COM port assignments and reinitialize power supplies."""
+        self.com_ports = {
+            "+80kV Glassman PS": new_com_ports.get('+80kV Glassman PS'),
+            "+1kV Matsusada PS": new_com_ports.get('+1kV Matsusada PS'),
+            "-1kV Matsusada PS": new_com_ports.get('-1kV Matsusada PS'),
+            "+3kV Bertran PS": new_com_ports.get('+3kV Bertran PS'),
+            "+20kV Bertran PS": new_com_ports.get('+20kV Bertran PS')
+        }
+        
+        # Close existing connections
+        self.close_com_ports()
+        
+        # Reinitialize with new ports
+        self.initialize_power_supplies()
+
     def close_com_ports(self):
         """Close any open communication ports and stop all polling threads."""
         if self.logger:
@@ -396,5 +407,4 @@ class BeamEnergySubsystem:
                         self.logger.error(f"Error closing power supply port: {str(e)}")
 
 # TODO: Implement output status retrieval in KnobBoxPowerSupply and update_output_status method
-# TODO: Add config menu support for COM port selection
 # TODO: Add error handling for power supply disconnect and reconnect (currently not working)
