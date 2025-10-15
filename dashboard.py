@@ -348,13 +348,7 @@ class EBEAMSystemDashboard:
             ),
             'Beam Energy': subsystem.BeamEnergySubsystem(
                 self.frames['Beam Energy'],
-                com_ports={
-                    "+80kV Glassman PS": self.com_ports['+80kV Glassman PS'], 
-                    "+1kV Matsusada PS": self.com_ports['+1kV Matsusada PS'], 
-                    "-1kV Matsusada PS": self.com_ports['-1kV Matsusada PS'], 
-                    "+3kV Bertran PS": self.com_ports['+3kV Bertran PS'], 
-                    "+20kV Bertran PS": self.com_ports['+20kV Bertran PS']
-                },
+                com_ports=self.com_ports,
                 logger=self.logger
             )
         }
@@ -391,8 +385,7 @@ class EBEAMSystemDashboard:
 
         for subsystem in [
             'VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 
-            'TempControllers', 'Interlocks', 'ProcessMonitors', '+80kV Glassman PS', 
-            '+1kV Matsusada PS', '-1kV Matsusada PS', '+3kV Bertran PS', '+20kV Bertran PS']:
+            'TempControllers', 'Interlocks', 'ProcessMonitors', 'KnobBox']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
