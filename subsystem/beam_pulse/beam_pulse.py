@@ -86,7 +86,6 @@ class BeamPulseSubsystem:
         self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
         self.frequency_hz = tk.DoubleVar(value=1000.0)
         self.wave_amplitude = tk.DoubleVar(value=5.0)
-        self.expected_current = tk.DoubleVar(value=1.0)
         
         # Config tab variables
         self.deflection_lower_bound = tk.DoubleVar(value=-10.0)
@@ -96,10 +95,7 @@ class BeamPulseSubsystem:
         self.wave_gen_toggle_state = False
         
         # Status indicators
-        self.bop_amp_status = False
-        self.sol1_temp_status = False  
-        self.sol2_temp_status = False
-        self.bcon_connection_status = False  # New BCON connection status
+        self.bcon_connection_status = False  # BCON pulse status
 
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
@@ -112,11 +108,6 @@ class BeamPulseSubsystem:
         self._bp_axes = None
         self._bp_canvas = None
         self._bp_stats = {}
-        
-        # Monitor plot variables
-        self._monitor_fig = None
-        self._monitor_ax = None
-        self._monitor_canvas = None
 
         # Load toggle images if GUI is being created
         if parent_frame:
@@ -178,34 +169,25 @@ class BeamPulseSubsystem:
         self.create_wave_type_control(control_row, 1)
         self.create_frequency_control(control_row, 2)
         self.create_wave_amplitude_control(control_row, 3)
-        self.create_bop_amp_status(control_row, 4)
-        self.create_expected_current_control(control_row, 5)
-        self.create_sol1_temp_status(control_row, 6)
-        self.create_sol2_temp_status(control_row, 7)
-        self.create_bcon_connection_status(control_row, 8)
+        self.create_bcon_pulse_status(control_row, 4)
         
-        # Configure column weights for responsive layout (now 9 columns)
-        for i in range(9):
+        # Configure column weights for responsive layout (now 5 columns)
+        for i in range(5):
             control_row.grid_columnconfigure(i, weight=1)
         
         # Set initial state of frequency spinbox based on default wave type
         self.update_frequency_spinbox_state()
         
-        # Bottom section with three columns: deflection stats, monitor graph, print bed plots
+        # Bottom section with two columns: deflection stats and print bed plots
         bottom_frame = ttk.Frame(main_frame)
         bottom_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Left side - Deflection Stats (30% width)
+        # Left side - Deflection Stats (40% width)
         deflection_frame = ttk.Frame(bottom_frame)
         deflection_frame.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 5))
         self.create_deflection_stats(deflection_frame)
         
-        # Middle - Current Driver Monitor graph (35% width)
-        monitor_frame = ttk.Frame(bottom_frame)
-        monitor_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        self.create_current_driver_monitor(monitor_frame)
-        
-        # Right side - Print Bed label and plots (35% width)
+        # Right side - Print Bed label and plots (60% width)
         plots_container = ttk.Frame(bottom_frame)
         plots_container.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
@@ -425,8 +407,8 @@ class BeamPulseSubsystem:
         frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
         
         # Label
-        ttk.Label(frame, text="Wave Amp (+-V)", font=("Arial", 9, "bold")).pack()
-        
+        ttk.Label(frame, text="Wave Amp (±A)", font=("Arial", 9, "bold")).pack()
+
         # Spinbox
         self.wave_amp_spinbox = tk.Spinbox(
             frame,
@@ -440,73 +422,13 @@ class BeamPulseSubsystem:
         )
         self.wave_amp_spinbox.pack(pady=(2, 0))
 
-    def create_bop_amp_status(self, parent, column):
-        """Create BOP Amp status indicator."""
+    def create_bcon_pulse_status(self, parent, column):
+        """Create BCON Pulse status indicator."""
         frame = ttk.Frame(parent)
         frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
         
         # Label
-        ttk.Label(frame, text="BOP Amp", font=("Arial", 9, "bold")).pack()
-        
-        # Circular status indicator
-        self.bop_amp_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
-        self.bop_amp_canvas.pack(pady=(2, 0))
-        self.update_bop_amp_status()
-
-    def create_expected_current_control(self, parent, column):
-        """Create Expected Current (+- A) spinbox control."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
-        
-        # Label
-        ttk.Label(frame, text="Expected Current (+- A)", font=("Arial", 9, "bold")).pack()
-        
-        # Spinbox
-        self.expected_current_spinbox = tk.Spinbox(
-            frame,
-            from_=0.0,
-            to=100.0,
-            increment=1.0,  # Changed from 0.1 to 1.0
-            textvariable=self.expected_current,
-            command=self.on_expected_current_change,
-            width=8,
-            format="%.1f"
-        )
-        self.expected_current_spinbox.pack(pady=(2, 0))
-
-    def create_sol1_temp_status(self, parent, column):
-        """Create Sol 1 Temp status indicator."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
-        
-        # Label
-        ttk.Label(frame, text="Sol 1 Temp", font=("Arial", 9, "bold")).pack()
-        
-        # Circular status indicator
-        self.sol1_temp_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
-        self.sol1_temp_canvas.pack(pady=(2, 0))
-        self.update_sol1_temp_status()
-
-    def create_sol2_temp_status(self, parent, column):
-        """Create Sol 2 Temp status indicator."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
-        
-        # Label
-        ttk.Label(frame, text="Sol 2 Temp", font=("Arial", 9, "bold")).pack()
-        
-        # Circular status indicator
-        self.sol2_temp_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
-        self.sol2_temp_canvas.pack(pady=(2, 0))
-        self.update_sol2_temp_status()
-
-    def create_bcon_connection_status(self, parent, column):
-        """Create BCON Connection status indicator."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
-        
-        # Label
-        ttk.Label(frame, text="BCON Conn", font=("Arial", 9, "bold")).pack()
+        ttk.Label(frame, text="BCON Pulse", font=("Arial", 9, "bold")).pack()
         
         # Circular status indicator
         self.bcon_connection_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
@@ -536,10 +458,10 @@ class BeamPulseSubsystem:
         
         # Define the stats with their labels, variables, units, and default values
         stats_data = [
-            ("Deflection Est.:", self.deflection_est, "cm", "5.0"),
-            ("Scan Speed Est.:", self.scan_speed_est, "m/s", "1.5"),
-            ("Peak B-field Est.:", self.peak_bfield_est, "G", "90"),
-            ("Power Est:", self.power_est, "W", "150")
+            ("Max Deflection:", self.deflection_est, "cm", "5.0"),
+            ("Scan Speed:", self.scan_speed_est, "m/s", "1.5"),
+            ("B-field Estimate:", self.peak_bfield_est, "G", "90"),
+            ("Power Estimate (per solenoid):", self.power_est, "W", "150")
         ]
         
         # Store references for later updates
@@ -575,76 +497,36 @@ class BeamPulseSubsystem:
                 'default': default_value
             }
 
-    def create_current_driver_monitor(self, parent):
-        """Create the Current Driver Monitor graph with time vs oil temperature."""
-        if not _HAS_MATPLOTLIB:
-            lbl = ttk.Label(parent, text="matplotlib not available — install matplotlib to see plot")
-            lbl.pack(fill=tk.BOTH, expand=True)
-            return
-
-        # Title label
-        title_label = ttk.Label(parent, text="Current Driver Monitor (sync1)", font=("Arial", 12, "bold"))
-        title_label.pack(pady=(0, 10))
-
-        # Create matplotlib figure for the monitor graph
-        # Adjusted figure size to be more compact and maintain better proportions
-        monitor_fig = Figure(figsize=(3.5, 2.5), constrained_layout=True)
-        monitor_ax = monitor_fig.add_subplot(1, 1, 1)
-        
-        # Configure the plot
-        monitor_ax.set_xlabel('Time (HH:MM)', fontsize=9)
-        monitor_ax.set_ylabel('Oil Temperature', fontsize=9)
-        monitor_ax.tick_params(labelsize=8)
-        monitor_ax.grid(True)
-        
-        # Set Y-axis limits and ticks (0 to 100 with ticks every 20)
-        monitor_ax.set_ylim(0, 100)
-        monitor_ax.set_yticks(range(0, 101, 20))  # 0, 20, 40, 60, 80, 100
-        
-        # Set aspect ratio to prevent stretching
-        monitor_ax.set_aspect('auto')  # Let matplotlib handle aspect ratio automatically
-        
-        # Format time axis (placeholder for now)
-        from matplotlib.dates import DateFormatter
-        import matplotlib.dates as mdates
-        monitor_ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
-        
-        # Store references
-        self._monitor_fig = monitor_fig
-        self._monitor_ax = monitor_ax
-        
-        # Create and pack the canvas with proper sizing
-        self._monitor_canvas = FigureCanvasTkAgg(monitor_fig, master=parent)
-        canvas_widget = self._monitor_canvas.get_tk_widget()
-        canvas_widget.pack(fill=tk.BOTH, expand=True)
-        
-        # Set minimum size constraints to prevent over-stretching
-        canvas_widget.configure(width=300, height=200)  # Set reasonable minimum dimensions
-
     def create_plots(self, parent):
-        """Create the three beam plots similar to the original dashboard implementation."""
+        """Create the three beam plots side by side with no gaps between them."""
         if not _HAS_MATPLOTLIB:
             lbl = ttk.Label(parent, text="matplotlib not available — install matplotlib to see plots")
             lbl.pack(fill=tk.BOTH, expand=True)
             return
 
         # Create a matplotlib figure with 3 subplots laid out horizontally (1 row x 3 cols)
-        # Make them smaller to fit in the right portion
-        fig = Figure(figsize=(6, 2), constrained_layout=True)
+        # Add minimal spacing between subplots - just enough to prevent label overlap
+        fig = Figure(figsize=(6, 2), constrained_layout=False)
         axs = [fig.add_subplot(1, 3, i + 1) for i in range(3)]
         
-        # Add horizontal spacing between subplots
-        try:
-            fig.subplots_adjust(wspace=0.45)
-        except Exception:
-            pass
-            
-        for ax in axs:
-            ax.set_xlabel('sample index', fontsize=7)
-            ax.set_ylabel('value', fontsize=7)
+        # Add very small spacing between subplots (0.05 is minimal but visible)
+        fig.subplots_adjust(left=0.08, right=0.98, bottom=0.2, top=0.9, wspace=0.05)
+        
+        # Configure each subplot
+        section_labels = ['Section 1', 'Section 2', 'Section 3']
+        for i, ax in enumerate(axs):
+            ax.set_xlabel(section_labels[i], fontsize=7)
             ax.tick_params(labelsize=6)
             ax.title.set_fontsize(8)
             ax.grid(True)
+            
+            # Only show y-axis label on the leftmost plot
+            if i == 0:
+                ax.set_ylabel('value', fontsize=7)
+            else:
+                ax.set_ylabel('')
+                # Keep y-tick labels on all plots but make them smaller to prevent overlap
+                ax.tick_params(labelsize=5)
 
         self._bp_fig = fig
         self._bp_axes = axs
@@ -711,29 +593,7 @@ class BeamPulseSubsystem:
         """Handle wave amplitude spinbox change."""
         self._log(f"Wave Amplitude changed to: {self.wave_amplitude.get()} V", LogLevel.DEBUG)
 
-    def on_expected_current_change(self):
-        """Handle expected current spinbox change."""
-        self._log(f"Expected Current changed to: {self.expected_current.get()} A", LogLevel.DEBUG)
-
     # Status indicator update methods
-    def update_bop_amp_status(self):
-        """Update BOP Amp status indicator."""
-        color = "green" if self.bop_amp_status else "red"
-        self.bop_amp_canvas.delete("all")
-        self.bop_amp_canvas.create_oval(2, 2, 18, 18, fill=color, outline="darkgray")
-
-    def update_sol1_temp_status(self):
-        """Update Sol 1 Temp status indicator."""
-        color = "green" if self.sol1_temp_status else "red"
-        self.sol1_temp_canvas.delete("all")
-        self.sol1_temp_canvas.create_oval(2, 2, 18, 18, fill=color, outline="darkgray")
-
-    def update_sol2_temp_status(self):
-        """Update Sol 2 Temp status indicator."""
-        color = "green" if self.sol2_temp_status else "red"
-        self.sol2_temp_canvas.delete("all")
-        self.sol2_temp_canvas.create_oval(2, 2, 18, 18, fill=color, outline="darkgray")
-
     def update_bcon_connection_status(self):
         """Update BCON Connection status indicator."""
         color = "green" if self.bcon_connection_status else "red"
@@ -741,24 +601,6 @@ class BeamPulseSubsystem:
         self.bcon_connection_canvas.create_oval(2, 2, 18, 18, fill=color, outline="darkgray")
 
     # Status update methods for external use
-    def set_bop_amp_status(self, status: bool):
-        """Set BOP Amp status and update indicator."""
-        self.bop_amp_status = status
-        if hasattr(self, 'bop_amp_canvas'):
-            self.update_bop_amp_status()
-
-    def set_sol1_temp_status(self, status: bool):
-        """Set Sol 1 Temp status and update indicator."""
-        self.sol1_temp_status = status
-        if hasattr(self, 'sol1_temp_canvas'):
-            self.update_sol1_temp_status()
-
-    def set_sol2_temp_status(self, status: bool):
-        """Set Sol 2 Temp status and update indicator."""
-        self.sol2_temp_status = status
-        if hasattr(self, 'sol2_temp_canvas'):
-            self.update_sol2_temp_status()
-
     def set_bcon_connection_status(self, status: bool):
         """Set BCON Connection status and update indicator."""
         self.bcon_connection_status = status
