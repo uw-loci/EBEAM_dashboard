@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import time
-from instrumentctl.knob_box.knob_box import KnobBoxPowerSupply
+from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
+
 
 
 class BeamEnergySubsystem:
@@ -28,6 +29,9 @@ class BeamEnergySubsystem:
         self.parent_frame = parent_frame
         self.com_ports = com_ports
         self.logger = logger
+
+        self.knob_box_controller = None
+        self.knob_box_connected = False
         
         # Main power supply configurations
         self.power_supplies = [
@@ -52,7 +56,8 @@ class BeamEnergySubsystem:
 
         self.power_supply_instances = []  # List of KnobBoxPowerSupply instances
         self.setup_ui()
-        self.initialize_power_supplies()
+        # self.initialize_power_supplies()
+        self.initialize_knob_box_modbus()
         self.update_readings()
         
     def setup_ui(self):
@@ -250,74 +255,38 @@ class BeamEnergySubsystem:
             'current_display': current_display
         }
 
-    def initialize_power_supplies(self):
-        """Initialize hardware communication with KnobBox power supplies and create a KnobBoxPowerSupply instance for each."""
-        self.power_supply_instances = [] # Reset list
-
-        for ps_config in self.power_supplies:
-            port = self.com_ports.get(ps_config["name"]) # coordinate com ports with main app
-            if port:
-                power_supply_instance = KnobBoxPowerSupply(
-                    port=port,
-                    power_supply_id=len(self.power_supply_instances), # Use index as ID
-                    baudrate=9600,
-                    timeout=1,
-                    logger=self.logger,
-                    debug_mode=False
-                )
-                self.power_supply_instances.append(power_supply_instance)
-
-                try:
-                    self.update_connection_status(len(self.power_supply_instances)-1, power_supply_instance.is_connected())
-                    # self.logger.info(f"Initialized {ps_config['name']} on port {port}")
-                except Exception as e:
-                    # self.logger.error(f"Error initializing {ps_config['name']} on port {port}: {e}")
-                    self.update_connection_status(len(self.power_supply_instances)-1, False)
-            else:
-                # self.logger.warning(f"No COM port specified for {ps_config['name']}, skipping initialization")
-                self.power_supply_instances.append(None)
-                self.update_connection_status(len(self.power_supply_instances)-1, False)
-
-    def attempt_reconnect(self, index):
-        """Attempt to reconnect to a disconnected power supply."""
-        if index >= len(self.power_supplies):
-            return
-
-        ps_config = self.power_supplies[index]
-        port = self.com_ports.get(ps_config["name"])
-
+    def initialize_knob_box_modbus(self):
+        """
+        Initialize the hardware communication with KnobBox power supplies using Modbus protocol.
+        """
+        port = self.com_ports.get('KnobBox', None)
         if not port:
-            return
+            return False
+        
+        # Ensure any existing controller is properly closed
+        if hasattr(self, 'knob_box_controller') and self.knob_box_controller:
+            self.knob_box_controller.close()
+            time.sleep(.2)
         
         try:
-            # Close existing instance if active
-            if self.power_supply_instances[index] is not None:
-                self.power_supply_instances[index].close()
-
-            # Create new instance
-            ps = KnobBoxPowerSupply(
-                port=port,
-                power_supply_id=index,
-                baudrate=9600,
-                timeout=1,
-                logger=self.logger,
-                debug_mode=False
-            )
-
-            time.sleep(.1)  # Give some time to establish connection
-
-            # Check  if successfully connected
-            if ps.is_connected():
-                self.power_supply_instances[index] = ps
-                self.update_connection_status(index, True)
+            knob_box_modbus = KnobBoxModbus(port=port, logger=self.logger)
+            if knob_box_modbus.start_reading_power_supply_data():
+                self.knob_box_controller = knob_box_modbus
+                self.knob_box_connected = True
                 return True
             else:
-                ps.close()
-                self.update_connection_status(index, False)
+                self.knob_box_connected = False
                 return False
-
         except Exception as e:
+            self.knob_box_connected = False
             return False
+        
+    def attempt_reconnect(self):
+        """Attempt to reconnect to the KnobBox Modbus controller."""
+        if self.knob_box_controller:
+            self.knob_box_controller.close()
+            time.sleep(.2)  # Brief pause before reconnecting
+        return self.initialize_knob_box_modbus()
     
     def update_connection_status(self, index, connected):
         """Update connection status indicators."""
@@ -339,50 +308,36 @@ class BeamEnergySubsystem:
                 self.output_status[index].set("OFF")
                 self.ui_elements[index]['status_label'].config(foreground="red")
 
-    
     def update_readings(self):
         """
         Update voltage and current readings from hardware.
         This method should be called periodically to refresh displays.
         """
-        # Loop through each power supply and access the data via its "power_supply_data" dictionary
-        for i, ps in enumerate(self.power_supply_instances):
-            try:
-                if ps is None or not ps.is_connected():
-                    self.set_default_values(i)
-                    if not self.attempt_reconnect(i):
-                        continue
-                try:
-                    data = ps.get_power_supply_data()
+        try:
+            if self.knob_box_connected and self.knob_box_controller:
+                # Get latest data from KnobBoxModbus
+                for index, unit in enumerate(self.knob_box_controller.UNIT_NUMBERS):
+                    data = self.knob_box_controller.get_power_supply_data(index)
+                        
+                    with self.data_lock:
+                        if data:
+                            self.set_voltages[index].set(f"{data['set_voltage']} V")
+                            self.actual_voltages[index].set(f"{data['actual_voltage']} V")
+                            self.actual_currents[index].set(f"{data['actual_current']} A")
+                            self.update_output_status(index, data['output_status'])
+                            self.update_connection_status(index, True)
+                        else:
+                            self.set_default_values(index)
+            else:
+                # KnobBox not connected, set all to default
+                for index in range(len(self.power_supplies)):
+                    self.set_default_values(index)
+                self.attempt_reconnect()
 
-                    # Update connection status based on both hardware and data dictionary
-                    is_connected = ps.is_connected() and data.get('connected', False)
-                    self.update_connection_status(i, is_connected)
-
-                    if is_connected:
-                        # Extract readings with default values if keys are missing
-                        set_v = data.get('set_voltage', '-- V')
-                        meas_v = data.get('meas_voltage', '-- V')
-                        meas_c = data.get('meas_current', '-- A')
-
-                        # Update display variables with formatted strings
-                        self.set_voltages[i].set(f"{set_v:.1f} V" if set_v is not None else "-- V")
-                        self.actual_voltages[i].set(f"{meas_v:.1f} V" if meas_v is not None else "-- V")
-                        self.actual_currents[i].set(f"{meas_c:.3f} A" if meas_c is not None else "-- A")
-                    
-                        self.update_output_status(i, True)  # TODO Implement actual output status retrieval
-                    else:
-                        self.set_default_values(i)
-                        self.attempt_reconnect(i)
-
-                except Exception as e:
-                        # if self.logger:
-                        #     self.logger.error(f"Error updating readings for power supply {i}: {str(e)}")
-                    self.set_default_values(i)
-            except Exception as e:
-                # if self.logger:
-                #     self.logger.error(f"Error accessing power supply {i}: {str(e)}")
-                self.set_default_values(i)
+        except Exception as e:
+            for index in range(len(self.power_supplies)):
+                self.set_default_values(index)
+            self.attempt_reconnect()
 
         self.parent_frame.after(500, self.update_readings)  # Schedule next update after 500 ms
 
@@ -396,27 +351,30 @@ class BeamEnergySubsystem:
 
     def update_com_ports(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""
-        self.com_ports = {
-            "+80kV Glassman PS": new_com_ports.get('+80kV Glassman PS'),
-            "+1kV Matsusada PS": new_com_ports.get('+1kV Matsusada PS'),
-            "-1kV Matsusada PS": new_com_ports.get('-1kV Matsusada PS'),
-            "+3kV Bertran PS": new_com_ports.get('+3kV Bertran PS'),
-            "+20kV Bertran PS": new_com_ports.get('+20kV Bertran PS')
-        }
+        new_port = new_com_ports.get('KnobBox', None)
+        if not new_port:
+            return False
+        
+        if new_port == self.com_ports.get('KnobBox', None):
+            return True  # No change
+        
+        self.com_ports = new_port
         
         # Close existing connections
         self.close_com_ports()
         
         # Reinitialize with new ports
-        self.initialize_power_supplies()
+        self.initialize_knob_box_modbus()
 
     def close_com_ports(self):
         """Close any open communication ports and stop all polling threads."""
         # if self.logger:
         #     self.logger.info("Beam Energy subsystem: Closing communication ports")
         self.stop_monitoring_event.set()
-        for ps in self.power_supply_instances:
-            if ps is not None:
-                ps.close()
+
+        if self.knob_box_controller:
+            self.knob_box_controller.stop_reading()
+            self.knob_box_controller = None
+            self.knob_box_connected = False
 
 # TODO: Implement output status retrieval in KnobBoxPowerSupply and update_output_status method

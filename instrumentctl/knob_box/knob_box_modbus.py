@@ -4,6 +4,26 @@ from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
 class KnobBoxModbus:
+    """
+    Modbus RTU driver for multiple power supply monitoring via RS485.
+    
+    This class manages communication with multiple power supplies through a single
+    RS485 connection using the Modbus RTU protocol. It provides thread-safe access
+    to power supply data and handles connection management automatically.
+    
+    Attributes:
+        OUTPUT_STATUS_ADDRESS (int): Register address for output status
+        SET_VOLTAGE_ADDRESS (int): Register address for set voltage
+        ACTUAL_VOLTAGE_ADDRESS (int): Register address for measured voltage
+        ACTUAL_CURRENT_ADDRESS (int): Register address for measured current
+        UNIT_NUMBERS (list): List of valid unit addresses
+        MAX_ATTEMPTS (int): Maximum retry attempts for failed reads
+    
+    Example:
+        with KnobBoxModbus("COM1", baudrate=9600) as kb:
+            kb.start_reading_power_supply_data()
+            # Access data through kb.actual_voltages, etc.
+    """
     # TODO verify addresses for reading output status, set voltage, actual voltage, actual current
     OUTPUT_STATUS_ADDRESS = 0x0000  # Placeholder address for reading output status
     SET_VOLTAGE_ADDRESS = 0x0001    # Placeholder address for reading set voltage
@@ -35,6 +55,7 @@ class KnobBoxModbus:
         self.actual_currents = [None, None, None, None, None] 
         self.output_statuses = [None, None, None, None, None]
         self.modbus_lock = threading.Lock() # Lock for Modbus communication
+        self.data_lock = threading.Lock()  # Lock for data state updates
         self.is_initialized = threading.Event() # Event to signal successful initialization
         self.port = port
         self.connected = False
@@ -108,7 +129,6 @@ class KnobBoxModbus:
                 with self.modbus_lock:
                     is_connected = self.check_connection()
                     if not is_connected:
-                        self.log(f"Modbus not connected when batch reading registers for unit {unit}", LogLevel.ERROR)
                         attempts += 1
                         time.sleep(0.1)
                         continue
@@ -129,7 +149,6 @@ class KnobBoxModbus:
                         "actual_current": response.registers[3] / 10.0
                     }
                 
-                self.log(f"Error batch reading registers from unit {unit}: {response}", LogLevel.ERROR)
                 attempts += 1
             except Exception as e:
                 self.log(f"Error batch reading registers for unit {unit}: {str(e)}", LogLevel.ERROR)
@@ -141,7 +160,7 @@ class KnobBoxModbus:
     def update_data_states(self, unit, data):
         """Update all data states for a specific power supply unit."""
         try:
-            with self.modbus_lock:
+            with self.data_lock:
                 idx = unit - 1
                 self.output_statuses[idx] = data['output_status']
                 self.set_voltages[idx] = data['set_voltage']
@@ -150,19 +169,38 @@ class KnobBoxModbus:
         except Exception as e:
             self.log(f"Error updating data states for unit {unit}: {str(e)}", LogLevel.ERROR)
 
+    def get_power_supply_data(self, index):
+        """Get the latest data for a specific power supply unit.
+        
+        Parameters:
+            index (int): Unit index (0-4).
+        Returns:
+            dict: Latest data for the specified unit or None if invalid unit.
+        """
+        with self.data_lock:
+            if index >= 0 and index < len(self.UNIT_NUMBERS):
+                return {
+                    "output_status": self.output_statuses[index],
+                    "set_voltage": self.set_voltages[index],
+                    "actual_voltage": self.actual_voltages[index],
+                    "actual_current": self.actual_currents[index]
+                }
+            else:
+                return None
+
     def check_connection(self):
         """Check if the Modbus client is connected and attempt to reconnect if not."""
         if self.client.is_socket_open():
             return True
         else:
             try:
+                self.client.close()  # Ensure any previous connection is closed
                 if self.client.connect():
                     time.sleep(0.1)  # Small delay to ensure connection stability
                     if hasattr(self.client, 'socket'):
                         self.client.socket.reset_input_buffer()
                     return True
                 else:
-                    self.log(f"Failed to reconnect to {self.port}", LogLevel.ERROR)
                     self.connected = False
                     return False
             except Exception as e:
