@@ -192,7 +192,7 @@ class BeamPulseSubsystem:
         plots_container.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
         # Print Bed label above plots
-        print_bed_label = ttk.Label(plots_container, text="Print Bed", font=("Arial", 12, "bold"))
+        print_bed_label = ttk.Label(plots_container, text="Print Bed", font=("Arial", 10, "bold"))
         print_bed_label.pack(pady=(0, 10))
         
         # Plots frame
@@ -253,7 +253,7 @@ class BeamPulseSubsystem:
         lower_frame = ttk.Frame(bounds_frame)
         lower_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(lower_frame, text="Lower Bound (amps):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
         self.lower_bound_spinbox = tk.Spinbox(
             lower_frame,
             from_=-50.0,
@@ -269,7 +269,7 @@ class BeamPulseSubsystem:
         upper_frame = ttk.Frame(bounds_frame)
         upper_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(upper_frame, text="Upper Bound (amps):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
         self.upper_bound_spinbox = tk.Spinbox(
             upper_frame,
             from_=-50.0,
@@ -450,7 +450,7 @@ class BeamPulseSubsystem:
         title_frame = ttk.Frame(parent)
         title_frame.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(title_frame, text="Deflection Stats", font=("Arial", 12, "bold")).pack()
+        ttk.Label(title_frame, text="Deflection Stats", font=("Arial", 10, "bold")).pack()
         
         # Stats container with proper spacing
         stats_container = ttk.Frame(parent, padding="5")
@@ -513,30 +513,30 @@ class BeamPulseSubsystem:
         fig.subplots_adjust(left=0.08, right=0.98, bottom=0.2, top=0.9, wspace=0)
         
         # Configure each subplot with continuous x-axis scale
-        section_labels = ['Section 1', 'Section 2', 'Section 3']
+        section_labels = ['Beam A (x-dir)', 'Beam B (x-dir)', 'Beam C (x-dir)']
         for i, ax in enumerate(axs):
-            ax.set_xlabel(section_labels[i], fontsize=7)
+            ax.set_xlabel(section_labels[i], fontsize=6)
             ax.tick_params(labelsize=6)
             ax.title.set_fontsize(8)
             ax.grid(True)
             
             # Set continuous x-axis ranges and ticks for each section
-            if i == 0:  # Section 1: 0.0 to 1.0 with 0.2 increments
-                ax.set_xlim(0.0, 1.0)
-                ax.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-                ax.set_ylabel('value', fontsize=7)
-                # Show all labels with proper 0.2 increments
-                ax.set_xticklabels(['0.0', '0.2', '0.4', '0.6', '0.8', '1.0'])
-            elif i == 1:  # Section 2: 1.2 to 2.0  
-                ax.set_xlim(1.0, 2.0)
-                ax.set_xticks([1.2, 1.4, 1.6, 1.8, 2.0])
+            # Beam A: -5.0 to 5.0 with 2.5 increments
+            ax.set_xlim(-5.0, 5.0)
+            ax.set_xticks([-5.0, -2.5, 0.0, 2.5, 5.0])
+            ax.set_ylim(-5.0, 5.0)
+            ax.set_yticks([-5.0, -2.5, 0.0, 2.5, 5.0])
+            ax.set_ylabel('All Beams (y-dir)', fontsize=6)
+            # Show all labels with proper 2.5 increments
+            ax.set_xticklabels([-5.0, -2.5, 0.0, 2.5, 5.0])
+            if i == 1:
+                ax.set_xticklabels([5.0, -2.5, 0.0, 2.5, 5.0])
                 ax.set_ylabel('')
-                ax.set_yticklabels([])  # Hide y-tick labels on section 2
-            else:  # Section 3: 2.2 to 3.0
-                ax.set_xlim(2.0, 3.0) 
-                ax.set_xticks([2.2, 2.4, 2.6, 2.8, 3.0])
+                ax.set_yticklabels([])  # Hide y-tick labels on Beam B
+            elif i == 2: 
+                ax.set_xticklabels([5.0, -2.5, 0.0, 2.5, 5.0])
                 ax.set_ylabel('')
-                ax.set_yticklabels([])  # Hide y-tick labels on section 3
+                ax.set_yticklabels([])  # Hide y-tick labels on Beam C
 
         self._bp_fig = fig
         self._bp_axes = axs
@@ -550,7 +550,7 @@ class BeamPulseSubsystem:
         for i in (1, 2, 3):
             f = ttk.Frame(stats_frame, padding=2, relief='groove')
             f.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=1, pady=1)
-            ttk.Label(f, text=f'Beam {i} stats', font=('Helvetica', 8, 'bold')).pack(anchor='nw')
+            ttk.Label(f, text=f'Beam stats', font=('Helvetica', 8, 'bold')).pack(anchor='nw')
             last_lbl = ttk.Label(f, text='Last: N/A', font=('Helvetica', 7))
             last_lbl.pack(anchor='nw')
             mean_lbl = ttk.Label(f, text='Mean: N/A', font=('Helvetica', 7))

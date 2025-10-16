@@ -413,67 +413,6 @@ class EBEAMSystemDashboard:
         """Create a frame for displaying machine status information."""
         self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
 
-    def create_beam_pulse_ui(self, parent_frame, beam_pulse_subsystem):
-        """Create UI elements for the Beam Pulse pane, including three plots (one per beam).
-
-        The plotting uses matplotlib if available; otherwise a placeholder label is shown.
-        """
-        self.beam_pulse = beam_pulse_subsystem
-        parent_frame.columnconfigure(0, weight=1)
-        parent_frame.rowconfigure(0, weight=1)
-
-        if not _HAS_MATPLOTLIB:
-            lbl = ttk.Label(parent_frame, text="matplotlib not available — install matplotlib to see plots")
-            lbl.pack(fill=tk.BOTH, expand=True)
-            return
-
-        # create a matplotlib figure with 3 subplots laid out horizontally (1 row x 3 cols)
-        # Make each subplot narrower and use constrained_layout to avoid overlap
-        fig = Figure(figsize=(8, 2.4), constrained_layout=True)
-        axs = [fig.add_subplot(1, 3, i + 1) for i in range(3)]
-        # add horizontal spacing between subplots
-        try:
-            fig.subplots_adjust(wspace=0.45)
-        except Exception:
-            pass
-        for ax in axs:
-            ax.set_xlabel('sample index', fontsize=8)
-            ax.set_ylabel('value', fontsize=8)
-            ax.tick_params(labelsize=7)
-            ax.title.set_fontsize(9)
-            ax.grid(True)
-
-        self._bp_fig = fig
-        self._bp_axes = axs
-        self._bp_canvas = FigureCanvasTkAgg(fig, master=parent_frame)
-        self._bp_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        # stats panel under each subplot
-        stats_frame = ttk.Frame(parent_frame)
-        stats_frame.pack(fill=tk.X)
-        self._bp_stats = {}
-        for i in (1, 2, 3):
-            f = ttk.Frame(stats_frame, padding=4, relief='groove')
-            f.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
-            ttk.Label(f, text=f'Beam {i} stats', font=('Helvetica', 9, 'bold')).pack(anchor='nw')
-            last_lbl = ttk.Label(f, text='Last: N/A')
-            last_lbl.pack(anchor='nw')
-            mean_lbl = ttk.Label(f, text='Mean: N/A')
-            mean_lbl.pack(anchor='nw')
-            min_lbl = ttk.Label(f, text='Min: N/A')
-            min_lbl.pack(anchor='nw')
-            max_lbl = ttk.Label(f, text='Max: N/A')
-            max_lbl.pack(anchor='nw')
-            self._bp_stats[i] = {'last': last_lbl, 'mean': mean_lbl, 'min': min_lbl, 'max': max_lbl}
-
-        # Safety monitor controls
-        ctl_frame = ttk.Frame(parent_frame)
-        ctl_frame.pack(fill=tk.X)
-        self._safety_monitor = None
-        self._safety_running = tk.BooleanVar(value=False)
-        self._safety_btn = ttk.Button(ctl_frame, text='Start Safety Monitor', command=self.toggle_safety_monitor)
-        self._safety_btn.pack(side=tk.LEFT, padx=4, pady=4)
-
     def toggle_safety_monitor(self):
         if not self._safety_running.get():
             # start monitor
