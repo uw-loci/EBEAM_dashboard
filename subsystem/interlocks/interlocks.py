@@ -346,7 +346,16 @@ class InterlocksSubsystem:
         finally:
             # Schedule next update
             if self.driver:
-                self.parent.after(self.update_interval, self.update_data)
+                self.after_id = self.parent.after(self.update_interval, self.update_data)
+    
+    def cancel_updates(self):
+        '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        if hasattr(self, 'after_id') and self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+                self.log('Canceled scheduled interlock status update.', LogLevel.DEBUG)
+            except Exception as e:
+                self.log('Failed to cancel scheduled interlock status update.', LogLevel.DEBUG)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
