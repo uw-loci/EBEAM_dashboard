@@ -1345,7 +1345,16 @@ class CathodeHeatingSubsystem:
                 self.update_plot(i)
 
         # Schedule next update
-        self.parent.after(500, self.update_data)
+        self.after_id = self.parent.after(500, self.update_data)
+
+    def cancel_updates(self):
+        '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        if hasattr(self, 'after_id') and self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+                self.log('Canceled scheduled cathode heating display update.', LogLevel.DEBUG)
+            except Exception as e:
+                self.log('Failed to cancel scheduled cathode heating display update.', LogLevel.DEBUG)
 
     def update_plot(self, index):
         if len(self.time_data[index]) == 0:
