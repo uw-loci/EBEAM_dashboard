@@ -253,7 +253,7 @@ class BeamPulseSubsystem:
         lower_frame = ttk.Frame(bounds_frame)
         lower_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(lower_frame, text="Lower Bound (cm):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(lower_frame, text="Lower Bound (amps):", font=("Arial", 10)).pack(side=tk.LEFT)
         self.lower_bound_spinbox = tk.Spinbox(
             lower_frame,
             from_=-50.0,
@@ -269,7 +269,7 @@ class BeamPulseSubsystem:
         upper_frame = ttk.Frame(bounds_frame)
         upper_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(upper_frame, text="Upper Bound (cm):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(upper_frame, text="Upper Bound (amps):", font=("Arial", 10)).pack(side=tk.LEFT)
         self.upper_bound_spinbox = tk.Spinbox(
             upper_frame,
             from_=-50.0,
@@ -309,12 +309,12 @@ class BeamPulseSubsystem:
             
             # Update status
             self.config_status_label.configure(
-                text=f"Applied: Lower={lower_bound:.1f}cm, Upper={upper_bound:.1f}cm", 
+                text=f"Applied: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps", 
                 foreground="green"
             )
             
             # Log the change
-            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f}cm, Upper={upper_bound:.1f}cm", 
+            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps", 
                      LogLevel.INFO)
             
         except ValueError as e:
@@ -509,10 +509,10 @@ class BeamPulseSubsystem:
         fig = Figure(figsize=(6, 2), constrained_layout=False)
         axs = [fig.add_subplot(1, 3, i + 1) for i in range(3)]
         
-        # Add very small spacing between subplots (0.05 is minimal but visible)
-        fig.subplots_adjust(left=0.08, right=0.98, bottom=0.2, top=0.9, wspace=0.05)
+        # Remove all spacing between subplots to make them touch
+        fig.subplots_adjust(left=0.08, right=0.98, bottom=0.2, top=0.9, wspace=0)
         
-        # Configure each subplot
+        # Configure each subplot with continuous x-axis scale
         section_labels = ['Section 1', 'Section 2', 'Section 3']
         for i, ax in enumerate(axs):
             ax.set_xlabel(section_labels[i], fontsize=7)
@@ -520,13 +520,23 @@ class BeamPulseSubsystem:
             ax.title.set_fontsize(8)
             ax.grid(True)
             
-            # Only show y-axis label on the leftmost plot
-            if i == 0:
+            # Set continuous x-axis ranges and ticks for each section
+            if i == 0:  # Section 1: 0.0 to 1.0 with 0.2 increments
+                ax.set_xlim(0.0, 1.0)
+                ax.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
                 ax.set_ylabel('value', fontsize=7)
-            else:
+                # Show all labels with proper 0.2 increments
+                ax.set_xticklabels(['0.0', '0.2', '0.4', '0.6', '0.8', '1.0'])
+            elif i == 1:  # Section 2: 1.2 to 2.0  
+                ax.set_xlim(1.0, 2.0)
+                ax.set_xticks([1.2, 1.4, 1.6, 1.8, 2.0])
                 ax.set_ylabel('')
-                # Keep y-tick labels on all plots but make them smaller to prevent overlap
-                ax.tick_params(labelsize=5)
+                ax.set_yticklabels([])  # Hide y-tick labels on section 2
+            else:  # Section 3: 2.2 to 3.0
+                ax.set_xlim(2.0, 3.0) 
+                ax.set_xticks([2.2, 2.4, 2.6, 2.8, 3.0])
+                ax.set_ylabel('')
+                ax.set_yticklabels([])  # Hide y-tick labels on section 3
 
         self._bp_fig = fig
         self._bp_axes = axs
