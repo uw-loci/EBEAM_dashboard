@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import time
+from instrumentctl.glassman_power_supply.glassman import GlassmanPowerSupply
 from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 
 
@@ -291,8 +292,28 @@ class BeamEnergySubsystem:
         return self.initialize_knob_box_modbus()
     
     def initialize_glassman_ps(self):
-        # TODO: Implement Glassman power supply initialization
-        pass
+        '''Initialize the Glassman power supply communication.'''
+        port = self.com_ports.get('Glassman', None)
+        if not port:
+            return False
+        
+        # Ensure any existing Glassman instance is properly closed
+        if hasattr(self, 'glassman_ps') and self.glassman_ps:
+            self.glassman_ps.close()
+            time.sleep(.2)
+
+        try:
+            glassman_ps = GlassmanPowerSupply(port=port, power_supply_id=0, logger=self.logger)
+            if glassman_ps.is_connected():
+                self.glassman_ps = glassman_ps
+                self.glassman_connected = True
+                return True
+            else:
+                self.glassman_connected = False
+                return False
+        except Exception as e:
+            self.glassman_connected = False
+            return False
 
     def attempt_glassman_reconnect(self):
         """Attempt to reconnect to the Glassman power supply."""
