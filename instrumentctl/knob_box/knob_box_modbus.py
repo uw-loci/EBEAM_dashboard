@@ -18,18 +18,13 @@ class KnobBoxModbus:
         ACTUAL_CURRENT_ADDRESS (int): Register address for measured current
         UNIT_NUMBERS (list): List of valid unit addresses
         MAX_ATTEMPTS (int): Maximum retry attempts for failed reads
-    
-    Example:
-        with KnobBoxModbus("COM1", baudrate=9600) as kb:
-            kb.start_reading_power_supply_data()
-            # Access data through kb.actual_voltages, etc.
     """
     # TODO verify addresses for reading output status, set voltage, actual voltage, actual current
     OUTPUT_STATUS_ADDRESS = 0x0000  # Placeholder address for reading output status
     SET_VOLTAGE_ADDRESS = 0x0001    # Placeholder address for reading set voltage
     ACTUAL_VOLTAGE_ADDRESS = 0x0002  # Placeholder address for reading actual voltage
     ACTUAL_CURRENT_ADDRESS = 0x0003  # Placeholder address for reading actual current
-    UNIT_NUMBERS = [1, 2, 3, 4, 5] # Unit numbers for each power supply
+    UNIT_NUMBERS = [1, 2, 3, 4] # Unit numbers for each power supply
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
