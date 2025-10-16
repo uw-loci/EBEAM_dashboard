@@ -366,9 +366,6 @@ class EBEAMSystemDashboard:
             )
         }
 
-        # Updates machine status progress bar
-        self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
-
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3], logger=self.logger)
