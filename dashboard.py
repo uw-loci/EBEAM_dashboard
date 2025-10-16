@@ -342,7 +342,7 @@ class EBEAMSystemDashboard:
 
         for subsystem in [
             'VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 
-            'TempControllers', 'Interlocks', 'ProcessMonitors', 'KnobBox']:
+            'TempControllers', 'Interlocks', 'ProcessMonitors', 'KnobBox', 'Glassman']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
