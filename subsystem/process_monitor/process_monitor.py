@@ -302,9 +302,18 @@ class ProcessMonitorSubsystem:
                 self.last_error_time = current_time
                 
         finally:
-            # Schedule next update
+            # Schedule next update, store after_id for cancellation if needed.
             if self.monitor:
-                self.parent.after(self.update_interval, self.update_temperatures)
+                self.after_id = self.parent.after(self.update_interval, self.update_temperatures)
+
+    def cancel_updates(self):
+        '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        if hasattr(self, 'after_id') and self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+                self.log('Canceled scheduled temperature update.', LogLevel.DEBUG)
+            except Exception as e:
+                self.log('Failed to cancel scheduled temperature update.', LogLevel.DEBUG)
 
     def _set_all_temps_error(self):
         """Set all temperature bars to error state"""

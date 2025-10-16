@@ -110,6 +110,13 @@ class EBEAMSystemDashboard:
                 subsystem.close_com_ports()
         print("Cleaned up com ports.")
 
+        '''Cancels all scheduled Dashboard updates before quitting the application.'''
+        print("Cancelling scheduled Dashboard updates...")
+        for subsystem in self.subsystems.values():
+            if hasattr(subsystem, 'cancel_updates'):
+                subsystem.cancel_updates()
+        print("Dashboard upates cancelled.")
+
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
