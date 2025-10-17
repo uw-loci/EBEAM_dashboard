@@ -95,7 +95,7 @@ class BeamPulseSubsystem:
         self.wave_gen_toggle_state = False
         
         # Status indicators
-        self.bcon_connection_status = False  # BCON pulse status
+        self.bcon_connection_status = False  # BCON connected status
 
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
@@ -169,7 +169,7 @@ class BeamPulseSubsystem:
         self.create_wave_type_control(control_row, 1)
         self.create_frequency_control(control_row, 2)
         self.create_wave_amplitude_control(control_row, 3)
-        self.create_bcon_pulse_status(control_row, 4)
+        self.create_bcon_connection_status(control_row, 4)
         
         # Configure column weights for responsive layout (now 5 columns)
         for i in range(5):
@@ -422,13 +422,13 @@ class BeamPulseSubsystem:
         )
         self.wave_amp_spinbox.pack(pady=(2, 0))
 
-    def create_bcon_pulse_status(self, parent, column):
-        """Create BCON Pulse status indicator."""
+    def create_bcon_connection_status(self, parent, column):
+        """Create BCON Connection status indicator."""
         frame = ttk.Frame(parent)
         frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
         
         # Label
-        ttk.Label(frame, text="BCON Pulse", font=("Arial", 9, "bold")).pack()
+        ttk.Label(frame, text="BCON Connected", font=("Arial", 9, "bold")).pack()
         
         # Circular status indicator
         self.bcon_connection_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
@@ -512,29 +512,37 @@ class BeamPulseSubsystem:
         # Remove all spacing between subplots to make them touch
         fig.subplots_adjust(left=0.08, right=0.98, bottom=0.2, top=0.9, wspace=0)
         
-        # Configure each subplot with continuous x-axis scale
+        # Configure each subplot with grid lines and labels
         section_labels = ['Beam A (x-dir)', 'Beam B (x-dir)', 'Beam C (x-dir)']
         for i, ax in enumerate(axs):
             ax.set_xlabel(section_labels[i], fontsize=6)
             ax.tick_params(labelsize=6)
             ax.title.set_fontsize(8)
-            ax.grid(True)
             
-            # Set continuous x-axis ranges and ticks for each section
-            # Beam A: -5.0 to 5.0 with 2.5 increments
-            ax.set_xlim(-5.0, 5.0)
-            ax.set_xticks([-5.0, -2.5, 0.0, 2.5, 5.0])
-            ax.set_ylim(-5.0, 5.0)
-            ax.set_yticks([-5.0, -2.5, 0.0, 2.5, 5.0])
+            # Set axis limits to accommodate all grid lines
+            ax.set_xlim(-2.5, 2.5)
+            ax.set_ylim(-2.5, 2.5)
+            
+            # Set major ticks for labels: -2, -1, 0, 1, 2 (increments of 1)
+            ax.set_xticks([-2, -1, 0, 1, 2])
+            ax.set_yticks([-2, -1, 0, 1, 2])
+            
+            # Set minor ticks for grid lines: -2.5 to 2.5 with increments of 0.5
+            ax.set_xticks([-2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5], minor=True)
+            ax.set_yticks([-2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5], minor=True)
+            
+            # Enable grid at minor tick positions (for 0.5 increment grid lines)
+            ax.grid(True, which='minor', alpha=0.7)
+            # Also enable grid at major tick positions (for labels)
+            ax.grid(True, which='major', alpha=0.9)
+            
+            # Set y-axis label
             ax.set_ylabel('All Beams (y-dir)', fontsize=6)
-            # Show all labels with proper 2.5 increments
-            ax.set_xticklabels([-5.0, -2.5, 0.0, 2.5, 5.0])
+            
             if i == 1:
-                ax.set_xticklabels([5.0, -2.5, 0.0, 2.5, 5.0])
                 ax.set_ylabel('')
                 ax.set_yticklabels([])  # Hide y-tick labels on Beam B
             elif i == 2: 
-                ax.set_xticklabels([5.0, -2.5, 0.0, 2.5, 5.0])
                 ax.set_ylabel('')
                 ax.set_yticklabels([])  # Hide y-tick labels on Beam C
 
