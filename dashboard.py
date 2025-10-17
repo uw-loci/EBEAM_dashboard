@@ -221,6 +221,17 @@ class EBEAMSystemDashboard:
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Add safety beams off button
+        beams_off_button = tk.Button(
+            main_frame,
+            text="BEAMS OFF",
+            bg="red",
+            fg="white",
+            font=("Helvetica",16,"bold"),
+            command=lambda:self.subsystems['Cathode Heating'].turn_off_all_beams()
+        )
+        beams_off_button.pack(side="bottom", fill="x", padx=10, pady=8)
+
         # Script dropdown
         self.create_script_dropdown(main_frame)
 
