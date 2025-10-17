@@ -221,7 +221,7 @@ class EBEAMSystemDashboard:
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Add safety beams off button
+        # Add safety beams off button (bottom)
         beams_off_button = tk.Button(
             main_frame,
             text="BEAMS OFF",
@@ -230,7 +230,18 @@ class EBEAMSystemDashboard:
             font=("Helvetica",16,"bold"),
             command=lambda:self.subsystems['Cathode Heating'].turn_off_all_beams()
         )
-        beams_off_button.pack(side="bottom", fill="x", padx=10, pady=8)
+        beams_off_button.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
+
+        # Add beams ready button (above beams off)
+        beams_ready_button = tk.Button(
+            main_frame,
+            text="BEAMS READY",
+            bg="sky blue",
+            fg="white",
+            font=("Helvetica",16,"bold"),
+            command=lambda: print("Beams ready command")  # TODO: Add actual command
+        )
+        beams_ready_button.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
 
         # Script dropdown
         self.create_script_dropdown(main_frame)
