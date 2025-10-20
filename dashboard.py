@@ -232,19 +232,40 @@ class EBEAMSystemDashboard:
         )
         beams_off_button.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
 
+        # Script dropdown
+        self.create_script_dropdown(main_frame)
+
+        # Add individual beam toggle buttons (below script dropdown)
+        beam_toggles_frame = tk.Frame(main_frame)
+        beam_toggles_frame.pack(side="top", fill="x", padx=10, pady=(10, 0))
+        
+        # Create toggle buttons for each beam
+        self.beam_toggle_buttons = []
+        beam_names = ["Beam A", "Beam B", "Beam C"]
+        
+        for i, beam_name in enumerate(beam_names):
+            btn = tk.Button(
+                beam_toggles_frame,
+                text=beam_name,
+                bg="gray",
+                fg="white",
+                font=("Helvetica", 10, "bold"),
+                state="disabled",  # Initially disabled until armed
+                command=lambda idx=i: self.toggle_individual_beam(idx)
+            )
+            btn.pack(side="left", fill="x", expand=True, padx=2)
+            self.beam_toggle_buttons.append(btn)
+
         # Add beams ready button (above beams off)
-        beams_ready_button = tk.Button(
+        self.beams_ready_button = tk.Button(
             main_frame,
-            text="BEAMS READY",
+            text="ARM BEAMS",
             bg="sky blue",
             fg="white",
             font=("Helvetica",16,"bold"),
-            command=lambda: print("Beams ready command")  # TODO: Add actual command
+            command=self.handle_arm_beams
         )
-        beams_ready_button.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
-
-        # Script dropdown
-        self.create_script_dropdown(main_frame)
+        self.beams_ready_button.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -367,6 +388,113 @@ class EBEAMSystemDashboard:
         selected_level = LogLevel[self.log_level_var.get()]
         self.messages_frame.set_log_level(selected_level)
         print(f"Log level changed to: {selected_level.name}")
+
+    def handle_arm_beams(self):
+        """Handle ARM BEAMS button press with state management."""
+        try:
+            # Check if Beam Pulse subsystem is available
+            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                self.logger.error("Beam Pulse subsystem not available")
+                messagebox.showerror("Error", "Beam Pulse subsystem not available")
+                return
+            
+            beam_pulse = self.subsystems['Beam Pulse']
+            
+            # Check current armed state
+            if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
+                # Beams are already armed, so disarm them
+                if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
+                    # Successfully disarmed
+                    self.beams_ready_button.config(
+                        text="ARM BEAMS",
+                        bg="sky blue"
+                    )
+                    # Disable beam toggle buttons and reset their states
+                    self.update_beam_toggle_states(enabled=False, reset=True)
+                    self.logger.info("Beams disarmed via dashboard button")
+                else:
+                    self.logger.error("Failed to disarm beams")
+                    messagebox.showerror("Error", "Failed to disarm beams")
+            else:
+                # Beams are not armed, so arm them
+                if hasattr(beam_pulse, 'arm_beams') and beam_pulse.arm_beams():
+                    # Successfully armed
+                    self.beams_ready_button.config(
+                        text="BEAMS ARMED",
+                        bg="navy"  # Darker shade of blue
+                    )
+                    # Enable beam toggle buttons
+                    self.update_beam_toggle_states(enabled=True)
+                    self.logger.info("Beams armed via dashboard button")
+                else:
+                    self.logger.error("Failed to arm beams")
+                    messagebox.showerror("Error", "Failed to arm beams")
+                    
+        except Exception as e:
+            self.logger.error(f"Error in handle_arm_beams: {str(e)}")
+            messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
+
+    def toggle_individual_beam(self, beam_index):
+        """Toggle individual beam on/off."""
+        try:
+            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                self.logger.error("Beam Pulse subsystem not available")
+                return
+            
+            beam_pulse = self.subsystems['Beam Pulse']
+            beam_names = ["A", "B", "C"]
+            
+            # Get current beam status
+            if hasattr(beam_pulse, 'get_beam_status'):
+                current_status = beam_pulse.get_beam_status(beam_index)
+                new_status = not current_status
+                
+                # Set new beam status
+                if hasattr(beam_pulse, 'set_beam_status'):
+                    beam_pulse.set_beam_status(beam_index, new_status)
+                    
+                    # Update button appearance
+                    btn = self.beam_toggle_buttons[beam_index]
+                    if new_status:
+                        btn.config(bg="green")
+                    else:
+                        btn.config(bg="red")
+                    
+                    self.logger.info(f"Beam {beam_names[beam_index]} turned {'ON' if new_status else 'OFF'}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
+
+    def update_beam_toggle_states(self, enabled=True, reset=False):
+        """Update the state of beam toggle buttons."""
+        try:
+            if not hasattr(self, 'beam_toggle_buttons'):
+                return
+                
+            beam_names = ["A", "B", "C"]
+            
+            for i, btn in enumerate(self.beam_toggle_buttons):
+                if enabled:
+                    btn.config(state="normal")
+                    if reset:
+                        # Reset to OFF state
+                        btn.config(bg="red")
+                        # Also reset the beam status in the subsystem
+                        if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                            beam_pulse = self.subsystems['Beam Pulse']
+                            if hasattr(beam_pulse, 'set_beam_status'):
+                                beam_pulse.set_beam_status(i, False)
+                else:
+                    btn.config(state="disabled", bg="gray")
+                    if reset:
+                        # Reset beam status in subsystem
+                        if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                            beam_pulse = self.subsystems['Beam Pulse']
+                            if hasattr(beam_pulse, 'set_beam_status'):
+                                beam_pulse.set_beam_status(i, False)
+                                
+        except Exception as e:
+            self.logger.error(f"Error updating beam toggle states: {str(e)}")
 
     def create_subsystems(self):
         """

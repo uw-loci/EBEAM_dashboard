@@ -96,6 +96,10 @@ class BeamPulseSubsystem:
         
         # Status indicators
         self.bcon_connection_status = False  # BCON connected status
+        self.beams_armed_status = False  # Beams armed status
+        
+        # Beam on/off status for each beam (A, B, C)
+        self.beam_on_status = [False, False, False]  # [Beam A, Beam B, Beam C]
 
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
@@ -546,6 +550,30 @@ class BeamPulseSubsystem:
                 ax.set_ylabel('')
                 ax.set_yticklabels([])  # Hide y-tick labels on Beam C
 
+
+        # Beam status LED indicators above graphs (LED left of label, compact row)
+        led_frame = ttk.Frame(parent)
+        led_frame.pack(fill=tk.X, pady=(0, 10), padx=(100, 0))
+
+        self.beam_led_canvases = []
+        beam_names = ['Beam A Status', 'Beam B Status', 'Beam C Status']
+
+        for i in range(3):
+            # Container for each beam indicator (horizontal row)
+            beam_container = ttk.Frame(led_frame)
+            beam_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=1)
+
+            # LED indicator (left)
+            led_canvas = tk.Canvas(beam_container, width=16, height=16, highlightthickness=0)
+            led_canvas.pack(side=tk.LEFT, padx=(0, 4), pady=0)
+            self.beam_led_canvases.append(led_canvas)
+
+            # Label (right)
+            ttk.Label(beam_container, text=beam_names[i], font=('Helvetica', 8, 'bold')).pack(side=tk.LEFT, padx=(0, 2))
+
+        # Initialize LED states
+        self.update_beam_led_indicators()
+
         self._bp_fig = fig
         self._bp_axes = axs
         self._bp_canvas = FigureCanvasTkAgg(fig, master=parent)
@@ -624,6 +652,49 @@ class BeamPulseSubsystem:
         self.bcon_connection_status = status
         if hasattr(self, 'bcon_connection_canvas'):
             self.update_bcon_connection_status()
+
+    def update_beam_led_indicators(self):
+        """Update all beam LED indicators based on current beam status."""
+        if not hasattr(self, 'beam_led_canvases'):
+            return
+            
+        for i, canvas in enumerate(self.beam_led_canvases):
+            color = "green" if self.beam_on_status[i] else "red"
+            canvas.delete("all")
+            canvas.create_oval(2, 2, 14, 14, fill=color, outline="darkgray")
+
+    def set_beam_status(self, beam_index: int, status: bool):
+        """Set beam on/off status and update LED indicator.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+            status: True for on, False for off
+        """
+        if 0 <= beam_index <= 2:
+            self.beam_on_status[beam_index] = status
+            self.update_beam_led_indicators()
+            beam_names = ['A', 'B', 'C']
+            self._log(f"Beam {beam_names[beam_index]} status set to {'ON' if status else 'OFF'}", LogLevel.DEBUG)
+
+    def get_beam_status(self, beam_index: int) -> bool:
+        """Get beam on/off status.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+            
+        Returns:
+            True if beam is on, False if off
+        """
+        if 0 <= beam_index <= 2:
+            return self.beam_on_status[beam_index]
+        return False
+
+    def set_all_beams_status(self, status: bool):
+        """Set all beams to the same status."""
+        for i in range(3):
+            self.beam_on_status[i] = status
+        self.update_beam_led_indicators()
+        self._log(f"All beams set to {'ON' if status else 'OFF'}", LogLevel.INFO)
 
     # Deflection stats update methods
     def update_deflection_stats(self):
@@ -867,6 +938,70 @@ class BeamPulseSubsystem:
         return out
 
     # --- safety / shutdown helpers ---
+    def arm_beams(self) -> bool:
+        """Arm the beam system for operation.
+        
+        This method prepares the beam system for operation by performing necessary
+        initialization and safety checks. Returns True if arming is successful.
+        
+        NOTE: Currently configured for demonstration - always returns success.
+        """
+        try:
+            # DEMONSTRATION MODE: Always show successful arming
+            # TODO: Replace with actual beam arming logic when hardware is integrated
+            
+            # Simulate arming sequence
+            self._log("Initiating beam arming sequence...", LogLevel.INFO)
+            
+            # For demonstration purposes, always succeed
+            # TODO: Add actual hardware initialization commands here
+            # Example: Check Modbus connection, set initial parameters, verify safety interlocks, etc.
+            
+            # Set armed status
+            self.beams_armed_status = True
+            
+            # Keep beams off when armed - they need to be manually toggled
+            # (LEDs will remain red until individual beams are turned on)
+            
+            self._log("Beams successfully armed and ready for operation", LogLevel.INFO)
+            
+            return True
+            
+        except Exception as e:
+            self._log(f"Failed to arm beams: {str(e)}", LogLevel.ERROR)
+            self.beams_armed_status = False
+            return False
+
+    def disarm_beams(self) -> bool:
+        """Disarm the beam system.
+        
+        This method safely disarms the beam system and returns it to a safe state.
+        Returns True if disarming is successful.
+        """
+        try:
+            self._log("Disarming beam system...", LogLevel.INFO)
+            
+            # TODO: Add actual beam disarming logic here
+            # Example: Turn off outputs, reset parameters, etc.
+            
+            # Set armed status
+            self.beams_armed_status = False
+            
+            # Turn off all beam LEDs when disarmed
+            self.set_all_beams_status(False)
+            
+            self._log("Beams successfully disarmed", LogLevel.INFO)
+            
+            return True
+            
+        except Exception as e:
+            self._log(f"Failed to disarm beams: {str(e)}", LogLevel.ERROR)
+            return False
+
+    def get_beams_armed_status(self) -> bool:
+        """Get current beams armed status."""
+        return self.beams_armed_status
+
     def safe_shutdown(self, reason: Optional[str] = None) -> bool:
         """Perform a safe shutdown of pulses/waveforms on the BCON device.
 
