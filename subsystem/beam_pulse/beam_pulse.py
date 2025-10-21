@@ -87,6 +87,11 @@ class BeamPulseSubsystem:
         self.frequency_hz = tk.DoubleVar(value=1000.0)
         self.wave_amplitude = tk.DoubleVar(value=5.0)
         
+        # Pulse duration variables for each beam (A, B, C)
+        self.beam_a_duration = tk.DoubleVar(value=100.0)
+        self.beam_b_duration = tk.DoubleVar(value=100.0)
+        self.beam_c_duration = tk.DoubleVar(value=100.0)
+        
         # Config tab variables
         self.deflection_lower_bound = tk.DoubleVar(value=-10.0)
         self.deflection_upper_bound = tk.DoubleVar(value=10.0)
@@ -100,6 +105,9 @@ class BeamPulseSubsystem:
         
         # Beam on/off status for each beam (A, B, C)
         self.beam_on_status = [False, False, False]  # [Beam A, Beam B, Beam C]
+        
+        # Store references to duration spinboxes for enable/disable control
+        self.duration_spinboxes = []
 
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
@@ -166,7 +174,7 @@ class BeamPulseSubsystem:
         
         # Top control row frame
         control_row = ttk.Frame(main_frame)
-        control_row.pack(fill=tk.X, pady=(0, 10))
+        control_row.pack(fill=tk.X, pady=(0, 5))
         
         # Create control columns with labels on top and controls below
         self.create_wave_gen_control(control_row, 0)
@@ -178,6 +186,19 @@ class BeamPulseSubsystem:
         # Configure column weights for responsive layout (now 5 columns)
         for i in range(5):
             control_row.grid_columnconfigure(i, weight=1)
+        
+        # Second control row for pulse duration controls
+        pulse_row = ttk.Frame(main_frame)
+        pulse_row.pack(fill=tk.X, pady=(0, 10))
+        
+        # Create pulse duration controls for beams A, B, C
+        self.create_beam_duration_control(pulse_row, 0, "Beam A Duration (ms)", self.beam_a_duration)
+        self.create_beam_duration_control(pulse_row, 1, "Beam B Duration (ms)", self.beam_b_duration)
+        self.create_beam_duration_control(pulse_row, 2, "Beam C Duration (ms)", self.beam_c_duration)
+        
+        # Configure column weights for pulse row (3 columns)
+        for i in range(3):
+            pulse_row.grid_columnconfigure(i, weight=1)
         
         # Set initial state of frequency spinbox based on default wave type
         self.update_frequency_spinbox_state()
@@ -372,8 +393,8 @@ class BeamPulseSubsystem:
         # Label
         ttk.Label(frame, text="Wave Type", font=("Arial", 9, "bold")).pack()
         
-        # Dropdown (Combobox) with three specified options
-        wave_types = ["Sine", "Triangle", "Fixed"]
+        # Dropdown (Combobox) with four specified options
+        wave_types = ["Sine", "Triangle", "Pulse", "Fixed"]
         self.wave_type_combo = ttk.Combobox(
             frame,
             textvariable=self.wave_type,
@@ -439,14 +460,50 @@ class BeamPulseSubsystem:
         self.bcon_connection_canvas.pack(pady=(2, 0))
         self.update_bcon_connection_status()
 
+    def create_beam_duration_control(self, parent, column, label_text, duration_var):
+        """Create Beam Duration spinbox control."""
+        frame = ttk.Frame(parent)
+        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
+        
+        # Label
+        ttk.Label(frame, text=label_text, font=("Arial", 9, "bold")).pack()
+        
+        # Spinbox
+        duration_spinbox = tk.Spinbox(
+            frame,
+            from_=1.0,
+            to=1000.0,
+            increment=1.0,
+            textvariable=duration_var,
+            command=lambda: self.on_duration_change(duration_var),
+            width=8,
+            format="%.1f"
+        )
+        duration_spinbox.pack(pady=(2, 0))
+        
+        # Store reference for enable/disable control
+        self.duration_spinboxes.append(duration_spinbox)
+
     def update_frequency_spinbox_state(self):
-        """Update the frequency spinbox state based on current wave type."""
+        """Update the frequency, amplitude, and duration spinbox states based on current wave type."""
         if hasattr(self, 'frequency_spinbox'):
             wave_type = self.wave_type.get()
             if wave_type.lower() == "fixed":
                 self.frequency_spinbox.configure(state="disabled")
             else:
                 self.frequency_spinbox.configure(state="normal")
+        
+        # Update duration spinboxes state
+        if hasattr(self, 'duration_spinboxes'):
+            wave_type = self.wave_type.get()
+            if wave_type.lower() == "pulse":
+                # Enable duration spinboxes for Pulse mode
+                for spinbox in self.duration_spinboxes:
+                    spinbox.configure(state="normal")
+            else:
+                # Disable duration spinboxes for other modes (Sine, Triangle, Fixed)
+                for spinbox in self.duration_spinboxes:
+                    spinbox.configure(state="disabled")
 
     def create_deflection_stats(self, parent):
         """Create the Deflection Stats section with four live status displays."""
@@ -556,7 +613,7 @@ class BeamPulseSubsystem:
         led_frame.pack(fill=tk.X, pady=(0, 10), padx=(100, 0))
 
         self.beam_led_canvases = []
-        beam_names = ['Beam A Status', 'Beam B Status', 'Beam C Status']
+        beam_names = ['Beam A ON', 'Beam B ON', 'Beam C ON']
 
         for i in range(3):
             # Container for each beam indicator (horizontal row)
@@ -578,24 +635,6 @@ class BeamPulseSubsystem:
         self._bp_axes = axs
         self._bp_canvas = FigureCanvasTkAgg(fig, master=parent)
         self._bp_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        # Stats panel under each subplot
-        stats_frame = ttk.Frame(parent)
-        stats_frame.pack(fill=tk.X, pady=(5, 0))
-        
-        for i in (1, 2, 3):
-            f = ttk.Frame(stats_frame, padding=2, relief='groove')
-            f.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=1, pady=1)
-            ttk.Label(f, text=f'Beam stats', font=('Helvetica', 8, 'bold')).pack(anchor='nw')
-            last_lbl = ttk.Label(f, text='Last: N/A', font=('Helvetica', 7))
-            last_lbl.pack(anchor='nw')
-            mean_lbl = ttk.Label(f, text='Mean: N/A', font=('Helvetica', 7))
-            mean_lbl.pack(anchor='nw')
-            min_lbl = ttk.Label(f, text='Min: N/A', font=('Helvetica', 7))
-            min_lbl.pack(anchor='nw')
-            max_lbl = ttk.Label(f, text='Max: N/A', font=('Helvetica', 7))
-            max_lbl.pack(anchor='nw')
-            self._bp_stats[i] = {'last': last_lbl, 'mean': mean_lbl, 'min': min_lbl, 'max': max_lbl}
 
     # Event handlers for controls
     def toggle_wave_gen(self):
@@ -630,6 +669,16 @@ class BeamPulseSubsystem:
             self.frequency_spinbox.configure(state="disabled")
         else:
             self.frequency_spinbox.configure(state="normal")
+        
+        # Enable/disable duration spinboxes based on wave type
+        if wave_type.lower() == "pulse":
+            # Enable duration spinboxes for Pulse mode
+            for spinbox in self.duration_spinboxes:
+                spinbox.configure(state="normal")
+        else:
+            # Disable duration spinboxes for other modes (Sine, Triangle, Fixed)
+            for spinbox in self.duration_spinboxes:
+                spinbox.configure(state="disabled")
 
     def on_frequency_change(self):
         """Handle frequency spinbox change."""
@@ -638,6 +687,17 @@ class BeamPulseSubsystem:
     def on_wave_amplitude_change(self):
         """Handle wave amplitude spinbox change."""
         self._log(f"Wave Amplitude changed to: {self.wave_amplitude.get()} V", LogLevel.DEBUG)
+
+    def on_duration_change(self, duration_var):
+        """Handle beam duration spinbox change."""
+        beam_name = "Unknown"
+        if duration_var == self.beam_a_duration:
+            beam_name = "A"
+        elif duration_var == self.beam_b_duration:
+            beam_name = "B"
+        elif duration_var == self.beam_c_duration:
+            beam_name = "C"
+        self._log(f"Beam {beam_name} Duration changed to: {duration_var.get()} ms", LogLevel.DEBUG)
 
     # Status indicator update methods
     def update_bcon_connection_status(self):

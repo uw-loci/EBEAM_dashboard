@@ -241,7 +241,7 @@ class EBEAMSystemDashboard:
         
         # Create toggle buttons for each beam
         self.beam_toggle_buttons = []
-        beam_names = ["Beam A", "Beam B", "Beam C"]
+        beam_names = ["Beam A OFF", "Beam B OFF", "Beam C OFF"]
         
         for i, beam_name in enumerate(beam_names):
             btn = tk.Button(
@@ -453,12 +453,12 @@ class EBEAMSystemDashboard:
                 if hasattr(beam_pulse, 'set_beam_status'):
                     beam_pulse.set_beam_status(beam_index, new_status)
                     
-                    # Update button appearance
+                    # Update button appearance and text
                     btn = self.beam_toggle_buttons[beam_index]
                     if new_status:
-                        btn.config(bg="green")
+                        btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
                     else:
-                        btn.config(bg="red")
+                        btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
                     
                     self.logger.info(f"Beam {beam_names[beam_index]} turned {'ON' if new_status else 'OFF'}")
                     
@@ -478,14 +478,14 @@ class EBEAMSystemDashboard:
                     btn.config(state="normal")
                     if reset:
                         # Reset to OFF state
-                        btn.config(bg="red")
+                        btn.config(bg="gray", text=f"Beam {beam_names[i]} OFF")
                         # Also reset the beam status in the subsystem
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']
                             if hasattr(beam_pulse, 'set_beam_status'):
                                 beam_pulse.set_beam_status(i, False)
                 else:
-                    btn.config(state="disabled", bg="gray")
+                    btn.config(state="disabled", bg="gray", text=f"Beam {beam_names[i]} OFF")
                     if reset:
                         # Reset beam status in subsystem
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
