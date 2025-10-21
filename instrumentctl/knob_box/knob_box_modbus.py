@@ -24,7 +24,7 @@ class KnobBoxModbus:
     SET_VOLTAGE_ADDRESS = 0x0001    # Placeholder address for reading set voltage
     ACTUAL_VOLTAGE_ADDRESS = 0x0002  # Placeholder address for reading actual voltage
     ACTUAL_CURRENT_ADDRESS = 0x0003  # Placeholder address for reading actual current
-    UNIT_NUMBERS = [1, 2, 3, 4] # Unit numbers for each power supply
+    UNIT_NUMBERS = [1, 2, 3, 4, 5] # Unit numbers for each power supply
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):

@@ -291,37 +291,6 @@ class BeamEnergySubsystem:
             time.sleep(.2)  # Brief pause before reconnecting
         return self.initialize_knob_box_modbus()
     
-    def initialize_glassman_ps(self):
-        '''Initialize the Glassman power supply communication.'''
-        port = self.com_ports.get('Glassman', None)
-        if not port:
-            return False
-        
-        # Ensure any existing Glassman instance is properly closed
-        if hasattr(self, 'glassman_ps') and self.glassman_ps:
-            self.glassman_ps.close()
-            time.sleep(.2)
-
-        try:
-            glassman_ps = GlassmanPowerSupply(port=port, power_supply_id=0, logger=self.logger)
-            if glassman_ps.is_connected():
-                self.glassman_ps = glassman_ps
-                self.glassman_connected = True
-                return True
-            else:
-                self.glassman_connected = False
-                return False
-        except Exception as e:
-            self.glassman_connected = False
-            return False
-
-    def attempt_glassman_reconnect(self):
-        """Attempt to reconnect to the Glassman power supply."""
-        if self.glassman_ps:
-            self.glassman_ps.close()
-            time.sleep(.2)  # Brief pause before reconnecting
-        return self.initialize_glassman_ps()
-    
     def update_connection_status(self, index, connected):
         """Update connection status indicators."""
         if index < len(self.ui_elements):
@@ -347,20 +316,6 @@ class BeamEnergySubsystem:
         Update voltage and current readings from hardware.
         This method should be called periodically to refresh displays.
         """
-        # Update Glassman data
-        try:
-            if self.glassman_connected and self.glassman_ps:
-                # TODO: Implement actual data retrieval for Glassman
-                data = self.glassman_ps.get_power_supply_data()
-            else:
-                self.glassman_connected = False
-                self.set_default_values(0)
-                self.attempt_glassman_reconnect()
-        except Exception as e:
-            self.glassman_connected = False
-            self.set_default_values(0)
-            self.attempt_glassman_reconnect()
-
         # Update Knob Box data
         try:
             if self.knob_box_connected and self.knob_box_controller:
@@ -372,21 +327,22 @@ class BeamEnergySubsystem:
                     # 0 index is Glassman, so KnobBox units start from index 1
                     with self.data_lock:
                         if data:
-                            self.set_voltages[unit].set(f"{data['set_voltage']} V")
-                            self.actual_voltages[unit].set(f"{data['actual_voltage']} V")
-                            self.actual_currents[unit].set(f"{data['actual_current']} A")
-                            self.update_output_status(unit, data['output_status'])
-                            self.update_connection_status(unit, True)
+                            self.set_voltages[index].set(f"{data['set_voltage']} V")
+                            self.actual_voltages[index].set(f"{data['actual_voltage']} V")
+                            self.actual_currents[index].set(f"{data['actual_current']} A")
+                            self.update_output_status(index, data['output_status'])
+                            self.update_connection_status(index, True)
                         else:
-                            self.set_default_values(unit)
+                            self.set_default_values(index)
+                        # TODO: Log data retrieved for post analysis
             else:
                 # KnobBox not connected, set all to default
-                for index in enumerate(self.power_supplies[1:], 1): # Exclude Glassman
+                for index in enumerate(self.power_supplies):
                     self.set_default_values(index)
                 self.attempt_knob_box_reconnect()
 
         except Exception as e:  
-            for index in enumerate(self.power_supplies[1:], 1): # Exclude Glassman
+            for index in enumerate(self.power_supplies): 
                 self.set_default_values(index)
             self.attempt_knob_box_reconnect()
 
