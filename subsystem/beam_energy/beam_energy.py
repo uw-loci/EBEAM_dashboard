@@ -337,12 +337,12 @@ class BeamEnergySubsystem:
                         # TODO: Log data retrieved for post analysis
             else:
                 # KnobBox not connected, set all to default
-                for index in enumerate(self.power_supplies):
+                for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
                 self.attempt_knob_box_reconnect()
 
         except Exception as e:  
-            for index in enumerate(self.power_supplies): 
+            for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
             self.attempt_knob_box_reconnect()
 
