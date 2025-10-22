@@ -346,7 +346,12 @@ class BeamEnergySubsystem:
                 self.set_default_values(index)
             self.attempt_knob_box_reconnect()
 
-        self.parent_frame.after(500, self.update_readings)  # Schedule next update after 500 ms
+        self.after_id = self.parent_frame.after(500, self.update_readings)  # Schedule next update after 500 ms
+
+    def cancel_updates(self):
+        """Cancel scheduled updates when closing the application."""
+        if hasattr(self, 'after_id'):
+            self.parent_frame.after_cancel(self.after_id)
 
     def set_default_values(self, index):
         """Set display values to default '--'."""
