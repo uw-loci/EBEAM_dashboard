@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 import time
-from instrumentctl.glassman_power_supply.glassman import GlassmanPowerSupply
 from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 
 
@@ -31,8 +30,6 @@ class BeamEnergySubsystem:
         self.com_ports = com_ports
         self.logger = logger
 
-        self.glassman_ps = None
-        self.glassman_connected = False
         self.knob_box_controller = None
         self.knob_box_connected = False
         
@@ -320,7 +317,7 @@ class BeamEnergySubsystem:
         try:
             if self.knob_box_connected and self.knob_box_controller:
                 # Get latest data from KnobBoxModbus
-                for index, unit in enumerate(self.knob_box_controller.UNIT_NUMBERS):
+                for index in range(self.knob_box_controller.UNIT_NUMBERS):
                     data = self.knob_box_controller.get_power_supply_data(index)
                         
                     # We use unit number to store data because Glassman is not part of KnobBox and stored at index 0
@@ -390,3 +387,4 @@ class BeamEnergySubsystem:
             self.knob_box_connected = False
 
 # TODO: Implement output status retrieval in KnobBoxPowerSupply and update_output_status method
+# TODO: Figure out how to get output status for each individual power supply
