@@ -3,6 +3,24 @@ import time
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
+# ==== MODBUS MAP (update with firmware) =====
+# Input Registers (Function Code 04)
+IREG_MODE_ADDR        = 1   # 0=3kV Bertan, 1=20kV Bertan, 2=1kV Matsusada, 255=error
+IREG_V_SET_ADDR       = 2   # integer volts
+IREG_V_READ_ADDR      = 3   # integer volts
+IREG_I_READ_ADDR      = 4   # integer milliamps
+
+# Discrete Inputs (Function Code 02)
+DINPUT_OVERCURRENT_ADDR = 0  # boolean 0/1
+
+DATA_TEMPLATE = {
+    "mode": 255,
+    "set_voltage_V": 0.0,
+    "actual_voltage_V": 0.0,
+    "actual_current_mA": 0.0,
+    "overcurrent": 0
+}
+
 class KnobBoxModbus:
     """
     Modbus RTU driver for multiple power supply monitoring via RS485.
@@ -19,12 +37,7 @@ class KnobBoxModbus:
         UNIT_NUMBERS (list): List of valid unit addresses
         MAX_ATTEMPTS (int): Maximum retry attempts for failed reads
     """
-    # TODO verify addresses for reading output status, set voltage, actual voltage, actual current
-    OUTPUT_STATUS_ADDRESS = 0x0000  # Placeholder address for reading output status
-    SET_VOLTAGE_ADDRESS = 0x0001    # Placeholder address for reading set voltage
-    ACTUAL_VOLTAGE_ADDRESS = 0x0002  # Placeholder address for reading actual voltage
-    ACTUAL_CURRENT_ADDRESS = 0x0003  # Placeholder address for reading actual current
-    UNIT_NUMBERS = [1, 2, 3, 4, 5] # Unit numbers for each power supply
+    UNIT_IDS = [1, 2, 3, 4, 5] # Unit numbers for each power supply
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
@@ -43,21 +56,17 @@ class KnobBoxModbus:
         """
         self.logger = logger
         self.debug_mode = debug_mode
-        self.stop_event = threading.Event()
-        self.threads = [] # for each unit
-        self.set_voltages = [None, None, None, None, None] 
-        self.actual_voltages = [None, None, None, None, None] 
-        self.actual_currents = [None, None, None, None, None] 
-        self.output_statuses = [None, None, None, None, None]
         self.modbus_lock = threading.Lock() # Lock for Modbus communication
         self.data_lock = threading.Lock()  # Lock for data state updates
-        self.is_initialized = threading.Event() # Event to signal successful initialization
         self.port = port
         self.connected = False
-        self.log(f"Initializing KnobBoxModbus with port: {port}", LogLevel.DEBUG)
+
+        # Create data dictionary for each unit in the list of UNIT_IDS
+        self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS} 
 
         # Initialize Modbus client without 'method' parameter
         self.client = ModbusClient(
+            method='rtu', # Specify RTU method for serial communication
             port=port,
             baudrate=baudrate,
             parity=parity,
@@ -66,153 +75,6 @@ class KnobBoxModbus:
             timeout=timeout,
             retries=2
         )
-
-        if self.debug_mode:
-            self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
-    
-    def start_reading_power_supply_data(self):
-        """Start threads for continuously reading data for each power supply."""
-        if not self.connect():
-            self.log("Cannot start reading power supply data - connection failed", LogLevel.ERROR)
-            return False
-            
-        self.threads = []  # Should clear old threads first
-        self.stop_event.clear()
-        
-        for unit in self.UNIT_NUMBERS:
-            if self.stop_event.is_set():
-                break
-                
-            thread = threading.Thread(
-                target=self.read_power_supply_data_continuously,
-                args=(unit,),
-                name=f"PowerSupplyReader-Unit{unit}",
-                daemon=True
-            )
-        
-            thread.start()
-            self.threads.append(thread)
-            self.log(f"Started thread for unit {unit}", LogLevel.DEBUG)
-            time.sleep(0.1)  # Small delay between thread starts
-            
-        self.is_initialized.set()
-        return True
-    
-    def read_power_supply_data_continuously(self, unit):
-        """Continuously read voltage, current, and output status for a specific power supply unit."""
-        while not self.stop_event.is_set():
-            try:
-                # Read data for each and update the respective lists
-                data = self.batch_read_registers(unit)
-                if data:
-                    self.update_data_states(unit, data)
-                else:
-                    self.log(f"Failed to read data for unit {unit}", LogLevel.WARNING)
-                    time.sleep(1)  # Wait before retrying
-                    continue
-
-                time.sleep(.5)  # small delay between reads
-            except Exception as e:
-                self.log(f"Error reading power supply data for unit {unit}: {str(e)}", LogLevel.ERROR)
-                time.sleep(1)  # Wait before retrying
-        
-    def batch_read_registers(self, unit):
-        """Read all registers for a specific power supply unit in a single Modbus transaction."""
-        attempts = 0
-        while attempts < self.MAX_ATTEMPTS:
-            try:
-                with self.modbus_lock:
-                    is_connected = self.check_connection()
-                    if not is_connected:
-                        attempts += 1
-                        time.sleep(0.1)
-                        continue
-
-                # READ MULTIPLE REGISTERS: THIS NEEDS TO BE VERIFIED WITH TIANRUI FIRMWARE
-                response = self.client.read_holding_registers(
-                    address = self.OUTPUT_STATUS_ADDRESS,
-                    count = 4, # Number of registers to read (status, set voltage, actual voltage, actual current) assuming registers are contiguous
-                    slave = unit
-                )
-
-                if response and not response.isError():
-                    self.connected = True
-                    return {
-                        "output_status": response.registers[0],
-                        "set_voltage": response.registers[1] / 10.0,
-                        "actual_voltage": response.registers[2] / 10.0,
-                        "actual_current": response.registers[3] / 10.0
-                    }
-                
-                attempts += 1
-            except Exception as e:
-                self.log(f"Error batch reading registers for unit {unit}: {str(e)}", LogLevel.ERROR)
-                attempts += 1
-                time.sleep(0.1)
-                continue
-        return None
-    
-    def update_data_states(self, unit, data):
-        """Update all data states for a specific power supply unit."""
-        try:
-            with self.data_lock:
-                idx = unit - 1
-                self.output_statuses[idx] = data['output_status']
-                self.set_voltages[idx] = data['set_voltage']
-                self.actual_voltages[idx] = data['actual_voltage']
-                self.actual_currents[idx] = data['actual_current']
-        except Exception as e:
-            self.log(f"Error updating data states for unit {unit}: {str(e)}", LogLevel.ERROR)
-
-    def get_power_supply_data(self, index):
-        """Get the latest data for a specific power supply unit.
-        
-        Parameters:
-            index (int): Unit index (0-4).
-        Returns:
-            dict: Latest data for the specified unit or None if invalid unit.
-        """
-        with self.data_lock:
-            if index >= 0 and index < len(self.UNIT_NUMBERS):
-                return {
-                    "output_status": self.output_statuses[index],
-                    "set_voltage": self.set_voltages[index],
-                    "actual_voltage": self.actual_voltages[index],
-                    "actual_current": self.actual_currents[index]
-                }
-            else:
-                return None
-
-    def check_connection(self):
-        """Check if the Modbus client is connected and attempt to reconnect if not."""
-        if self.client.is_socket_open():
-            return True
-        else:
-            try:
-                self.client.close()  # Ensure any previous connection is closed
-                if self.client.connect():
-                    time.sleep(0.1)  # Small delay to ensure connection stability
-                    if hasattr(self.client, 'socket'):
-                        self.client.socket.reset_input_buffer()
-                    return True
-                else:
-                    self.connected = False
-                    return False
-            except Exception as e:
-                self.log(f"Error reconnecting to {self.port}: {str(e)}", LogLevel.ERROR)
-                self.connected = False
-                return False
-
-    def stop_reading(self):
-        """Stop all reading threads and disconnect from the Modbus device."""
-        self.stop_event.set()
-        for thread in self.threads:
-            thread.join(timeout=2)
-
-        self.threads.clear()
-        self.disconnect()
-
-        self.is_initialized.clear()
 
     def connect(self):
         """
@@ -223,11 +85,8 @@ class KnobBoxModbus:
         """
         with self.modbus_lock:
             try:
-                if self.client.is_socket_open():
-                    self.connected = True
-                    self.log("Modbus client already connected.", LogLevel.DEBUG)
+                if self.connected:
                     return True
-
                 if self.client.connect():
                     self.connected = True
                     self.log(f"Knob Box Connected to port {self.port}.", LogLevel.INFO)
@@ -238,21 +97,104 @@ class KnobBoxModbus:
             except Exception as e:
                 self.log(f"Error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
                 return False
-
+            
     def disconnect(self):
         """Disconnect from the Modbus device."""
         with self.modbus_lock:
             try:
-                if self.client.is_socket_open():
+                if self.connected:
                     self.client.close()
+                    self.connected = False
                     self.log("Disconnected from the Knob Box Modbus device.", LogLevel.INFO)
                 else:
                     self.log("Client already disconnected from Knob Box Modbus device", LogLevel.INFO)
             except Exception as e:
                 self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
 
+    def poll_all(self):
+        """
+        Poll all power supplies and update self.data
+        Returns copy of data dictionary
+        """
+        if not self.connect():
+            raise RuntimeError("Unable to open Modbus serial port")
+        for uid in self.UNIT_IDS:
+            try:
+                self.poll_one(uid)
+            except Exception as e:
+                self.log(f"[unit {uid}] poll error: {e}", LogLevel.ERROR)
+        # Return a copy to avoid external mutation
+        with self.data_lock:
+            return self.data.copy()
+    
+    def poll_one(self, unit_id):
+        """
+        Poll a single power supply unit and update self.data.
+        Parameters:
+            unit_id (int): Unit ID of the power supply to poll.
+        """
+        with self.modbus_lock:
+            # Read Input Registers containing MODE, V_SET, V_READ, I_READ
+            # Continuous block starting at address 1 (count=4)
+            input_registers = self.client.read_input_registers(address=IREG_MODE_ADDR, count=4, slave=unit_id)
+            if input_registers is None or not getattr(input_registers, "registers"):
+                raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id})")
+
+            if len(input_registers.registers) < 4:
+                raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
+            
+            mode, v_set, v_read, i_read = input_registers.registers
+        
+            # Read Discrete Input for Overcurrent status
+            discrete_input = self.client.read_discrete_inputs(address=DINPUT_OVERCURRENT_ADDR, count=1, slave=unit_id)
+            if discrete_input is None or not getattr(discrete_input, "bits"):
+                raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
+
+            overcurrent = int(bool(discrete_input.bits[0])) if discrete_input.bits else 0
+
+            new_data = {
+                "mode": mode,
+                "set_voltage_V": float(v_set),
+                "actual_voltage_V": float(v_read),
+                "actual_current_mA": float(i_read),
+                "overcurrent": overcurrent
+            }
+
+            with self.data_lock:
+                self.data[unit_id] = new_data
+                self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
+
+    def get_data_snapshot(self):
+        """
+        Get a snapshot of the current data for all power supplies.
+        
+        Returns:
+            dict: A copy of the current data dictionary.
+        """
+        with self.data_lock:
+            return self.data.copy()
+
+    def check_connection(self):
+        """Check if the Modbus client is connected and attempt to reconnect if not."""
+        try:
+            if not self.connected:
+                self.log("Modbus client not connected. Attempting to reconnect...", LogLevel.WARNING)
+                self.connect()
+                return self.connected
+        except Exception as e:
+            self.log(f"Error checking connection: {str(e)}", LogLevel.ERROR)
+            self.connected = False
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.connected = self.connect()
+            return self.connected
+
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
+
+# TODO: Implement retry logic for register reads
