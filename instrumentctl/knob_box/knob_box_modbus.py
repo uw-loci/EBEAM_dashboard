@@ -198,3 +198,4 @@ class KnobBoxModbus:
             print(f"{level.name}: {message}")
 
 # TODO: Implement retry logic for register reads
+# TODO: Figure out how output status will be recorded and stored in firmware

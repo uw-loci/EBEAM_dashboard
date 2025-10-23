@@ -3,6 +3,7 @@ from tkinter import ttk
 import threading
 import time
 from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
+from utils import LogLevel
 
 
 
@@ -52,7 +53,8 @@ class BeamEnergySubsystem:
         self.ui_elements = []  # To hold references to UI elements for updates
 
         self.data_lock = threading.Lock()
-        self.stop_monitoring_event = threading.Event()
+        self.stop_polling = threading.Event()
+        self.poll_thread = None
 
         self.power_supply_instances = []  # List of KnobBoxPowerSupply instances
         self.setup_ui()
@@ -258,6 +260,8 @@ class BeamEnergySubsystem:
     def initialize_knob_box_modbus(self):
         """
         Initialize the hardware communication with KnobBox power supplies using Modbus protocol.
+        Starts polling thread for data collection.
+        Returns True if successful, False otherwise.
         """
         port = self.com_ports.get('KnobBox', None)
         if not port:
@@ -270,7 +274,7 @@ class BeamEnergySubsystem:
         
         try:
             knob_box_modbus = KnobBoxModbus(port=port, logger=self.logger)
-            if knob_box_modbus.start_reading_power_supply_data():
+            if knob_box_modbus.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
                 self.knob_box_controller = knob_box_modbus
                 self.knob_box_connected = True
                 return True
@@ -308,6 +312,27 @@ class BeamEnergySubsystem:
                 self.output_status[index].set("OFF")
                 self.ui_elements[index]['status_label'].config(foreground="red")
 
+    def start_polling_thread(self):
+        """Start a background thread to poll power supply data periodically."""
+        if self.poll_thread and self.poll_thread.is_alive():
+            return  # Polling thread already running
+        
+        self.stop_polling.clear()
+        self.poll_thread = threading.Thread(target=self.polling_loop, daemon=True)
+        self.poll_thread.start()
+
+    def polling_loop(self):
+        """Background thread function to poll power supply data."""
+        while not self.stop_polling.is_set():
+            try:
+                if self.knob_box_connected and self.knob_box_controller:
+                    self.knob_box_controller.poll_all()
+                else:
+                    self.attempt_knob_box_reconnect()
+            except Exception as e:
+                self.attempt_knob_box_reconnect()
+            time.sleep(.2)  # Polling interval
+
     def update_readings(self):
         """
         Update voltage and current readings from hardware.
@@ -316,34 +341,56 @@ class BeamEnergySubsystem:
         # Update Knob Box data
         try:
             if self.knob_box_connected and self.knob_box_controller:
-                # Get latest data from KnobBoxModbus
-                for index in range(self.knob_box_controller.UNIT_NUMBERS):
-                    data = self.knob_box_controller.get_power_supply_data(index)
-                        
-                    # We use unit number to store data because Glassman is not part of KnobBox and stored at index 0
-                    # 0 index is Glassman, so KnobBox units start from index 1
-                    with self.data_lock:
-                        if data:
-                            self.set_voltages[index].set(f"{data['set_voltage']} V")
-                            self.actual_voltages[index].set(f"{data['actual_voltage']} V")
-                            self.actual_currents[index].set(f"{data['actual_current']} A")
-                            self.update_output_status(index, data['output_status'])
-                            self.update_connection_status(index, True)
-                        else:
-                            self.set_default_values(index)
-                        # TODO: Log data retrieved for post analysis
+                knob_box = self.knob_box_controller
             else:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
                 self.attempt_knob_box_reconnect()
+            
+            # Pull data snapshot from KnobBox controller
+            data_snapshot = knob_box.get_data_snapshot()
+            for index, _ in enumerate(self.power_supplies):
+                
+                # Unit IDs start at one. We may want to create a mapping later when we have the final values
+                unit_id = index + 1 
+                data = data_snapshot.get(unit_id, None)
+                
+                if data:
+                    v_set = data.get('set_voltage_V', None)
+                    v_read = data.get('actual_voltage_V', None)
+                    i_read = data.get('actual_current_mA', None)
+                    overcurrent = data.get('overcurrent', None)
+
+                    self.update_connection_status(index, True)
+                else:
+                    self.set_default_values(index)
+
+                # Update display values if data is valid
+                if v_set is not None:
+                    self.set_voltages[index].set(f"{v_set:.1f} V")
+                else:
+                    self.set_voltages[index].set("-- V")
+
+                if v_read is not None:
+                    self.actual_voltages[index].set(f"{v_read:.1f} V")
+                else:
+                    self.actual_voltages[index].set("-- V")
+
+                if i_read is not None:
+                    self.actual_currents[index].set(f"{i_read:.3f} mA")
+                else:
+                    self.actual_currents[index].set("-- mA")
 
         except Exception as e:  
+            self.logger.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
             for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
             self.attempt_knob_box_reconnect()
-
-        self.after_id = self.parent_frame.after(500, self.update_readings)  # Schedule next update after 500 ms
+            
+        
+        # Schedule next update after 500 ms
+        self.after_id = self.parent_frame.after(500, self.update_readings) 
 
     def cancel_updates(self):
         """Cancel scheduled updates when closing the application."""
@@ -379,12 +426,23 @@ class BeamEnergySubsystem:
         """Close any open communication ports and stop all polling threads."""
         # if self.logger:
         #     self.logger.info("Beam Energy subsystem: Closing communication ports")
-        self.stop_monitoring_event.set()
-
         if self.knob_box_controller:
-            self.knob_box_controller.stop_reading()
+            self.knob_box_controller.disconnect()
             self.knob_box_controller = None
             self.knob_box_connected = False
 
-# TODO: Implement output status retrieval in KnobBoxPowerSupply and update_output_status method
-# TODO: Figure out how to get output status for each individual power supply
+    def close(self):
+        """Close the subsystem and clean up resources."""
+        self.stop_polling().set()
+        if self.poll_thread and self.poll_thread.is_alive():
+            self.poll_thread.join(timeout=2)
+            self.poll_thread = None
+
+        self.cancel_updates()
+        self.close_com_ports()
+
+# TODO: Add logger function like every other subsystem
+# TODO: Add output status updating when supported by firmware
+# TODO: Implement overcurrent handling when triggered
+# TODO: Add logging of data in update_readings for post analysis
+# TODO: Update for finalized unit ID assignments and expected voltage/current units
