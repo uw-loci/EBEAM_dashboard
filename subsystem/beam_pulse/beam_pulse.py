@@ -879,22 +879,26 @@ class BeamPulseSubsystem:
                 
                 if wave_type == "sine":
                     x = amplitude * np.cos(t)
-                    y = amplitude * np.sin(t)
+                    y = 0 * t  # Placeholder for sine wave y
+                    # y = amplitude * np.sin(t)
                 else:  # triangle
                     # Create triangular wave pattern
                     x = amplitude * np.cos(t)
-                    y = amplitude * np.sign(np.sin(t)) * (1 - 2*np.abs(np.mod(t, np.pi) - np.pi/2) / (np.pi/2))
+                    y = 0 * t  # Placeholder for triangle wave y
+                    # y = amplitude * np.sign(np.sin(t)) * (1 - 2*np.abs(np.mod(t, np.pi) - np.pi/2) / (np.pi/2))
             else:
                 # Fallback without numpy
                 t_points = [i * 2 * math.pi / 99 for i in range(100)]
                 
                 if wave_type == "sine":
                     x = [amplitude * math.cos(t) for t in t_points]
-                    y = [amplitude * math.sin(t) for t in t_points]
+                    y = [0 for t in t_points] # Placeholder for sine wave y
+                    # y = [amplitude * math.sin(t) for t in t_points]
                 else:  # triangle
                     x = [amplitude * math.cos(t) for t in t_points]
-                    y = [amplitude * (1 if math.sin(t) >= 0 else -1) * 
-                         (1 - 2*abs((t % math.pi) - math.pi/2) / (math.pi/2)) for t in t_points]
+                    y = [0 for t in t_points] # Placeholder for triangle wave y
+                    # y = [amplitude * (1 if math.sin(t) >= 0 else -1) * 
+                    #      (1 - 2*abs((t % math.pi) - math.pi/2) / (math.pi/2)) for t in t_points]
             
             return {
                 'type': wave_type,
