@@ -457,13 +457,70 @@ class EBEAMSystemDashboard:
                     btn = self.beam_toggle_buttons[beam_index]
                     if new_status:
                         btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
+                        
+                        # Check if we're in Pulse mode and set up auto-off timer
+                        if hasattr(beam_pulse, 'wave_type') and beam_pulse.wave_type.get().lower() == "pulse":
+                            # Get the duration for this beam
+                            duration_ms = self.get_beam_pulse_duration(beam_index)
+                            if duration_ms > 0:
+                                # Schedule automatic turn-off
+                                self.root.after(int(duration_ms), lambda: self.auto_turn_off_beam(beam_index))
+                                self.logger.info(f"Beam {beam_names[beam_index]} turned ON in Pulse mode for {duration_ms}ms")
+                            else:
+                                self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
+                        else:
+                            self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
                     else:
                         btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                    
-                    self.logger.info(f"Beam {beam_names[beam_index]} turned {'ON' if new_status else 'OFF'}")
+                        self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
                     
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
+
+    def get_beam_pulse_duration(self, beam_index):
+        """Get the pulse duration for a specific beam."""
+        try:
+            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                return 0
+            
+            beam_pulse = self.subsystems['Beam Pulse']
+            
+            # Get duration from the beam pulse subsystem
+            if beam_index == 0 and hasattr(beam_pulse, 'beam_a_duration'):
+                return beam_pulse.beam_a_duration.get()
+            elif beam_index == 1 and hasattr(beam_pulse, 'beam_b_duration'):
+                return beam_pulse.beam_b_duration.get()
+            elif beam_index == 2 and hasattr(beam_pulse, 'beam_c_duration'):
+                return beam_pulse.beam_c_duration.get()
+            
+            return 100.0  # Default fallback
+        except Exception as e:
+            self.logger.error(f"Error getting beam {beam_index} duration: {str(e)}")
+            return 100.0
+
+    def auto_turn_off_beam(self, beam_index):
+        """Automatically turn off a beam after pulse duration."""
+        try:
+            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                return
+            
+            beam_pulse = self.subsystems['Beam Pulse']
+            beam_names = ["A", "B", "C"]
+            
+            # Check if beam is still on before turning off
+            if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(beam_index):
+                # Turn off the beam
+                if hasattr(beam_pulse, 'set_beam_status'):
+                    beam_pulse.set_beam_status(beam_index, False)
+                    
+                    # Update button appearance
+                    btn = self.beam_toggle_buttons[beam_index]
+                    btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
+                    
+                    self.logger.info(f"Beam {beam_names[beam_index]} automatically turned OFF after pulse duration")
+                    
+        except Exception as e:
+            self.logger.error(f"Error auto-turning off beam {beam_index}: {str(e)}")
 
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""

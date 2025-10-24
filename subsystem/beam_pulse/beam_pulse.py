@@ -4,9 +4,17 @@ from tkinter import ttk
 from typing import Optional, Dict
 import os
 import sys
+import math
 
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import LogLevel
+
+# Check for numpy availability
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
 
 # Check for matplotlib availability
 try:
@@ -84,12 +92,13 @@ class BeamPulseSubsystem:
         # GUI variables for controls
         self.wave_gen_enabled = tk.BooleanVar(value=False)
         self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
-        self.frequency_hz = tk.DoubleVar(value=10.0)
+        self.frequency_hz = tk.DoubleVar(value=1000.0)
         self.wave_amplitude = tk.DoubleVar(value=5.0)
         
         # Pulse duration variables for each beam (A, B, C)
-        self.beam_a_duration = tk.DoubleVar(value=100.0)
-        self.beam_b_duration = tk.DoubleVar(value=100.0)
+        self.beam_a_duration = tk.DoubleVar(value=50.0)  # Reduced from 100.0
+        self.beam_b_duration = tk.DoubleVar(value=50.0)  # Reduced from 100.0
+        self.beam_c_duration = tk.DoubleVar(value=50.0)  # Reduced from 100.0
         self.beam_c_duration = tk.DoubleVar(value=100.0)
         
         # Config tab variables
@@ -112,6 +121,11 @@ class BeamPulseSubsystem:
         
         # Store references to duration spinboxes for enable/disable control
         self.duration_spinboxes = []
+        
+        # Beam position tracking for plotting
+        self.beam_history = [[], [], []]  # [Beam A, Beam B, Beam C] - completed positions
+        self.beam_current = [None, None, None]  # Current/projected positions
+        self.beam_plot_objects = [[], [], []]  # Store plot objects for updating
 
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
@@ -480,12 +494,12 @@ class BeamPulseSubsystem:
         # Label
         ttk.Label(frame, text="Wave Amp (±A)", font=("Arial", 9, "bold")).pack()
 
-        # Spinbox
+        # Spinbox - updated range to fit 5cm graph better
         self.wave_amp_spinbox = tk.Spinbox(
             frame,
             from_=0.0,
-            to=50.0,
-            increment=1.0,  # Changed from 0.1 to 1.0
+            to=2.5,  # Max amplitude to fit in graph range
+            increment=0.1,  # Smaller increment for precision
             textvariable=self.wave_amplitude,
             command=self.on_wave_amplitude_change,
             width=8,
@@ -538,6 +552,14 @@ class BeamPulseSubsystem:
                 self.frequency_spinbox.configure(state="disabled")
             else:
                 self.frequency_spinbox.configure(state="normal")
+        
+        # Update wave gen button state
+        if hasattr(self, 'wave_gen_toggle'):
+            wave_type = self.wave_type.get()
+            if wave_type.lower() == "fixed":
+                self.wave_gen_toggle.configure(state="disabled")
+            else:
+                self.wave_gen_toggle.configure(state="normal")
         
         # Update duration spinboxes state
         if hasattr(self, 'duration_spinboxes'):
@@ -716,6 +738,13 @@ class BeamPulseSubsystem:
         else:
             self.frequency_spinbox.configure(state="normal")
         
+        # Enable/disable wave gen button based on wave type
+        if hasattr(self, 'wave_gen_toggle'):
+            if wave_type.lower() == "fixed":
+                self.wave_gen_toggle.configure(state="disabled")
+            else:
+                self.wave_gen_toggle.configure(state="normal")
+        
         # Enable/disable duration spinboxes based on wave type
         if wave_type.lower() == "pulse":
             # Enable duration spinboxes for Pulse mode
@@ -779,6 +808,11 @@ class BeamPulseSubsystem:
         if 0 <= beam_index <= 2:
             self.beam_on_status[beam_index] = status
             self.update_beam_led_indicators()
+            
+            # Add position to plot when beam is turned on
+            if status:
+                self.add_beam_position_to_plot(beam_index)
+            
             beam_names = ['A', 'B', 'C']
             self._log(f"Beam {beam_names[beam_index]} status set to {'ON' if status else 'OFF'}", LogLevel.DEBUG)
 
@@ -800,7 +834,155 @@ class BeamPulseSubsystem:
         for i in range(3):
             self.beam_on_status[i] = status
         self.update_beam_led_indicators()
-        self._log(f"All beams set to {'ON' if status else 'OFF'}", LogLevel.INFO)
+
+    def calculate_beam_position(self, beam_index: int):
+        """Calculate beam position based on current wave type and parameters.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+            
+        Returns:
+            dict: Position data with 'type', 'x', 'y', and other relevant info
+        """
+        wave_type = self.wave_type.get().lower()
+        amplitude = self.wave_amplitude.get()
+        frequency = self.frequency_hz.get()
+        
+        if wave_type == "fixed":
+            # Fixed position at amplitude
+            return {
+                'type': 'fixed',
+                'x': amplitude,
+                'y': 0,  # Fixed at center y
+                'amplitude': amplitude
+            }
+        
+        elif wave_type == "pulse":
+            # Pulse at current amplitude position
+            duration = self.get_pulse_duration(beam_index)
+            return {
+                'type': 'pulse',
+                'x': amplitude,
+                'y': 0,  # Pulse at center y
+                'amplitude': amplitude,
+                'duration': duration
+            }
+        
+        elif wave_type in ["sine", "triangle"]:
+            # Generate wave path points
+            if _HAS_NUMPY:
+                import numpy as np
+                t = np.linspace(0, 2*np.pi, 100)  # One complete cycle
+                
+                if wave_type == "sine":
+                    x = amplitude * np.cos(t)
+                    y = amplitude * np.sin(t)
+                else:  # triangle
+                    # Create triangular wave pattern
+                    x = amplitude * np.cos(t)
+                    y = amplitude * np.sign(np.sin(t)) * (1 - 2*np.abs(np.mod(t, np.pi) - np.pi/2) / (np.pi/2))
+            else:
+                # Fallback without numpy
+                t_points = [i * 2 * math.pi / 99 for i in range(100)]
+                
+                if wave_type == "sine":
+                    x = [amplitude * math.cos(t) for t in t_points]
+                    y = [amplitude * math.sin(t) for t in t_points]
+                else:  # triangle
+                    x = [amplitude * math.cos(t) for t in t_points]
+                    y = [amplitude * (1 if math.sin(t) >= 0 else -1) * 
+                         (1 - 2*abs((t % math.pi) - math.pi/2) / (math.pi/2)) for t in t_points]
+            
+            return {
+                'type': wave_type,
+                'x': x,
+                'y': y,
+                'amplitude': amplitude,
+                'frequency': frequency
+            }
+        
+        return None
+
+    def get_pulse_duration(self, beam_index: int):
+        """Get pulse duration for specific beam."""
+        if beam_index == 0:
+            return self.beam_a_duration.get()
+        elif beam_index == 1:
+            return self.beam_b_duration.get()
+        elif beam_index == 2:
+            return self.beam_c_duration.get()
+        return 100.0
+
+    def add_beam_position_to_plot(self, beam_index: int):
+        """Add current beam position to the plot and history."""
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        position_data = self.calculate_beam_position(beam_index)
+        if position_data is None:
+            return
+        
+        ax = self._bp_axes[beam_index]
+        wave_type = position_data['type']
+        
+        # Clear previous current position (if any)
+        if self.beam_current[beam_index] is not None:
+            # Move current to history
+            self.beam_history[beam_index].append(self.beam_current[beam_index])
+        
+        # Colors: blue for history (completed), red for current
+        history_color = 'blue'
+        current_color = 'red'
+        
+        if wave_type == "fixed":
+            # Plot single point
+            x, y = position_data['x'], position_data['y']
+            current_plot = ax.plot(x, y, 'o', color=current_color, markersize=8)[0]
+            self.beam_current[beam_index] = current_plot
+            
+        elif wave_type == "pulse":
+            # Plot pulse as a larger dot
+            x, y = position_data['x'], position_data['y']
+            current_plot = ax.plot(x, y, 's', color=current_color, markersize=10)[0]
+            self.beam_current[beam_index] = current_plot
+            
+        elif wave_type in ["sine", "triangle"]:
+            # Plot wave path
+            x, y = position_data['x'], position_data['y']
+            current_plot = ax.plot(x, y, '-', color=current_color, linewidth=2)[0]
+            self.beam_current[beam_index] = current_plot
+        
+        # Redraw history in blue
+        self.redraw_beam_history(beam_index)
+        
+        # Update plot (no legend)
+        if hasattr(self, '_bp_canvas'):
+            self._bp_canvas.draw()
+
+    def redraw_beam_history(self, beam_index: int):
+        """Redraw beam history in blue color."""
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        ax = self._bp_axes[beam_index]
+        history_color = 'blue'
+        
+        # Remove old history plot objects
+        for obj in self.beam_plot_objects[beam_index]:
+            obj.remove()
+        self.beam_plot_objects[beam_index].clear()
+        
+        # Redraw all history items
+        for hist_item in self.beam_history[beam_index]:
+            if hist_item is not None:
+                # Create new plot object in history color
+                xdata, ydata = hist_item.get_data()
+                marker = hist_item.get_marker()
+                if marker == 'None':  # Line plot
+                    new_obj = ax.plot(xdata, ydata, '-', color=history_color, alpha=0.7, linewidth=1)[0]
+                else:  # Point plot
+                    new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
+                self.beam_plot_objects[beam_index].append(new_obj)
 
     # Deflection stats update methods
     def update_deflection_stats(self):
