@@ -333,7 +333,7 @@ class BeamPulseSubsystem:
         frequency_lower_frame = ttk.Frame(frequency_frame)
         frequency_lower_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(frequency_lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(frequency_lower_frame, text="Lower Bound (Hz):", font=("Arial", 10)).pack(side=tk.LEFT)
         self.frequency_lower_bound_spinbox = tk.Spinbox(
             frequency_lower_frame,
             from_= 0.0,
@@ -349,7 +349,7 @@ class BeamPulseSubsystem:
         frequency_upper_frame = ttk.Frame(frequency_frame)
         frequency_upper_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(frequency_upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(frequency_upper_frame, text="Upper Bound (Hz):", font=("Arial", 10)).pack(side=tk.LEFT)
         self.frequency_upper_bound_spinbox = tk.Spinbox(
             frequency_upper_frame,
             from_= 0.0,
