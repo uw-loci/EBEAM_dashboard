@@ -84,7 +84,7 @@ class BeamPulseSubsystem:
         # GUI variables for controls
         self.wave_gen_enabled = tk.BooleanVar(value=False)
         self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
-        self.frequency_hz = tk.DoubleVar(value=1000.0)
+        self.frequency_hz = tk.DoubleVar(value=10.0)
         self.wave_amplitude = tk.DoubleVar(value=5.0)
         
         # Pulse duration variables for each beam (A, B, C)
@@ -95,6 +95,10 @@ class BeamPulseSubsystem:
         # Config tab variables
         self.deflection_lower_bound = tk.DoubleVar(value=-10.0)
         self.deflection_upper_bound = tk.DoubleVar(value=10.0)
+        
+        # Config tab variables
+        self.frequency_lower_bound = tk.DoubleVar(value= 0.0)
+        self.frequency_upper_bound = tk.DoubleVar(value=45.0)
         
         # Toggle state for wave gen
         self.wave_gen_toggle_state = False
@@ -266,6 +270,48 @@ class BeamPulseSubsystem:
         
         # Title
         title_label = ttk.Label(config_frame, text="Deflection Amplitude Configuration", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=(0, 20))
+        
+        # Deflection bounds frame
+        bounds_frame = ttk.LabelFrame(config_frame, text="Deflection Amplitude Bounds", 
+                                     padding="15", labelanchor="n")
+        bounds_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # Lower bound setting
+        lower_frame = ttk.Frame(bounds_frame)
+        lower_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.lower_bound_spinbox = tk.Spinbox(
+            lower_frame,
+            from_=-50.0,
+            to=50.0,
+            increment=0.1,
+            textvariable=self.deflection_lower_bound,  # Link to class variable
+            width=8,
+            format="%.1f"
+        )
+        self.lower_bound_spinbox.pack(side=tk.RIGHT)
+        
+        # Upper bound setting
+        upper_frame = ttk.Frame(bounds_frame)
+        upper_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.upper_bound_spinbox = tk.Spinbox(
+            upper_frame,
+            from_=-50.0,
+            to=50.0,
+            increment=0.1,
+            textvariable=self.deflection_upper_bound,  # Link to class variable
+            width=8,
+            format="%.1f"
+        )
+        self.upper_bound_spinbox.pack(side=tk.RIGHT)
+        
+        # Title
+        title_label = ttk.Label(config_frame, text="Deflection Frequency Configuration", 
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=(0, 20))
         

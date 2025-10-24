@@ -227,7 +227,7 @@ class EBEAMSystemDashboard:
             text="BEAMS OFF",
             bg="red",
             fg="white",
-            font=("Helvetica",16,"bold"),
+            font=("Helvetica",14,"bold"),
             command=lambda:self.subsystems['Cathode Heating'].turn_off_all_beams()
         )
         beams_off_button.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
