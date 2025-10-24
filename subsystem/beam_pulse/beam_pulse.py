@@ -92,7 +92,7 @@ class BeamPulseSubsystem:
         # GUI variables for controls
         self.wave_gen_enabled = tk.BooleanVar(value=False)
         self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
-        self.frequency_hz = tk.DoubleVar(value=1000.0)
+        self.frequency_hz = tk.DoubleVar(value=10.0)
         self.wave_amplitude = tk.DoubleVar(value=5.0)
         
         # Pulse duration variables for each beam (A, B, C)
@@ -283,14 +283,14 @@ class BeamPulseSubsystem:
         config_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
-        title_label = ttk.Label(config_frame, text="Deflection Amplitude Configuration", 
+        title_label = ttk.Label(config_frame, text="Deflection Configuration", 
                                font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 20))
+        title_label.pack(pady=(0, 10))
         
         # Deflection bounds frame
         bounds_frame = ttk.LabelFrame(config_frame, text="Deflection Amplitude Bounds", 
-                                     padding="15", labelanchor="n")
-        bounds_frame.pack(fill=tk.X, pady=(0, 20))
+                                     padding="10", labelanchor="n")
+        bounds_frame.pack(fill=tk.X, pady=(0, 10))
         
         # Lower bound setting
         lower_frame = ttk.Frame(bounds_frame)
@@ -324,50 +324,45 @@ class BeamPulseSubsystem:
         )
         self.upper_bound_spinbox.pack(side=tk.RIGHT)
         
-        # Title
-        title_label = ttk.Label(config_frame, text="Deflection Frequency Configuration", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 20))
-        
-        # Deflection bounds frame
-        bounds_frame = ttk.LabelFrame(config_frame, text="Deflection Amplitude Bounds", 
-                                     padding="15", labelanchor="n")
-        bounds_frame.pack(fill=tk.X, pady=(0, 20))
+        # Deflection Frequency bounds frame
+        frequency_frame = ttk.LabelFrame(config_frame, text="Deflection Frequency Bounds", 
+                                     padding="10", labelanchor="n")
+        frequency_frame.pack(fill=tk.X, pady=(0, 10))
         
         # Lower bound setting
-        lower_frame = ttk.Frame(bounds_frame)
-        lower_frame.pack(fill=tk.X, pady=5)
+        frequency_lower_frame = ttk.Frame(frequency_frame)
+        frequency_lower_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
-        self.lower_bound_spinbox = tk.Spinbox(
-            lower_frame,
-            from_=-50.0,
-            to=50.0,
+        ttk.Label(frequency_lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.frequency_lower_bound_spinbox = tk.Spinbox(
+            frequency_lower_frame,
+            from_= 0.0,
+            to=45.0,
             increment=0.1,
-            textvariable=self.deflection_lower_bound,  # Link to class variable
+            textvariable=self.frequency_lower_bound,  # Link to class variable
             width=8,
             format="%.1f"
         )
-        self.lower_bound_spinbox.pack(side=tk.RIGHT)
+        self.frequency_lower_bound_spinbox.pack(side=tk.RIGHT)
         
         # Upper bound setting
-        upper_frame = ttk.Frame(bounds_frame)
-        upper_frame.pack(fill=tk.X, pady=5)
+        frequency_upper_frame = ttk.Frame(frequency_frame)
+        frequency_upper_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
-        self.upper_bound_spinbox = tk.Spinbox(
-            upper_frame,
-            from_=-50.0,
-            to=50.0,
+        ttk.Label(frequency_upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.frequency_upper_bound_spinbox = tk.Spinbox(
+            frequency_upper_frame,
+            from_= 0.0,
+            to=45.0,
             increment=0.1,
-            textvariable=self.deflection_upper_bound,  # Link to class variable
+            textvariable=self.frequency_upper_bound,  # Link to class variable
             width=8,
             format="%.1f"
         )
-        self.upper_bound_spinbox.pack(side=tk.RIGHT)
+        self.frequency_upper_bound_spinbox.pack(side=tk.RIGHT)
         
         # Apply button
-        apply_button = ttk.Button(bounds_frame, text="Apply Settings", 
+        apply_button = ttk.Button(config_frame, text="Apply Settings", 
                                  command=self.apply_deflection_bounds)
         apply_button.pack(pady=(10, 0))
         
@@ -381,25 +376,33 @@ class BeamPulseSubsystem:
         try:
             lower_bound = float(self.lower_bound_spinbox.get())
             upper_bound = float(self.upper_bound_spinbox.get())
+            frequency_lower_bound = float(self.frequency_lower_bound_spinbox.get())
+            frequency_upper_bound = float(self.frequency_upper_bound_spinbox.get())
             
             # Validate bounds
             if lower_bound >= upper_bound:
                 self.config_status_label.configure(text="Error: Lower bound must be less than upper bound", 
                                                  foreground="red")
                 return
+            if frequency_lower_bound >= frequency_upper_bound:
+                self.config_status_label.configure(text="Error: Frequency lower bound must be less than upper bound", 
+                                                 foreground="red")
+                return
             
             # Store the bounds
             self.deflection_lower_bound.set(lower_bound)
             self.deflection_upper_bound.set(upper_bound)
+            self.frequency_lower_bound.set(frequency_lower_bound)
+            self.frequency_upper_bound.set(frequency_upper_bound)
             
             # Update status
             self.config_status_label.configure(
-                text=f"Applied: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps", 
+                text=f"Applied: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps, Lower={frequency_lower_bound:.1f} Hz, Upper={frequency_upper_bound:.1f} Hz", 
                 foreground="green"
             )
             
             # Log the change
-            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps", 
+            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps, Lower Frequency ={frequency_lower_bound:.1f} Hz, Upper Frequency={frequency_upper_bound:.1f} Hz", 
                      LogLevel.INFO)
             
         except ValueError as e:
@@ -425,7 +428,7 @@ class BeamPulseSubsystem:
         frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
         
         # Label
-        ttk.Label(frame, text="Wave Gen", font=("Arial", 9, "bold")).pack()
+        ttk.Label(frame, text="Deflect Beam", font=("Arial", 9, "bold")).pack()
         
         # Toggle button
         if self.toggle_off_image and self.toggle_on_image:
@@ -477,7 +480,7 @@ class BeamPulseSubsystem:
         self.frequency_spinbox = tk.Spinbox(
             frame,
             from_=0.1,
-            to=10000.0,
+            to=45.0,
             increment=1.0,  # Changed from 0.1 to 1.0
             textvariable=self.frequency_hz,
             command=self.on_frequency_change,
@@ -497,7 +500,7 @@ class BeamPulseSubsystem:
         # Spinbox - updated range to fit 5cm graph better
         self.wave_amp_spinbox = tk.Spinbox(
             frame,
-            from_=0.0,
+            from_=-2.5,
             to=2.5,  # Max amplitude to fit in graph range
             increment=0.1,  # Smaller increment for precision
             textvariable=self.wave_amplitude,
