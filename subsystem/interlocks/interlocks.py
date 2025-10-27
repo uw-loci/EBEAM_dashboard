@@ -359,6 +359,7 @@ class InterlocksSubsystem:
         """
         Closes the serial port connection upon quitting the application.
         """
+        self.driver.stop_thread()
         if self.driver and hasattr(self.driver, 'ser'):
             if self.driver.ser and self.driver.ser.is_open:
                 self.driver.ser.close()
