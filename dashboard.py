@@ -75,10 +75,19 @@ class EBEAMSystemDashboard:
         
         # if save file exists call it and open it
         if saveFileExists():
-             self.load_saved_pane_state()
+            self.load_saved_pane_state()
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
+        # Optional Beam Pulse UI attributes (only used if dashboard-managed plotting is enabled)
+        self.beam_pulse = None
+        self._bp_axes = []
+        self._bp_canvas = None
+        self._bp_data = {1: {'past': [], 'future': []}, 2: {'past': [], 'future': []}, 3: {'past': [], 'future': []}}
+        self._bp_history_len = 120
+        self._bp_future_len = 30
+        self._bp_stats = {}
+        self._bp_update_interval_ms = 1000
         
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
@@ -107,39 +116,198 @@ class EBEAMSystemDashboard:
         print("Cleaned up com ports.")
 
     def setup_main_pane(self):
-        """Initialize the main layout pane and its rows for subsystem organization."""
-        self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
+        """Initialize the main container for absolute layout using place()."""
+        self.main_pane = tk.Frame(self.root)
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
-        for row_pane in self.rows:
-            self.main_pane.add(row_pane, stretch='always')
+        # No self.rows in absolute layout
+        # Sash and grip overlays
+        self._sashes = []  # list of dicts with widgets and placement meta
+        self._grips = []   # bottom resize grips per frame
+
+    def _compute_row_layout(self):
+        """Return structures for layout: row_max_heights, sorted_rows, row_to_y, row_x_offsets."""
+        row_max_heights = {}
+        for _, row, _w, h in frames_config:
+            row_max_heights[row] = max(row_max_heights.get(row, 0), h or 0)
+        sorted_rows = sorted(row_max_heights.keys())
+        row_to_y = {}
+        y_accum = 0
+        for r in sorted_rows:
+            row_to_y[r] = y_accum
+            y_accum += row_max_heights[r]
+        # initial x offsets per row
+        row_x_offsets = {r: 0 for r in sorted_rows}
+        return row_max_heights, sorted_rows, row_to_y, row_x_offsets
+
+    def _reflow_all(self):
+        """Re-place frames, sashes and grips after a resize change."""
+        # Clear overlays
+        for s in self._sashes:
+            s['widget'].place_forget()
+        for g in self._grips:
+            g['widget'].place_forget()
+        self._sashes.clear()
+        self._grips.clear()
+        # Recreate placements
+        self._place_frames_and_overlays()
+
+    def _place_frames_and_overlays(self):
+        row_max_heights, sorted_rows, row_to_y, row_x_offsets = self._compute_row_layout()
+        # Place frames
+        row_members = {}
+        for title, row, width, height in frames_config:
+            row_members.setdefault(row, []).append((title, width, height))
+
+        # Ensure frame objects exist
+        for title, row, width, height in frames_config:
+            frame = self.frames.get(title)
+            x = row_x_offsets.get(row, 0)
+            y = row_to_y.get(row, 0)
+            if frame:
+                frame.place(x=x, y=y, width=width, height=height)
+            # Always advance offset, even for spacer/non-rendered entries
+            row_x_offsets[row] = x + (width or 0)
+
+        # Add vertical sashes between neighbors in each row
+        for row, members in row_members.items():
+            # Recalculate X running sum for sash positions
+            x = 0
+            y = row_to_y[row]
+            for idx in range(len(members) - 1):
+                left_title, left_w, left_h = members[idx]
+                right_title, right_w, right_h = members[idx + 1]
+                x += left_w
+                sash = tk.Frame(self.main_pane, cursor='sb_h_double_arrow', bg='#CCCCCC')
+                sash_w = 5
+                sash.place(x=x - sash_w // 2, y=y, width=sash_w, height=row_max_heights[row])
+                self._attach_sash_handlers(sash, row, idx)
+                self._sashes.append({'widget': sash, 'row': row, 'index': idx})
+
+        # Add bottom grips for vertical resize per frame
+        for title, row, width, height in frames_config:
+            frame = self.frames.get(title)
+            if not frame:
+                continue
+            y = 0
+            for r in sorted_rows:
+                if r == row:
+                    break
+                y += row_max_heights[r]
+            x = 0
+            for t2, r2, w2, _ in frames_config:
+                if r2 != row:
+                    continue
+                if t2 == title:
+                    break
+                x += w2
+            grip = tk.Frame(self.main_pane, cursor='sb_v_double_arrow', bg='#CCCCCC')
+            grip_h = 5
+            grip.place(x=x, y=y + height - grip_h // 2, width=width, height=grip_h)
+            self._attach_grip_handlers(grip, row, title)
+            self._grips.append({'widget': grip, 'row': row, 'title': title})
+
+    def _attach_sash_handlers(self, sash, row, idx_in_row):
+        # Track state
+        state = {'start_x': 0, 'row': row, 'idx': idx_in_row}
+        def on_press(event):
+            state['start_x'] = event.x_root
+        def on_drag(event):
+            dx = event.x_root - state['start_x']
+            self._resize_horizontal(row, idx_in_row, dx)
+            state['start_x'] = event.x_root
+        sash.bind('<Button-1>', on_press)
+        sash.bind('<B1-Motion>', on_drag)
+
+    def _attach_grip_handlers(self, grip, row, title):
+        state = {'start_y': 0, 'row': row, 'title': title}
+        def on_press(event):
+            state['start_y'] = event.y_root
+        def on_drag(event):
+            dy = event.y_root - state['start_y']
+            self._resize_vertical(row, title, dy)
+            state['start_y'] = event.y_root
+        grip.bind('<Button-1>', on_press)
+        grip.bind('<B1-Motion>', on_drag)
+
+    def _resize_horizontal(self, row, idx_in_row, dx):
+        # Collect indices of frames in this row
+        indices = [i for i, (_t, r, _w, _h) in enumerate(frames_config) if r == row]
+        if idx_in_row >= len(indices) - 1:
+            return
+        left_i = indices[idx_in_row]
+        right_i = indices[idx_in_row + 1]
+        left_title, _r, left_w, left_h = frames_config[left_i]
+        right_title, _r2, right_w, right_h = frames_config[right_i]
+        # Apply delta with clamps
+        min_w = 80
+        new_left = max(min_w, left_w + dx)
+        delta = new_left - left_w
+        new_right = max(min_w, right_w - delta)
+        # If right clamped, adjust back left accordingly
+        if right_w - delta < min_w:
+            delta = right_w - min_w
+            new_left = left_w + delta
+            new_right = min_w
+        frames_config[left_i] = (left_title, row, new_left, left_h)
+        frames_config[right_i] = (right_title, row, new_right, right_h)
+
+        # Keep merged column width in sync across rows
+        if left_title in ("Beam Steering/Pulse", "Beam Pulse Spacer"):
+            self._sync_merged_column_width(new_left)
+        if right_title in ("Beam Steering/Pulse", "Beam Pulse Spacer"):
+            self._sync_merged_column_width(new_right)
+
+        self._reflow_all()
+
+    def _sync_merged_column_width(self, new_width):
+        """Ensure the merged middle column keeps the same width in all rows."""
+        for i, (t, r, w, h) in enumerate(frames_config):
+            if t in ("Beam Steering/Pulse", "Beam Pulse Spacer"):
+                frames_config[i] = (t, r, int(new_width), h)
+
+    def _resize_vertical(self, row, title, dy):
+        # Change height of a single frame in the row, row stack height follows max of row
+        min_h = 10
+        # Find the target frame index
+        for i, (t, r, w, h) in enumerate(frames_config):
+            if r == row and t == title:
+                new_h = max(min_h, h + dy)
+                frames_config[i] = (t, r, w, int(new_h))
+                break
+        self._reflow_all()
 
     def create_frames(self):
-        """
-        Create and configure frames for all subsystems based on frames_config.
-        Each frame is added to its designated row in the main pane.
-        """
+        """Create and place frames absolutely using frames_config (title, row, width, height)."""
         global frames_config
-
+        # Initial creation of frame widgets and titles
         for title, row, width, height in frames_config:
+            # Skip creating a real frame for spacer entries (still used for layout math)
+            if title == "Beam Pulse Spacer":
+                continue
+
             if width and height and title:
-                frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
+                frame = tk.Frame(self.main_pane, borderwidth=1, relief="solid", width=width, height=height)
                 frame.pack_propagate(False)
             else:
-                frame = tk.Frame(borderwidth=1, relief="solid")
-            if title not in ["Interlocks", "Machine Status"]:
+                frame = tk.Frame(self.main_pane, borderwidth=1, relief="solid")
+
+            # Skip adding title for certain frames
+            if title not in ["Interlocks", "Machine Status", "Messages Frame"]:
                 self.add_title(frame, title)
-            if title == "Messages Frame":
-                continue
-            self.frames[title] = frame
-            self.rows[row].add(frame, stretch='always')
+
+            # Adopt the Messages Frame container, else use created frame
+            if title == 'Messages Frame' and hasattr(self, 'messages_frame') and hasattr(self.messages_frame, 'frame'):
+                self.frames[title] = self.messages_frame.frame
+            else:
+                self.frames[title] = frame
+
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
-        self.rows[3].add(self.messages_frame.frame, stretch='always')
-        self.frames['Messages Frame'] = self.messages_frame.frame
+        # Place frames and create overlays
+        self._place_frames_and_overlays()
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -292,11 +460,14 @@ class EBEAMSystemDashboard:
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
         savedData = load_pane_states()
-
+        if not savedData:
+            return
         for i in range(len(frames_config)):
-            if frames_config[i][0] in savedData:
-                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
-        savedData = load_pane_states()
+            title = frames_config[i][0]
+            if title in savedData and savedData[title]:
+                dims = savedData[title]
+                if isinstance(dims, (list, tuple)) and len(dims) >= 2:
+                    frames_config[i] = (title, frames_config[i][1], dims[0], dims[1])
 
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
@@ -527,17 +698,19 @@ class EBEAMSystemDashboard:
         try:
             bp_port = self.com_ports.get('BeamPulse', self.com_ports.get('Beam Pulse', ''))
             if BeamPulseSubsystem is not None:
-                # Create BeamPulseSubsystem with GUI integrated
+                # Host Beam Pulse UI inside the merged pane
+                parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
                 self.subsystems['Beam Pulse'] = BeamPulseSubsystem(
-                    parent_frame=self.frames['Beam Pulse'], 
+                    parent_frame=parent, 
                     port=bp_port, 
                     unit=1, 
                     logger=self.logger
                 )
             else:
                 # placeholder if module not importable
-                self.frames['Beam Pulse'].pack_propagate(True)
-                lbl = ttk.Label(self.frames['Beam Pulse'], text="BeamPulse subsystem not installed")
+                container = self.frames.get('Beam Steering/Pulse', self.frames['Process Monitor'])
+                container.pack_propagate(True)
+                lbl = ttk.Label(container, text="BeamPulse subsystem not installed")
                 lbl.pack(fill=tk.BOTH, expand=True)
         except Exception as e:
             self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}")
@@ -547,7 +720,16 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
+        # Determine configured width/height for the Messages Frame from frames_config
+        msg_width = 600
+        msg_height = 400
+        for title, _row, w, h in frames_config:
+            if title == 'Messages Frame':
+                msg_width = w
+                msg_height = h
+                break
+        # Parent to main_pane in absolute layout; placement handled in create_frames
+        self.messages_frame = MessagesFrame(self.main_pane, width=msg_width, height=msg_height)
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
@@ -602,14 +784,16 @@ class EBEAMSystemDashboard:
                 ax.set_title(f'Beam {idx} amplitude')
                 ax.legend()
 
-            self._bp_canvas.draw()
+            if self._bp_canvas:
+                self._bp_canvas.draw()
 
         except Exception as e:
             self.logger.error(f'Error updating Beam Pulse UI: {e}')
 
         finally:
             # schedule next update
-            self.root.after(self._bp_update_interval_ms, self.update_beam_pulse)
+            interval = getattr(self, '_bp_update_interval_ms', 1000)
+            self.root.after(interval, self.update_beam_pulse)
 
     def create_com_port_frame(self, parent_frame):
         """
