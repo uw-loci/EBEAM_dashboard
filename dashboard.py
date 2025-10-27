@@ -22,25 +22,24 @@ except Exception:
 
 frames_config = [
     # Row 0
-    ("Interlocks", 0, 1916, 41),
+    ("Interlocks", 0, 1920, 30),
     
     # Row 1
-    ("Oil System", 1, 604, 130),
-    ("Beam Steering", 1, 778, 130),
-    ("Beam Energy", 1, 528, 130),
+    ("Oil System", 1, 520, 120),
+    ("Beam Energy", 1, 1400, 120),
     
     # Row 2
-    ("Vacuum System", 2, 604, 438),
-    ("Beam Pulse", 2, 777, 438),
-    ("Main Control", 2, 529, 438),
+    ("Vacuum System", 2, 550, 410),
+    ("Beam Pulse", 2, 1020, 410),
+    ("Main Control", 2, 350, 410),
     
     # Row 4
-    ("Process Monitor", 3, 339, 458),
-    ("Cathode Heating", 3, 1041, 458),
-    ("Messages Frame", 3, 539, 458),
+    ("Process Monitor", 3, 280, 465),
+    ("Cathode Heating", 3, 1200, 465),
+    ("Messages Frame", 3, 440, 465),
 
     # Row 5
-    ("Machine Status", 4, 1916, 38)
+    ("Machine Status", 4, 1920, 35)
 ]
 
 class EBEAMSystemDashboard:
@@ -721,8 +720,8 @@ class EBEAMSystemDashboard:
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
         # Determine configured width/height for the Messages Frame from frames_config
-        msg_width = 600
-        msg_height = 400
+        msg_width = 440
+        msg_height = 465
         for title, _row, w, h in frames_config:
             if title == 'Messages Frame':
                 msg_width = w
