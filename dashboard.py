@@ -20,72 +20,6 @@ try:
 except Exception:
     _HAS_MATPLOTLIB = False
 
-    import threading
-
-
-    class SafetyMonitor:
-        """Background monitor for BeamPulseSubsystem safety conditions.
-
-        The monitor polls a small set of registers and invokes `callback(reason)` when a fault
-        condition is detected. This is intentionally simple; replace thresholds and checks
-        with real PSU/interlock registers when available.
-        """
-
-        def __init__(self, beam_pulse, callback=None, interval=0.2):
-            self.bp = beam_pulse
-            self.callback = callback
-            self.interval = interval
-            self._stop = threading.Event()
-            self._thread = None
-
-            # example thresholds (tunable)
-            self.max_amplitude = 60000  # example: treat amplitude > this as fault
-            self.max_pulser_duty = 250  # near 8-bit max
-
-        def start(self):
-            if self._thread and self._thread.is_alive():
-                return
-            self._stop.clear()
-            self._thread = threading.Thread(target=self._run, name='SafetyMonitor', daemon=True)
-            self._thread.start()
-
-        def stop(self):
-            self._stop.set()
-            if self._thread:
-                self._thread.join(timeout=1.0)
-
-        def _run(self):
-            while not self._stop.is_set():
-                try:
-                    # check amplitudes
-                    for i in (1, 2, 3):
-                        val = self.bp.read_register(f'BEAM_{i}_AMPLITUDE')
-                        if val is not None and val > self.max_amplitude:
-                            reason = f'Beam {i} amplitude too high: {val}'
-                            if self.callback:
-                                self.callback(reason)
-                            # perform safe shutdown
-                            self.bp.safe_shutdown(reason)
-                            self._stop.set()
-                            break
-
-                    # check pulser duties
-                    for i in (1, 2, 3):
-                        val = self.bp.read_register(f'PULSER_{i}_DUTY')
-                        if val is not None and val > self.max_pulser_duty:
-                            reason = f'Pulser {i} duty too high: {val}'
-                            if self.callback:
-                                self.callback(reason)
-                            self.bp.safe_shutdown(reason)
-                            self._stop.set()
-                            break
-
-                except Exception:
-                    # keep running; will try again
-                    pass
-
-                self._stop.wait(self.interval)
-
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1916, 41),
@@ -619,39 +553,6 @@ class EBEAMSystemDashboard:
     def create_machine_status_frame(self):
         """Create a frame for displaying machine status information."""
         self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
-
-    def toggle_safety_monitor(self):
-        if not self._safety_running.get():
-            # start monitor
-            self._safety_monitor = SafetyMonitor(self.beam_pulse, callback=self.on_safety_trigger)
-            self._safety_monitor.start()
-            self._safety_running.set(True)
-            self._safety_btn.config(text='Stop Safety Monitor')
-        else:
-            if self._safety_monitor:
-                self._safety_monitor.stop()
-            self._safety_running.set(False)
-            self._safety_btn.config(text='Start Safety Monitor')
-
-    def on_safety_trigger(self, reason: str):
-        # invoked when SafetyMonitor detects a fault
-        message = f"Safety trigger: {reason}"
-        self.logger.warning(message)
-        # perform UI update / flash
-        messagebox.showwarning('Safety Trigger', message)
-
-        # ring buffers for past and future samples (simple lists with capped length)
-        self._bp_history_len = 200
-        self._bp_future_len = 50
-        self._bp_data = {
-            1: {'past': [0] * self._bp_history_len, 'future': [0] * self._bp_future_len},
-            2: {'past': [0] * self._bp_history_len, 'future': [0] * self._bp_future_len},
-            3: {'past': [0] * self._bp_history_len, 'future': [0] * self._bp_future_len},
-        }
-
-        # start periodic updates
-        self._bp_update_interval_ms = 200  # update 5x per second
-        self.root.after(self._bp_update_interval_ms, self.update_beam_pulse)
 
     def update_beam_pulse(self):
         """Poll beam_pulse subsystem for new values and update plots."""
