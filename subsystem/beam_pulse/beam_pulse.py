@@ -5,6 +5,7 @@ from typing import Optional, Dict
 import os
 import sys
 import math
+import csv
 
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import LogLevel
@@ -151,6 +152,10 @@ class BeamPulseSubsystem:
                 if logger:
                     logger.log(f"Could not load toggle images: {e}", LogLevel.WARNING)
 
+        # LUT Dataset variables
+        self.lut_dataset_var = tk.StringVar(value="None")
+        self.lut_data = None
+
         # Hardware connection (only if port is provided)
         self.modbus = None
         if port:
@@ -278,25 +283,25 @@ class BeamPulseSubsystem:
 
     def setup_config_tab(self):
         """Setup the Config tab with deflection amplitude bounds settings."""
-        # Main container frame
-        config_frame = ttk.Frame(self.config_tab, padding="10")
+        # Main container frame (reduced padding)
+        config_frame = ttk.Frame(self.config_tab, padding="5")  # Reduced padding
         config_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Title
+        # Title (smaller font and less padding)
         title_label = ttk.Label(config_frame, text="Deflection Configuration", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 10))
+                               font=("Arial", 12, "bold"))  # Reduced font size
+        title_label.pack(pady=(0, 5))  # Reduced padding
         
-        # Deflection bounds frame
+        # Deflection bounds frame (reduced padding)
         bounds_frame = ttk.LabelFrame(config_frame, text="Deflection Amplitude Bounds", 
-                                     padding="10", labelanchor="n")
-        bounds_frame.pack(fill=tk.X, pady=(0, 10))
+                                     padding="5", labelanchor="n")  # Reduced padding
+        bounds_frame.pack(fill=tk.X, pady=(0, 5))  # Reduced spacing
         
         # Lower bound setting
         lower_frame = ttk.Frame(bounds_frame)
-        lower_frame.pack(fill=tk.X, pady=5)
+        lower_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.lower_bound_spinbox = tk.Spinbox(
             lower_frame,
             from_=-50.0,
@@ -310,9 +315,9 @@ class BeamPulseSubsystem:
         
         # Upper bound setting
         upper_frame = ttk.Frame(bounds_frame)
-        upper_frame.pack(fill=tk.X, pady=5)
+        upper_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.upper_bound_spinbox = tk.Spinbox(
             upper_frame,
             from_=-50.0,
@@ -324,16 +329,16 @@ class BeamPulseSubsystem:
         )
         self.upper_bound_spinbox.pack(side=tk.RIGHT)
         
-        # Deflection Frequency bounds frame
+        # Deflection Frequency bounds frame (reduced padding)
         frequency_frame = ttk.LabelFrame(config_frame, text="Deflection Frequency Bounds", 
-                                     padding="10", labelanchor="n")
-        frequency_frame.pack(fill=tk.X, pady=(0, 10))
+                                     padding="5", labelanchor="n")  # Reduced padding
+        frequency_frame.pack(fill=tk.X, pady=(0, 5))  # Reduced spacing
         
         # Lower bound setting
         frequency_lower_frame = ttk.Frame(frequency_frame)
-        frequency_lower_frame.pack(fill=tk.X, pady=5)
+        frequency_lower_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(frequency_lower_frame, text="Lower Bound (Hz):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(frequency_lower_frame, text="Lower Bound (Hz):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.frequency_lower_bound_spinbox = tk.Spinbox(
             frequency_lower_frame,
             from_= 0.0,
@@ -347,9 +352,9 @@ class BeamPulseSubsystem:
         
         # Upper bound setting
         frequency_upper_frame = ttk.Frame(frequency_frame)
-        frequency_upper_frame.pack(fill=tk.X, pady=5)
+        frequency_upper_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(frequency_upper_frame, text="Upper Bound (Hz):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(frequency_upper_frame, text="Upper Bound (Hz):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.frequency_upper_bound_spinbox = tk.Spinbox(
             frequency_upper_frame,
             from_= 0.0,
@@ -361,15 +366,37 @@ class BeamPulseSubsystem:
         )
         self.frequency_upper_bound_spinbox.pack(side=tk.RIGHT)
         
+        # LUT Dataset Configuration frame (moved above Apply button)
+        lut_frame = ttk.LabelFrame(config_frame, text="Configure LUT Dataset", 
+                                  padding="5", labelanchor="n")  # Reduced padding
+        lut_frame.pack(fill=tk.X, pady=(5, 0))  # Reduced vertical padding
+        
+        # LUT Dataset dropdown (compact layout)
+        lut_selection_frame = ttk.Frame(lut_frame)
+        lut_selection_frame.pack(fill=tk.X, pady=2)  # Reduced padding
+        
+        ttk.Label(lut_selection_frame, text="Dataset:", font=("Arial", 9)).pack(side=tk.LEFT)  # Shorter label, smaller font
+        
+        # Get available CSV files
+        self.lut_dropdown = ttk.Combobox(
+            lut_selection_frame,
+            textvariable=self.lut_dataset_var,
+            values=self.get_available_lut_files(),
+            state="readonly",
+            width=20  # Reduced width
+        )
+        self.lut_dropdown.pack(side=tk.RIGHT, padx=(5, 0))
+        self.lut_dropdown.bind("<<ComboboxSelected>>", self.on_lut_dataset_change)
+        
         # Apply button
         apply_button = ttk.Button(config_frame, text="Apply Settings", 
                                  command=self.apply_deflection_bounds)
-        apply_button.pack(pady=(10, 0))
+        apply_button.pack(pady=(5, 0))  # Reduced padding
         
         # Status display
         self.config_status_label = ttk.Label(config_frame, text="Settings ready to apply", 
-                                           font=("Arial", 9), foreground="blue")
-        self.config_status_label.pack(pady=(10, 0))
+                                           font=("Arial", 8), foreground="blue")  # Smaller font
+        self.config_status_label.pack(pady=(5, 0))  # Reduced padding
 
     def apply_deflection_bounds(self):
         """Apply the deflection amplitude bounds settings."""
@@ -395,14 +422,25 @@ class BeamPulseSubsystem:
             self.frequency_lower_bound.set(frequency_lower_bound)
             self.frequency_upper_bound.set(frequency_upper_bound)
             
-            # Update status
+            # Get LUT dataset info for status display
+            dataset_info = ""
+            current_dataset = self.lut_dataset_var.get()
+            if current_dataset and current_dataset != "None":
+                if self.lut_data and len(self.lut_data) > 0:
+                    dataset_info = f", Dataset: {current_dataset} ({len(self.lut_data)} pts)"
+                else:
+                    dataset_info = f", Dataset: {current_dataset} (error)"
+            else:
+                dataset_info = ", Dataset: None"
+            
+            # Update status with compact display
             self.config_status_label.configure(
-                text=f"Applied: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps, Lower={frequency_lower_bound:.1f} Hz, Upper={frequency_upper_bound:.1f} Hz", 
+                text=f"Applied: Amp={lower_bound:.1f}-{upper_bound:.1f}A, Freq={frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz{dataset_info}", 
                 foreground="green"
             )
             
-            # Log the change
-            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps, Lower Frequency ={frequency_lower_bound:.1f} Hz, Upper Frequency={frequency_upper_bound:.1f} Hz", 
+            # Log the change (including dataset info)
+            self._log(f"Settings applied - Deflection bounds: {lower_bound:.1f}-{upper_bound:.1f}A, Frequency: {frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz{dataset_info}", 
                      LogLevel.INFO)
             
         except ValueError as e:
@@ -421,6 +459,143 @@ class BeamPulseSubsystem:
         """Check if a deflection value is within the configured bounds."""
         bounds = self.get_deflection_bounds()
         return bounds['lower'] <= value <= bounds['upper']
+
+    def get_available_lut_files(self):
+        """Get list of available CSV files from the cathode characterization folder."""
+        try:
+            # Get the scripts/cathode_characterization directory
+            script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                     "scripts", "cathode_characterization")
+            
+            if not os.path.exists(script_dir):
+                self._log(f"LUT directory not found: {script_dir}", LogLevel.WARNING)
+                return ["None"]
+            
+            csv_files = []
+            for file in os.listdir(script_dir):
+                if file.endswith('.csv'):
+                    csv_files.append(file)
+            
+            if not csv_files:
+                return ["None"]
+            
+            # Add "None" option at the beginning
+            return ["None"] + sorted(csv_files)
+            
+        except Exception as e:
+            self._log(f"Error scanning for LUT files: {e}", LogLevel.ERROR)
+            return ["None"]
+
+    def on_lut_dataset_change(self, event=None):
+        """Handle LUT dataset selection change."""
+        selected_file = self.lut_dataset_var.get()
+        
+        if selected_file == "None":
+            self.lut_data = None
+            self._log("LUT dataset cleared", LogLevel.INFO)
+            return
+        
+        try:
+            # Load the CSV file
+            script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                     "scripts", "cathode_characterization")
+            file_path = os.path.join(script_dir, selected_file)
+            
+            self.lut_data = self.load_lut_csv(file_path)
+            
+            if self.lut_data:
+                row_count = len(self.lut_data)
+                self._log(f"LUT dataset loaded: {selected_file} with {row_count} data points", LogLevel.INFO)
+            else:
+                self._log(f"Error: Failed to load dataset {selected_file}", LogLevel.ERROR)
+                
+        except Exception as e:
+            self._log(f"Error loading LUT dataset {selected_file}: {e}", LogLevel.ERROR)
+
+    def load_lut_csv(self, file_path):
+        """Load CSV file with deflection_distance and current_amplitude columns."""
+        try:
+            lut_data = []
+            
+            with open(file_path, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                # Check if required columns exist
+                if 'deflection_distance' not in reader.fieldnames or 'current_amplitude' not in reader.fieldnames:
+                    raise ValueError(f"CSV file must contain 'deflection_distance' and 'current_amplitude' columns. Found: {reader.fieldnames}")
+                
+                for row in reader:
+                    try:
+                        deflection_distance = float(row['deflection_distance'])
+                        current_amplitude = float(row['current_amplitude'])
+                        lut_data.append({
+                            'deflection_distance': deflection_distance,
+                            'current_amplitude': current_amplitude
+                        })
+                    except ValueError as e:
+                        self._log(f"Skipping invalid row in LUT file: {row} - {e}", LogLevel.WARNING)
+                        continue
+            
+            # Sort by deflection distance for interpolation
+            lut_data.sort(key=lambda x: x['deflection_distance'])
+            return lut_data
+            
+        except Exception as e:
+            self._log(f"Error reading LUT CSV file {file_path}: {e}", LogLevel.ERROR)
+            return None
+
+    def get_current_amplitude_for_distance(self, deflection_distance):
+        """Get current amplitude for given deflection distance using LUT interpolation."""
+        if not self.lut_data or len(self.lut_data) == 0:
+            return None
+        
+        # Simple linear interpolation
+        try:
+            # If distance is outside bounds, return boundary values
+            if deflection_distance <= self.lut_data[0]['deflection_distance']:
+                return self.lut_data[0]['current_amplitude']
+            
+            if deflection_distance >= self.lut_data[-1]['deflection_distance']:
+                return self.lut_data[-1]['current_amplitude']
+            
+            # Find surrounding points for interpolation
+            for i in range(len(self.lut_data) - 1):
+                if (self.lut_data[i]['deflection_distance'] <= deflection_distance <= 
+                    self.lut_data[i + 1]['deflection_distance']):
+                    
+                    # Linear interpolation
+                    x0, y0 = self.lut_data[i]['deflection_distance'], self.lut_data[i]['current_amplitude']
+                    x1, y1 = self.lut_data[i + 1]['deflection_distance'], self.lut_data[i + 1]['current_amplitude']
+                    
+                    # Interpolate
+                    if x1 - x0 == 0:  # Avoid division by zero
+                        return y0
+                    
+                    interpolated_amplitude = y0 + (y1 - y0) * (deflection_distance - x0) / (x1 - x0)
+                    return interpolated_amplitude
+            
+            return None
+            
+        except Exception as e:
+            self._log(f"Error interpolating LUT data: {e}", LogLevel.ERROR)
+            return None
+
+    def refresh_lut_dropdown(self):
+        """Refresh the LUT dropdown with current available CSV files."""
+        if hasattr(self, 'lut_dropdown'):
+            try:
+                current_files = self.get_available_lut_files()
+                self.lut_dropdown['values'] = current_files
+                
+                # If current selection is no longer available, reset to "None"
+                current_selection = self.lut_dataset_var.get()
+                if current_selection not in current_files:
+                    self.lut_dataset_var.set("None")
+                    self.lut_data = None
+                    
+                self._log("LUT dropdown refreshed", LogLevel.DEBUG)
+            except Exception as e:
+                self._log(f"Error refreshing LUT dropdown: {e}", LogLevel.ERROR)
 
     def create_wave_gen_control(self, parent, column):
         """Create Wave Gen toggle control."""
