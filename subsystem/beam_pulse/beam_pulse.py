@@ -156,6 +156,9 @@ class BeamPulseSubsystem:
         self.lut_dataset_var = tk.StringVar(value="None")
         self.lut_data = None
 
+        # Graph visibility control
+        self.graph_history_visible = True
+
         # Hardware connection (only if port is provided)
         self.modbus = None
         if port:
@@ -239,9 +242,30 @@ class BeamPulseSubsystem:
         plots_container = ttk.Frame(bottom_frame)
         plots_container.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
-        # Print Bed label above plots
-        print_bed_label = ttk.Label(plots_container, text="Print Bed", font=("Arial", 10, "bold"))
-        print_bed_label.pack(pady=(0, 10))
+        # Print Bed label and Clear Graph button frame
+        header_frame = ttk.Frame(plots_container)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Left spacer to help center the title
+        left_spacer = ttk.Frame(header_frame)
+        left_spacer.pack(side=tk.LEFT, expand=True)
+        
+        # Print Bed label centered
+        print_bed_label = ttk.Label(header_frame, text="Print Bed", font=("Arial", 10, "bold"))
+        print_bed_label.pack(side=tk.LEFT)
+        
+        # Right spacer to balance the layout
+        right_spacer = ttk.Frame(header_frame)
+        right_spacer.pack(side=tk.LEFT, expand=True)
+        
+        # Clear Graph / Show All button on the far right
+        self.clear_graph_button = ttk.Button(
+            header_frame,
+            text="Clear Graph",
+            command=self.toggle_graph_visibility,
+            width=12
+        )
+        self.clear_graph_button.pack(side=tk.RIGHT)
         
         # Plots frame
         plots_frame = ttk.Frame(plots_container)
@@ -901,6 +925,21 @@ class BeamPulseSubsystem:
         
         self._log(f"Wave Gen {'enabled' if self.wave_gen_toggle_state else 'disabled'}", LogLevel.DEBUG)
 
+    def toggle_graph_visibility(self):
+        """Toggle visibility of beam position history on graphs."""
+        self.graph_history_visible = not self.graph_history_visible
+        
+        if self.graph_history_visible:
+            # Show all history - redraw everything
+            self.redraw_all_beam_plots()
+            self.clear_graph_button.configure(text="Clear Graph")
+            self._log("Beam position history shown", LogLevel.DEBUG)
+        else:
+            # Clear all visible plots but keep data
+            self.clear_all_beam_plots_display()
+            self.clear_graph_button.configure(text="Show All")
+            self._log("Beam position history hidden", LogLevel.DEBUG)
+
     def on_wave_gen_change(self, value=None):
         """Handle wave generator slider change (legacy method for compatibility)."""
         self._log(f"Wave Gen changed to: {self.wave_gen_enabled.get()}", LogLevel.DEBUG)
@@ -1112,6 +1151,7 @@ class BeamPulseSubsystem:
             # Move current to history
             self.beam_history[beam_index].append(self.beam_current[beam_index])
         
+        # Always create the plot objects for current position (but may not be visible)
         # Colors: blue for history (completed), red for current
         history_color = 'blue'
         current_color = 'red'
@@ -1134,16 +1174,27 @@ class BeamPulseSubsystem:
             current_plot = ax.plot(x, y, '-', color=current_color, linewidth=2)[0]
             self.beam_current[beam_index] = current_plot
         
-        # Redraw history in blue
-        self.redraw_beam_history(beam_index)
-        
-        # Update plot (no legend)
-        if hasattr(self, '_bp_canvas'):
-            self._bp_canvas.draw()
+        # Only redraw history and update canvas if graphs are visible
+        if self.graph_history_visible:
+            # Redraw history in blue
+            self.redraw_beam_history(beam_index)
+            
+            # Update plot (no legend)
+            if hasattr(self, '_bp_canvas'):
+                self._bp_canvas.draw()
+        else:
+            # If graphs are hidden, remove the current plot immediately
+            if self.beam_current[beam_index] is not None:
+                self.beam_current[beam_index].remove()
+                self.beam_current[beam_index] = None
 
     def redraw_beam_history(self, beam_index: int):
         """Redraw beam history in blue color."""
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        # Only redraw if graphs are visible
+        if not self.graph_history_visible:
             return
         
         ax = self._bp_axes[beam_index]
@@ -1165,6 +1216,46 @@ class BeamPulseSubsystem:
                 else:  # Point plot
                     new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
                 self.beam_plot_objects[beam_index].append(new_obj)
+
+    def clear_all_beam_plots_display(self):
+        """Clear all visible beam plots while keeping the data in memory."""
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        for beam_index in range(3):
+            ax = self._bp_axes[beam_index]
+            
+            # Remove current position plot
+            if self.beam_current[beam_index] is not None:
+                self.beam_current[beam_index].remove()
+                self.beam_current[beam_index] = None
+            
+            # Remove all history plot objects
+            for obj in self.beam_plot_objects[beam_index]:
+                obj.remove()
+            self.beam_plot_objects[beam_index].clear()
+        
+        # Update canvas
+        if hasattr(self, '_bp_canvas'):
+            self._bp_canvas.draw()
+
+    def redraw_all_beam_plots(self):
+        """Redraw all beam plots (history and current positions)."""
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        for beam_index in range(3):
+            # Redraw history for this beam
+            self.redraw_beam_history(beam_index)
+            
+            # If beam is currently on, redraw current position
+            if self.beam_on_status[beam_index] and self.beam_current[beam_index] is not None:
+                # Current position should already be visible, but ensure it's drawn
+                pass
+        
+        # Update canvas
+        if hasattr(self, '_bp_canvas'):
+            self._bp_canvas.draw()
 
     # Deflection stats update methods
     def update_deflection_stats(self):
