@@ -1146,76 +1146,80 @@ class BeamPulseSubsystem:
         ax = self._bp_axes[beam_index]
         wave_type = position_data['type']
         
-        # Clear previous current position (if any)
+        # Always move previous current position to history (if it exists)
         if self.beam_current[beam_index] is not None:
-            # Move current to history
             self.beam_history[beam_index].append(self.beam_current[beam_index])
         
-        # Always create the plot objects for current position (but may not be visible)
+        # Always create plot objects for data persistence, regardless of visibility
         # Colors: blue for history (completed), red for current
         history_color = 'blue'
         current_color = 'red'
         
+        # Create the plot object based on wave type
         if wave_type == "fixed":
             # Plot single point
             x, y = position_data['x'], position_data['y']
             current_plot = ax.plot(x, y, 'o', color=current_color, markersize=8)[0]
-            self.beam_current[beam_index] = current_plot
             
         elif wave_type == "pulse":
             # Plot pulse as a larger dot
             x, y = position_data['x'], position_data['y']
             current_plot = ax.plot(x, y, 's', color=current_color, markersize=10)[0]
-            self.beam_current[beam_index] = current_plot
             
         elif wave_type in ["sine", "triangle"]:
             # Plot wave path
             x, y = position_data['x'], position_data['y']
             current_plot = ax.plot(x, y, '-', color=current_color, linewidth=2)[0]
-            self.beam_current[beam_index] = current_plot
         
-        # Only redraw history and update canvas if graphs are visible
-        if self.graph_history_visible:
-            # Redraw history in blue
-            self.redraw_beam_history(beam_index)
-            
-            # Update plot (no legend)
-            if hasattr(self, '_bp_canvas'):
-                self._bp_canvas.draw()
+        # Store the current plot object
+        self.beam_current[beam_index] = current_plot
+        
+        # Handle visibility - if hidden, remove from display but keep object for history
+        if not self.graph_history_visible:
+            # Hide the current plot but keep the object for data persistence
+            current_plot.remove()
         else:
-            # If graphs are hidden, remove the current plot immediately
-            if self.beam_current[beam_index] is not None:
-                self.beam_current[beam_index].remove()
-                self.beam_current[beam_index] = None
+            # Graphs are visible - redraw history to ensure proper colors
+            self.redraw_beam_history(beam_index)
+        
+        # Always update canvas if graphs are visible
+        if self.graph_history_visible and hasattr(self, '_bp_canvas'):
+            self._bp_canvas.draw()
 
     def redraw_beam_history(self, beam_index: int):
         """Redraw beam history in blue color."""
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
         
-        # Only redraw if graphs are visible
-        if not self.graph_history_visible:
-            return
-        
         ax = self._bp_axes[beam_index]
         history_color = 'blue'
         
-        # Remove old history plot objects
+        # Remove old history plot objects from display
         for obj in self.beam_plot_objects[beam_index]:
-            obj.remove()
+            try:
+                obj.remove()
+            except:
+                pass  # Already removed
         self.beam_plot_objects[beam_index].clear()
         
-        # Redraw all history items
+        # Only redraw if graphs should be visible
+        if not self.graph_history_visible:
+            return
+        
+        # Redraw all history items from stored data
         for hist_item in self.beam_history[beam_index]:
             if hist_item is not None:
-                # Create new plot object in history color
-                xdata, ydata = hist_item.get_data()
-                marker = hist_item.get_marker()
-                if marker == 'None':  # Line plot
-                    new_obj = ax.plot(xdata, ydata, '-', color=history_color, alpha=0.7, linewidth=1)[0]
-                else:  # Point plot
-                    new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
-                self.beam_plot_objects[beam_index].append(new_obj)
+                try:
+                    # Create new plot object in history color
+                    xdata, ydata = hist_item.get_data()
+                    marker = hist_item.get_marker()
+                    if marker == 'None' or marker is None:  # Line plot
+                        new_obj = ax.plot(xdata, ydata, '-', color=history_color, alpha=0.7, linewidth=1)[0]
+                    else:  # Point plot
+                        new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
+                    self.beam_plot_objects[beam_index].append(new_obj)
+                except Exception as e:
+                    self._log(f"Error redrawing history item for beam {beam_index}: {e}", LogLevel.WARNING)
 
     def clear_all_beam_plots_display(self):
         """Clear all visible beam plots while keeping the data in memory."""
@@ -1225,14 +1229,15 @@ class BeamPulseSubsystem:
         for beam_index in range(3):
             ax = self._bp_axes[beam_index]
             
-            # Remove current position plot
+            # Remove current position plot from display but keep reference
             if self.beam_current[beam_index] is not None:
                 self.beam_current[beam_index].remove()
-                self.beam_current[beam_index] = None
+                # Don't set to None - keep the object for restoration
             
-            # Remove all history plot objects
+            # Remove all history plot objects from display but keep references in beam_history
             for obj in self.beam_plot_objects[beam_index]:
                 obj.remove()
+            # Clear the display objects list but keep beam_history intact
             self.beam_plot_objects[beam_index].clear()
         
         # Update canvas
@@ -1248,10 +1253,33 @@ class BeamPulseSubsystem:
             # Redraw history for this beam
             self.redraw_beam_history(beam_index)
             
-            # If beam is currently on, redraw current position
-            if self.beam_on_status[beam_index] and self.beam_current[beam_index] is not None:
-                # Current position should already be visible, but ensure it's drawn
-                pass
+            # If there's a current beam position, redraw it in the correct color
+            if self.beam_current[beam_index] is not None:
+                # The current position object exists but was removed from display
+                # We need to recreate it on the axes
+                try:
+                    # Get the data from the existing plot object
+                    xdata, ydata = self.beam_current[beam_index].get_data()
+                    marker = self.beam_current[beam_index].get_marker()
+                    
+                    # Create new current position plot in red on the correct axes
+                    ax = self._bp_axes[beam_index]
+                    if marker and marker != 'None':  # Point plot
+                        if marker == 'o':
+                            new_plot = ax.plot(xdata, ydata, 'o', color='red', markersize=8)[0]
+                        elif marker == 's':
+                            new_plot = ax.plot(xdata, ydata, 's', color='red', markersize=10)[0]
+                        else:
+                            new_plot = ax.plot(xdata, ydata, marker, color='red', markersize=8)[0]
+                    else:  # Line plot
+                        new_plot = ax.plot(xdata, ydata, '-', color='red', linewidth=2)[0]
+                    
+                    # Replace the old object with the new one
+                    self.beam_current[beam_index] = new_plot
+                    
+                except Exception as e:
+                    # If there's any issue, just log it and continue
+                    self._log(f"Error redrawing current beam position {beam_index}: {e}", LogLevel.WARNING)
         
         # Update canvas
         if hasattr(self, '_bp_canvas'):
