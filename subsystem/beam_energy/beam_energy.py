@@ -101,7 +101,7 @@ class BeamEnergySubsystem:
         
         # Configure main grid
         ps_container.grid_rowconfigure(0, weight=1)
-        
+
     def create_glassman_indicator(self, parent_frame):
         """Create a small Glassman power supply output indicator, centered below title."""
         glassman_frame = ttk.LabelFrame(
@@ -383,7 +383,7 @@ class BeamEnergySubsystem:
                     self.actual_currents[index].set("-- mA")
 
         except Exception as e:  
-            self.logger.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
+            self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
             for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
             self.attempt_knob_box_reconnect()
@@ -440,6 +440,13 @@ class BeamEnergySubsystem:
 
         self.cancel_updates()
         self.close_com_ports()
+
+    def log(self, message, level=LogLevel.INFO):
+        """Log a message with the specified level if a logger is configured."""
+        if self.logger:
+            self.logger.log(message, level)
+        else:
+            print(f"{level.name}: {message}")
 
 # TODO: Add logger function like every other subsystem
 # TODO: Add output status updating when supported by firmware
