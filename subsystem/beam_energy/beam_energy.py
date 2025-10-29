@@ -361,6 +361,23 @@ class BeamEnergySubsystem:
                     v_read = data.get('actual_voltage_V', None)
                     i_read = data.get('actual_current_mA', None)
                     overcurrent = data.get('overcurrent', None)
+                    mode_val = data.get('mode', 255)
+                    # Map mode integer to human-readable label for logging
+                    mode_map = {0: "3kV Bertan", 1: "20kV Bertan", 2: "1kV Matsusada", 255: "error"}
+                    mode_text = mode_map.get(mode_val, str(mode_val))
+
+                    # print structured DEBUG log line per unit when measurements are present
+                    if (v_read is not None) and (i_read is not None):
+                        try:
+                            voltage_V = float(v_read)
+                            current_A = float(i_read) / 1000.0  # mA -> A
+                            ps_number = unit_id  # keep 1-5 numbering aligned with UNIT_IDS
+                            self.log(
+                                f"Power supply {ps_number} readings - Voltage: {voltage_V:.3f}V, Current: {current_A:.6f}A, Mode: {mode_text}",
+                                LogLevel.DEBUG
+                            )
+                        except Exception:
+                            pass # If conversion fails, skip logging
 
                     self.update_connection_status(index, True)
                 else:
@@ -448,7 +465,6 @@ class BeamEnergySubsystem:
         else:
             print(f"{level.name}: {message}")
 
-# TODO: Add logger function like every other subsystem
 # TODO: Add output status updating when supported by firmware
 # TODO: Implement overcurrent handling when triggered
 # TODO: Add logging of data in update_readings for post analysis
