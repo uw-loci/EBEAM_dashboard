@@ -5,6 +5,7 @@ from typing import Optional, Dict
 import os
 import sys
 import math
+import csv
 
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import LogLevel
@@ -151,6 +152,13 @@ class BeamPulseSubsystem:
                 if logger:
                     logger.log(f"Could not load toggle images: {e}", LogLevel.WARNING)
 
+        # LUT Dataset variables
+        self.lut_dataset_var = tk.StringVar(value="None")
+        self.lut_data = None
+
+        # Graph visibility control
+        self.graph_history_visible = True
+
         # Hardware connection (only if port is provided)
         self.modbus = None
         if port:
@@ -234,9 +242,30 @@ class BeamPulseSubsystem:
         plots_container = ttk.Frame(bottom_frame)
         plots_container.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
-        # Print Bed label above plots
-        print_bed_label = ttk.Label(plots_container, text="Print Bed", font=("Arial", 10, "bold"))
-        print_bed_label.pack(pady=(0, 10))
+        # Print Bed label and Clear Graph button frame
+        header_frame = ttk.Frame(plots_container)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Left spacer to help center the title
+        left_spacer = ttk.Frame(header_frame)
+        left_spacer.pack(side=tk.LEFT, expand=True)
+        
+        # Print Bed label centered
+        print_bed_label = ttk.Label(header_frame, text="Print Bed", font=("Arial", 10, "bold"))
+        print_bed_label.pack(side=tk.LEFT)
+        
+        # Right spacer to balance the layout
+        right_spacer = ttk.Frame(header_frame)
+        right_spacer.pack(side=tk.LEFT, expand=True)
+        
+        # Clear Graph / Show All button on the far right
+        self.clear_graph_button = ttk.Button(
+            header_frame,
+            text="Clear Graph",
+            command=self.toggle_graph_visibility,
+            width=12
+        )
+        self.clear_graph_button.pack(side=tk.RIGHT)
         
         # Plots frame
         plots_frame = ttk.Frame(plots_container)
@@ -278,25 +307,25 @@ class BeamPulseSubsystem:
 
     def setup_config_tab(self):
         """Setup the Config tab with deflection amplitude bounds settings."""
-        # Main container frame
-        config_frame = ttk.Frame(self.config_tab, padding="10")
+        # Main container frame (reduced padding)
+        config_frame = ttk.Frame(self.config_tab, padding="5")  # Reduced padding
         config_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Title
+        # Title (smaller font and less padding)
         title_label = ttk.Label(config_frame, text="Deflection Configuration", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 10))
+                               font=("Arial", 12, "bold"))  # Reduced font size
+        title_label.pack(pady=(0, 5))  # Reduced padding
         
-        # Deflection bounds frame
+        # Deflection bounds frame (reduced padding)
         bounds_frame = ttk.LabelFrame(config_frame, text="Deflection Amplitude Bounds", 
-                                     padding="10", labelanchor="n")
-        bounds_frame.pack(fill=tk.X, pady=(0, 10))
+                                     padding="5", labelanchor="n")  # Reduced padding
+        bounds_frame.pack(fill=tk.X, pady=(0, 5))  # Reduced spacing
         
         # Lower bound setting
         lower_frame = ttk.Frame(bounds_frame)
-        lower_frame.pack(fill=tk.X, pady=5)
+        lower_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(lower_frame, text="Lower Bound (A):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.lower_bound_spinbox = tk.Spinbox(
             lower_frame,
             from_=-50.0,
@@ -310,9 +339,9 @@ class BeamPulseSubsystem:
         
         # Upper bound setting
         upper_frame = ttk.Frame(bounds_frame)
-        upper_frame.pack(fill=tk.X, pady=5)
+        upper_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(upper_frame, text="Upper Bound (A):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.upper_bound_spinbox = tk.Spinbox(
             upper_frame,
             from_=-50.0,
@@ -324,16 +353,16 @@ class BeamPulseSubsystem:
         )
         self.upper_bound_spinbox.pack(side=tk.RIGHT)
         
-        # Deflection Frequency bounds frame
+        # Deflection Frequency bounds frame (reduced padding)
         frequency_frame = ttk.LabelFrame(config_frame, text="Deflection Frequency Bounds", 
-                                     padding="10", labelanchor="n")
-        frequency_frame.pack(fill=tk.X, pady=(0, 10))
+                                     padding="5", labelanchor="n")  # Reduced padding
+        frequency_frame.pack(fill=tk.X, pady=(0, 5))  # Reduced spacing
         
         # Lower bound setting
         frequency_lower_frame = ttk.Frame(frequency_frame)
-        frequency_lower_frame.pack(fill=tk.X, pady=5)
+        frequency_lower_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(frequency_lower_frame, text="Lower Bound (Hz):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(frequency_lower_frame, text="Lower Bound (Hz):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.frequency_lower_bound_spinbox = tk.Spinbox(
             frequency_lower_frame,
             from_= 0.0,
@@ -347,9 +376,9 @@ class BeamPulseSubsystem:
         
         # Upper bound setting
         frequency_upper_frame = ttk.Frame(frequency_frame)
-        frequency_upper_frame.pack(fill=tk.X, pady=5)
+        frequency_upper_frame.pack(fill=tk.X, pady=2)  # Reduced padding
         
-        ttk.Label(frequency_upper_frame, text="Upper Bound (Hz):", font=("Arial", 10)).pack(side=tk.LEFT)
+        ttk.Label(frequency_upper_frame, text="Upper Bound (Hz):", font=("Arial", 9)).pack(side=tk.LEFT)  # Smaller font
         self.frequency_upper_bound_spinbox = tk.Spinbox(
             frequency_upper_frame,
             from_= 0.0,
@@ -361,15 +390,37 @@ class BeamPulseSubsystem:
         )
         self.frequency_upper_bound_spinbox.pack(side=tk.RIGHT)
         
+        # LUT Dataset Configuration frame (moved above Apply button)
+        lut_frame = ttk.LabelFrame(config_frame, text="Configure LUT Dataset", 
+                                  padding="5", labelanchor="n")  # Reduced padding
+        lut_frame.pack(fill=tk.X, pady=(5, 0))  # Reduced vertical padding
+        
+        # LUT Dataset dropdown (compact layout)
+        lut_selection_frame = ttk.Frame(lut_frame)
+        lut_selection_frame.pack(fill=tk.X, pady=2)  # Reduced padding
+        
+        ttk.Label(lut_selection_frame, text="Dataset:", font=("Arial", 9)).pack(side=tk.LEFT)  # Shorter label, smaller font
+        
+        # Get available CSV files
+        self.lut_dropdown = ttk.Combobox(
+            lut_selection_frame,
+            textvariable=self.lut_dataset_var,
+            values=self.get_available_lut_files(),
+            state="readonly",
+            width=20  # Reduced width
+        )
+        self.lut_dropdown.pack(side=tk.RIGHT, padx=(5, 0))
+        self.lut_dropdown.bind("<<ComboboxSelected>>", self.on_lut_dataset_change)
+        
         # Apply button
         apply_button = ttk.Button(config_frame, text="Apply Settings", 
                                  command=self.apply_deflection_bounds)
-        apply_button.pack(pady=(10, 0))
+        apply_button.pack(pady=(5, 0))  # Reduced padding
         
         # Status display
         self.config_status_label = ttk.Label(config_frame, text="Settings ready to apply", 
-                                           font=("Arial", 9), foreground="blue")
-        self.config_status_label.pack(pady=(10, 0))
+                                           font=("Arial", 8), foreground="blue")  # Smaller font
+        self.config_status_label.pack(pady=(5, 0))  # Reduced padding
 
     def apply_deflection_bounds(self):
         """Apply the deflection amplitude bounds settings."""
@@ -395,14 +446,25 @@ class BeamPulseSubsystem:
             self.frequency_lower_bound.set(frequency_lower_bound)
             self.frequency_upper_bound.set(frequency_upper_bound)
             
-            # Update status
+            # Get LUT dataset info for status display
+            dataset_info = ""
+            current_dataset = self.lut_dataset_var.get()
+            if current_dataset and current_dataset != "None":
+                if self.lut_data and len(self.lut_data) > 0:
+                    dataset_info = f", Dataset: {current_dataset} ({len(self.lut_data)} pts)"
+                else:
+                    dataset_info = f", Dataset: {current_dataset} (error)"
+            else:
+                dataset_info = ", Dataset: None"
+            
+            # Update status with compact display
             self.config_status_label.configure(
-                text=f"Applied: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps, Lower={frequency_lower_bound:.1f} Hz, Upper={frequency_upper_bound:.1f} Hz", 
+                text=f"Applied: Amp={lower_bound:.1f}-{upper_bound:.1f}A, Freq={frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz{dataset_info}", 
                 foreground="green"
             )
             
-            # Log the change
-            self._log(f"Deflection bounds updated: Lower={lower_bound:.1f} Amps, Upper={upper_bound:.1f} Amps, Lower Frequency ={frequency_lower_bound:.1f} Hz, Upper Frequency={frequency_upper_bound:.1f} Hz", 
+            # Log the change (including dataset info)
+            self._log(f"Settings applied - Deflection bounds: {lower_bound:.1f}-{upper_bound:.1f}A, Frequency: {frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz{dataset_info}", 
                      LogLevel.INFO)
             
         except ValueError as e:
@@ -421,6 +483,143 @@ class BeamPulseSubsystem:
         """Check if a deflection value is within the configured bounds."""
         bounds = self.get_deflection_bounds()
         return bounds['lower'] <= value <= bounds['upper']
+
+    def get_available_lut_files(self):
+        """Get list of available CSV files from the cathode characterization folder."""
+        try:
+            # Get the scripts/cathode_characterization directory
+            script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                     "scripts", "cathode_characterization")
+            
+            if not os.path.exists(script_dir):
+                self._log(f"LUT directory not found: {script_dir}", LogLevel.WARNING)
+                return ["None"]
+            
+            csv_files = []
+            for file in os.listdir(script_dir):
+                if file.endswith('.csv'):
+                    csv_files.append(file)
+            
+            if not csv_files:
+                return ["None"]
+            
+            # Add "None" option at the beginning
+            return ["None"] + sorted(csv_files)
+            
+        except Exception as e:
+            self._log(f"Error scanning for LUT files: {e}", LogLevel.ERROR)
+            return ["None"]
+
+    def on_lut_dataset_change(self, event=None):
+        """Handle LUT dataset selection change."""
+        selected_file = self.lut_dataset_var.get()
+        
+        if selected_file == "None":
+            self.lut_data = None
+            self._log("LUT dataset cleared", LogLevel.INFO)
+            return
+        
+        try:
+            # Load the CSV file
+            script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                     "scripts", "cathode_characterization")
+            file_path = os.path.join(script_dir, selected_file)
+            
+            self.lut_data = self.load_lut_csv(file_path)
+            
+            if self.lut_data:
+                row_count = len(self.lut_data)
+                self._log(f"LUT dataset loaded: {selected_file} with {row_count} data points", LogLevel.INFO)
+            else:
+                self._log(f"Error: Failed to load dataset {selected_file}", LogLevel.ERROR)
+                
+        except Exception as e:
+            self._log(f"Error loading LUT dataset {selected_file}: {e}", LogLevel.ERROR)
+
+    def load_lut_csv(self, file_path):
+        """Load CSV file with deflection_distance and current_amplitude columns."""
+        try:
+            lut_data = []
+            
+            with open(file_path, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                # Check if required columns exist
+                if 'deflection_distance' not in reader.fieldnames or 'current_amplitude' not in reader.fieldnames:
+                    raise ValueError(f"CSV file must contain 'deflection_distance' and 'current_amplitude' columns. Found: {reader.fieldnames}")
+                
+                for row in reader:
+                    try:
+                        deflection_distance = float(row['deflection_distance'])
+                        current_amplitude = float(row['current_amplitude'])
+                        lut_data.append({
+                            'deflection_distance': deflection_distance,
+                            'current_amplitude': current_amplitude
+                        })
+                    except ValueError as e:
+                        self._log(f"Skipping invalid row in LUT file: {row} - {e}", LogLevel.WARNING)
+                        continue
+            
+            # Sort by deflection distance for interpolation
+            lut_data.sort(key=lambda x: x['deflection_distance'])
+            return lut_data
+            
+        except Exception as e:
+            self._log(f"Error reading LUT CSV file {file_path}: {e}", LogLevel.ERROR)
+            return None
+
+    def get_current_amplitude_for_distance(self, deflection_distance):
+        """Get current amplitude for given deflection distance using LUT interpolation."""
+        if not self.lut_data or len(self.lut_data) == 0:
+            return None
+        
+        # Simple linear interpolation
+        try:
+            # If distance is outside bounds, return boundary values
+            if deflection_distance <= self.lut_data[0]['deflection_distance']:
+                return self.lut_data[0]['current_amplitude']
+            
+            if deflection_distance >= self.lut_data[-1]['deflection_distance']:
+                return self.lut_data[-1]['current_amplitude']
+            
+            # Find surrounding points for interpolation
+            for i in range(len(self.lut_data) - 1):
+                if (self.lut_data[i]['deflection_distance'] <= deflection_distance <= 
+                    self.lut_data[i + 1]['deflection_distance']):
+                    
+                    # Linear interpolation
+                    x0, y0 = self.lut_data[i]['deflection_distance'], self.lut_data[i]['current_amplitude']
+                    x1, y1 = self.lut_data[i + 1]['deflection_distance'], self.lut_data[i + 1]['current_amplitude']
+                    
+                    # Interpolate
+                    if x1 - x0 == 0:  # Avoid division by zero
+                        return y0
+                    
+                    interpolated_amplitude = y0 + (y1 - y0) * (deflection_distance - x0) / (x1 - x0)
+                    return interpolated_amplitude
+            
+            return None
+            
+        except Exception as e:
+            self._log(f"Error interpolating LUT data: {e}", LogLevel.ERROR)
+            return None
+
+    def refresh_lut_dropdown(self):
+        """Refresh the LUT dropdown with current available CSV files."""
+        if hasattr(self, 'lut_dropdown'):
+            try:
+                current_files = self.get_available_lut_files()
+                self.lut_dropdown['values'] = current_files
+                
+                # If current selection is no longer available, reset to "None"
+                current_selection = self.lut_dataset_var.get()
+                if current_selection not in current_files:
+                    self.lut_dataset_var.set("None")
+                    self.lut_data = None
+                    
+                self._log("LUT dropdown refreshed", LogLevel.DEBUG)
+            except Exception as e:
+                self._log(f"Error refreshing LUT dropdown: {e}", LogLevel.ERROR)
 
     def create_wave_gen_control(self, parent, column):
         """Create Wave Gen toggle control."""
@@ -726,6 +925,21 @@ class BeamPulseSubsystem:
         
         self._log(f"Wave Gen {'enabled' if self.wave_gen_toggle_state else 'disabled'}", LogLevel.DEBUG)
 
+    def toggle_graph_visibility(self):
+        """Toggle visibility of beam position history on graphs."""
+        self.graph_history_visible = not self.graph_history_visible
+        
+        if self.graph_history_visible:
+            # Show all history - redraw everything
+            self.redraw_all_beam_plots()
+            self.clear_graph_button.configure(text="Clear Graph")
+            self._log("Beam position history shown", LogLevel.DEBUG)
+        else:
+            # Clear all visible plots but keep data
+            self.clear_all_beam_plots_display()
+            self.clear_graph_button.configure(text="Show All")
+            self._log("Beam position history hidden", LogLevel.DEBUG)
+
     def on_wave_gen_change(self, value=None):
         """Handle wave generator slider change (legacy method for compatibility)."""
         self._log(f"Wave Gen changed to: {self.wave_gen_enabled.get()}", LogLevel.DEBUG)
@@ -932,38 +1146,44 @@ class BeamPulseSubsystem:
         ax = self._bp_axes[beam_index]
         wave_type = position_data['type']
         
-        # Clear previous current position (if any)
+        # Always move previous current position to history (if it exists)
         if self.beam_current[beam_index] is not None:
-            # Move current to history
             self.beam_history[beam_index].append(self.beam_current[beam_index])
         
+        # Always create plot objects for data persistence, regardless of visibility
         # Colors: blue for history (completed), red for current
         history_color = 'blue'
         current_color = 'red'
         
+        # Create the plot object based on wave type
         if wave_type == "fixed":
             # Plot single point
             x, y = position_data['x'], position_data['y']
             current_plot = ax.plot(x, y, 'o', color=current_color, markersize=8)[0]
-            self.beam_current[beam_index] = current_plot
             
         elif wave_type == "pulse":
             # Plot pulse as a larger dot
             x, y = position_data['x'], position_data['y']
             current_plot = ax.plot(x, y, 's', color=current_color, markersize=10)[0]
-            self.beam_current[beam_index] = current_plot
             
         elif wave_type in ["sine", "triangle"]:
             # Plot wave path
             x, y = position_data['x'], position_data['y']
             current_plot = ax.plot(x, y, '-', color=current_color, linewidth=2)[0]
-            self.beam_current[beam_index] = current_plot
         
-        # Redraw history in blue
-        self.redraw_beam_history(beam_index)
+        # Store the current plot object
+        self.beam_current[beam_index] = current_plot
         
-        # Update plot (no legend)
-        if hasattr(self, '_bp_canvas'):
+        # Handle visibility - if hidden, remove from display but keep object for history
+        if not self.graph_history_visible:
+            # Hide the current plot but keep the object for data persistence
+            current_plot.remove()
+        else:
+            # Graphs are visible - redraw history to ensure proper colors
+            self.redraw_beam_history(beam_index)
+        
+        # Always update canvas if graphs are visible
+        if self.graph_history_visible and hasattr(self, '_bp_canvas'):
             self._bp_canvas.draw()
 
     def redraw_beam_history(self, beam_index: int):
@@ -974,22 +1194,96 @@ class BeamPulseSubsystem:
         ax = self._bp_axes[beam_index]
         history_color = 'blue'
         
-        # Remove old history plot objects
+        # Remove old history plot objects from display
         for obj in self.beam_plot_objects[beam_index]:
-            obj.remove()
+            try:
+                obj.remove()
+            except:
+                pass  # Already removed
         self.beam_plot_objects[beam_index].clear()
         
-        # Redraw all history items
+        # Only redraw if graphs should be visible
+        if not self.graph_history_visible:
+            return
+        
+        # Redraw all history items from stored data
         for hist_item in self.beam_history[beam_index]:
             if hist_item is not None:
-                # Create new plot object in history color
-                xdata, ydata = hist_item.get_data()
-                marker = hist_item.get_marker()
-                if marker == 'None':  # Line plot
-                    new_obj = ax.plot(xdata, ydata, '-', color=history_color, alpha=0.7, linewidth=1)[0]
-                else:  # Point plot
-                    new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
-                self.beam_plot_objects[beam_index].append(new_obj)
+                try:
+                    # Create new plot object in history color
+                    xdata, ydata = hist_item.get_data()
+                    marker = hist_item.get_marker()
+                    if marker == 'None' or marker is None:  # Line plot
+                        new_obj = ax.plot(xdata, ydata, '-', color=history_color, alpha=0.7, linewidth=1)[0]
+                    else:  # Point plot
+                        new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
+                    self.beam_plot_objects[beam_index].append(new_obj)
+                except Exception as e:
+                    self._log(f"Error redrawing history item for beam {beam_index}: {e}", LogLevel.WARNING)
+
+    def clear_all_beam_plots_display(self):
+        """Clear all visible beam plots while keeping the data in memory."""
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        for beam_index in range(3):
+            ax = self._bp_axes[beam_index]
+            
+            # Remove current position plot from display but keep reference
+            if self.beam_current[beam_index] is not None:
+                self.beam_current[beam_index].remove()
+                # Don't set to None - keep the object for restoration
+            
+            # Remove all history plot objects from display but keep references in beam_history
+            for obj in self.beam_plot_objects[beam_index]:
+                obj.remove()
+            # Clear the display objects list but keep beam_history intact
+            self.beam_plot_objects[beam_index].clear()
+        
+        # Update canvas
+        if hasattr(self, '_bp_canvas'):
+            self._bp_canvas.draw()
+
+    def redraw_all_beam_plots(self):
+        """Redraw all beam plots (history and current positions)."""
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        
+        for beam_index in range(3):
+            # Redraw history for this beam
+            self.redraw_beam_history(beam_index)
+            
+            # If there's a current beam position, redraw it in the correct color
+            if self.beam_current[beam_index] is not None:
+                # The current position object exists but was removed from display
+                # We need to recreate it on the axes
+                try:
+                    # Get the data from the existing plot object
+                    xdata, ydata = self.beam_current[beam_index].get_data()
+                    marker = self.beam_current[beam_index].get_marker()
+                    
+                    # Create new current position plot in red on the correct axes
+                    ax = self._bp_axes[beam_index]
+                    if marker and marker != 'None':  # Point plot
+                        if marker == 'o':
+                            new_plot = ax.plot(xdata, ydata, 'o', color='red', markersize=8)[0]
+                        elif marker == 's':
+                            new_plot = ax.plot(xdata, ydata, 's', color='red', markersize=10)[0]
+                        else:
+                            new_plot = ax.plot(xdata, ydata, marker, color='red', markersize=8)[0]
+                    else:  # Line plot
+                        new_plot = ax.plot(xdata, ydata, '-', color='red', linewidth=2)[0]
+                    
+                    # Replace the old object with the new one
+                    self.beam_current[beam_index] = new_plot
+                    
+                except Exception as e:
+                    # If there's any issue, just log it and continue
+                    self._log(f"Error redrawing current beam position {beam_index}: {e}", LogLevel.WARNING)
+        
+        # Update canvas
+        if hasattr(self, '_bp_canvas'):
+            self._bp_canvas.draw()
 
     # Deflection stats update methods
     def update_deflection_stats(self):
