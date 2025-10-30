@@ -756,9 +756,10 @@ class BeamPulseSubsystem:
                 self.frequency_spinbox.configure(state="normal")
         
         # Update wave gen button state
+        # Deflect Beam toggle should be disabled in Pulse mode (not Fixed mode)
         if hasattr(self, 'wave_gen_toggle'):
             wave_type = self.wave_type.get()
-            if wave_type.lower() == "fixed":
+            if wave_type.lower() == "pulse":
                 self.wave_gen_toggle.configure(state="disabled")
             else:
                 self.wave_gen_toggle.configure(state="normal")
@@ -923,6 +924,18 @@ class BeamPulseSubsystem:
                 # Fallback text button
                 self.wave_gen_toggle.configure(text="ON" if self.wave_gen_toggle_state else "OFF")
         
+        # When Deflect Beam is turned ON, check wave type
+        # For Fixed, Sine, and Triangle: create graphs for all beams that are currently ON
+        if self.wave_gen_toggle_state:
+            wave_type = self.wave_type.get().lower()
+            if wave_type in ["fixed", "sine", "triangle"]:
+                # Check each beam and create graph if beam is ON
+                for beam_index in range(3):
+                    if self.beam_on_status[beam_index]:
+                        self.add_beam_position_to_plot(beam_index)
+                        beam_names = ['A', 'B', 'C']
+                        self._log(f"Deflection started for Beam {beam_names[beam_index]} ({wave_type})", LogLevel.DEBUG)
+        
         self._log(f"Wave Gen {'enabled' if self.wave_gen_toggle_state else 'disabled'}", LogLevel.DEBUG)
 
     def toggle_graph_visibility(self):
@@ -956,8 +969,9 @@ class BeamPulseSubsystem:
             self.frequency_spinbox.configure(state="normal")
         
         # Enable/disable wave gen button based on wave type
+        # Deflect Beam toggle should be disabled in Pulse mode (not Fixed mode)
         if hasattr(self, 'wave_gen_toggle'):
-            if wave_type.lower() == "fixed":
+            if wave_type.lower() == "pulse":
                 self.wave_gen_toggle.configure(state="disabled")
             else:
                 self.wave_gen_toggle.configure(state="normal")
@@ -1026,8 +1040,15 @@ class BeamPulseSubsystem:
             self.beam_on_status[beam_index] = status
             self.update_beam_led_indicators()
             
-            # Add position to plot when beam is turned on
-            if status:
+            # For Fixed, Sine, and Triangle: beam ON just enables the beam
+            # Graph is only created when Deflect Beam toggle is ON
+            # For Pulse mode: different behavior (handled separately)
+            wave_type = self.wave_type.get().lower()
+            
+            # Only add position to plot if:
+            # 1. Beam is turned on AND
+            # 2. Either it's Pulse mode OR Deflect Beam toggle is ON
+            if status and (wave_type == "pulse" or self.wave_gen_toggle_state):
                 self.add_beam_position_to_plot(beam_index)
             
             beam_names = ['A', 'B', 'C']
@@ -1222,17 +1243,15 @@ class BeamPulseSubsystem:
                     self._log(f"Error redrawing history item for beam {beam_index}: {e}", LogLevel.WARNING)
 
     def clear_all_beam_plots_display(self):
-        """Clear all visible beam plots while keeping the data in memory."""
+        """Clear all visible beam plots except the current position (last move)."""
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
         
         for beam_index in range(3):
             ax = self._bp_axes[beam_index]
             
-            # Remove current position plot from display but keep reference
-            if self.beam_current[beam_index] is not None:
-                self.beam_current[beam_index].remove()
-                # Don't set to None - keep the object for restoration
+            # Keep the current position plot visible (the last move)
+            # Only remove history plots, not the current position
             
             # Remove all history plot objects from display but keep references in beam_history
             for obj in self.beam_plot_objects[beam_index]:
