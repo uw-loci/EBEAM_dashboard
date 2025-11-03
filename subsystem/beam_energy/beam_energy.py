@@ -4,6 +4,7 @@ import threading
 import time
 from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 from utils import LogLevel
+import tkinter.messagebox as messagebox
 
 
 
@@ -49,6 +50,8 @@ class BeamEnergySubsystem:
         self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
         self.output_status = [tk.StringVar(value="OFF") for _ in range(len(self.power_supplies))]
         self.connection_status_vars = [tk.StringVar(value="DISCONNECTED") for _ in range(len(self.power_supplies))]
+
+        self.overcurrent_flags = [False for _ in self.power_supplies]
 
         self.ui_elements = []  # To hold references to UI elements for updates
 
@@ -365,6 +368,26 @@ class BeamEnergySubsystem:
                     # Map mode integer to human-readable label for logging
                     mode_map = {0: "3kV Bertan", 1: "20kV Bertan", 2: "1kV Matsusada", 255: "error"}
                     mode_text = mode_map.get(mode_val, str(mode_val))
+
+                    # Overcurrent Handling:
+                    if overcurrent:
+                        # Log once when overcurrent condition is first detected
+                        if not self.overcurrent_flags[index]:
+                            self.log(f"Overcurrent detected on Power Supply {unit_id}!", LogLevel.WARNING)
+                            
+                            messagebox.showwarning(
+                                title="Overcurrent Warning",
+                                message=f"Overcurrent detected on Power Supply {unit_id}.\n"
+                                        f"The hardware system has taken protective action.\n\n"
+                                        f"Press OK to acknowledge.")
+
+                        self.overcurrent_flags[index] = True
+
+                    else:
+                        # Clear flag and log recovery from overcurrent state
+                        if self.overcurrent_flags[index]:
+                            self.log(f"Power Supply {unit_id} recovered from overcurrent.", LogLevel.INFO)
+                        self.overcurrent_flags[index] = False
 
                     # print structured DEBUG log line per unit when measurements are present
                     if (v_read is not None) and (i_read is not None):
