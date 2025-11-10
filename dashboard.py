@@ -24,9 +24,9 @@ frames_config = [
     ("Main Control", 2, 529, 438),
     
     # Row 4
-    ("Process Monitor", 3, 339, 458),
     ("Cathode Heating", 3, 1041, 458),
     ("Messages Frame", 3, 539, 458),
+    ("Process Monitor", 3, 339, 458),
 
     # Row 5
     ("Machine Status", 4, 1916, 38)
