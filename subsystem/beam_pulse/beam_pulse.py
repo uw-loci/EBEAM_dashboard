@@ -51,8 +51,13 @@ class BeamPulseSubsystem:
     """
 
     # Physics constants for B-field and power calculations
-    # UPDATE THESE VALUES WITH ACTUAL HARDWARE SPECIFICATIONS
-    SOLENOID_TURNS_PER_METER = 7260.0  # turns/m - UPDATE WITH ACTUAL N/L VALUE
+    # B-field linear approximation constants (empirically derived)
+    # Source: "2019-09-26 field measurements - 2 solenoids no covers.xlsx"
+    # From "Avg" column at position 0 in "Coil A" and "Coil B" tabs
+    # Measured at I = 1.6 A: B_center = 62.2 G, B_off-axis = 61.2 G
+    B_FIELD_SLOPE_CENTER = 38.875      # G/A - for Beam B (center beam)
+    B_FIELD_SLOPE_OFF_AXIS = 38.25     # G/A - for Beams A and C (off-axis)
+    
     SOLENOID_RESISTANCE = 12.0         # ohms - UPDATE WITH MEASURED RESISTANCE
 
     # Register addresses (zero-based)
@@ -524,13 +529,13 @@ class BeamPulseSubsystem:
             {
                 'label': 'Beam Deflection LUT:',
                 'variable': self.beam_deflection_lut_var,
-                'expected_file': 'beam_deflection_20keV.csv',  # Suggest energy-specific naming
+                'expected_file': 'beam_deflection.csv',  # Set default to main CSV file
                 'description': '(current_amplitude_A → beam_deflection_cm) - Energy Specific'
             },
             {
                 'label': 'Scan Speed LUT:',
                 'variable': self.scan_speed_lut_var,
-                'expected_file': 'scan_speed_20keV.csv',  # Suggest energy-specific naming
+                'expected_file': 'scan_speed.csv',  # Set default to main CSV file
                 'description': '(frequency_hz → scan_speed_mps) - Energy Specific'
             }
         ]
@@ -621,7 +626,7 @@ class BeamPulseSubsystem:
             return ["None"]
 
     def on_deflection_stats_lut_change(self, event, variable):
-        """Handle deflection stats LUT selection change."""
+        """Handle deflection stats LUT selection change and update displays."""
         selected_file = variable.get()
         
         if selected_file == "None":
@@ -632,10 +637,12 @@ class BeamPulseSubsystem:
                 self.scan_speed_lut_data = None
             
             self._log(f"Deflection stats LUT cleared: {selected_file}", LogLevel.INFO)
-            return
+        else:
+            # Load the selected LUT
+            self.load_deflection_stats_lut(variable, selected_file)
         
-        # Load the selected LUT
-        self.load_deflection_stats_lut(variable, selected_file)
+        # Update deflection stats display with new LUT data
+        self.update_deflection_stats()
 
     def load_deflection_stats_lut(self, variable, filename):
         """Load a specific deflection stats LUT file.
@@ -1067,37 +1074,63 @@ class BeamPulseSubsystem:
         
         return None
 
-    def calculate_b_field_from_current(self, current_amplitude):
-        """Calculate B-field (Gauss) from current amplitude using formula.
+    def calculate_b_field_from_current(self, current_amplitude, beam_number=None):
+        """Calculate B-field (Gauss) from current amplitude using linear approximations.
         
-        Formula based on solenoid physics: B = μ₀ * n * I
-        Where:
-        - μ₀ = 4π × 10⁻⁷ H/m (permeability of free space)
-        - n = turns per meter (solenoid geometry) - CONFIGURED IN CLASS CONSTANT
-        - I = current in amperes
+        Linear relationships derived from experimental data:
         
-        Result converted from Tesla to Gauss (1 T = 10,000 G)
+        B = k * I
+        
+        where k is the proportionality constant (G/A) and I is current (A).
+        
+        From measured data at I = 1.6 A:
+        - B_center = 62.2 G  →  k_center = 38.875 G/A
+        - B_off-axis = 61.2 G  →  k_off-axis = 38.25 G/A
+        
+        Linear equations:
+        - B_center(I) = 38.875 * I [G]     (for Beam B - center)
+        - B_off-axis(I) = 38.25 * I [G]    (for Beams A and C - off-axis)
+        
+        Source: "2019-09-26 field measurements - 2 solenoids no covers.xlsx"
+        Data from "Avg" column at position 0 in "Coil A" and "Coil B" tabs.
+        Valid within tested current range (up to 1.6 A). Extrapolation beyond 
+        this range should be treated with caution.
+        
+        Args:
+            current_amplitude: Solenoid current in amperes
+            beam_number: Beam number (1=A, 2=B, 3=C). If None, assumes off-axis.
+        
+        Returns:
+            Magnetic field in Gauss
         """
         try:
             if current_amplitude <= 0:
                 return 0.0
             
-            # Physics constants
-            mu0 = 4 * 3.14159 * 1e-7  # H/m (permeability of free space)
+            # Determine which linear approximation to use based on beam position
+            if beam_number == 2:
+                # Beam B (center beam) - use center approximation
+                k_slope = self.B_FIELD_SLOPE_CENTER  # 38.875 G/A
+                beam_position = "center"
+            else:
+                # Beams A and C (off-axis beams) - use off-axis approximation
+                k_slope = self.B_FIELD_SLOPE_OFF_AXIS  # 38.25 G/A  
+                beam_position = "off-axis"
             
-            # Use class constant for solenoid geometry
-            n_turns_per_meter = self.SOLENOID_TURNS_PER_METER
+            # Linear B-field calculation: B = k * I
+            b_field_gauss = k_slope * current_amplitude
             
-            # B-field calculation: B = μ₀ * n * I (result in Tesla)
-            b_field_tesla = mu0 * n_turns_per_meter * current_amplitude
-            
-            # Convert Tesla to Gauss (1 T = 10,000 G)
-            b_field_gauss = b_field_tesla * 10000.0  # Gauss
+            # Debug logging
+            if hasattr(self, '_log'):
+                self._log(f"B-field calc: Beam {beam_number} ({beam_position}): "
+                         f"{current_amplitude:.3f} A → {b_field_gauss:.1f} G", 
+                         LogLevel.DEBUG)
             
             return max(0.0, b_field_gauss)
             
         except Exception as e:
-            self._log(f"Error calculating B-field: {e}", LogLevel.ERROR)
+            if hasattr(self, '_log'):
+                self._log(f"Error calculating B-field: {e}", LogLevel.ERROR)
             return 0.0
 
     def calculate_solenoid_power_from_current(self, current_amplitude):
@@ -1122,6 +1155,79 @@ class BeamPulseSubsystem:
             
         except Exception as e:
             self._log(f"Error calculating solenoid power: {e}", LogLevel.ERROR)
+            return 0.0
+
+    def calculate_beam_deflection_from_amplitude(self, current_amplitude):
+        """Calculate beam deflection from current amplitude using selected LUT dataset from Config tab.
+        
+        DEFLECTION CALCULATION:
+        Uses the beam deflection LUT dataset selected in the Config tab dropdown.
+        If no LUT is selected or loaded, falls back to a simple linear relationship.
+        
+        Args:
+            current_amplitude: Current amplitude in amperes
+            
+        Returns:
+            float: Deflection in centimeters
+        """
+        try:
+            # Check if a beam deflection LUT is selected and loaded from Config tab
+            selected_file = self.beam_deflection_lut_var.get()
+            if selected_file != "None" and self.beam_deflection_lut_data:
+                deflection = self.interpolate_lut_value(
+                    self.beam_deflection_lut_data, 
+                    current_amplitude
+                )
+                if deflection is not None:
+                    self._log(f"Using deflection LUT '{selected_file}': {current_amplitude} A → {deflection:.1f} cm", LogLevel.DEBUG)
+                    return deflection
+            
+            # Fallback to simple linear relationship if no LUT selected/loaded
+            # This is a placeholder formula - replace with actual calibration
+            deflection_per_amp = 4.0  # cm per amp (example value)
+            fallback_deflection = max(0.0, current_amplitude * deflection_per_amp)
+            self._log(f"No deflection LUT selected, using fallback: {current_amplitude} A → {fallback_deflection:.1f} cm", LogLevel.DEBUG)
+            return fallback_deflection
+            
+        except Exception as e:
+            self._log(f"Error calculating beam deflection: {e}", LogLevel.ERROR)
+            return 0.0
+
+    def calculate_scan_speed_from_frequency(self, frequency_hz):
+        """Calculate scan speed from frequency using selected LUT dataset from Config tab.
+        
+        SCAN SPEED CALCULATION:
+        Uses the scan speed LUT dataset selected in the Config tab dropdown.
+        The same frequency applies to all three beams - they all scan at the same speed.
+        If no LUT is selected or loaded, falls back to a simple linear relationship.
+        
+        Args:
+            frequency_hz: Frequency in Hz
+            
+        Returns:
+            float: Scan speed in meters per second
+        """
+        try:
+            # Check if a scan speed LUT is selected and loaded from Config tab
+            selected_file = self.scan_speed_lut_var.get()
+            if selected_file != "None" and self.scan_speed_lut_data:
+                scan_speed = self.interpolate_lut_value(
+                    self.scan_speed_lut_data, 
+                    frequency_hz
+                )
+                if scan_speed is not None:
+                    self._log(f"Using scan speed LUT '{selected_file}': {frequency_hz} Hz → {scan_speed:.2f} m/s", LogLevel.DEBUG)
+                    return scan_speed
+            
+            # Fallback to simple linear relationship if no LUT selected/loaded
+            # This is a placeholder formula - replace with actual calibration
+            speed_per_hz = 0.1  # m/s per Hz (example value)
+            fallback_speed = max(0.0, frequency_hz * speed_per_hz)
+            self._log(f"No scan speed LUT selected, using fallback: {frequency_hz} Hz → {fallback_speed:.2f} m/s", LogLevel.DEBUG)
+            return fallback_speed
+            
+        except Exception as e:
+            self._log(f"Error calculating scan speed: {e}", LogLevel.ERROR)
             return 0.0
 
     def calculate_current_beam_energy(self):
@@ -1822,12 +1928,21 @@ class BeamPulseSubsystem:
                 spinbox.configure(state="disabled")
 
     def on_frequency_change(self):
-        """Handle frequency spinbox change."""
-        self._log(f"Frequency changed to: {self.frequency_hz.get()} Hz", LogLevel.DEBUG)
+        """Handle frequency spinbox change and update scan speed for all beams."""
+        frequency = self.frequency_hz.get()
+        self._log(f"Frequency changed to: {frequency} Hz", LogLevel.DEBUG)
+        
+        # Update scan speed for all three beams based on new frequency
+        # All beams use the same frequency -> same scan speed
+        self.update_deflection_stats()
 
     def on_wave_amplitude_change(self):
-        """Handle wave amplitude spinbox change."""
-        self._log(f"Wave Amplitude changed to: {self.wave_amplitude.get()} V", LogLevel.DEBUG)
+        """Handle wave amplitude spinbox change and update deflection stats."""
+        amplitude = self.wave_amplitude.get()
+        self._log(f"Wave Amplitude changed to: {amplitude} A", LogLevel.DEBUG)
+        
+        # Update deflection, B-field, and power for all beams based on new amplitude
+        self.update_deflection_stats()
 
     def on_duration_change(self, duration_var):
         """Handle beam duration spinbox change."""
@@ -2150,12 +2265,12 @@ class BeamPulseSubsystem:
             for beam_num in [1, 2, 3]:
                 # Get current amplitude for this beam to calculate stats
                 amplitude = self.get_beam_amplitude(beam_num - 1)  # Convert to 0-based index
-                frequency = self.frequency.get()
+                frequency = self.frequency_hz.get()
                 
                 # Calculate stats for this beam
                 deflection = self.calculate_beam_deflection_from_amplitude(amplitude)
                 scan_speed = self.calculate_scan_speed_from_frequency(frequency)
-                bfield = self.calculate_b_field_from_current(amplitude)
+                bfield = self.calculate_b_field_from_current(amplitude, beam_num)  # Pass beam number
                 
                 # Update table cells
                 self.update_table_cell('deflection', beam_num, f"{deflection:.1f}")
@@ -2193,7 +2308,12 @@ class BeamPulseSubsystem:
         self.update_table_cell('scan_speed', beam, f"{value:.2f}")
 
     def set_peak_bfield_est(self, value: float, beam: int = 1):
-        """Set peak B-field estimate value for a specific beam and update display."""
+        """Set peak B-field estimate value for a specific beam and update display.
+        
+        Note: This method sets a manual override value. For automatic calculation
+        based on current amplitude and beam position (center vs off-axis), use
+        calculate_b_field_from_current() instead.
+        """
         self.peak_bfield_est.set(value)  # Keep for backward compatibility
         self.update_table_cell('bfield', beam, f"{value:.0f}")
 
