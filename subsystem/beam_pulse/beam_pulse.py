@@ -50,6 +50,11 @@ class BeamPulseSubsystem:
     documentation. Registers are zero-based addresses matching the device map.
     """
 
+    # Physics constants for B-field and power calculations
+    # UPDATE THESE VALUES WITH ACTUAL HARDWARE SPECIFICATIONS
+    SOLENOID_TURNS_PER_METER = 7260.0  # turns/m - UPDATE WITH ACTUAL N/L VALUE
+    SOLENOID_RESISTANCE = 12.0         # ohms - UPDATE WITH MEASURED RESISTANCE
+
     # Register addresses (zero-based)
     REGISTER = {
         "COMMAND": 0,
@@ -131,7 +136,7 @@ class BeamPulseSubsystem:
         # Deflection stats variables
         self.deflection_est = tk.DoubleVar(value=5.0)
         self.scan_speed_est = tk.DoubleVar(value=1.5)
-        self.peak_bfield_est = tk.DoubleVar(value=90.0)
+        self.peak_bfield_est = tk.DoubleVar(value=28.0)  # Gauss
         self.power_est = tk.DoubleVar(value=150.0)
 
         # Plot variables
@@ -155,6 +160,14 @@ class BeamPulseSubsystem:
         # LUT Dataset variables
         self.lut_dataset_var = tk.StringVar(value="None")
         self.lut_data = None
+
+        # Deflection Stats LUT variables - two lookup tables, two formulas
+        self.beam_deflection_lut_var = tk.StringVar(value="None")
+        self.scan_speed_lut_var = tk.StringVar(value="None")
+        
+        # Stored LUT data for deflection stats (only for beam deflection and scan speed)
+        self.beam_deflection_lut_data = None
+        self.scan_speed_lut_data = None
 
         # Graph visibility control
         self.graph_history_visible = True
@@ -390,27 +403,13 @@ class BeamPulseSubsystem:
         )
         self.frequency_upper_bound_spinbox.pack(side=tk.RIGHT)
         
-        # LUT Dataset Configuration frame (moved above Apply button)
-        lut_frame = ttk.LabelFrame(config_frame, text="Configure LUT Dataset", 
-                                  padding="5", labelanchor="n")  # Reduced padding
-        lut_frame.pack(fill=tk.X, pady=(5, 0))  # Reduced vertical padding
+        # Deflection Stats LUT Configuration frame
+        deflection_stats_lut_frame = ttk.LabelFrame(config_frame, text="Configure Deflection Stats LUTs", 
+                                                   padding="5", labelanchor="n")
+        deflection_stats_lut_frame.pack(fill=tk.X, pady=(5, 0))
         
-        # LUT Dataset dropdown (compact layout)
-        lut_selection_frame = ttk.Frame(lut_frame)
-        lut_selection_frame.pack(fill=tk.X, pady=2)  # Reduced padding
-        
-        ttk.Label(lut_selection_frame, text="Dataset:", font=("Arial", 9)).pack(side=tk.LEFT)  # Shorter label, smaller font
-        
-        # Get available CSV files
-        self.lut_dropdown = ttk.Combobox(
-            lut_selection_frame,
-            textvariable=self.lut_dataset_var,
-            values=self.get_available_lut_files(),
-            state="readonly",
-            width=20  # Reduced width
-        )
-        self.lut_dropdown.pack(side=tk.RIGHT, padx=(5, 0))
-        self.lut_dropdown.bind("<<ComboboxSelected>>", self.on_lut_dataset_change)
+        # Create four rows for the four deflection stats LUTs
+        self.create_deflection_stats_lut_dropdowns(deflection_stats_lut_frame)
         
         # Apply button
         apply_button = ttk.Button(config_frame, text="Apply Settings", 
@@ -446,25 +445,14 @@ class BeamPulseSubsystem:
             self.frequency_lower_bound.set(frequency_lower_bound)
             self.frequency_upper_bound.set(frequency_upper_bound)
             
-            # Get LUT dataset info for status display
-            dataset_info = ""
-            current_dataset = self.lut_dataset_var.get()
-            if current_dataset and current_dataset != "None":
-                if self.lut_data and len(self.lut_data) > 0:
-                    dataset_info = f", Dataset: {current_dataset} ({len(self.lut_data)} pts)"
-                else:
-                    dataset_info = f", Dataset: {current_dataset} (error)"
-            else:
-                dataset_info = ", Dataset: None"
-            
             # Update status with compact display
             self.config_status_label.configure(
-                text=f"Applied: Amp={lower_bound:.1f}-{upper_bound:.1f}A, Freq={frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz{dataset_info}", 
+                text=f"Applied: Amp={lower_bound:.1f}-{upper_bound:.1f}A, Freq={frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz", 
                 foreground="green"
             )
             
-            # Log the change (including dataset info)
-            self._log(f"Settings applied - Deflection bounds: {lower_bound:.1f}-{upper_bound:.1f}A, Frequency: {frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz{dataset_info}", 
+            # Log the change
+            self._log(f"Settings applied - Deflection bounds: {lower_bound:.1f}-{upper_bound:.1f}A, Frequency: {frequency_lower_bound:.1f}-{frequency_upper_bound:.1f}Hz", 
                      LogLevel.INFO)
             
         except ValueError as e:
@@ -472,8 +460,283 @@ class BeamPulseSubsystem:
                                              foreground="red")
             self._log(f"Error applying deflection bounds: {e}", LogLevel.ERROR)
 
+    def create_deflection_stats_lut_dropdowns(self, parent_frame):
+        """Create two dropdown sections for deflection stats LUTs (beam deflection and scan speed)."""
+        
+        # Define the two LUT configurations (B-field and power will use formulas)
+        lut_configs = [
+            {
+                'label': 'Beam Deflection LUT:',
+                'variable': self.beam_deflection_lut_var,
+                'expected_file': 'beam_deflection.csv',
+                'description': '(current_amplitude_A → beam_deflection_cm)'
+            },
+            {
+                'label': 'Scan Speed LUT:',
+                'variable': self.scan_speed_lut_var,
+                'expected_file': 'scan_speed.csv',
+                'description': '(frequency_hz → scan_speed_mps)'
+            }
+        ]
+        
+        # Store dropdown references for later updates
+        self.deflection_stats_dropdowns = []
+        
+        for config in lut_configs:
+            # Create frame for this LUT selection
+            lut_selection_frame = ttk.Frame(parent_frame)
+            lut_selection_frame.pack(fill=tk.X, pady=1)
+            
+            # Label with description
+            label_text = f"{config['label']} {config['description']}"
+            ttk.Label(lut_selection_frame, text=label_text, font=("Arial", 8)).pack(side=tk.LEFT)
+            
+            # Dropdown
+            dropdown = ttk.Combobox(
+                lut_selection_frame,
+                textvariable=config['variable'],
+                values=self.get_available_deflection_stats_lut_files(),
+                state="readonly",
+                width=18
+            )
+            dropdown.pack(side=tk.RIGHT, padx=(5, 0))
+            
+            # Set default to expected file if it exists
+            available_files = self.get_available_deflection_stats_lut_files()
+            if config['expected_file'] in available_files:
+                config['variable'].set(config['expected_file'])
+            
+            # Bind change event
+            dropdown.bind("<<ComboboxSelected>>", 
+                         lambda event, var=config['variable']: self.on_deflection_stats_lut_change(event, var))
+            
+            self.deflection_stats_dropdowns.append(dropdown)
+        
+        # Add informational labels for formula-based calculations
+        formula_info_frame = ttk.Frame(parent_frame)
+        formula_info_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Label(formula_info_frame, text="B-Field and Power calculated using formulas based on current amplitude", 
+                 font=("Arial", 8), foreground="blue").pack()
+        
+        # Load initial LUT data
+        self.load_all_deflection_stats_luts()
+
+    def get_available_deflection_stats_lut_files(self):
+        """Get list of available CSV files specifically for deflection stats LUTs."""
+        try:
+            # Get the current beam_pulse directory
+            beam_pulse_dir = os.path.dirname(__file__)
+            
+            if not os.path.exists(beam_pulse_dir):
+                return ["None"]
+            
+            csv_files = []
+            for file in os.listdir(beam_pulse_dir):
+                if file.endswith('.csv'):
+                    csv_files.append(file)
+            
+            if not csv_files:
+                return ["None"]
+            
+            # Add "None" option at the beginning
+            return ["None"] + sorted(csv_files)
+            
+        except Exception as e:
+            self._log(f"Error scanning for deflection stats LUT files: {e}", LogLevel.ERROR)
+            return ["None"]
+
+    def on_deflection_stats_lut_change(self, event, variable):
+        """Handle deflection stats LUT selection change."""
+        selected_file = variable.get()
+        
+        if selected_file == "None":
+            # Clear the corresponding LUT data
+            if variable == self.beam_deflection_lut_var:
+                self.beam_deflection_lut_data = None
+            elif variable == self.scan_speed_lut_var:
+                self.scan_speed_lut_data = None
+            
+            self._log(f"Deflection stats LUT cleared: {selected_file}", LogLevel.INFO)
+            return
+        
+        # Load the selected LUT
+        self.load_deflection_stats_lut(variable, selected_file)
+
+    def load_deflection_stats_lut(self, variable, filename):
+        """Load a specific deflection stats LUT file."""
+        try:
+            beam_pulse_dir = os.path.dirname(__file__)
+            file_path = os.path.join(beam_pulse_dir, filename)
+            
+            lut_data = self.load_deflection_stats_csv(file_path, filename)
+            
+            # Store the data in the appropriate variable
+            if variable == self.beam_deflection_lut_var:
+                self.beam_deflection_lut_data = lut_data
+            elif variable == self.scan_speed_lut_var:
+                self.scan_speed_lut_data = lut_data
+            
+            if lut_data:
+                row_count = len(lut_data)
+                self._log(f"Deflection stats LUT loaded: {filename} with {row_count} data points", LogLevel.INFO)
+            else:
+                self._log(f"Error: Failed to load deflection stats LUT {filename}", LogLevel.ERROR)
+                
+        except Exception as e:
+            self._log(f"Error loading deflection stats LUT {filename}: {e}", LogLevel.ERROR)
+
+    def load_deflection_stats_csv(self, file_path, filename):
+        """Load CSV file for deflection stats with validation based on filename."""
+        try:
+            lut_data = []
+            
+            with open(file_path, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                # Validate columns based on filename
+                expected_columns = self.get_expected_columns_for_file(filename)
+                if not expected_columns:
+                    self._log(f"Unknown deflection stats LUT file format: {filename}", LogLevel.ERROR)
+                    return None
+                
+                input_col, output_col = expected_columns
+                
+                if input_col not in reader.fieldnames or output_col not in reader.fieldnames:
+                    self._log(f"Required columns {input_col}, {output_col} not found in {filename}", LogLevel.ERROR)
+                    return None
+                
+                for row in reader:
+                    try:
+                        input_val = float(row[input_col])
+                        output_val = float(row[output_col])
+                        lut_data.append({
+                            'input': input_val,
+                            'output': output_val
+                        })
+                    except ValueError as e:
+                        self._log(f"Invalid data in {filename}: {e}", LogLevel.WARNING)
+                        continue
+            
+            # Sort by input value for interpolation
+            lut_data.sort(key=lambda x: x['input'])
+            return lut_data
+            
+        except Exception as e:
+            self._log(f"Error reading deflection stats CSV file {file_path}: {e}", LogLevel.ERROR)
+            return None
+
+    def get_expected_columns_for_file(self, filename):
+        """Get expected input and output column names for deflection stats LUT files."""
+        column_mappings = {
+            'beam_deflection.csv': ('current_amplitude_A', 'beam_deflection_cm'),
+            'scan_speed.csv': ('frequency_hz', 'scan_speed_mps')
+        }
+        
+        return column_mappings.get(filename, None)
+
+    def load_all_deflection_stats_luts(self):
+        """Load all deflection stats LUTs on initialization."""
+        lut_mappings = [
+            (self.beam_deflection_lut_var, 'beam_deflection.csv'),
+            (self.scan_speed_lut_var, 'scan_speed.csv')
+        ]
+        
+        for variable, filename in lut_mappings:
+            if variable.get() != "None":
+                self.load_deflection_stats_lut(variable, variable.get())
+
+    def interpolate_lut_value(self, lut_data, input_value):
+        """Interpolate value from LUT data."""
+        if not lut_data or len(lut_data) == 0:
+            return None
+        
+        try:
+            # If input is outside bounds, return boundary values
+            if input_value <= lut_data[0]['input']:
+                return lut_data[0]['output']
+            
+            if input_value >= lut_data[-1]['input']:
+                return lut_data[-1]['output']
+            
+            # Find surrounding points for interpolation
+            for i in range(len(lut_data) - 1):
+                if lut_data[i]['input'] <= input_value <= lut_data[i + 1]['input']:
+                    # Linear interpolation
+                    x0, y0 = lut_data[i]['input'], lut_data[i]['output']
+                    x1, y1 = lut_data[i + 1]['input'], lut_data[i + 1]['output']
+                    
+                    # Handle case where x0 == x1 (avoid division by zero)
+                    if x1 == x0:
+                        return y0
+                    
+                    interpolated = y0 + (y1 - y0) * (input_value - x0) / (x1 - x0)
+                    return interpolated
+            
+            return None
+            
+        except Exception as e:
+            self._log(f"Error interpolating LUT data: {e}", LogLevel.ERROR)
+            return None
+
+    def calculate_b_field_from_current(self, current_amplitude):
+        """Calculate B-field (Gauss) from current amplitude using formula.
+        
+        Formula based on solenoid physics: B = μ₀ * n * I
+        Where:
+        - μ₀ = 4π × 10⁻⁷ H/m (permeability of free space)
+        - n = turns per meter (solenoid geometry) - CONFIGURED IN CLASS CONSTANT
+        - I = current in amperes
+        
+        Result converted from Tesla to Gauss (1 T = 10,000 G)
+        """
+        try:
+            if current_amplitude <= 0:
+                return 0.0
+            
+            # Physics constants
+            mu0 = 4 * 3.14159 * 1e-7  # H/m (permeability of free space)
+            
+            # Use class constant for solenoid geometry
+            n_turns_per_meter = self.SOLENOID_TURNS_PER_METER
+            
+            # B-field calculation: B = μ₀ * n * I (result in Tesla)
+            b_field_tesla = mu0 * n_turns_per_meter * current_amplitude
+            
+            # Convert Tesla to Gauss (1 T = 10,000 G)
+            b_field_gauss = b_field_tesla * 10000.0  # Gauss
+            
+            return max(0.0, b_field_gauss)
+            
+        except Exception as e:
+            self._log(f"Error calculating B-field: {e}", LogLevel.ERROR)
+            return 0.0
+
+    def calculate_solenoid_power_from_current(self, current_amplitude):
+        """Calculate solenoid power dissipation (Watts) from current amplitude using formula.
+        
+        Formula based on electrical power: P = I²R
+        Where:
+        - I = current in amperes
+        - R = solenoid resistance in ohms - CONFIGURED IN CLASS CONSTANT
+        """
+        try:
+            if current_amplitude <= 0:
+                return 0.0
+            
+            # Use class constant for solenoid resistance
+            solenoid_resistance = self.SOLENOID_RESISTANCE
+            
+            # Power calculation: P = I²R
+            power = solenoid_resistance * (current_amplitude ** 2)  # Watts
+            
+            return max(0.0, power)
+            
+        except Exception as e:
+            self._log(f"Error calculating solenoid power: {e}", LogLevel.ERROR)
+            return 0.0
+
     def get_deflection_bounds(self):
-        """Get current deflection amplitude bounds."""
         return {
             'lower': self.deflection_lower_bound.get(),
             'upper': self.deflection_upper_bound.get()
@@ -485,18 +748,17 @@ class BeamPulseSubsystem:
         return bounds['lower'] <= value <= bounds['upper']
 
     def get_available_lut_files(self):
-        """Get list of available CSV files from the cathode characterization folder."""
+        """Get list of available CSV files from the beam_pulse folder."""
         try:
-            # Get the scripts/cathode_characterization directory
-            script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
-                                     "scripts", "cathode_characterization")
+            # Get the current beam_pulse directory
+            beam_pulse_dir = os.path.dirname(__file__)
             
-            if not os.path.exists(script_dir):
-                self._log(f"LUT directory not found: {script_dir}", LogLevel.WARNING)
+            if not os.path.exists(beam_pulse_dir):
+                self._log(f"LUT directory not found: {beam_pulse_dir}", LogLevel.WARNING)
                 return ["None"]
             
             csv_files = []
-            for file in os.listdir(script_dir):
+            for file in os.listdir(beam_pulse_dir):
                 if file.endswith('.csv'):
                     csv_files.append(file)
             
@@ -521,9 +783,8 @@ class BeamPulseSubsystem:
         
         try:
             # Load the CSV file
-            script_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
-                                     "scripts", "cathode_characterization")
-            file_path = os.path.join(script_dir, selected_file)
+            beam_pulse_dir = os.path.dirname(__file__)
+            file_path = os.path.join(beam_pulse_dir, selected_file)
             
             self.lut_data = self.load_lut_csv(file_path)
             
@@ -756,9 +1017,10 @@ class BeamPulseSubsystem:
                 self.frequency_spinbox.configure(state="normal")
         
         # Update wave gen button state
+        # Deflect Beam toggle should be disabled in Pulse mode (not Fixed mode)
         if hasattr(self, 'wave_gen_toggle'):
             wave_type = self.wave_type.get()
-            if wave_type.lower() == "fixed":
+            if wave_type.lower() == "pulse":
                 self.wave_gen_toggle.configure(state="disabled")
             else:
                 self.wave_gen_toggle.configure(state="normal")
@@ -791,7 +1053,7 @@ class BeamPulseSubsystem:
         stats_data = [
             ("Max Deflection:", self.deflection_est, "cm", "5.0"),
             ("Scan Speed:", self.scan_speed_est, "m/s", "1.5"),
-            ("B-field Estimate:", self.peak_bfield_est, "G", "90"),
+            ("B-field Estimate:", self.peak_bfield_est, "G", "28.0"),
             ("Power Estimate (per solenoid):", self.power_est, "W", "150")
         ]
         
@@ -923,6 +1185,18 @@ class BeamPulseSubsystem:
                 # Fallback text button
                 self.wave_gen_toggle.configure(text="ON" if self.wave_gen_toggle_state else "OFF")
         
+        # When Deflect Beam is turned ON, check wave type
+        # For Fixed, Sine, and Triangle: create graphs for all beams that are currently ON
+        if self.wave_gen_toggle_state:
+            wave_type = self.wave_type.get().lower()
+            if wave_type in ["fixed", "sine", "triangle"]:
+                # Check each beam and create graph if beam is ON
+                for beam_index in range(3):
+                    if self.beam_on_status[beam_index]:
+                        self.add_beam_position_to_plot(beam_index)
+                        beam_names = ['A', 'B', 'C']
+                        self._log(f"Deflection started for Beam {beam_names[beam_index]} ({wave_type})", LogLevel.DEBUG)
+        
         self._log(f"Wave Gen {'enabled' if self.wave_gen_toggle_state else 'disabled'}", LogLevel.DEBUG)
 
     def toggle_graph_visibility(self):
@@ -956,8 +1230,9 @@ class BeamPulseSubsystem:
             self.frequency_spinbox.configure(state="normal")
         
         # Enable/disable wave gen button based on wave type
+        # Deflect Beam toggle should be disabled in Pulse mode (not Fixed mode)
         if hasattr(self, 'wave_gen_toggle'):
-            if wave_type.lower() == "fixed":
+            if wave_type.lower() == "pulse":
                 self.wave_gen_toggle.configure(state="disabled")
             else:
                 self.wave_gen_toggle.configure(state="normal")
@@ -1026,8 +1301,15 @@ class BeamPulseSubsystem:
             self.beam_on_status[beam_index] = status
             self.update_beam_led_indicators()
             
-            # Add position to plot when beam is turned on
-            if status:
+            # For Fixed, Sine, and Triangle: beam ON just enables the beam
+            # Graph is only created when Deflect Beam toggle is ON
+            # For Pulse mode: different behavior (handled separately)
+            wave_type = self.wave_type.get().lower()
+            
+            # Only add position to plot if:
+            # 1. Beam is turned on AND
+            # 2. Either it's Pulse mode OR Deflect Beam toggle is ON
+            if status and (wave_type == "pulse" or self.wave_gen_toggle_state):
                 self.add_beam_position_to_plot(beam_index)
             
             beam_names = ['A', 'B', 'C']
@@ -1222,17 +1504,15 @@ class BeamPulseSubsystem:
                     self._log(f"Error redrawing history item for beam {beam_index}: {e}", LogLevel.WARNING)
 
     def clear_all_beam_plots_display(self):
-        """Clear all visible beam plots while keeping the data in memory."""
+        """Clear all visible beam plots except the current position (last move)."""
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
         
         for beam_index in range(3):
             ax = self._bp_axes[beam_index]
             
-            # Remove current position plot from display but keep reference
-            if self.beam_current[beam_index] is not None:
-                self.beam_current[beam_index].remove()
-                # Don't set to None - keep the object for restoration
+            # Keep the current position plot visible (the last move)
+            # Only remove history plots, not the current position
             
             # Remove all history plot objects from display but keep references in beam_history
             for obj in self.beam_plot_objects[beam_index]:
@@ -1344,33 +1624,35 @@ class BeamPulseSubsystem:
         return self.power_est.get()
 
     def start_deflection_stats_monitoring(self):
-        """Start periodic updates of deflection stats (example of live updates)."""
+        """Start periodic updates of deflection stats using LUT data and formulas."""
         def update_loop():
-            # Example: Update deflection stats based on some calculations or hardware readings
-            # You can replace this with actual hardware readings or calculations
+            # Get current control values for calculations
+            current_amplitude = self.wave_amplitude.get()  # Current amplitude in A
+            frequency = self.frequency_hz.get()  # Frequency in Hz
             
-            # Example simulation - you would replace with real data
-            import time
-            import math
+            # Calculate deflection and scan speed using LUT interpolation
+            deflection = self.interpolate_lut_value(self.beam_deflection_lut_data, current_amplitude)
+            scan_speed = self.interpolate_lut_value(self.scan_speed_lut_data, frequency)
             
-            # Simulate some varying values
-            time_factor = time.time() % 10  # 10 second cycle
+            # Calculate B-field and power using formulas
+            b_field = self.calculate_b_field_from_current(current_amplitude)
+            power = self.calculate_solenoid_power_from_current(current_amplitude)
             
-            # Example calculations (replace with real logic)
-            deflection = 5.0 + 2.0 * math.sin(time_factor)
-            scan_speed = 1.5 + 0.3 * math.cos(time_factor) 
-            b_field = 90 + 10 * math.sin(time_factor * 0.5)
-            power = 150 + 25 * math.cos(time_factor * 0.3)
+            # Use fallback values if LUT data is not available
+            if deflection is None:
+                deflection = current_amplitude * 4.0  # Simple fallback: 4 cm per A
+            if scan_speed is None:
+                scan_speed = frequency * 0.05  # Simple fallback: 0.05 m/s per Hz
             
-            # Update the displays
+            # Update the displays with calculated values
             self.set_deflection_est(round(deflection, 1))
-            self.set_scan_speed_est(round(scan_speed, 1))
-            self.set_peak_bfield_est(round(b_field, 0))
+            self.set_scan_speed_est(round(scan_speed, 2))
+            self.set_peak_bfield_est(round(b_field, 1))  # Gauss values are larger, show 1 decimal
             self.set_power_est(round(power, 0))
             
-            # Schedule next update (every 1000ms = 1 second)
+            # Schedule next update (every 500ms for responsive updates)
             if hasattr(self, 'parent_frame') and self.parent_frame:
-                self.parent_frame.after(1000, update_loop)
+                self.parent_frame.after(500, update_loop)
         
         # Start the update loop
         if hasattr(self, 'parent_frame') and self.parent_frame:
