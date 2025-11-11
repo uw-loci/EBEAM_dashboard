@@ -179,11 +179,23 @@ class BeamPulseSubsystem:
         self.beam_deflection_lut_data = None
         self.scan_speed_lut_data = None
         
+        # Energy from currently selected LUT datasets (extracted from filenames)
+        # These show which beam energy the selected LUT files were calibrated for
+        self.selected_deflection_energy = tk.DoubleVar(value=0.0)  # keV from deflection LUT filename
+        self.selected_scan_speed_energy = tk.DoubleVar(value=0.0)   # keV from scan speed LUT filename
+        
         # Current beam energy tracking (calculated from power supplies)
         # This displays the total beam energy from all power supply voltages
         # and is used to validate that LUT data matches the current operating energy
         self.current_beam_energy_keV = tk.DoubleVar(value=0.0)
         self.beam_energy_subsystem_ref = None  # Reference to beam energy subsystem for data access
+        
+        # Available energies for spinbox controls
+        self.available_energies = []
+        self.current_energy_index = 0
+        
+        # Shared energy variable for synchronization between tabs
+        self.shared_energy = tk.StringVar(value="20 keV")
 
         # Graph visibility control
         self.graph_history_visible = True
@@ -420,6 +432,16 @@ class BeamPulseSubsystem:
         )
         self.frequency_upper_bound_spinbox.pack(side=tk.RIGHT)
         
+        # Apply button (positioned above LUT configuration)
+        apply_button = ttk.Button(config_frame, text="Apply Settings", 
+                                 command=self.apply_deflection_bounds)
+        apply_button.pack(pady=(5, 0))
+        
+        # Status display
+        self.config_status_label = ttk.Label(config_frame, text="Settings ready to apply", 
+                                           font=("Arial", 8), foreground="blue")
+        self.config_status_label.pack(pady=(2, 5))
+        
         # Deflection Stats LUT Configuration frame
         deflection_stats_lut_frame = ttk.LabelFrame(config_frame, text="Configure Deflection Stats LUTs", 
                                                    padding="5", labelanchor="n")
@@ -427,16 +449,6 @@ class BeamPulseSubsystem:
         
         # Create four rows for the four deflection stats LUTs
         self.create_deflection_stats_lut_dropdowns(deflection_stats_lut_frame)
-        
-        # Apply button
-        apply_button = ttk.Button(config_frame, text="Apply Settings", 
-                                 command=self.apply_deflection_bounds)
-        apply_button.pack(pady=(5, 0))  # Reduced padding
-        
-        # Status display
-        self.config_status_label = ttk.Label(config_frame, text="Settings ready to apply", 
-                                           font=("Arial", 8), foreground="blue")  # Smaller font
-        self.config_status_label.pack(pady=(5, 0))  # Reduced padding
 
     def apply_deflection_bounds(self):
         """Apply the deflection amplitude bounds settings."""
@@ -484,7 +496,7 @@ class BeamPulseSubsystem:
         This method creates the Config tab interface for selecting LUT files with
         energy awareness. Key features:
         
-        1. Current Beam Energy Display: Shows real-time total energy from power supplies
+        1. Lookups based on Beam Energy: Shows real-time total energy from power supplies
         2. LUT File Selection: Dropdowns for beam deflection and scan speed LUTs
         3. Energy Validation: Automatic warnings when LUT energy ≠ current energy
         4. File Naming Guidance: Recommendations for energy-specific naming
@@ -497,23 +509,28 @@ class BeamPulseSubsystem:
         energy_info_frame = ttk.Frame(parent_frame)
         energy_info_frame.pack(fill=tk.X, pady=(0, 8))
         
-        # Current beam energy display
+        # Current beam energy spinbox
         energy_label_frame = ttk.Frame(energy_info_frame)
         energy_label_frame.pack(fill=tk.X)
         
-        ttk.Label(energy_label_frame, text="Current Beam Energy:", font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        ttk.Label(energy_label_frame, text="Lookups based on Beam Energy:", font=("Arial", 9, "bold")).pack(side=tk.LEFT)
         
-        self.beam_energy_display = ttk.Label(
-            energy_label_frame, 
-            text="0.0 keV", 
+        # Available energies (automatically detected from files)
+        self.available_energies = [20.0, 30.0, 50.0]  # Default, will be updated from files
+        self.current_energy_index = 0  # Start with first energy (20keV)
+        
+        self.beam_energy_spinbox = tk.Spinbox(
+            energy_label_frame,
+            values=[f"{e:.0f} keV" for e in self.available_energies],
+            state="readonly",
+            width=10,
             font=("Arial", 9, "bold"),
-            foreground="blue",
-            background="white",
-            relief="sunken",
-            width=12,
-            anchor=tk.CENTER
+            fg="blue",
+            textvariable=self.shared_energy,
+            command=self.on_energy_spinbox_change,
+            wrap=True
         )
-        self.beam_energy_display.pack(side=tk.RIGHT, padx=(5, 0))
+        self.beam_energy_spinbox.pack(side=tk.RIGHT, padx=(5, 0))
         
         # Warning label for energy mismatch
         self.energy_warning_label = ttk.Label(
@@ -529,14 +546,14 @@ class BeamPulseSubsystem:
             {
                 'label': 'Beam Deflection LUT:',
                 'variable': self.beam_deflection_lut_var,
-                'expected_file': 'beam_deflection.csv',  # Set default to main CSV file
-                'description': '(current_amplitude_A → beam_deflection_cm) - Energy Specific'
+                'expected_file': 'beam_deflection_20keV.csv',  # Default to 20keV
+                'description': '(current_amplitude_A → beam_deflection_cm)'
             },
             {
                 'label': 'Scan Speed LUT:',
                 'variable': self.scan_speed_lut_var,
-                'expected_file': 'scan_speed.csv',  # Set default to main CSV file
-                'description': '(frequency_hz → scan_speed_mps) - Energy Specific'
+                'expected_file': 'scan_speed_20keV.csv',  # Default to 20keV
+                'description': '(frequency_hz → scan_speed_mps)'
             }
         ]
         
@@ -552,48 +569,39 @@ class BeamPulseSubsystem:
             label_text = f"{config['label']} {config['description']}"
             ttk.Label(lut_selection_frame, text=label_text, font=("Arial", 8)).pack(side=tk.LEFT)
             
-            # Dropdown
+            # Dropdown with filtered file list
+            filtered_files = self.get_filtered_lut_files_by_type(config['label'])
+            
             dropdown = ttk.Combobox(
                 lut_selection_frame,
                 textvariable=config['variable'],
-                values=self.get_available_deflection_stats_lut_files(),
+                values=filtered_files,
                 state="readonly",
                 width=18
             )
             dropdown.pack(side=tk.RIGHT, padx=(5, 0))
             
             # Set default to expected file if it exists
-            available_files = self.get_available_deflection_stats_lut_files()
-            if config['expected_file'] in available_files:
+            if config['expected_file'] in filtered_files:
                 config['variable'].set(config['expected_file'])
             
             # Bind change event
             dropdown.bind("<<ComboboxSelected>>", 
                          lambda event, var=config['variable']: self.on_deflection_stats_lut_change(event, var))
             
+            # Store dropdown with type info for later filtering
+            dropdown.lut_type = config['label']
             self.deflection_stats_dropdowns.append(dropdown)
         
-        # Add informational labels for formula-based calculations
-        formula_info_frame = ttk.Frame(parent_frame)
-        formula_info_frame.pack(fill=tk.X, pady=(5, 0))
+        # Concise help text
+        info_frame = ttk.Frame(parent_frame)
+        info_frame.pack(fill=tk.X, pady=(3, 0))
         
-        ttk.Label(formula_info_frame, text="B-Field and Power calculated using formulas based on current amplitude", 
-                 font=("Arial", 8), foreground="blue").pack()
-        
-        # Energy-specific file naming suggestion
-        naming_info_frame = ttk.Frame(parent_frame)
-        naming_info_frame.pack(fill=tk.X, pady=(3, 0))
-        
-        # SIMPLIFIED FILE INSTRUCTIONS FOR USERS:
-        ttk.Label(naming_info_frame, text="Single CSV files with multiple energy columns: 'beam_deflection.csv', 'scan_speed.csv'", 
+        ttk.Label(info_frame, text="Use energy-specific CSV files: 'beam_deflection_20keV.csv', 'scan_speed_30keV.csv'", 
                  font=("Arial", 8), foreground="gray").pack()
         
-        # Additional help text
-        help_frame = ttk.Frame(parent_frame)
-        help_frame.pack(fill=tk.X, pady=(2, 0))
-        
-        ttk.Label(help_frame, text="Example: current_amplitude_A,deflection_20keV,deflection_30keV,deflection_50keV", 
-                 font=("Arial", 7), foreground="gray").pack()
+        # Detect available energies from files and update spinboxes
+        self.detect_available_energies()
         
         # Load initial LUT data
         self.load_all_deflection_stats_luts()
@@ -624,6 +632,79 @@ class BeamPulseSubsystem:
         except Exception as e:
             self._log(f"Error scanning for deflection stats LUT files: {e}", LogLevel.ERROR)
             return ["None"]
+            
+    def get_filtered_lut_files_by_type(self, lut_type):
+        """Get LUT files filtered by type (deflection or scan speed).
+        
+        Args:
+            lut_type: Type label like 'Beam Deflection LUT:' or 'Scan Speed LUT:'
+            
+        Returns:
+            list: Filtered list of CSV filenames for the specified type
+        """
+        try:
+            all_files = self.get_available_deflection_stats_lut_files()
+            
+            # Remove "None" from filtering
+            csv_files = [f for f in all_files if f != "None" and f.endswith('.csv')]
+            
+            # Filter by type
+            if 'Beam Deflection' in lut_type:
+                # Only show beam deflection files
+                filtered = [f for f in csv_files if 'beam_deflection' in f.lower()]
+            elif 'Scan Speed' in lut_type:
+                # Only show scan speed files  
+                filtered = [f for f in csv_files if 'scan_speed' in f.lower()]
+            else:
+                # Unknown type, return all CSV files
+                filtered = csv_files
+            
+            # Always include "None" option at the beginning
+            return ["None"] + sorted(filtered)
+            
+        except Exception as e:
+            self._log(f"Error filtering LUT files by type '{lut_type}': {e}", LogLevel.ERROR)
+            return ["None"]
+            
+    def detect_available_energies(self):
+        """Detect available beam energies from LUT filenames and update spinboxes."""
+        try:
+            all_files = self.get_available_deflection_stats_lut_files()
+            detected_energies = set()
+            
+            # Extract energies from all CSV filenames
+            for filename in all_files:
+                if filename != "None":
+                    energy = self.extract_energy_from_filename(filename)
+                    if energy is not None:
+                        detected_energies.add(energy)
+            
+            # Update available energies list
+            if detected_energies:
+                self.available_energies = sorted(list(detected_energies))
+                self._log(f"Detected available beam energies: {self.available_energies} keV", LogLevel.INFO)
+            else:
+                # Fallback to defaults if no energies detected
+                self.available_energies = [20.0, 30.0, 50.0]
+                self._log("No energies detected from files, using default energies", LogLevel.WARNING)
+            
+            # Update spinbox values
+            energy_labels = [f"{e:.0f} keV" for e in self.available_energies]
+            
+            if hasattr(self, 'beam_energy_spinbox'):
+                self.beam_energy_spinbox.config(values=energy_labels)
+                    
+            if hasattr(self, 'main_beam_energy_spinbox'):
+                self.main_beam_energy_spinbox.config(values=energy_labels)
+                
+            # Set shared variable to first energy if available
+            if energy_labels:
+                self.shared_energy.set(energy_labels[0])
+            
+        except Exception as e:
+            self._log(f"Error detecting available energies: {e}", LogLevel.ERROR)
+            
+        return self.available_energies
 
     def on_deflection_stats_lut_change(self, event, variable):
         """Handle deflection stats LUT selection change and update displays."""
@@ -643,6 +724,9 @@ class BeamPulseSubsystem:
         
         # Update deflection stats display with new LUT data
         self.update_deflection_stats()
+        
+        # Update energy spinbox to reflect the energy from selected LUT
+        self.update_energy_spinbox_from_lut_selection()
 
     def load_deflection_stats_lut(self, variable, filename):
         """Load a specific deflection stats LUT file.
@@ -681,18 +765,18 @@ class BeamPulseSubsystem:
             self._log(f"Error loading deflection stats LUT {filename}: {e}", LogLevel.ERROR)
 
     def load_deflection_stats_csv(self, file_path, filename):
-        """Load CSV file for deflection stats with multi-energy column support.
+        """Load CSV file for deflection stats with single-energy format.
         
-        SIMPLIFIED MULTI-ENERGY CSV LOADING:
-        This method now handles CSV files with multiple energy columns in a single file:
-        - Detects all energy columns (e.g., deflection_20keV, deflection_50keV)  
-        - Stores complete energy dataset for runtime interpolation
-        - Falls back to legacy single-column format for backward compatibility
+        ENERGY-SPECIFIC LUT FILE LOADING:
+        This method loads individual energy-specific CSV files (e.g., beam_deflection_20keV.csv).
+        Each file contains calibration data for a specific beam energy, making it easy to
+        switch between different energy datasets and see which energy is currently selected.
         
-        Multi-energy format example:
-        current_amplitude_A,deflection_20keV,deflection_30keV,deflection_50keV
-        0.0,0.0,0.0,0.0
-        0.5,0.2,0.15,0.1
+        Single-energy file format example:
+        current_amplitude_A,deflection_cm
+        0.0,0.0
+        0.5,0.2
+        1.0,0.8
         """
         try:
             lut_data = []
@@ -700,79 +784,45 @@ class BeamPulseSubsystem:
             with open(file_path, 'r', newline='') as csvfile:
                 reader = csv.DictReader(csvfile)
                 
-                # Get expected input column
+                # Get expected input/output columns for this file type
                 expected_columns = self.get_expected_columns_for_file(filename)
                 if not expected_columns:
                     self._log(f"Unknown deflection stats LUT file format: {filename}", LogLevel.ERROR)
                     return None
                 
-                input_col = expected_columns[0]
+                input_col, output_col = expected_columns
                 
+                # Verify required columns exist
                 if input_col not in reader.fieldnames:
-                    self._log(f"Required input column {input_col} not found in {filename}", LogLevel.ERROR)
+                    self._log(f"Required input column '{input_col}' not found in {filename}", LogLevel.ERROR)
+                    return None
+                    
+                if output_col not in reader.fieldnames:
+                    self._log(f"Required output column '{output_col}' not found in {filename}", LogLevel.ERROR)
                     return None
                 
-                # Detect energy columns and legacy single column
-                energy_columns = {}
-                legacy_output_col = None
-                
-                for col in reader.fieldnames:
-                    if col != input_col:
-                        # Try to extract energy from column name (e.g., deflection_20keV)
-                        energy = self.extract_energy_from_column_name(col)
-                        if energy:
-                            energy_columns[energy] = col
-                        else:
-                            # Check for legacy single column names
-                            if 'deflection' in col.lower() or 'speed' in col.lower():
-                                legacy_output_col = col
-                
-                # Use multi-energy format if available, otherwise fall back to legacy
-                if energy_columns:
-                    # Multi-energy format
-                    for row in reader:
-                        try:
-                            input_value = float(row[input_col])
-                            energy_data = {}
-                            
-                            for energy, col_name in energy_columns.items():
-                                try:
-                                    energy_data[energy] = float(row[col_name])
-                                except ValueError:
-                                    continue
-                            
-                            if energy_data:  # Only add if we have at least one valid energy value
-                                lut_data.append({'input': input_value, 'energy_data': energy_data})
-                                
-                        except ValueError as e:
-                            self._log(f"Skipping invalid row in {filename}: {row} - {e}", LogLevel.WARNING)
-                            continue
-                    
-                    # Log available energies
-                    available_energies = sorted(energy_columns.keys())
-                    self._log(f"Loaded multi-energy data for: {available_energies} keV", LogLevel.INFO)
-                    
-                elif legacy_output_col:
-                    # Legacy single-column format
-                    for row in reader:
-                        try:
-                            input_val = float(row[input_col])
-                            output_val = float(row[legacy_output_col])
-                            lut_data.append({
-                                'input': input_val,
-                                'output': output_val  # Legacy format
-                            })
-                        except ValueError as e:
-                            self._log(f"Invalid data in {filename}: {e}", LogLevel.WARNING)
-                            continue
-                    
-                    self._log(f"Loaded legacy single-energy data from column: {legacy_output_col}", LogLevel.INFO)
-                else:
-                    self._log(f"No valid energy or legacy columns found in {filename}", LogLevel.ERROR)
-                    return None
+                # Load the single-energy data
+                for row in reader:
+                    try:
+                        input_val = float(row[input_col])
+                        output_val = float(row[output_col])
+                        lut_data.append({
+                            'input': input_val,
+                            'output': output_val
+                        })
+                    except ValueError as e:
+                        self._log(f"Skipping invalid row in {filename}: {row} - {e}", LogLevel.WARNING)
+                        continue
             
             # Sort by input value for interpolation
             lut_data.sort(key=lambda x: x['input'])
+            
+            # Extract energy from filename and log it
+            energy = self.extract_energy_from_filename(filename)
+            energy_text = f"{energy:.0f} keV" if energy is not None else "energy not specified"
+            
+            self._log(f"Deflection stats LUT loaded: {filename} with {len(lut_data)} data points ({energy_text})", LogLevel.INFO)
+            
             return lut_data
             
         except Exception as e:
@@ -796,45 +846,37 @@ class BeamPulseSubsystem:
         return None
 
     def get_expected_columns_for_file(self, filename):
-        """Get expected input and output column names for deflection stats LUT files.
+        """Get expected input and output column names for energy-specific LUT files.
         
-        SIMPLIFIED MULTI-ENERGY CSV FORMAT:
-        Single CSV files now contain multiple energy columns instead of separate files.
-        This makes it easier to manage and compare different energy calibrations.
+        ENERGY-SPECIFIC LUT FILE FORMAT:
+        Each file contains calibration data for a single beam energy with simple two-column format.
+        This makes it easy to switch between energy datasets and clearly see which energy is selected.
         
         Supported formats:
         
-        Multi-Energy (Recommended):
-        beam_deflection.csv:
-        current_amplitude_A,deflection_20keV,deflection_30keV,deflection_50keV
-        0.0,0.0,0.0,0.0
-        0.5,0.2,0.15,0.1
-        1.0,0.8,0.6,0.4
+        Beam Deflection Files:
+        - beam_deflection_20keV.csv: current_amplitude_A,deflection_cm
+        - beam_deflection_30keV.csv: current_amplitude_A,deflection_cm
+        - beam_deflection_50keV.csv: current_amplitude_A,deflection_cm
         
-        scan_speed.csv:
-        frequency_hz,speed_20keV,speed_30keV,speed_50keV
-        1.0,0.5,0.6,0.7
-        5.0,1.0,1.2,1.4
+        Scan Speed Files:
+        - scan_speed_20keV.csv: frequency_hz,scan_speed_mps
+        - scan_speed_30keV.csv: frequency_hz,scan_speed_mps
+        - scan_speed_50keV.csv: frequency_hz,scan_speed_mps
         
-        Legacy (still supported):
-        - beam_deflection.csv: current_amplitude_A -> beam_deflection_cm
-        - scan_speed.csv: frequency_hz -> scan_speed_mps
-        
-        The system automatically detects available energy columns and interpolates
-        between them based on current beam energy.
+        The beam energy is extracted from the filename (e.g., _20keV, _30keV, _50keV)
+        and displayed in the energy indicators to show which calibration is active.
         """
+        # Match energy-specific deflection files
         if 'beam_deflection' in filename and filename.endswith('.csv'):
-            return ('current_amplitude_A', 'multi_energy_deflection')
+            return ('current_amplitude_A', 'deflection_cm')
+        
+        # Match energy-specific scan speed files    
         elif 'scan_speed' in filename and filename.endswith('.csv'):
-            return ('frequency_hz', 'multi_energy_speed')
+            return ('frequency_hz', 'scan_speed_mps')
         
-        # Legacy exact match fallback
-        column_mappings = {
-            'beam_deflection.csv': ('current_amplitude_A', 'multi_energy_deflection'),
-            'scan_speed.csv': ('frequency_hz', 'multi_energy_speed')
-        }
-        
-        return column_mappings.get(filename, None)
+        # No match found
+        return None
 
     def extract_energy_from_filename(self, filename):
         """Extract beam energy value from filename if present.
@@ -867,31 +909,105 @@ class BeamPulseSubsystem:
         return None
 
     def start_beam_energy_monitoring(self):
-        """Start periodic monitoring of beam energy display."""
+        """Start periodic monitoring of LUT energy displays."""
         def update_energy_display():
             try:
-                current_energy = self.calculate_current_beam_energy()
-                energy_text = f"{current_energy:.1f} keV"
+                # Extract energies from currently selected LUT filenames
+                deflection_energy = self.extract_energy_from_filename(self.beam_deflection_lut_var.get())
+                scan_speed_energy = self.extract_energy_from_filename(self.scan_speed_lut_var.get())
                 
-                # Update Config tab display (if it exists)
-                if hasattr(self, 'beam_energy_display'):
-                    self.beam_energy_display.configure(text=energy_text)
-                    # Check for energy mismatch with loaded LUTs
-                    self.check_energy_lut_compatibility()
+                # Update stored energy values
+                if deflection_energy is not None:
+                    self.selected_deflection_energy.set(deflection_energy)
+                if scan_speed_energy is not None:
+                    self.selected_scan_speed_energy.set(scan_speed_energy)
                 
-                # Update Main tab display (if it exists)
-                if hasattr(self, 'main_beam_energy_display'):
-                    self.main_beam_energy_display.configure(text=energy_text)
+                # The spinboxes now handle energy display instead of labels
+                # This monitoring function still updates the stored values for calculations
                 
                 # Schedule next update (every 2 seconds)
                 if hasattr(self, 'parent_frame') and self.parent_frame:
                     self.parent_frame.after(2000, update_energy_display)
             except Exception as e:
-                self._log(f"Error updating beam energy display: {e}", LogLevel.ERROR)
+                self._log(f"Error updating LUT energy monitoring: {e}", LogLevel.ERROR)
         
         # Start the monitoring loop
         if hasattr(self, 'parent_frame') and self.parent_frame:
             self.parent_frame.after(1000, update_energy_display)  # Start after 1 second
+            
+    def on_energy_spinbox_change(self):
+        """Handle energy spinbox change and auto-update LUT selections."""
+        try:
+            # Get the current energy from the shared variable
+            energy_text = self.shared_energy.get()
+            
+            if energy_text:
+                selected_energy = float(energy_text.replace(' keV', ''))
+                
+                # Update the current energy index
+                if selected_energy in self.available_energies:
+                    self.current_energy_index = self.available_energies.index(selected_energy)
+                
+                # Auto-update LUT file selections to match the new energy
+                self.auto_update_lut_files_for_energy(selected_energy)
+                
+                self._log(f"Energy changed to {selected_energy:.0f} keV - auto-updating LUT files", LogLevel.INFO)
+                
+        except Exception as e:
+            self._log(f"Error handling energy spinbox change: {e}", LogLevel.ERROR)
+            
+    def auto_update_lut_files_for_energy(self, energy):
+        """Automatically update LUT file selections to match the specified energy."""
+        try:
+            # Generate expected filenames for this energy
+            expected_deflection = f"beam_deflection_{energy:.0f}keV.csv"
+            expected_scan_speed = f"scan_speed_{energy:.0f}keV.csv"
+            
+            # Get available files
+            available_files = self.get_available_deflection_stats_lut_files()
+            
+            # Update deflection LUT if the file exists
+            if expected_deflection in available_files:
+                old_deflection = self.beam_deflection_lut_var.get()
+                self.beam_deflection_lut_var.set(expected_deflection)
+                self.load_deflection_stats_lut(self.beam_deflection_lut_var, expected_deflection)
+                self._log(f"Auto-updated deflection LUT: {old_deflection} → {expected_deflection}", LogLevel.INFO)
+            else:
+                self._log(f"Deflection file not found: {expected_deflection}", LogLevel.WARNING)
+            
+            # Update scan speed LUT if the file exists  
+            if expected_scan_speed in available_files:
+                old_scan_speed = self.scan_speed_lut_var.get()
+                self.scan_speed_lut_var.set(expected_scan_speed)
+                self.load_deflection_stats_lut(self.scan_speed_lut_var, expected_scan_speed)
+                self._log(f"Auto-updated scan speed LUT: {old_scan_speed} → {expected_scan_speed}", LogLevel.INFO)
+            else:
+                self._log(f"Scan speed file not found: {expected_scan_speed}", LogLevel.WARNING)
+                
+            # Update deflection stats display
+            self.update_deflection_stats()
+            
+        except Exception as e:
+            self._log(f"Error auto-updating LUT files for {energy:.0f} keV: {e}", LogLevel.ERROR)
+            
+    def update_energy_spinbox_from_lut_selection(self):
+        """Update energy spinbox based on currently selected LUT files."""
+        try:
+            # Get energy from deflection LUT (primary energy indicator)
+            deflection_file = self.beam_deflection_lut_var.get()
+            if deflection_file != "None":
+                energy = self.extract_energy_from_filename(deflection_file)
+                if energy is not None and energy in self.available_energies:
+                    energy_text = f"{energy:.0f} keV"
+                    
+                    # Update shared variable (automatically syncs both spinboxes)
+                    self.shared_energy.set(energy_text)
+                        
+                    # Update current energy index
+                    self.current_energy_index = self.available_energies.index(energy)
+                    
+        except Exception as e:
+            self._log(f"Error updating energy spinbox from LUT selection: {e}", LogLevel.ERROR)
 
     def check_energy_lut_compatibility(self):
         """Check if loaded LUT files match current beam energy and update warnings.
@@ -945,8 +1061,8 @@ class BeamPulseSubsystem:
     def load_all_deflection_stats_luts(self):
         """Load all deflection stats LUTs on initialization."""
         lut_mappings = [
-            (self.beam_deflection_lut_var, 'beam_deflection.csv'),
-            (self.scan_speed_lut_var, 'scan_speed.csv')
+            (self.beam_deflection_lut_var, 'beam_deflection_20keV.csv'),
+            (self.scan_speed_lut_var, 'scan_speed_20keV.csv')
         ]
         
         for variable, filename in lut_mappings:
@@ -954,103 +1070,31 @@ class BeamPulseSubsystem:
                 self.load_deflection_stats_lut(variable, variable.get())
 
     def interpolate_lut_value(self, lut_data, input_value, current_energy=None):
-        """Interpolate value from LUT data with multi-energy support.
+        """Interpolate value from single-energy LUT data.
         
-        MULTI-ENERGY INTERPOLATION:
-        This method handles both legacy single-energy and new multi-energy formats:
-        1. For multi-energy data: interpolates between energy columns based on current beam energy
-        2. For legacy data: uses original single-column interpolation
-        3. Performs 2D interpolation (input parameter + beam energy)
+        SINGLE-ENERGY INTERPOLATION:
+        This method performs simple linear interpolation on single-energy LUT files.
+        Each file contains calibration data for one specific beam energy, making
+        interpolation straightforward and energy selection explicit.
         
         Args:
-            lut_data: LUT data from CSV file
+            lut_data: LUT data from CSV file with 'input' and 'output' keys
             input_value: Input parameter value (current or frequency)
-            current_energy: Current beam energy in keV (if None, uses stored value)
+            current_energy: Unused (kept for compatibility)
         """
         if not lut_data or len(lut_data) == 0:
             return None
         
         try:
-            # Get current beam energy if not provided
-            if current_energy is None:
-                current_energy = self.current_beam_energy_keV.get()
-            
-            # Check if this is multi-energy or legacy format
-            first_row = lut_data[0]
-            is_multi_energy = 'energy_data' in first_row
-            
-            if is_multi_energy:
-                return self._interpolate_multi_energy(lut_data, input_value, current_energy)
-            else:
-                return self._interpolate_legacy(lut_data, input_value)
+            # Simple linear interpolation on single-energy data
+            return self._interpolate_single_energy(lut_data, input_value)
                 
         except Exception as e:
             self._log(f"Error interpolating LUT data: {e}", LogLevel.ERROR)
             return None
-
-    def _interpolate_multi_energy(self, lut_data, input_value, current_energy):
-        """Interpolate multi-energy LUT data."""
-        # If input is outside bounds, use boundary values
-        if input_value <= lut_data[0]['input']:
-            return self._interpolate_energy_at_input(lut_data[0]['energy_data'], current_energy)
-        
-        if input_value >= lut_data[-1]['input']:
-            return self._interpolate_energy_at_input(lut_data[-1]['energy_data'], current_energy)
-        
-        # Find surrounding points for input interpolation
-        for i in range(len(lut_data) - 1):
-            if lut_data[i]['input'] <= input_value <= lut_data[i + 1]['input']:
-                # Get energy-interpolated values at both input points
-                value_at_i = self._interpolate_energy_at_input(lut_data[i]['energy_data'], current_energy)
-                value_at_i1 = self._interpolate_energy_at_input(lut_data[i + 1]['energy_data'], current_energy)
-                
-                if value_at_i is None or value_at_i1 is None:
-                    return None
-                
-                # Linear interpolation between input points
-                x0, y0 = lut_data[i]['input'], value_at_i
-                x1, y1 = lut_data[i + 1]['input'], value_at_i1
-                
-                if x1 == x0:
-                    return y0
-                
-                return y0 + (y1 - y0) * (input_value - x0) / (x1 - x0)
-        
-        return None
-
-    def _interpolate_energy_at_input(self, energy_data, current_energy):
-        """Interpolate between energy columns for a specific input value."""
-        if not energy_data:
-            return None
-        
-        available_energies = sorted(energy_data.keys())
-        
-        # If exact energy match, return directly
-        if current_energy in energy_data:
-            return energy_data[current_energy]
-        
-        # If outside energy range, use boundary values
-        if current_energy <= available_energies[0]:
-            return energy_data[available_energies[0]]
-        
-        if current_energy >= available_energies[-1]:
-            return energy_data[available_energies[-1]]
-        
-        # Find surrounding energies for interpolation
-        for i in range(len(available_energies) - 1):
-            e0, e1 = available_energies[i], available_energies[i + 1]
-            if e0 <= current_energy <= e1:
-                v0, v1 = energy_data[e0], energy_data[e1]
-                
-                if e1 == e0:
-                    return v0
-                
-                return v0 + (v1 - v0) * (current_energy - e0) / (e1 - e0)
-        
-        return None
-
-    def _interpolate_legacy(self, lut_data, input_value):
-        """Interpolate legacy single-column LUT data."""
+            
+    def _interpolate_single_energy(self, lut_data, input_value):
+        """Interpolate single-energy LUT data using linear interpolation."""
         # If input is outside bounds, return boundary values
         if input_value <= lut_data[0]['input']:
             return lut_data[0]['output']
@@ -1058,21 +1102,20 @@ class BeamPulseSubsystem:
         if input_value >= lut_data[-1]['input']:
             return lut_data[-1]['output']
         
-        # Find surrounding points for interpolation
+        # Find surrounding points for linear interpolation
         for i in range(len(lut_data) - 1):
             if lut_data[i]['input'] <= input_value <= lut_data[i + 1]['input']:
-                # Linear interpolation
-                x0, y0 = lut_data[i]['input'], lut_data[i]['output']
-                x1, y1 = lut_data[i + 1]['input'], lut_data[i + 1]['output']
+                # Linear interpolation between two points
+                x1, y1 = lut_data[i]['input'], lut_data[i]['output']
+                x2, y2 = lut_data[i + 1]['input'], lut_data[i + 1]['output']
                 
-                # Handle case where x0 == x1 (avoid division by zero)
-                if x1 == x0:
-                    return y0
-                
-                interpolated = y0 + (y1 - y0) * (input_value - x0) / (x1 - x0)
+                # y = y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+                interpolated = y1 + (y2 - y1) * (input_value - x1) / (x2 - x1)
                 return interpolated
         
         return None
+
+
 
     def calculate_b_field_from_current(self, current_amplitude, beam_number=None):
         """Calculate B-field (Gauss) from current amplitude using linear approximations.
@@ -1624,23 +1667,24 @@ class BeamPulseSubsystem:
             
             ttk.Label(title_frame, text="Deflection Stats", font=("Arial", 10, "bold")).pack()
             
-            # Current beam energy display (moved from Config tab for better visibility)
+            # Current beam energy spinbox (moved from Config tab for better visibility)
             energy_frame = ttk.Frame(title_frame)
             energy_frame.pack(fill=tk.X, pady=(2, 0))
             
             ttk.Label(energy_frame, text="Based on Beam Energy:", font=("Arial", 8)).pack(side=tk.LEFT)
             
-            self.main_beam_energy_display = ttk.Label(
-                energy_frame, 
-                text="0.0 keV", 
-                font=("Arial", 8, "bold"),
-                foreground="blue",
-                background="white",
-                relief="sunken",
+            self.main_beam_energy_spinbox = tk.Spinbox(
+                energy_frame,
+                values=[f"{e:.0f} keV" for e in self.available_energies],
+                state="readonly",
                 width=10,
-                anchor=tk.CENTER
+                font=("Arial", 8, "bold"),
+                fg="blue",
+                textvariable=self.shared_energy,
+                command=self.on_energy_spinbox_change,
+                wrap=True
             )
-            self.main_beam_energy_display.pack(side=tk.RIGHT)
+            self.main_beam_energy_spinbox.pack(side=tk.RIGHT)
         
             # Stats container with vertical spacing
             stats_container = tk.Frame(parent)
