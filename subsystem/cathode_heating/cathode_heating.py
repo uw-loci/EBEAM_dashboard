@@ -220,7 +220,29 @@ class CathodeHeatingSubsystem:
             )
         )
 
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        # Create canvas window and store ID for resize updates
+        self.canvas_window_id = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        # Bind canvas resize event to update scrollable_frame width
+        self.canvas.bind('<Configure>', self._on_canvas_configure)
+
+        # Add safety beams off button at the top - use pack so it expands to full width
+        beams_off_frame = ttk.Frame(self.scrollable_frame)
+        beams_off_frame.pack(fill='x', padx=5, pady=(5, 10))
+        
+        beams_off_button = tk.Button(
+            beams_off_frame,
+            text="BEAMS OFF",
+            bg="red",
+            fg="white",
+            font=("Helvetica", 12, "bold"),
+            command=self.turn_off_all_beams
+        )
+        beams_off_button.pack(fill="x", padx=10, pady=3)
+
+        # Create a container frame for cathode frames - this will use grid layout
+        cathode_container = ttk.Frame(self.scrollable_frame)
+        cathode_container.pack(fill='y', anchor='nw')  # Pack without fill='x' so it doesn't expand horizontally
 
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
@@ -229,8 +251,8 @@ class CathodeHeatingSubsystem:
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
         for i in range(3):
-            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
-            frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
+            frame = ttk.LabelFrame(cathode_container, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
+            frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nw')
             self.cathode_frames.append(frame)
 
             frame.columnconfigure(1, weight=1)  # Allow notebook to expand
@@ -458,6 +480,20 @@ class CathodeHeatingSubsystem:
         config_tab.columnconfigure(1, weight=1)
 
         self.init_time = datetime.datetime.now()
+
+    def _on_canvas_configure(self, event):
+        """
+        Handle canvas resize events to update scrollable_frame width.
+        This ensures the button and content adapt to the canvas width dynamically.
+        
+        Args:
+            event: The Configure event from the canvas
+        """
+        # Update the canvas window width to match the canvas width
+        canvas_width = event.width
+        self.canvas.itemconfig(self.canvas_window_id, width=canvas_width)
+        # Update scroll region after resize
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def update_com_ports(self, new_com_ports):
         """
