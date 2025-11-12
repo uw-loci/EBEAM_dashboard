@@ -133,36 +133,52 @@ class KnobBoxModbus:
         Parameters:
             unit_id (int): Unit ID of the power supply to poll.
         """
-        with self.modbus_lock:
-            # Read Input Registers containing MODE, V_SET, V_READ, I_READ
-            # Continuous block starting at address 1 (count=4)
-            input_registers = self.client.read_input_registers(address=IREG_MODE_ADDR, count=4, slave=unit_id)
-            if input_registers is None or not getattr(input_registers, "registers"):
-                raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id})")
+        last_exception = None
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            try:
+                with self.modbus_lock:
+                    # Read Input Registers containing MODE, V_SET, V_READ, I_READ
+                    # Continuous block starting at address 1 (count=4)
+                    input_registers = self.client.read_input_registers(address=IREG_MODE_ADDR, count=4, slave=unit_id)
+                    if input_registers is None or not getattr(input_registers, "registers"):
+                        raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id})")
 
-            if len(input_registers.registers) < 4:
-                raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
-            
-            mode, v_set, v_read, i_read = input_registers.registers
+                    if len(input_registers.registers) < 4:
+                        raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
+                    
+                    mode, v_set, v_read, i_read = input_registers.registers
+                
+                    # Read Discrete Input for Overcurrent status
+                    discrete_input = self.client.read_discrete_inputs(address=DINPUT_OVERCURRENT_ADDR, count=1, slave=unit_id)
+                    if discrete_input is None or not getattr(discrete_input, "bits"):
+                        raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
+
+                    overcurrent = int(bool(discrete_input.bits[0])) if discrete_input.bits else 0
+
+                    new_data = {
+                        "mode": mode,
+                        "set_voltage_V": float(v_set),
+                        "actual_voltage_V": float(v_read),
+                        "actual_current_mA": float(i_read),
+                        "overcurrent": overcurrent
+                    }
+
+                    # Success - update data and return
+                    with self.data_lock:
+                        self.data[unit_id] = new_data
+                        self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
+                    return
+
+            except Exception as e:
+                last_exception = e
+                if attempt < self.MAX_ATTEMPTS:
+                    self.log(f"[unit {unit_id}] Retry attempt {attempt}/{self.MAX_ATTEMPTS}: {str(e)}", LogLevel.WARNING)
+                    time.sleep(0.1)  # Short delay between retries
+                else:
+                    self.log(f"[unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
         
-            # Read Discrete Input for Overcurrent status
-            discrete_input = self.client.read_discrete_inputs(address=DINPUT_OVERCURRENT_ADDR, count=1, slave=unit_id)
-            if discrete_input is None or not getattr(discrete_input, "bits"):
-                raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
-
-            overcurrent = int(bool(discrete_input.bits[0])) if discrete_input.bits else 0
-
-            new_data = {
-                "mode": mode,
-                "set_voltage_V": float(v_set),
-                "actual_voltage_V": float(v_read),
-                "actual_current_mA": float(i_read),
-                "overcurrent": overcurrent
-            }
-
-            with self.data_lock:
-                self.data[unit_id] = new_data
-                self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
+        # All retries exhausted, raise the last exception
+        raise last_exception
 
     def get_data_snapshot(self):
         """
@@ -197,5 +213,4 @@ class KnobBoxModbus:
         else:
             print(f"{level.name}: {message}")
 
-# TODO: Implement retry logic for register reads
 # TODO: Figure out how output status will be recorded and stored in firmware
