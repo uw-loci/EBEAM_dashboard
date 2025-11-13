@@ -7,7 +7,7 @@ import sys
 import math
 import csv
 
-from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
+from instrumentctl.BCON_modbus.BCON_modbus import BCONModbus
 from utils import LogLevel
 
 # Check for numpy availability
@@ -36,18 +36,19 @@ def resource_path(relative_path):
 
 
 class BeamPulseSubsystem:
-    """Driver for the Beam Pulse subsystem (BCON) using the E5CN Modbus client.
+    """Beam Pulse subsystem (BCON) with GUI interface and physics calculations.
 
-    This class provides both the hardware driver functionality and GUI interface
-    for the beam pulse control system with ENERGY-AWARE LUT CALIBRATION.
+    This class provides the GUI interface and high-level control logic for the beam 
+    pulse control system with ENERGY-AWARE LUT CALIBRATION. Hardware communication
+    is handled by the BCON_modbus driver.
 
     Contract:
-      - Inputs: serial port and Modbus unit id (slave id)
-      - Outputs: read/write access to BCON registers over Modbus
-      - Error modes: connection failures return None/False and log errors
+      - Inputs: BCON driver instance for hardware communication
+      - Outputs: GUI controls and physics calculations (B-field, power, deflection)
+      - Error modes: hardware failures are handled by the BCON driver
 
-    This maps high-level methods to the register map provided in the project
-    documentation. Registers are zero-based addresses matching the device map.
+    Physics calculations include B-field, power dissipation, beam deflection,
+    and scan speed using empirical formulas and lookup tables.
     """
 
     # Physics constants for B-field and power calculations
@@ -62,43 +63,19 @@ class BeamPulseSubsystem:
     # This constant kept for reference/legacy compatibility
     SOLENOID_RESISTANCE = 12.0         # ohms - LEGACY: no longer used in power calc
 
-    # Register addresses (zero-based)
-    REGISTER = {
-        "COMMAND": 0,
-        "X_DIRECT_WRITE": 1,
-        "Y_DIRECT_WRITE": 2,
-        "PULSER_1_DUTY": 3,
-        "PULSER_2_DUTY": 4,
-        "PULSER_3_DUTY": 5,
-        "PULSER_1_DURATION": 6,
-        "PULSER_2_DURATION": 7,
-        "PULSER_3_DURATION": 8,
-        "SAMPLES_RATE": 9,
-        # Following registers are sequential for beams 1..3: amplitude, phase, offset
-        "BEAM_1_AMPLITUDE": 10,
-        "BEAM_1_PHASE": 11,
-        "BEAM_1_OFFSET": 12,
-        "BEAM_2_AMPLITUDE": 13,
-        "BEAM_2_PHASE": 14,
-        "BEAM_2_OFFSET": 15,
-        "BEAM_3_AMPLITUDE": 16,
-        "BEAM_3_PHASE": 17,
-        "BEAM_3_OFFSET": 18,
-    }
+    # Register addresses are now defined in BCON_modbus.py
 
-    def __init__(self, parent_frame=None, port: str = None, unit: int = 1, baudrate: int = 115200, timeout: int = 1, logger=None, debug: bool = False):
+    def __init__(self, parent_frame=None, bcon_driver=None, logger=None, debug: bool = False):
         """Create the BeamPulseSubsystem.
 
         Parameters:
             parent_frame: tkinter frame for GUI components (if None, no GUI created)
-            port: serial port (e.g. 'COM3')
-            unit: Modbus slave id for the BCON device
-            baudrate, timeout: serial parameters passed to E5CNModbus
+            bcon_driver: BCONModbus driver instance for hardware communication
             logger: optional logger object compatible with utils.LogLevel
             debug: enable debug logs
         """
         self.parent_frame = parent_frame
-        self.unit = unit
+        self.bcon_driver = bcon_driver
         self.logger = logger
         self.debug = debug
 
@@ -202,10 +179,8 @@ class BeamPulseSubsystem:
         # Graph visibility control
         self.graph_history_visible = True
 
-        # Hardware connection (only if port is provided)
-        self.modbus = None
-        if port:
-            self.modbus = E5CNModbus(port=port, baudrate=baudrate, timeout=timeout, logger=logger, debug_mode=debug)
+        # Hardware connection through BCON driver
+        # Driver should be initialized externally and passed in
 
         # Create GUI if parent frame is provided
         if parent_frame:
@@ -324,21 +299,15 @@ class BeamPulseSubsystem:
     def start_bcon_connection_monitoring(self):
         """Start periodic monitoring of BCON connection status."""
         def check_connection():
-            # Check if we have a modbus connection and if it's alive
-            if self.modbus and hasattr(self.modbus, 'client'):
+            # Check if we have a BCON driver and if it's connected
+            if self.bcon_driver:
                 try:
-                    # Check if the client is connected and socket is open
-                    if hasattr(self.modbus.client, 'is_socket_open') and self.modbus.client.is_socket_open():
-                        # Try a simple temperature read to verify connection is working
-                        result = self.modbus.read_temperature(1)  # Try unit 1
-                        # If we get a numeric result, connection is working
-                        self.set_bcon_connection_status(isinstance(result, (int, float)))
-                    else:
-                        self.set_bcon_connection_status(False)
+                    # Use the BCON driver's connection status check
+                    self.set_bcon_connection_status(self.bcon_driver.is_connected())
                 except Exception:
                     self.set_bcon_connection_status(False)
             else:
-                # No modbus connection configured
+                # No BCON driver configured
                 self.set_bcon_connection_status(False)
             
             # Schedule next check (every 5000ms = 5 seconds)
@@ -2426,157 +2395,90 @@ class BeamPulseSubsystem:
         if hasattr(self, 'parent_frame') and self.parent_frame:
             self.parent_frame.after(100, update_loop)  # Start after 100ms
 
-    # --- connection management ---
+    # --- Hardware Driver Interface ---
+    # These methods delegate to the BCON driver for hardware communication
+    
     def connect(self) -> bool:
-        """Open Modbus connection to the device."""
-        if not self.modbus:
-            self._log("No Modbus connection configured", LogLevel.ERROR)
+        """Connect to BCON hardware via driver."""
+        if not self.bcon_driver:
+            self._log("No BCON driver configured", LogLevel.ERROR)
             return False
-        return self.modbus.connect()
+        return self.bcon_driver.connect()
 
     def disconnect(self) -> None:
-        """Close Modbus connection."""
-        if self.modbus:
-            self.modbus.disconnect()
+        """Disconnect from BCON hardware via driver."""
+        if self.bcon_driver:
+            self.bcon_driver.disconnect()
 
-    # --- basic register primitives ---
+    def is_connected(self) -> bool:
+        """Check if BCON hardware is connected via driver."""
+        if self.bcon_driver:
+            return self.bcon_driver.is_connected()
+        return False
+
     def read_register(self, name: str) -> Optional[int]:
-        """Read a single holding register by name. Returns integer or None on error."""
-        if not self.modbus:
-            self._log("No Modbus connection configured", LogLevel.ERROR)
+        """Read a register via BCON driver."""
+        if not self.bcon_driver:
+            self._log("No BCON driver configured", LogLevel.ERROR)
             return None
-            
-        if name not in self.REGISTER:
-            self._log(f"Unknown register name: {name}", LogLevel.ERROR)
-            return None
-
-        addr = self.REGISTER[name]
-        try:
-            with self.modbus.modbus_lock:
-                if not self.modbus.client.is_socket_open():
-                    if not self.modbus.connect():
-                        return None
-
-                resp = self.modbus.client.read_holding_registers(address=addr, count=1, slave=self.unit)
-
-            if resp and not resp.isError():
-                return int(resp.registers[0])
-            else:
-                self._log(f"Read error for {name} (addr={addr}): {resp}", LogLevel.ERROR)
-                return None
-
-        except Exception as e:
-            self._log(f"Exception reading register {name}: {e}", LogLevel.ERROR)
-            return None
+        return self.bcon_driver.read_register(name)
 
     def write_register(self, name: str, value: int) -> bool:
-        """Write a single holding register by name. Returns True on success."""
-        if not self.modbus:
-            self._log("No Modbus connection configured", LogLevel.ERROR)
+        """Write a register via BCON driver."""
+        if not self.bcon_driver:
+            self._log("No BCON driver configured", LogLevel.ERROR)
             return False
-            
-        if name not in self.REGISTER:
-            self._log(f"Unknown register name: {name}", LogLevel.ERROR)
-            return False
+        return self.bcon_driver.write_register(name, value)
 
-        addr = self.REGISTER[name]
-        try:
-            with self.modbus.modbus_lock:
-                if not self.modbus.client.is_socket_open():
-                    if not self.modbus.connect():
-                        return False
-
-                # write single 16-bit register
-                resp = self.modbus.client.write_register(address=addr, value=int(value), slave=self.unit)
-
-            if resp and not getattr(resp, 'isError', lambda: False)():
-                return True
-            else:
-                self._log(f"Write error for {name} (addr={addr}, value={value}): {resp}", LogLevel.ERROR)
-                return False
-
-        except Exception as e:
-            self._log(f"Exception writing register {name}: {e}", LogLevel.ERROR)
-            return False
-
-    # --- convenience helpers for BCON functionality ---
     def set_command(self, cmd: int) -> bool:
-        """Write the COMMAND register (register 0)."""
-        return self.write_register("COMMAND", cmd)
+        """Set BCON command via driver."""
+        if not self.bcon_driver:
+            return False
+        return self.bcon_driver.set_command(cmd)
 
     def direct_write_x(self, value: int) -> bool:
-        """Direct write to DAC X (register 1)."""
-        return self.write_register("X_DIRECT_WRITE", value)
+        """Direct write X via BCON driver."""
+        if not self.bcon_driver:
+            return False
+        return self.bcon_driver.direct_write_x(value)
+
+    def direct_write_y(self, value: int) -> bool:
+        """Direct write Y via BCON driver."""
+        if not self.bcon_driver:
+            return False
+        return self.bcon_driver.direct_write_y(value)
 
     def set_pulser_duty(self, pulser_index: int, duty: int) -> bool:
-        """Set pulser duty (0..255) for pulser_index 1..3."""
-        if pulser_index not in (1, 2, 3):
-            self._log("pulser_index must be 1..3", LogLevel.ERROR)
+        """Set pulser duty via BCON driver."""
+        if not self.bcon_driver:
             return False
-        name = f"PULSER_{pulser_index}_DUTY"
-        if duty < 0 or duty > 0xFF:
-            self._log("duty must be 0..255", LogLevel.ERROR)
-            return False
-        return self.write_register(name, duty)
+        return self.bcon_driver.set_pulser_duty(pulser_index, duty)
 
     def set_pulser_duration(self, pulser_index: int, duration_ms: int) -> bool:
-        """Set pulser duration in milliseconds (Uint16) for pulser_index 1..3."""
-        if pulser_index not in (1, 2, 3):
-            self._log("pulser_index must be 1..3", LogLevel.ERROR)
+        """Set pulser duration via BCON driver."""
+        if not self.bcon_driver:
             return False
-        name = f"PULSER_{pulser_index}_DURATION"
-        if duration_ms < 0 or duration_ms > 0xFFFF:
-            self._log("duration_ms out of range 0..65535", LogLevel.ERROR)
-            return False
-        return self.write_register(name, duration_ms)
+        return self.bcon_driver.set_pulser_duration(pulser_index, duration_ms)
 
     def set_samples_rate(self, samples: int) -> bool:
-        """Set SAMPLES_RATE (Uint16). Default device uses 8192."""
-        if samples <= 0 or samples > 0xFFFF:
-            self._log("samples out of range", LogLevel.ERROR)
+        """Set samples rate via BCON driver."""
+        if not self.bcon_driver:
             return False
-        return self.write_register("SAMPLES_RATE", samples)
+        return self.bcon_driver.set_samples_rate(samples)
 
     def set_beam_parameters(self, beam_index: int, amplitude: Optional[int] = None, phase: Optional[int] = None, offset: Optional[int] = None) -> Dict[str, bool]:
-        """Set amplitude/phase/offset for beam 1..3. Values are Uint16.
-
-        Returns a dict of results per field.
-        """
-        if beam_index not in (1, 2, 3):
-            self._log("beam_index must be 1..3", LogLevel.ERROR)
+        """Set beam parameters via BCON driver."""
+        if not self.bcon_driver:
             return {}
-
-        base = (beam_index - 1) * 3
-        names = ["BEAM_{}_AMPLITUDE", "BEAM_{}_PHASE", "BEAM_{}_OFFSET"]
-        results = {}
-        mapping = {
-            "amplitude": (names[0].format(beam_index), amplitude),
-            "phase": (names[1].format(beam_index), phase),
-            "offset": (names[2].format(beam_index), offset),
-        }
-
-        for key, (regname, val) in mapping.items():
-            if val is None:
-                results[key] = False
-                continue
-            if val < 0 or val > 0xFFFF:
-                self._log(f"{key} value out of range 0..65535: {val}", LogLevel.ERROR)
-                results[key] = False
-                continue
-            results[key] = self.write_register(regname, val)
-
-        return results
+        return self.bcon_driver.set_beam_parameters(beam_index, amplitude, phase, offset)
 
     def read_all(self) -> Dict[str, Optional[int]]:
-        """Read all defined registers and return a mapping name->value (or None on error)."""
-        out = {}
-        for name in sorted(self.REGISTER.keys(), key=lambda n: self.REGISTER[n]):
-            out[name] = self.read_register(name)
-            # small pause to avoid overwhelming the serial link
-            time.sleep(0.01)
-        return out
+        """Read all registers via BCON driver."""
+        if not self.bcon_driver:
+            return {}
+        return self.bcon_driver.read_all()
 
-    # --- safety / shutdown helpers ---
+    # --- Safety / Shutdown Helpers ---
     def arm_beams(self) -> bool:
         """Arm the beam system for operation.
         
@@ -2594,7 +2496,7 @@ class BeamPulseSubsystem:
             
             # For demonstration purposes, always succeed
             # TODO: Add actual hardware initialization commands here
-            # Example: Check Modbus connection, set initial parameters, verify safety interlocks, etc.
+            # Example: Check BCON driver connection, set initial parameters, verify safety interlocks, etc.
             
             # Set armed status
             self.beams_armed_status = True
@@ -2645,28 +2547,36 @@ class BeamPulseSubsystem:
         """Perform a safe shutdown of pulses/waveforms on the BCON device.
 
         This tries to set pulser duties and durations to zero and place the
-        device in a safe command state. Returns True if all writes succeed.
+        device in a safe command state via the BCON driver. Returns True if all writes succeed.
         """
         self._log(f"Initiating safe shutdown: {reason}", LogLevel.INFO)
+        
+        if not self.bcon_driver:
+            self._log("No BCON driver available for safe shutdown", LogLevel.ERROR)
+            return False
+            
         ok = True
         try:
-            # zero pulser duties
+            # zero pulser duties via BCON driver
             for i in (1, 2, 3):
                 try:
-                    self.write_register(f"PULSER_{i}_DUTY", 0)
+                    if not self.bcon_driver.set_pulser_duty(i, 0):
+                        ok = False
                 except Exception:
                     ok = False
 
-            # zero durations
+            # zero durations via BCON driver
             for i in (1, 2, 3):
                 try:
-                    self.write_register(f"PULSER_{i}_DURATION", 0)
+                    if not self.bcon_driver.set_pulser_duration(i, 0):
+                        ok = False
                 except Exception:
                     ok = False
 
             # set safe command (use 0 as default direct write mode which won't start waves)
             try:
-                self.set_command(0)
+                if not self.bcon_driver.set_command(0):
+                    ok = False
             except Exception:
                 ok = False
 
@@ -2689,7 +2599,7 @@ class BeamPulseSubsystem:
 
 
 if __name__ == "__main__":
-    # Quick manual smoke test (won't run without a real device). Use for development.
+    # Quick manual smoke test using BCON driver. Use for development.
     import argparse
 
     parser = argparse.ArgumentParser(description="BeamPulseSubsystem quick test")
@@ -2698,12 +2608,17 @@ if __name__ == "__main__":
     parser.add_argument("--read-all", action="store_true", help="Read all registers")
     args = parser.parse_args()
 
-    b = BeamPulseSubsystem(port=args.port, unit=args.unit, debug=True)
+    # Create BCON driver
+    bcon_driver = BCONModbus(port=args.port, unit=args.unit, debug=True)
+    
+    # Create BeamPulseSubsystem with the driver
+    b = BeamPulseSubsystem(bcon_driver=bcon_driver, debug=True)
+    
     if not b.connect():
         print("Could not connect to device; aborting smoke test")
     else:
         if args.read_all:
             vals = b.read_all()
             for k, v in vals.items():
-                print(f"{k} ({b.REGISTER[k]}): {v}")
+                print(f"{k}: {v}")
         b.disconnect()
