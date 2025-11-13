@@ -58,7 +58,9 @@ class BeamPulseSubsystem:
     B_FIELD_SLOPE_CENTER = 38.875      # G/A - for Beam B (center beam)
     B_FIELD_SLOPE_OFF_AXIS = 38.25     # G/A - for Beams A and C (off-axis)
     
-    SOLENOID_RESISTANCE = 12.0         # ohms - UPDATE WITH MEASURED RESISTANCE
+    # Power calculation now uses empirical formula P = 14.810*I + 0.793
+    # This constant kept for reference/legacy compatibility
+    SOLENOID_RESISTANCE = 12.0         # ohms - LEGACY: no longer used in power calc
 
     # Register addresses (zero-based)
     REGISTER = {
@@ -1147,7 +1149,10 @@ class BeamPulseSubsystem:
             Magnetic field in Gauss
         """
         try:
-            if current_amplitude <= 0:
+            # Use absolute value of current - magnetic field strength depends on magnitude, not direction
+            current_magnitude = abs(current_amplitude)
+            
+            if current_magnitude == 0:
                 return 0.0
             
             # Determine which linear approximation to use based on beam position
@@ -1160,16 +1165,16 @@ class BeamPulseSubsystem:
                 k_slope = self.B_FIELD_SLOPE_OFF_AXIS  # 38.25 G/A  
                 beam_position = "off-axis"
             
-            # Linear B-field calculation: B = k * I
-            b_field_gauss = k_slope * current_amplitude
+            # Linear B-field calculation: B = k * |I|
+            b_field_gauss = k_slope * current_magnitude
             
             # Debug logging
             if hasattr(self, '_log'):
                 self._log(f"B-field calc: Beam {beam_number} ({beam_position}): "
-                         f"{current_amplitude:.3f} A → {b_field_gauss:.1f} G", 
+                         f"{current_amplitude:.3f} A (|{current_magnitude:.3f}|) → {b_field_gauss:.1f} G", 
                          LogLevel.DEBUG)
             
-            return max(0.0, b_field_gauss)
+            return b_field_gauss
             
         except Exception as e:
             if hasattr(self, '_log'):
@@ -1177,22 +1182,22 @@ class BeamPulseSubsystem:
             return 0.0
 
     def calculate_solenoid_power_from_current(self, current_amplitude):
-        """Calculate solenoid power dissipation (Watts) from current amplitude using formula.
+        """Calculate solenoid power dissipation (Watts) from current amplitude using empirical formula.
         
-        Formula based on electrical power: P = I²R
-        Where:
-        - I = current in amperes
-        - R = solenoid resistance in ohms - CONFIGURED IN CLASS CONSTANT
+        Formula derived from experimental data using linear regression:
+        P = 14.810 * I + 0.793
+        
+        Source: "Copy of SA-ATEST-100 110 Plots" Google Sheet
+        Method: OLS regression on 44 data points (R² = 0.9874)
+        Data collected: 2024-12-30 under controlled conditions
         """
         try:
-            if current_amplitude <= 0:
-                return 0.0
+            # Use absolute value of current - power dissipation depends on magnitude, not direction
+            current_magnitude = abs(current_amplitude)
             
-            # Use class constant for solenoid resistance
-            solenoid_resistance = self.SOLENOID_RESISTANCE
-            
-            # Power calculation: P = I²R
-            power = solenoid_resistance * (current_amplitude ** 2)  # Watts
+            # Empirical power-current relationship from experimental data
+            # P = 14.810 * |I| + 0.793 (Watts)
+            power = 14.810 * current_magnitude + 0.793
             
             return max(0.0, power)
             
