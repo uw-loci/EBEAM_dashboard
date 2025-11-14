@@ -21,7 +21,7 @@ from utils import LogLevel
 
 class BCONModbus:
     """Hardware driver for BCON (Beam Pulse Control) system using Modbus RTU.
-    
+
     This class provides the low-level hardware interface for communicating with
     the BCON device over Modbus RTU serial communication.
     """
@@ -50,7 +50,8 @@ class BCONModbus:
         "BEAM_3_OFFSET": 18,
     }
 
-    def __init__(self, port: str = None, unit: int = 1, baudrate: int = 115200, timeout: int = 1, logger=None, debug: bool = False):
+    def __init__(self, port: str = None, unit: int = 1, baudrate: int = 115200,
+                 timeout: int = 1, logger=None, debug: bool = False):
         """Initialize the BCON Modbus driver.
 
         Parameters:
@@ -63,11 +64,13 @@ class BCONModbus:
         self.unit = unit
         self.logger = logger
         self.debug = debug
-        
+
         # Hardware connection (only if port is provided)
         self.modbus = None
         if port:
-            self.modbus = E5CNModbus(port=port, baudrate=baudrate, timeout=timeout, logger=logger, debug_mode=debug)
+            self.modbus = E5CNModbus(
+                port=port, baudrate=baudrate, timeout=timeout,
+                logger=logger, debug_mode=debug)
 
     def _log(self, message: str, level: LogLevel = LogLevel.INFO):
         """Internal logging helper."""
@@ -92,8 +95,9 @@ class BCONModbus:
         if self.modbus and hasattr(self.modbus, 'client'):
             try:
                 # Check if the client is connected and socket is open
-                if hasattr(self.modbus.client, 'is_socket_open') and self.modbus.client.is_socket_open():
-                    # Try a simple temperature read to verify connection is working
+                if (hasattr(self.modbus.client, 'is_socket_open') and
+                        self.modbus.client.is_socket_open()):
+                    # Try a simple temperature read to verify connection
                     result = self.modbus.read_temperature(self.unit)
                     # If we get a numeric result, connection is working
                     return isinstance(result, (int, float))
@@ -111,7 +115,7 @@ class BCONModbus:
         if not self.modbus:
             self._log("No Modbus connection configured", LogLevel.ERROR)
             return None
-            
+
         if name not in self.REGISTER:
             self._log(f"Unknown register name: {name}", LogLevel.ERROR)
             return None
@@ -123,12 +127,14 @@ class BCONModbus:
                     if not self.modbus.connect():
                         return None
 
-                resp = self.modbus.client.read_holding_registers(address=addr, count=1, slave=self.unit)
+                resp = self.modbus.client.read_holding_registers(
+                    address=addr, count=1, slave=self.unit)
 
             if resp and not resp.isError():
                 return int(resp.registers[0])
             else:
-                self._log(f"Read error for {name} (addr={addr}): {resp}", LogLevel.ERROR)
+                self._log(f"Read error for {name} (addr={addr}): {resp}",
+                          LogLevel.ERROR)
                 return None
 
         except Exception as e:
@@ -140,7 +146,7 @@ class BCONModbus:
         if not self.modbus:
             self._log("No Modbus connection configured", LogLevel.ERROR)
             return False
-            
+
         if name not in self.REGISTER:
             self._log(f"Unknown register name: {name}", LogLevel.ERROR)
             return False
@@ -153,12 +159,14 @@ class BCONModbus:
                         return False
 
                 # write single 16-bit register
-                resp = self.modbus.client.write_register(address=addr, value=int(value), slave=self.unit)
+                resp = self.modbus.client.write_register(
+                    address=addr, value=int(value), slave=self.unit)
 
             if resp and not getattr(resp, 'isError', lambda: False)():
                 return True
             else:
-                self._log(f"Write error for {name} (addr={addr}, value={value}): {resp}", LogLevel.ERROR)
+                self._log(f"Write error for {name} (addr={addr}, value={value}): "
+                          f"{resp}", LogLevel.ERROR)
                 return False
 
         except Exception as e:
@@ -205,7 +213,8 @@ class BCONModbus:
             return False
         name = f"PULSER_{pulser_index}_DURATION"
         if duration_ms < 0 or duration_ms > 0xFFFF:
-            self._log("duration_ms out of range 0..65535", LogLevel.ERROR)
+            self._log("duration_ms out of range 0..65535",
+                      LogLevel.ERROR)
             return False
         return self.write_register(name, duration_ms)
 
@@ -216,7 +225,10 @@ class BCONModbus:
             return False
         return self.write_register("SAMPLES_RATE", samples)
 
-    def set_beam_parameters(self, beam_index: int, amplitude: Optional[int] = None, phase: Optional[int] = None, offset: Optional[int] = None) -> Dict[str, bool]:
+    def set_beam_parameters(self, beam_index: int,
+                            amplitude: Optional[int] = None,
+                            phase: Optional[int] = None,
+                            offset: Optional[int] = None) -> Dict[str, bool]:
         """Set amplitude/phase/offset for beam 1..3. Values are Uint16.
 
         Returns a dict of results per field.
@@ -237,7 +249,8 @@ class BCONModbus:
                 results[key] = False
                 continue
             if val < 0 or val > 0xFFFF:
-                self._log(f"{key} value out of range 0..65535: {val}", LogLevel.ERROR)
+                self._log(f"{key} value out of range 0..65535: {val}",
+                          LogLevel.ERROR)
                 results[key] = False
                 continue
             results[key] = self.write_register(regname, val)
