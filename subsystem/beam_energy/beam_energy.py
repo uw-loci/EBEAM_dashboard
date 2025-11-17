@@ -74,9 +74,25 @@ class BeamEnergySubsystem:
         # Initialize ui_elements list, one for each power supply
         self.ui_elements = [None] * len(self.power_supplies)  
 
-        # Glassman power supply container
-        glassman_container = ttk.Frame(main_frame)
-        glassman_container.pack(fill=tk.X, pady=(0, 5))
+        # === Horizontal row for Glassman and system-level indicators ===
+        glassman_row = ttk.Frame(main_frame)
+        glassman_row.pack(fill=tk.X, pady=(0, 5))
+
+        # Left side: CCS Switch Indicator
+        ccs_container = ttk.Frame(glassman_row)
+        ccs_container.pack(side=tk.LEFT, padx=(5, 20))
+
+        # Middle: Glassman indicator
+        glassman_container = ttk.Frame(glassman_row)
+        glassman_container.pack(side=tk.LEFT, padx=5)
+
+        # Right Side: Arm Beams Switch Indicator
+        arm_beams_container = ttk.Frame(glassman_row)
+        arm_beams_container.pack(side=tk.RIGHT, padx=(5,20))
+
+        # Create UI in each area
+        self.create_ccs_switch_indicator(ccs_container)
+        self.create_arm_beams_indicator(arm_beams_container)
         self.create_glassman_indicator(glassman_container)
                 
         # Power supplies container frame
@@ -135,12 +151,15 @@ class BeamEnergySubsystem:
         
         # Spacer label for consistent spacing
         ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+
+        #TODO: get actual interlock status from Knob Box (status will be Active or Bypassed)
+        self.glassman_interlock_status = tk.StringVar(value="ACTIVE")
         
         # Output status (right side)
-        ttk.Label(status_frame, text="Output:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Label(status_frame, text="Interlock:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
         self.glassman_status_label = ttk.Label(
             status_frame, 
-            textvariable=self.output_status[-1],  # Last index for Glassman
+            textvariable=self.glassman_interlock_status,
             foreground="red",
             font=(self.displayFont, 9, "bold"),
             background="white",
@@ -154,6 +173,64 @@ class BeamEnergySubsystem:
             "connection_label": self.glassman_connection_label,
             "status_label": self.glassman_status_label
         }
+
+    def create_ccs_switch_indicator(self, parent_frame):
+        """Create a small indicator showing the on/off status of the CCS power switch on the Knob Box."""
+        ccs_frame = ttk.LabelFrame(
+            parent_frame, 
+            text="CCS Power", 
+            padding="5",
+            labelanchor="n"  # Center the title at the top
+        )
+        ccs_frame.pack(side = tk.RIGHT, padx=5, pady=5)
+
+        status_frame = ttk.Frame(ccs_frame)
+        status_frame.pack(fill=tk.X)
+
+        #TODO: get actual ccs power status from Knob Box 
+        self.ccs_power_status = tk.StringVar(value="OFF")
+
+        # On/Off Status
+        self.ccs_power_label = ttk.Label(
+            status_frame,
+            textvariable=self.ccs_power_status,
+            foreground="red",
+            font=(self.displayFont, 8, "bold"),
+            background="white",
+            relief="sunken",
+            width=15,
+            anchor=tk.CENTER
+        )
+        self.ccs_power_label.pack(side=tk.LEFT)
+
+    def create_arm_beams_indicator(self, parent_frame):
+        """Create a small indicator showing the On/Off status of the 'Arm Beams' button."""
+        arm_beams_frame = ttk.LabelFrame(
+            parent_frame, 
+            text="Arm Beams", 
+            padding="5",
+            labelanchor="n"  # Center the title at the top
+        )
+        arm_beams_frame.pack(side = tk.RIGHT, padx=5, pady=5)
+
+        status_frame = ttk.Frame(arm_beams_frame)
+        status_frame.pack(fill=tk.X)
+
+        #TODO: get actual arm beams status from Knob Box 
+        self.arm_beams_status = tk.StringVar(value="OFF")
+
+        # On/Off Status
+        self.arm_beams_label = ttk.Label(
+            status_frame,
+            textvariable=self.arm_beams_status,
+            foreground="red",
+            font=(self.displayFont, 8, "bold"),
+            background="white",
+            relief="sunken",
+            width=15,
+            anchor=tk.CENTER
+        )
+        self.arm_beams_label.pack(side=tk.LEFT)
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -489,6 +566,6 @@ class BeamEnergySubsystem:
             print(f"{level.name}: {message}")
 
 # TODO: Add output status updating when supported by firmware
-# TODO: Implement overcurrent handling when triggered
-# TODO: Add logging of data in update_readings for post analysis
 # TODO: Update for finalized unit ID assignments and expected voltage/current units
+# TODO: Get real interlock status of Glassman, CCS Power Status, Arm Beams Status
+# TODO: Remove Connection Status for Glassman. There is no hardware support for the knob box to know the connection status.
