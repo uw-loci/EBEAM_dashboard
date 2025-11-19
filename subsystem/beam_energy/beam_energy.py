@@ -13,7 +13,7 @@ class BeamEnergySubsystem:
     Manages the beam energy system with four main power supplies:
     - +80kV Glassman (indicator only)
     - +1kV Matsusada
-    - -1kV Matsusada  
+    - -1kV Matsusada 
     - +3kV Bertran
     - +20kV Bertran
     """
@@ -132,30 +132,14 @@ class BeamEnergySubsystem:
         # Center the frame horizontally
         glassman_frame.pack(anchor=tk.CENTER)
 
-        # Combined connection and output status indicator (same line to save vertical space)
+        # Interlock status indicator
         status_frame = ttk.Frame(glassman_frame)
         status_frame.pack(fill=tk.X)
-        
-        # Connection status (left side)
-        self.glassman_connection_label = ttk.Label(
-            status_frame,
-            textvariable=self.connection_status_vars[-1],  # Last index for Glassman
-            foreground="red",
-            font=(self.displayFont, 8, "bold"),
-            background="white",
-            relief="sunken",
-            width=15,
-            anchor=tk.CENTER
-        )
-        self.glassman_connection_label.pack(side=tk.LEFT)
-        
-        # Spacer label for consistent spacing
-        ttk.Label(status_frame, text="  ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
 
         #TODO: get actual interlock status from Knob Box (status will be Active or Bypassed)
         self.glassman_interlock_status = tk.StringVar(value="ACTIVE")
-        
-        # Output status (right side)
+
+        # Interlock status
         ttk.Label(status_frame, text="Interlock:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
         self.glassman_status_label = ttk.Label(
             status_frame, 
@@ -170,7 +154,6 @@ class BeamEnergySubsystem:
         self.glassman_status_label.pack(side=tk.LEFT)
 
         self.ui_elements[0] = {
-            "connection_label": self.glassman_connection_label,
             "status_label": self.glassman_status_label
         }
 
@@ -374,6 +357,9 @@ class BeamEnergySubsystem:
     
     def update_connection_status(self, index, connected):
         """Update connection status indicators."""
+        # Skip Glassman (index 0) - no hardware support for connection status
+        if index == 0:
+            return
         if index < len(self.ui_elements):
             if connected:
                 self.connection_status_vars[index].set("CONNECTED")
@@ -568,4 +554,3 @@ class BeamEnergySubsystem:
 # TODO: Add output status updating when supported by firmware
 # TODO: Update for finalized unit ID assignments and expected voltage/current units
 # TODO: Get real interlock status of Glassman, CCS Power Status, Arm Beams Status
-# TODO: Remove Connection Status for Glassman. There is no hardware support for the knob box to know the connection status.
