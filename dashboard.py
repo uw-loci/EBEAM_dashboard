@@ -5,6 +5,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
+import time
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
@@ -342,22 +343,55 @@ class EBEAMSystemDashboard:
         beam_toggles_frame = tk.Frame(main_frame)
         beam_toggles_frame.pack(side="top", fill="x", padx=10, pady=(10, 0))
         
-        # Create toggle buttons for each beam
+        # Create status bars above beam buttons using grid for precise alignment
+        status_bars_frame = tk.Frame(beam_toggles_frame)
+        status_bars_frame.pack(side="top", fill="x", pady=(0, 2))
+        
+        self.beam_status_bars = []
+        self.beam_status_timers = []  # For managing progress animations
+        
+        # Configure grid columns to have equal weight
+        for i in range(3):
+            status_bars_frame.grid_columnconfigure(i, weight=1, uniform="status_bar")
+        
+        for i in range(3):
+            # Create thin status bar canvas using grid for proper width distribution
+            status_bar = tk.Canvas(
+                status_bars_frame,
+                height=12,
+                bg="lightgray",
+                highlightthickness=0
+            )
+            status_bar.grid(row=0, column=i, sticky="ew", padx=2)
+            self.beam_status_bars.append(status_bar)
+            self.beam_status_timers.append(None)
+        
+        # Create toggle buttons for each beam using matching grid system
+        buttons_frame = tk.Frame(beam_toggles_frame)
+        buttons_frame.pack(side="top", fill="x")
+        
+        # Configure grid columns to match status bars
+        for i in range(3):
+            buttons_frame.grid_columnconfigure(i, weight=1, uniform="button")
+        
         self.beam_toggle_buttons = []
         beam_names = ["Beam A OFF", "Beam B OFF", "Beam C OFF"]
         
         for i, beam_name in enumerate(beam_names):
             btn = tk.Button(
-                beam_toggles_frame,
+                buttons_frame,
                 text=beam_name,
                 bg="gray",
                 fg="white",
                 font=("Helvetica", 10, "bold"),
                 state="disabled",  # Initially disabled until armed
-                command=lambda idx=i: self.toggle_individual_beam(idx)
+                command=lambda idx=i: self.toggle_individual_beam_with_status(idx)
             )
-            btn.pack(side="left", fill="x", expand=True, padx=2)
+            btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
+        
+        # Schedule status bar width synchronization after layout is complete
+        self.root.after(100, self.sync_status_bar_widths)
 
         # Add beams ready button (above beams off)
         self.beams_ready_button = tk.Button(
@@ -540,8 +574,8 @@ class EBEAMSystemDashboard:
             self.logger.error(f"Error in handle_arm_beams: {str(e)}")
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
 
-    def toggle_individual_beam(self, beam_index):
-        """Toggle individual beam on/off."""
+    def toggle_individual_beam_with_status(self, beam_index):
+        """Toggle individual beam on/off with status bar animation."""
         try:
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
                 self.logger.error("Beam Pulse subsystem not available")
@@ -564,11 +598,13 @@ class EBEAMSystemDashboard:
                     if new_status:
                         btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
                         
-                        # Check if we're in Pulse mode and set up auto-off timer
+                        # Check if we're in Pulse mode and set up status bar animation
                         if hasattr(beam_pulse, 'wave_type') and beam_pulse.wave_type.get().lower() == "pulse":
                             # Get the duration for this beam
                             duration_ms = self.get_beam_pulse_duration(beam_index)
                             if duration_ms > 0:
+                                # Start status bar animation
+                                self.animate_beam_status_bar(beam_index, duration_ms)
                                 # Schedule automatic turn-off
                                 self.root.after(int(duration_ms), lambda: self.auto_turn_off_beam(beam_index))
                                 self.logger.info(f"Beam {beam_names[beam_index]} turned ON in Pulse mode for {duration_ms}ms")
@@ -578,10 +614,16 @@ class EBEAMSystemDashboard:
                             self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
                     else:
                         btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
+                        # Clear any running status bar animation
+                        self.clear_beam_status_bar(beam_index)
                         self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
                     
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
+    
+    def toggle_individual_beam(self, beam_index):
+        """Legacy method - redirects to new method with status bar."""
+        self.toggle_individual_beam_with_status(beam_index)
 
     def get_beam_pulse_duration(self, beam_index):
         """Get the pulse duration for a specific beam."""
@@ -627,6 +669,131 @@ class EBEAMSystemDashboard:
                     
         except Exception as e:
             self.logger.error(f"Error auto-turning off beam {beam_index}: {str(e)}")
+    
+    def animate_beam_status_bar(self, beam_index, duration_ms):
+        """Animate status bar to show pulse progress with consistent visual feedback."""
+        try:
+            status_bar = self.beam_status_bars[beam_index]
+            beam_names = ["A", "B", "C"]
+            
+            # Clear any existing animation
+            if self.beam_status_timers[beam_index]:
+                self.root.after_cancel(self.beam_status_timers[beam_index])
+            
+            # Consistent behavior: always show progress during actual duration + green confirmation
+            actual_duration = duration_ms
+            completion_display_time = 750  # Always show green completion for 750ms
+            
+            # Clear and setup status bar
+            status_bar.delete("all")
+            # Force update to get accurate dimensions
+            status_bar.update_idletasks()
+            bar_width = status_bar.winfo_width()
+            if bar_width <= 1:  # Widget not yet sized properly
+                # Get button width as fallback
+                try:
+                    btn_width = self.beam_toggle_buttons[beam_index].winfo_width()
+                    if btn_width > 1:
+                        bar_width = btn_width - 4  # Account for padding
+                    else:
+                        bar_width = 120  # Reasonable default
+                except:
+                    bar_width = 120
+            bar_height = 12
+            
+            # Animation parameters
+            start_time = time.time() * 1000  # Current time in ms
+            steps = max(20, int(actual_duration / 10))  # More steps for longer durations
+            step_duration = actual_duration / steps
+            
+            def update_progress():
+                current_time = time.time() * 1000
+                elapsed = current_time - start_time
+                
+                if elapsed >= actual_duration:
+                    # Pulse complete - show green confirmation
+                    status_bar.delete("all")
+                    status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="lightgreen", outline="")
+                    status_bar.create_text(bar_width//2, bar_height//2, 
+                                         text=f"Beam {beam_names[beam_index]}: {actual_duration}ms completed", 
+                                         font=("Arial", 8), fill="darkgreen")
+                    
+                    # Clear after completion display time
+                    self.beam_status_timers[beam_index] = self.root.after(completion_display_time, 
+                                                                           lambda: self.clear_beam_status_bar(beam_index))
+                    return
+                
+                # Calculate progress during active pulse
+                progress = elapsed / actual_duration
+                color = "orange"  # Active pulse color
+                status_text = f"Beam {beam_names[beam_index]}: {actual_duration}ms active"
+                
+                # Update progress bar
+                status_bar.delete("all")
+                fill_width = int(bar_width * progress)
+                
+                # Background
+                status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="lightgray", outline="")
+                
+                # Progress fill
+                if fill_width > 0:
+                    status_bar.create_rectangle(0, 0, fill_width, bar_height, fill=color, outline="")
+                
+                # Text overlay
+                status_bar.create_text(bar_width//2, bar_height//2, text=status_text, 
+                                     font=("Arial", 7), fill="black")
+                
+                # Schedule next update
+                self.beam_status_timers[beam_index] = self.root.after(int(step_duration), update_progress)
+            
+            # Start animation
+            update_progress()
+            
+        except Exception as e:
+            self.logger.error(f"Error animating status bar for beam {beam_index}: {str(e)}")
+    
+    def clear_beam_status_bar(self, beam_index):
+        """Clear beam status bar and cancel any running animation."""
+        try:
+            if beam_index < len(self.beam_status_bars):
+                # Cancel any running timer
+                if self.beam_status_timers[beam_index]:
+                    self.root.after_cancel(self.beam_status_timers[beam_index])
+                    self.beam_status_timers[beam_index] = None
+                
+                # Clear status bar
+                status_bar = self.beam_status_bars[beam_index]
+                status_bar.delete("all")
+                status_bar.update_idletasks()
+                bar_width = status_bar.winfo_width()
+                if bar_width <= 1:
+                    bar_width = 120  # Default fallback
+                status_bar.create_rectangle(0, 0, bar_width, 12, 
+                                           fill="lightgray", outline="")
+        except Exception as e:
+            self.logger.error(f"Error clearing status bar for beam {beam_index}: {str(e)}")
+    
+    def sync_status_bar_widths(self):
+        """Synchronize status bar widths with button widths after layout changes."""
+        try:
+            # Force layout update
+            self.root.update_idletasks()
+            
+            for i, (status_bar, button) in enumerate(zip(self.beam_status_bars, self.beam_toggle_buttons)):
+                try:
+                    # Get button width
+                    btn_width = button.winfo_width()
+                    if btn_width > 1:
+                        # Configure status bar to match button width
+                        status_bar.configure(width=btn_width - 4)  # Account for padding
+                        # Clear and redraw background
+                        status_bar.delete("all")
+                        status_bar.create_rectangle(0, 0, btn_width - 4, 12, 
+                                                   fill="lightgray", outline="")
+                except Exception as e:
+                    self.logger.error(f"Error syncing status bar {i} width: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"Error syncing status bar widths: {str(e)}")
 
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
