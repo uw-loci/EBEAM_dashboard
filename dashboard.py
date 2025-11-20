@@ -349,6 +349,8 @@ class EBEAMSystemDashboard:
         
         self.beam_status_bars = []
         self.beam_status_timers = []  # For managing progress animations
+        self.dc_mode_timers = []  # For DC mode runtime counters
+        self.dc_mode_start_times = []  # Track when DC mode started
         
         # Configure grid columns to have equal weight
         for i in range(3):
@@ -365,6 +367,8 @@ class EBEAMSystemDashboard:
             status_bar.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_status_bars.append(status_bar)
             self.beam_status_timers.append(None)
+            self.dc_mode_timers.append(None)
+            self.dc_mode_start_times.append(None)
         
         # Create toggle buttons for each beam using matching grid system
         buttons_frame = tk.Frame(beam_toggles_frame)
@@ -598,20 +602,8 @@ class EBEAMSystemDashboard:
                     if new_status:
                         btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
                         
-                        # Check if we're in Pulse mode and set up status bar animation
-                        if hasattr(beam_pulse, 'wave_type') and beam_pulse.wave_type.get().lower() == "pulse":
-                            # Get the duration for this beam
-                            duration_ms = self.get_beam_pulse_duration(beam_index)
-                            if duration_ms > 0:
-                                # Start status bar animation
-                                self.animate_beam_status_bar(beam_index, duration_ms)
-                                # Schedule automatic turn-off
-                                self.root.after(int(duration_ms), lambda: self.auto_turn_off_beam(beam_index))
-                                self.logger.info(f"Beam {beam_names[beam_index]} turned ON in Pulse mode for {duration_ms}ms")
-                            else:
-                                self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
-                        else:
-                            self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
+                        # Animation handled by beam pulse callback if in Pulsed mode
+                        self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
                     else:
                         btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
                         # Clear any running status bar animation
@@ -772,7 +764,102 @@ class EBEAMSystemDashboard:
                                            fill="lightgray", outline="")
         except Exception as e:
             self.logger.error(f"Error clearing status bar for beam {beam_index}: {str(e)}")
+
+    def handle_beam_pulse_callback(self, beam_index, status, duration=0):
+        """Handle beam pulse callback for animation control.
+        
+        This method is called by the beam pulse subsystem when beam status changes
+        and handles pulse animations based on pulsing behavior setting.
+        """
+        try:
+            beam_names = ["A", "B", "C"]
+            
+            if status and duration > 0:
+                # Beam turned ON in Pulsed mode - animate and schedule auto turn-off
+                self.animate_beam_status_bar(beam_index, duration)
+                # Delay auto turn-off to allow completion display to show (750ms + small buffer)
+                self.root.after(int(duration + 800), lambda: self.auto_turn_off_beam(beam_index))
+                self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
+            elif status and duration == 0:
+                # Beam turned ON in DC mode - show solid bar with runtime counter
+                self.start_dc_mode_counter(beam_index)
+                self.logger.info(f"Beam {beam_names[beam_index]} turned ON in DC mode")
+            elif not status:
+                # Beam turned OFF - clear animation and stop DC counter
+                self.clear_beam_status_bar(beam_index)
+                self.stop_dc_mode_counter(beam_index)
+                
+        except Exception as e:
+            self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
+
+    def start_dc_mode_counter(self, beam_index):
+        """Start DC mode runtime counter for a beam."""
+        try:
+            if not hasattr(self, 'dc_mode_start_times'):
+                return
+                
+            import time
+            self.dc_mode_start_times[beam_index] = time.time()
+            self.update_dc_mode_display(beam_index)
+            
+        except Exception as e:
+            self.logger.error(f"Error starting DC mode counter for beam {beam_index}: {str(e)}")
     
+    def stop_dc_mode_counter(self, beam_index):
+        """Stop DC mode runtime counter for a beam."""
+        try:
+            if hasattr(self, 'dc_mode_timers') and beam_index < len(self.dc_mode_timers):
+                if self.dc_mode_timers[beam_index]:
+                    self.root.after_cancel(self.dc_mode_timers[beam_index])
+                    self.dc_mode_timers[beam_index] = None
+            if hasattr(self, 'dc_mode_start_times') and beam_index < len(self.dc_mode_start_times):
+                self.dc_mode_start_times[beam_index] = None
+                
+        except Exception as e:
+            self.logger.error(f"Error stopping DC mode counter for beam {beam_index}: {str(e)}")
+    
+    def update_dc_mode_display(self, beam_index):
+        """Update DC mode display with runtime counter."""
+        try:
+            if (not hasattr(self, 'dc_mode_start_times') or 
+                beam_index >= len(self.dc_mode_start_times) or
+                self.dc_mode_start_times[beam_index] is None):
+                return
+                
+            import time
+            beam_names = ["A", "B", "C"]
+            status_bar = self.beam_status_bars[beam_index]
+            
+            # Calculate runtime in seconds
+            runtime_seconds = int(time.time() - self.dc_mode_start_times[beam_index])
+            
+            # Update status bar with solid yellow background and runtime text
+            status_bar.delete("all")
+            # Force update to get accurate dimensions
+            status_bar.update_idletasks()
+            bar_width = status_bar.winfo_width()
+            if bar_width <= 1:
+                bar_width = 100  # Fallback width
+            bar_height = 12
+            
+            # Solid yellow background
+            status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="gold", outline="")
+            
+            # Runtime text overlay
+            runtime_text = f"Beam {beam_names[beam_index]}: {runtime_seconds}s"
+            status_bar.create_text(
+                bar_width // 2, bar_height // 2,
+                text=runtime_text,
+                fill="black",
+                font=("Arial", 8, "bold")
+            )
+            
+            # Schedule next update in 1 second
+            self.dc_mode_timers[beam_index] = self.root.after(1000, lambda: self.update_dc_mode_display(beam_index))
+            
+        except Exception as e:
+            self.logger.error(f"Error updating DC mode display for beam {beam_index}: {str(e)}")
+
     def sync_status_bar_widths(self):
         """Synchronize status bar widths with button widths after layout changes."""
         try:
@@ -877,11 +964,16 @@ class EBEAMSystemDashboard:
                 
                 # Host Beam Pulse UI inside the merged pane
                 parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
-                self.subsystems['Beam Pulse'] = BeamPulseSubsystem(
+                beam_pulse_subsystem = BeamPulseSubsystem(
                     parent_frame=parent,
                     bcon_driver=bcon_driver,
                     logger=self.logger
                 )
+                
+                # Set up dashboard callback for pulse animations
+                beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
+                
+                self.subsystems['Beam Pulse'] = beam_pulse_subsystem
             else:
                 # placeholder if module not importable
                 container = self.frames.get('Beam Steering/Pulse', self.frames['Process Monitor'])

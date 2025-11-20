@@ -85,6 +85,7 @@ class BeamPulseSubsystem:
             # GUI variables for controls
             self.wave_gen_enabled = tk.BooleanVar(value=False)
             self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
+            self.pulsing_behavior = tk.StringVar(value="DC")  # Default to DC mode
             self.frequency_hz = tk.DoubleVar(value=10.0)
             self.wave_amplitude = tk.DoubleVar(value=5.0)
 
@@ -104,6 +105,7 @@ class BeamPulseSubsystem:
             # Non-GUI mode: use simple values
             self.wave_gen_enabled = False
             self.wave_type = "Sine"
+            self.pulsing_behavior = "DC"
             self.frequency_hz = 10.0
             self.wave_amplitude = 5.0
             self.beam_a_duration = 50.0
@@ -218,6 +220,9 @@ class BeamPulseSubsystem:
         # Graph visibility control
         self.graph_history_visible = True
 
+        # Dashboard integration callback
+        self._dashboard_beam_callback = None
+
         # Hardware connection through BCON driver
         # Driver should be initialized externally and passed in
 
@@ -262,12 +267,13 @@ class BeamPulseSubsystem:
         # Create control columns with labels on top and controls below
         self.create_wave_gen_control(control_row, 0)
         self.create_wave_type_control(control_row, 1)
-        self.create_frequency_control(control_row, 2)
-        self.create_wave_amplitude_control(control_row, 3)
-        self.create_bcon_connection_status(control_row, 4)
+        self.create_pulsing_behavior_control(control_row, 2)
+        self.create_frequency_control(control_row, 3)
+        self.create_wave_amplitude_control(control_row, 4)
+        self.create_bcon_connection_status(control_row, 5)
 
-        # Configure column weights for responsive layout (now 5 columns)
-        for i in range(5):
+        # Configure column weights for responsive layout (now 6 columns)
+        for i in range(6):
             control_row.grid_columnconfigure(i, weight=1)
 
         # Second control row for pulse duration controls
@@ -1364,6 +1370,18 @@ class BeamPulseSubsystem:
         self.calculate_current_beam_energy()  # Update energy on connection
         self._log("Beam energy subsystem connected to beam pulse LUT system", LogLevel.INFO)
 
+    def set_dashboard_beam_callback(self, callback):
+        """Set callback function for dashboard beam status changes.
+        
+        The callback should accept (beam_index, status) parameters and handle
+        pulse animations when pulsing behavior is set to 'Pulsed'.
+        
+        Args:
+            callback: Function with signature callback(beam_index: int, status: bool)
+        """
+        self._dashboard_beam_callback = callback
+        self._log("Dashboard beam callback registered", LogLevel.DEBUG)
+
     def get_integration_status(self):
         """Get status of beam energy integration for debugging.
 
@@ -1559,8 +1577,8 @@ class BeamPulseSubsystem:
         # Label
         ttk.Label(frame, text="Wave Type", font=("Arial", 9, "bold")).pack()
 
-        # Dropdown (Combobox) with four specified options
-        wave_types = ["Sine", "Triangle", "Pulse", "Fixed"]
+        # Dropdown (Combobox) with three wave type options (Pulse functionality moved to Pulsing Behavior)
+        wave_types = ["Sine", "Triangle", "Fixed"]
         self.wave_type_combo = ttk.Combobox(
             frame,
             textvariable=self.wave_type,
@@ -1570,6 +1588,26 @@ class BeamPulseSubsystem:
         )
         self.wave_type_combo.pack(pady=(2, 0))
         self.wave_type_combo.bind("<<ComboboxSelected>>", self.on_wave_type_change)
+
+    def create_pulsing_behavior_control(self, parent, column):
+        """Create Pulsing Behavior dropdown control."""
+        frame = ttk.Frame(parent)
+        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
+
+        # Label
+        ttk.Label(frame, text="Pulsing Behavior", font=("Arial", 9, "bold")).pack()
+
+        # Dropdown (Combobox) with DC and Pulsed options
+        pulsing_types = ["DC", "Pulsed"]
+        self.pulsing_behavior_combo = ttk.Combobox(
+            frame,
+            textvariable=self.pulsing_behavior,
+            values=pulsing_types,
+            state="readonly",
+            width=10
+        )
+        self.pulsing_behavior_combo.pack(pady=(2, 0))
+        self.pulsing_behavior_combo.bind("<<ComboboxSelected>>", self.on_pulsing_behavior_change)
 
     def create_frequency_control(self, parent, column):
         """Create Freq (Hz) spinbox control."""
@@ -1651,7 +1689,7 @@ class BeamPulseSubsystem:
         self.duration_spinboxes.append(duration_spinbox)
 
     def update_frequency_spinbox_state(self):
-        """Update the frequency, amplitude, and duration spinbox states based on current wave type."""
+        """Update the frequency, amplitude, and duration spinbox states based on current wave type and pulsing behavior."""
         if hasattr(self, 'frequency_spinbox'):
             wave_type = self.wave_type.get()
             if wave_type.lower() == "fixed":
@@ -1660,23 +1698,19 @@ class BeamPulseSubsystem:
                 self.frequency_spinbox.configure(state="normal")
 
         # Update wave gen button state
-        # Deflect Beam toggle should be disabled in Pulse mode (not Fixed mode)
+        # Wave gen toggle is always enabled since pulse functionality is now separate
         if hasattr(self, 'wave_gen_toggle'):
-            wave_type = self.wave_type.get()
-            if wave_type.lower() == "pulse":
-                self.wave_gen_toggle.configure(state="disabled")
-            else:
-                self.wave_gen_toggle.configure(state="normal")
+            self.wave_gen_toggle.configure(state="normal")
 
-        # Update duration spinboxes state
+        # Update duration spinboxes state based on pulsing behavior
         if hasattr(self, 'duration_spinboxes'):
-            wave_type = self.wave_type.get()
-            if wave_type.lower() == "pulse":
-                # Enable duration spinboxes for Pulse mode
+            pulsing_behavior = self.pulsing_behavior.get()
+            if pulsing_behavior == "Pulsed":
+                # Enable duration spinboxes for Pulsed mode
                 for spinbox in self.duration_spinboxes:
                     spinbox.configure(state="normal")
             else:
-                # Disable duration spinboxes for other modes (Sine, Triangle, Fixed)
+                # Disable duration spinboxes for DC mode
                 for spinbox in self.duration_spinboxes:
                     spinbox.configure(state="disabled")
 
@@ -1969,29 +2003,16 @@ class BeamPulseSubsystem:
         wave_type = self.wave_type.get()
         self._log(f"Wave Type changed to: {wave_type}", LogLevel.DEBUG)
 
-        # Enable/disable frequency spinbox based on wave type
-        if wave_type.lower() == "fixed":
-            self.frequency_spinbox.configure(state="disabled")
-        else:
-            self.frequency_spinbox.configure(state="normal")
+        # Update all control states based on current wave type and pulsing behavior
+        self.update_frequency_spinbox_state()
 
-        # Enable/disable wave gen button based on wave type
-        # Deflect Beam toggle should be disabled in Pulse mode (not Fixed mode)
-        if hasattr(self, 'wave_gen_toggle'):
-            if wave_type.lower() == "pulse":
-                self.wave_gen_toggle.configure(state="disabled")
-            else:
-                self.wave_gen_toggle.configure(state="normal")
+    def on_pulsing_behavior_change(self, event=None):
+        """Handle pulsing behavior dropdown change."""
+        pulsing_behavior = self.pulsing_behavior.get()
+        self._log(f"Pulsing Behavior changed to: {pulsing_behavior}", LogLevel.DEBUG)
 
-        # Enable/disable duration spinboxes based on wave type
-        if wave_type.lower() == "pulse":
-            # Enable duration spinboxes for Pulse mode
-            for spinbox in self.duration_spinboxes:
-                spinbox.configure(state="normal")
-        else:
-            # Disable duration spinboxes for other modes (Sine, Triangle, Fixed)
-            for spinbox in self.duration_spinboxes:
-                spinbox.configure(state="disabled")
+        # Update all control states based on current pulsing behavior
+        self.update_frequency_spinbox_state()
 
     def on_frequency_change(self):
         """Handle frequency spinbox change and update scan speed for all beams."""
@@ -2056,19 +2077,30 @@ class BeamPulseSubsystem:
             self.beam_on_status[beam_index] = status
             self.update_beam_led_indicators()
 
-            # For Fixed, Sine, and Triangle: beam ON just enables the beam
-            # Graph is only created when Deflect Beam toggle is ON
-            # For Pulse mode: different behavior (handled separately)
-            wave_type = self.wave_type.get().lower()
-
-            # Only add position to plot if:
-            # 1. Beam is turned on AND
-            # 2. Either it's Pulse mode OR Deflect Beam toggle is ON
-            if status and (wave_type == "pulse" or self.wave_gen_toggle_state):
+            # Add position to plot if beam is turned on and wave generation is enabled
+            if status and self.wave_gen_toggle_state:
                 self.add_beam_position_to_plot(beam_index)
 
             beam_names = ['A', 'B', 'C']
             self._log(f"Beam {beam_names[beam_index]} status set to {'ON' if status else 'OFF'}", LogLevel.DEBUG)
+
+            # Dashboard integration: trigger appropriate behavior based on pulsing mode
+            if hasattr(self, '_dashboard_beam_callback') and self._dashboard_beam_callback:
+                try:
+                    pulsing_behavior = self.get_pulsing_behavior()
+                    if status:
+                        if pulsing_behavior == "Pulsed":
+                            # Pulsed mode: trigger animation with duration
+                            duration = self.get_beam_duration(beam_index)
+                            self._dashboard_beam_callback(beam_index, status, duration)
+                        else:
+                            # DC mode: trigger solid bar with counter (duration = 0 indicates DC mode)
+                            self._dashboard_beam_callback(beam_index, status, 0)
+                    else:
+                        # Always notify dashboard when beam is turned OFF
+                        self._dashboard_beam_callback(beam_index, status, 0)
+                except Exception as e:
+                    self._log(f"Dashboard callback error: {e}", LogLevel.WARNING)
 
     def get_beam_status(self, beam_index: int) -> bool:
         """Get beam on/off status.
@@ -2088,6 +2120,22 @@ class BeamPulseSubsystem:
         for i in range(3):
             self.beam_on_status[i] = status
         self.update_beam_led_indicators()
+
+    def get_pulsing_behavior(self) -> str:
+        """Get current pulsing behavior setting."""
+        if hasattr(self, 'pulsing_behavior') and self.pulsing_behavior:
+            return self.pulsing_behavior.get()
+        return "DC"
+
+    def get_beam_duration(self, beam_index: int) -> float:
+        """Get beam duration in milliseconds for specific beam."""
+        if beam_index == 0 and hasattr(self, 'beam_a_duration') and self.beam_a_duration:
+            return self.beam_a_duration.get()
+        elif beam_index == 1 and hasattr(self, 'beam_b_duration') and self.beam_b_duration:
+            return self.beam_b_duration.get()
+        elif beam_index == 2 and hasattr(self, 'beam_c_duration') and self.beam_c_duration:
+            return self.beam_c_duration.get()
+        return 100.0  # Default fallback
 
     def calculate_beam_position(self, beam_index: int):
         """Calculate beam position based on current wave type and parameters.
