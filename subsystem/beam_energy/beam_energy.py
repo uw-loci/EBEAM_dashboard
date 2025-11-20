@@ -11,7 +11,7 @@ import tkinter.messagebox as messagebox
 class BeamEnergySubsystem:
     """
     Manages the beam energy system with four main power supplies:
-    - +80kV Glassman (indicator only)
+    - +80kV Glassman (interlock only)
     - +1kV Matsusada
     - -1kV Matsusada 
     - +3kV Bertran
@@ -37,7 +37,7 @@ class BeamEnergySubsystem:
         
         # Main power supply configurations
         self.power_supplies = [
-            {"name": "+80kV Glassman PS", "type": "glassman", "voltage": 80000},  # Indicator only
+            {"name": "+80kV Glassman PS", "type": "glassman", "voltage": 80000},  # Interlock only
             {"name": "+1kV Matsusada PS", "type": "matsusada", "voltage": 1000},
             {"name": "-1kV Matsusada PS", "type": "matsusada", "voltage": -1000},
             {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
@@ -50,6 +50,11 @@ class BeamEnergySubsystem:
         self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
         self.output_status = [tk.StringVar(value="OFF") for _ in range(len(self.power_supplies))]
         self.connection_status_vars = [tk.StringVar(value="DISCONNECTED") for _ in range(len(self.power_supplies))]
+        self.glassman_interlock_var = tk.StringVar(value="BYPASSED")
+        self.arm_beams_var = tk.StringVar(value="UNARMED")
+        self.ccs_power_var = tk.StringVar(value="OFF")
+        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
+        self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
 
         self.overcurrent_flags = [False for _ in self.power_supplies]
 
@@ -73,27 +78,6 @@ class BeamEnergySubsystem:
 
         # Initialize ui_elements list, one for each power supply
         self.ui_elements = [None] * len(self.power_supplies)  
-
-        # === Horizontal row for Glassman and system-level indicators ===
-        glassman_row = ttk.Frame(main_frame)
-        glassman_row.pack(fill=tk.X, pady=(0, 5))
-
-        # Left side: CCS Switch Indicator
-        ccs_container = ttk.Frame(glassman_row)
-        ccs_container.pack(side=tk.LEFT, padx=(5, 20))
-
-        # Middle: Glassman indicator
-        glassman_container = ttk.Frame(glassman_row)
-        glassman_container.pack(side=tk.LEFT, padx=5)
-
-        # Right Side: Arm Beams Switch Indicator
-        arm_beams_container = ttk.Frame(glassman_row)
-        arm_beams_container.pack(side=tk.RIGHT, padx=(5,20))
-
-        # Create UI in each area
-        self.create_ccs_switch_indicator(ccs_container)
-        self.create_arm_beams_indicator(arm_beams_container)
-        self.create_glassman_indicator(glassman_container)
                 
         # Power supplies container frame
         ps_container = ttk.Frame(main_frame)
@@ -121,99 +105,52 @@ class BeamEnergySubsystem:
         # Configure main grid
         ps_container.grid_rowconfigure(0, weight=1)
 
-    def create_glassman_indicator(self, parent_frame):
-        """Create a small Glassman power supply output indicator, centered below title."""
-        glassman_frame = ttk.LabelFrame(
-            parent_frame, 
-            text="+80kV Glassman", 
-            padding="5",
-            labelanchor="n"  # Center the title at the top
-        )
-        # Center the frame horizontally
-        glassman_frame.pack(anchor=tk.CENTER)
+        # Right panel for status indicators
+        right_panel = ttk.Frame(ps_container)
+        right_panel.grid(row=0, column=len(self.ps_frames)+1, sticky="ns", padx=(10,0))
+        self.create_indicators(right_panel)
 
-        # Interlock status indicator
-        status_frame = ttk.Frame(glassman_frame)
-        status_frame.pack(fill=tk.X)
+    def create_indicator_circle(self, parent, color="gray"):
+        """Helper function, used to create indicators for system status panel."""
+        canvas = tk.Canvas(parent, width=16, height=16, highlightthickness=0)
+        oval = canvas.create_oval(2, 2, 14, 14, fill=color, outline="")
+        return canvas, oval
 
-        #TODO: get actual interlock status from Knob Box (status will be Active or Bypassed)
-        self.glassman_interlock_status = tk.StringVar(value="ACTIVE")
+    def create_indicators(self, parent_frame):
+        """
+        Create a vertical list of indicators on the right side of power supply displays:
+            Arms Beams Status (Armed/Unarmed)
+            CCS Power Status (On/Off)
+            +80kV Interlock Status (Active/Bypassed)
+            Logic Comms (Connected/Disconnected)
+            Interlocks: All Good/Fault
+        """
+        panel = ttk.LabelFrame(parent_frame, text="System Status", padding=5)
+        panel.pack(fill=tk.Y, anchor=tk.N)
 
-        # Interlock status
-        ttk.Label(status_frame, text="Interlock:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 3))
-        self.glassman_status_label = ttk.Label(
-            status_frame, 
-            textvariable=self.glassman_interlock_status,
-            foreground="red",
-            font=(self.displayFont, 9, "bold"),
-            background="white",
-            relief="sunken",
-            width=5,
-            anchor=tk.CENTER
-        )
-        self.glassman_status_label.pack(side=tk.LEFT)
+        def add_row(label_text, var=None, color_var=None):
+            row = ttk.Frame(panel)
+            row.pack(fill=tk.X, pady=2)
 
-        self.ui_elements[0] = {
-            "status_label": self.glassman_status_label
-        }
+            ttk.Label(row, text=label_text, font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
-    def create_ccs_switch_indicator(self, parent_frame):
-        """Create a small indicator showing the on/off status of the CCS power switch on the Knob Box."""
-        ccs_frame = ttk.LabelFrame(
-            parent_frame, 
-            text="CCS Power", 
-            padding="5",
-            labelanchor="n"  # Center the title at the top
-        )
-        ccs_frame.pack(side = tk.RIGHT, padx=5, pady=5)
+            if var:
+                ttk.Label(row, textvariable=var, font=("Segoe UI", 9, "bold")).pack(side=tk.RIGHT)
 
-        status_frame = ttk.Frame(ccs_frame)
-        status_frame.pack(fill=tk.X)
+            if color_var:
+                canvas, oval = self.create_indicator_circle(row)
+                canvas.pack(side=tk.RIGHT, padx=4)
 
-        #TODO: get actual ccs power status from Knob Box 
-        self.ccs_power_status = tk.StringVar(value="OFF")
+                # Store reference for later color updates
+                if not hasattr(self, "indicator_circles"):
+                    self.indicator_circles = []
+                self.indicator_circles.append((canvas, oval, color_var))
 
-        # On/Off Status
-        self.ccs_power_label = ttk.Label(
-            status_frame,
-            textvariable=self.ccs_power_status,
-            foreground="red",
-            font=(self.displayFont, 8, "bold"),
-            background="white",
-            relief="sunken",
-            width=15,
-            anchor=tk.CENTER
-        )
-        self.ccs_power_label.pack(side=tk.LEFT)
-
-    def create_arm_beams_indicator(self, parent_frame):
-        """Create a small indicator showing the On/Off status of the 'Arm Beams' button."""
-        arm_beams_frame = ttk.LabelFrame(
-            parent_frame, 
-            text="Arm Beams", 
-            padding="5",
-            labelanchor="n"  # Center the title at the top
-        )
-        arm_beams_frame.pack(side = tk.RIGHT, padx=5, pady=5)
-
-        status_frame = ttk.Frame(arm_beams_frame)
-        status_frame.pack(fill=tk.X)
-
-        #TODO: get actual arm beams status from Knob Box 
-        self.arm_beams_status = tk.StringVar(value="OFF")
-
-        # On/Off Status
-        self.arm_beams_label = ttk.Label(
-            status_frame,
-            textvariable=self.arm_beams_status,
-            foreground="red",
-            font=(self.displayFont, 8, "bold"),
-            background="white",
-            relief="sunken",
-            width=15,
-            anchor=tk.CENTER
-        )
-        self.arm_beams_label.pack(side=tk.LEFT)
+        add_row("Arm Beams:",      self.arm_beams_var)
+        add_row("CCS Power:",      self.ccs_power_var)
+        add_row("+80kV Interlock:",     self.glassman_interlock_var)
+        add_row("Logic Comms:",    color_var=self.logic_comms_color)
+        add_row("Interlocks:",     color_var=self.interlocks_color)        
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -370,6 +307,10 @@ class BeamEnergySubsystem:
     
     def update_output_status(self, index, status):
         """Update output status indicators."""
+        # Skip Glassman
+        if index == 0:
+            return 
+        
         if index < len(self.ui_elements):
             if status:
                 self.output_status[index].set("ON")
