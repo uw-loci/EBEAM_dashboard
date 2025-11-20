@@ -37,7 +37,6 @@ class BeamEnergySubsystem:
         
         # Main power supply configurations
         self.power_supplies = [
-            {"name": "+80kV Glassman PS", "type": "glassman", "voltage": 80000},  # Interlock only
             {"name": "+1kV Matsusada PS", "type": "matsusada", "voltage": 1000},
             {"name": "-1kV Matsusada PS", "type": "matsusada", "voltage": -1000},
             {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
@@ -50,7 +49,7 @@ class BeamEnergySubsystem:
         self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
         self.output_status = [tk.StringVar(value="OFF") for _ in range(len(self.power_supplies))]
         self.connection_status_vars = [tk.StringVar(value="DISCONNECTED") for _ in range(len(self.power_supplies))]
-        self.glassman_interlock_var = tk.StringVar(value="BYPASSED")
+        self.glassman_interlock_var = tk.StringVar(value="ACTIVE")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
@@ -86,7 +85,7 @@ class BeamEnergySubsystem:
         # Create four vertical boxes arranged horizontally
         self.ps_frames = []
 
-        for i, ps_config in enumerate(self.power_supplies[1:], 1): # Exclude Glassman
+        for i, ps_config in enumerate(self.power_supplies): # Exclude Glassman
             # Individual power supply frame
             ps_frame = ttk.LabelFrame(
                 ps_container, 
@@ -294,9 +293,6 @@ class BeamEnergySubsystem:
     
     def update_connection_status(self, index, connected):
         """Update connection status indicators."""
-        # Skip Glassman (index 0) - no hardware support for connection status
-        if index == 0:
-            return
         if index < len(self.ui_elements):
             if connected:
                 self.connection_status_vars[index].set("CONNECTED")
@@ -307,10 +303,6 @@ class BeamEnergySubsystem:
     
     def update_output_status(self, index, status):
         """Update output status indicators."""
-        # Skip Glassman
-        if index == 0:
-            return 
-        
         if index < len(self.ui_elements):
             if status:
                 self.output_status[index].set("ON")
@@ -318,6 +310,8 @@ class BeamEnergySubsystem:
             else:
                 self.output_status[index].set("OFF")
                 self.ui_elements[index]['status_label'].config(foreground="red")
+
+    
 
     def start_polling_thread(self):
         """Start a background thread to poll power supply data periodically."""
@@ -360,7 +354,7 @@ class BeamEnergySubsystem:
             for index, _ in enumerate(self.power_supplies):
                 
                 # Unit IDs start at one. We may want to create a mapping later when we have the final values
-                unit_id = index + 1 
+                unit_id = index
                 data = data_snapshot.get(unit_id, None)
                 
                 if data:
@@ -492,6 +486,6 @@ class BeamEnergySubsystem:
         else:
             print(f"{level.name}: {message}")
 
-# TODO: Add output status updating when supported by firmware
+# TODO: Add output status, interlock status updating when supported by firmware
 # TODO: Update for finalized unit ID assignments and expected voltage/current units
-# TODO: Get real interlock status of Glassman, CCS Power Status, Arm Beams Status
+# TODO: Add function to update indicators in system status panel
