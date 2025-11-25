@@ -47,8 +47,9 @@ class BeamEnergySubsystem:
         self.set_voltages = [tk.StringVar(value="-- V") for _ in range(len(self.power_supplies))]
         self.actual_voltages = [tk.StringVar(value="-- V") for _ in range(len(self.power_supplies))]
         self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
-        self.output_status = [tk.StringVar(value="OFF") for _ in range(len(self.power_supplies))]
-        self.connection_status_vars = [tk.StringVar(value="DISCONNECTED") for _ in range(len(self.power_supplies))]
+        self.output_status = [tk.StringVar(value="DISABLED") for _ in range(len(self.power_supplies))]
+        self.connection_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies) )]
+        self.reset_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies)-1)] # Exclude 20kV Bertan
         self.glassman_interlock_var = tk.StringVar(value="ACTIVE")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
@@ -160,21 +161,21 @@ class BeamEnergySubsystem:
             ps_config: Power supply configuration dict
             index: Index of the power supply (1-4, since 0 is Glassman)
         """
-        # Connection status indicator (at top)
-        connection_frame = ttk.Frame(frame)
-        connection_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        connection_label = ttk.Label(
-            connection_frame, 
-            textvariable=self.connection_status_vars[index], 
-            foreground="red",
-            font=(self.displayFont, 8, "bold"),
-            background="white",
-            relief="sunken",
-            width=15,
-            anchor=tk.CENTER
-        )
-        connection_label.pack(anchor=tk.CENTER)
+        # Connection status indicator (at top left)
+        top_row_frame = ttk.Frame(frame)
+        top_row_frame.pack(fill=tk.X, pady=(0, 5))
+        connection_label = ttk.Label(top_row_frame, text="Comms:", font=("Segoe UI", 8))
+        connection_label.pack(side=tk.LEFT)
+        canvas, oval = self.create_indicator_circle(top_row_frame, color = self.connection_status_colors[index].get())
+        canvas.pack(side=tk.LEFT, padx=4)
+        # TODO store references
+
+        # Reset status indicator (at top right)
+        canvas, oval = self.create_indicator_circle(top_row_frame, color = self.connection_status_colors[index].get())
+        canvas.pack(side=tk.RIGHT, padx=4)
+        reset_label = ttk.Label(top_row_frame, text="Reset:", font=("Segoe UI", 8))
+        reset_label.pack(side=tk.RIGHT)
+        # TODO store references
         
         # Output status indicator
         status_frame = ttk.Frame(frame)
@@ -191,7 +192,7 @@ class BeamEnergySubsystem:
             font=(self.displayFont, 9, "bold"),
             background="white",
             relief="sunken",
-            width=5,
+            width=15,
             anchor=tk.CENTER
         )
         status_label.pack(anchor=tk.CENTER, pady=(2, 0))
@@ -295,20 +296,18 @@ class BeamEnergySubsystem:
         """Update connection status indicators."""
         if index < len(self.ui_elements):
             if connected:
-                self.connection_status_vars[index].set("CONNECTED")
-                self.ui_elements[index]['connection_label'].config(foreground="green")
+                self.connection_status_colors[index].set("green")
             else:
-                self.connection_status_vars[index].set("DISCONNECTED")
-                self.ui_elements[index]['connection_label'].config(foreground="red")
+                self.connection_status_colors[index].set("red")
     
     def update_output_status(self, index, status):
         """Update output status indicators."""
         if index < len(self.ui_elements):
             if status:
-                self.output_status[index].set("ON")
+                self.output_status[index].set("ENABLED")
                 self.ui_elements[index]['status_label'].config(foreground="green")
             else:
-                self.output_status[index].set("OFF")
+                self.output_status[index].set("DISABLED")
                 self.ui_elements[index]['status_label'].config(foreground="red")
 
     
@@ -489,3 +488,4 @@ class BeamEnergySubsystem:
 # TODO: Add output status, interlock status updating when supported by firmware
 # TODO: Update for finalized unit ID assignments and expected voltage/current units
 # TODO: Add function to update indicators in system status panel
+# TODO: Change Overcurrent Handling - we do not want popups. maybe change to some sort of indicator light?
