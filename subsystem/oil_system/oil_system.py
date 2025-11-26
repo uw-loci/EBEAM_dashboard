@@ -16,11 +16,11 @@ class OilSubsystem:
 
 
     def setup_gui(self):
-        """Creates and packs UI elements inside the given parent (horizontally)."""
+        """Creates and packs UI elements inside the given parent (vertically)."""
         self.frame = tk.Frame(self.parent)
-        self.frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 2))
         self.info_frame = tk.Frame(self.frame)
-        self.info_frame.pack(fill=tk.X, expand=True)
+        self.info_frame.pack(fill=tk.BOTH, expand=True)
 
         self.create_sensor_frame("Temperature", f"{self.temperature:.1f}°C", "temp_label")
         self.create_sensor_frame("Pressure", f"{self.pressure:.1f} PSI", "pressure_label")
@@ -30,14 +30,14 @@ class OilSubsystem:
 
 
     def create_sensor_frame(self, title, default_text, label_attr):
-        """Creates a horizontally aligned sensor frame."""
-        frame = tk.Frame(self.info_frame, padx=20)
-        frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
-        
+        """Creates a vertically aligned sensor frame."""
+        frame = tk.Frame(self.info_frame, pady=3)
+        frame.pack(side=tk.TOP, fill=tk.X, expand=True)
+
         tk.Label(frame, text=title, font=("Helvetica", 10, "bold")).pack()
         label = tk.Label(frame, text=default_text, font=('Helvetica', 10), bg = "#d3d3d3", fg = "black", padx = 5, pady = 2)
         label.pack()
-        
+
         setattr(self, label_attr, label)
 
 

@@ -12,9 +12,9 @@ import serial.tools.list_ports
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1916, 41),
-    
+
     # Row 1
-    ("Oil System", 1, 604, 130),
+    ("Oil System", 1, 120, 375),
     ("Beam Steering", 1, 778, 130),
     ("Beam Energy", 1, 528, 130),
     
