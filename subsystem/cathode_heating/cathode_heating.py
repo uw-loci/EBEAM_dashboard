@@ -149,14 +149,6 @@ class CathodeHeatingSubsystem:
                         key = 'Default' if filename == 'default.csv' else filename
                         self.current_options[key] = None
 
-        # Fallback to default cathode data if no LUTs loaded
-        if not self.current_options:
-            self.current_options = {
-                "Cathode A": pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
-                "Cathode B": pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_B.csv')),
-                "Cathode C": pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_C.csv')),
-            }
-
         # Track selected LUT filenames for each cathode (A, B, C)
         self.selected_lut_files = [None, None, None]
         self.lookup_table_setting = [
