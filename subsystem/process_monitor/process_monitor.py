@@ -4,172 +4,29 @@ from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 from utils import LogLevel
 
-class TemperatureBar(tk.Canvas):
-
-    DISCONNECTED = -1
-    SENSOR_ERROR = -2
-    SCALE_LABELS = {
-        'Solenoids': [15 , 120, 24], 
-        'Chambers' : [15, 100, 20], 
-        'Air': [15, 50, 10],
-        None: [15, 100, 10]
-    } 
-    ERROR_COLORS = {
-        DISCONNECTED: '#808080',  # Grey for disconnected state
-        SENSOR_ERROR: '#FFA500',  # Keep orange for actual sensor errors
-    }
-
-    def __init__(self, parent, name: str, height: int = 400, width: int = 40):
-        super().__init__(parent, height=height, width=width)
-        self.name = name
-        self.height = height
-        self.width = width
-        self.bar_width = 15
-        self.value = 0
-        
-        # Create title
-        self.create_text(
-            width//2, 
-            75, 
-            text=name, 
-            font=('Arial', 8, 'bold'), 
-            anchor='n',
-            angle=90  # Rotate text 90 degrees
-        )
-        
-        # Create scale marks
-        self.create_scale()
-        
-    def create_scale(self):
-        # Scale line
-        scale_x = self.width - 20
-        top_y = 35
-        bottom_y = self.height - 20
-        scale_height = bottom_y - top_y
-        
-        self.create_line(scale_x, top_y, scale_x, bottom_y)
-
-        # Determine scale based on name
-        if 'Solenoid' in self.name:
-            scale_key = 'Solenoids'
-        elif 'Chamber' in self.name:
-            scale_key = 'Chambers'
-        elif 'Air' in self.name:
-            scale_key = 'Air'
-        else:
-            scale_key = None  # Default behavior if name does not match
-
-        self.temp_min, self.temp_max, self.ticks = self.SCALE_LABELS.get(scale_key, self.SCALE_LABELS[None])
-        temp_range = self.temp_max - self.temp_min
-
-        # Scale marks and labels
-        for i in range(self.temp_min, self.temp_max + 1, 10):    
-            relative_pos = (i - self.temp_min) / temp_range
-            y = bottom_y - (relative_pos * scale_height)
-            self.create_line(scale_x-2, y, scale_x+2, y)
-            self.create_text(
-                scale_x-6, 
-                y, 
-                text=str(i), 
-                anchor='w', 
-                font=('Arial', 7),
-                angle=90,
-                tags='scale_labels'
-            )
-                
-        self.scale_top = top_y
-        self.scale_bottom = bottom_y
-        
-    def update_value(self, name, value: float):
-        """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
-        self.delete('bar')
-
-        if value == self.DISCONNECTED:
-            # grey out bar area with hatched pattern
-            self.create_rectangle(
-                5,
-                self.scale_top,
-                5 + self.bar_width,
-                self.scale_bottom,
-                fill='#E0E0E0',
-                stipple='gray50', # hatched pattern
-                tags='bar'
-            )
-            value_text = "---"
-        elif value == self.SENSOR_ERROR:
-            # Show orange bar for sensor error
-            self.create_rectangle(
-                5,
-                self.scale_bottom,
-                5 + self.bar_width,
-                self.scale_bottom,
-                fill=self.ERROR_COLORS[self.SENSOR_ERROR],
-                tags='bar'
-            )
-            value_text = "ERR"
-        else:
-            # Normal temperature display
-            bar_height = (((value - self.temp_min) / (self.temp_max - self.temp_min)) * (self.scale_bottom - self.scale_top))
-            color = self.get_temperature_color(name, value)
-            self.create_rectangle(
-                5,
-                self.scale_bottom - bar_height,
-                5 + self.bar_width,
-                self.scale_bottom,
-                fill=color,
-                tags='bar'
-            )
-            value_text = f'{value:.1f}'
-
-        # ensure labels are on top
-        self.tag_raise('scale_labels')
-
-        # Update value label
-        self.delete('value')
-        self.create_text(
-            self.width//2,
-            self.height-5,
-            text=value_text,
-            font=('Arial', 9, 'bold'),
-            fill='#808080' if value == self.DISCONNECTED else 'black',
-            tags='value'
-        )
-        
-    def get_temperature_color(self, name, temp: float) -> str:
-        """Return a color based on temperature value."""
-        
-        if name.startswith('Solenoid'): 
-            if 20 <= temp < 70:
-                return '#00FF00'  # Green for normal 
-            elif 70 <= temp < 100:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot
-            
-        elif name.startswith('Chamber'): 
-            if 20 <= temp < 50:
-                return '#00FF00'  # Green for normal 
-            elif 50 <= temp < 70:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot 
-        elif name.startswith('Air'):
-            if 20 <= temp < 30:
-                return '#00FF00'  # Green for normal 
-            elif 30 <= temp < 40:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot
-        else:
-            if temp < 70:
-                return '#00FF00'  # Green for normal
-            elif temp < 100:
-                return '#FFFF00'  # Yellow for warm
-            else:
-                return '#FF0000'  # Red for hot 
-
 
 class ProcessMonitorSubsystem:
+    # Error state constants
+    DISCONNECTED = -1
+    SENSOR_ERROR = -2
+
+    # Temperature threshold definitions
+    TEMP_THRESHOLDS = {
+        'Solenoid': {'green': (20, 70), 'yellow': (70, 100), 'red': (100, float('inf'))},
+        'Chamber': {'green': (20, 50), 'yellow': (50, 70), 'red': (70, float('inf'))},
+        'Air': {'green': (20, 30), 'yellow': (30, 40), 'red': (40, float('inf'))},
+        'Default': {'green': (0, 70), 'yellow': (70, 100), 'red': (100, float('inf'))}
+    }
+
+    # Background colors for temperature states
+    STATE_COLORS = {
+        'green': '#d4edda',
+        'yellow': '#fff3cd',
+        'red': '#f8d7da',
+        'disconnected': '#e0e0e0',
+        'error': '#ffe5cc'
+    }
+
     def __init__(self, parent, com_port, active, logger=None):
         self.parent = parent
         self.logger = logger
@@ -211,17 +68,84 @@ class ProcessMonitorSubsystem:
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        
-        # Configure grid weights for responsive layout
-        for i in range(len(self.thermometers)):
-            self.frame.grid_columnconfigure(i, weight=1)
-        
-        # Create temperature bars
-        self.temp_bars: Dict[str, TemperatureBar] = {}
-        for i, name in enumerate(self.thermometers):
-            bar = TemperatureBar(self.frame, name)
-            bar.grid(row=0, column=i, padx=5, sticky='nsew')
-            self.temp_bars[name] = bar
+
+        # Create container with grid layout
+        container = tk.Frame(self.frame)
+        container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Configure 2 columns with equal weight
+        for i in range(2):
+            container.grid_columnconfigure(i, weight=1, uniform='col')
+
+        # Create sensor frames in 2x3 grid (2 columns, 3 rows)
+        sensor_positions = [
+            ('Solenoid 1', 0, 0), ('Solenoid 2', 0, 1),
+            ('Chamber Top', 1, 0), ('Chamber Bot', 1, 1),
+            ('Air temp', 2, 0), ('Unassigned', 2, 1)
+        ]
+
+        self.temp_labels: Dict[str, tk.Label] = {}
+        for name, row, col in sensor_positions:
+            frame = tk.Frame(container, bd=1, relief=tk.RIDGE, padx=5, pady=5)
+            frame.grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
+            label = self.create_sensor_frame(frame, name, "---")
+            self.temp_labels[name] = label
+
+    def create_sensor_frame(self, parent, title, default_text):
+        """Creates a label-value pair sensor frame."""
+        frame = tk.Frame(parent, pady=3)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(frame, text=title, font=("Helvetica", 10, "bold")).pack()
+        label = tk.Label(frame, text=default_text, font=('Helvetica', 10), bg="#d3d3d3", fg="black", padx=5, pady=2)
+        label.pack()
+
+        return label
+
+    def get_temperature_state(self, name, temp):
+        """Determine temperature state (green/yellow/red) based on thresholds."""
+        # Determine which threshold set to use
+        if 'Solenoid' in name:
+            thresholds = self.TEMP_THRESHOLDS['Solenoid']
+        elif 'Chamber' in name:
+            thresholds = self.TEMP_THRESHOLDS['Chamber']
+        elif 'Air' in name:
+            thresholds = self.TEMP_THRESHOLDS['Air']
+        else:
+            thresholds = self.TEMP_THRESHOLDS['Default']
+
+        # Check temperature against thresholds
+        if thresholds['green'][0] <= temp < thresholds['green'][1]:
+            return 'green'
+        elif thresholds['yellow'][0] <= temp < thresholds['yellow'][1]:
+            return 'yellow'
+        else:
+            return 'red'
+
+    def update_sensor_display(self, name, value):
+        """Update sensor display with value and appropriate color coding."""
+        label = self.temp_labels[name]
+
+        if value == self.DISCONNECTED:
+            label.config(
+                text="---",
+                bg=self.STATE_COLORS['disconnected'],
+                fg='#808080'
+            )
+        elif value == self.SENSOR_ERROR:
+            label.config(
+                text="ERR",
+                bg=self.STATE_COLORS['error'],
+                fg='black'
+            )
+        else:
+            # Normal temperature display
+            color_state = self.get_temperature_state(name, value)
+            label.config(
+                text=f"{value:.1f}°C",
+                bg=self.STATE_COLORS[color_state],
+                fg='black'
+            )
 
     def update_temperatures(self):
         current_time = time.time()
@@ -262,31 +186,31 @@ class ProcessMonitorSubsystem:
                         self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.VERBOSE)
                         temp = temps.get(unit)
                         if temp is None:
-                            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                            self.update_sensor_display(name, self.DISCONNECTED)
                             self.active['Environment Pass'] = False
                         elif temp == self.monitor.SENSOR_ERROR:
-                            self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                            self.update_sensor_display(name, self.SENSOR_ERROR)
                             self.active['Environment Pass'] = False
                         elif temp == self.monitor.DISCONNECTED:
-                            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                            self.update_sensor_display(name, self.DISCONNECTED)
                             self.active['Environment Pass'] = False
                         elif isinstance(temp, (int, float)):
                             try:
                                 temp_value = float(temp)
                                 if -90 <= temp_value <= 500:  # Valid temperature range
-                                    self.temp_bars[name].update_value(name, temp_value)
+                                    self.update_sensor_display(name, temp_value)
                                     self.active['Environment Pass'] = True # Update Machine Status Progress Bar
                                     self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
-                                    self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                                    self.update_sensor_display(name, self.SENSOR_ERROR)
                                     self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
                                     self.active['Environment Pass'] = False
                             except (ValueError, TypeError):
-                                self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                                self.update_sensor_display(name, self.SENSOR_ERROR)
                                 self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
                                 self.active['Environment Pass'] = False
                         else:
-                            self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                            self.update_sensor_display(name, self.SENSOR_ERROR)
                             self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
                             self.active['Environment Pass'] = False
 
@@ -302,16 +226,16 @@ class ProcessMonitorSubsystem:
                 self.parent.after(self.update_interval, self.update_temperatures)
 
     def _set_all_temps_error(self):
-        """Set all temperature bars to error state"""
-        if hasattr(self, 'temp_bars'):
-            for name in self.temp_bars:
-                self.temp_bars[name].update_value(name, -1)
+        """Set all temperature displays to error state"""
+        if hasattr(self, 'temp_labels'):
+            for name in self.temp_labels:
+                self.update_sensor_display(name, self.SENSOR_ERROR)
 
     def _set_all_temps_disconnected(self):
-        """Set all temperature bars to disconnected state"""
-        if hasattr(self, 'temp_bars'):
-            for name in self.temp_bars:
-                self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+        """Set all temperature displays to disconnected state"""
+        if hasattr(self, 'temp_labels'):
+            for name in self.temp_labels:
+                self.update_sensor_display(name, self.DISCONNECTED)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
