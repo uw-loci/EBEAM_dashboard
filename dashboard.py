@@ -817,6 +817,32 @@ class EBEAMSystemDashboard:
                 
         except Exception as e:
             self.logger.error(f"Error stopping DC mode counter for beam {beam_index}: {str(e)}")
+    def format_beam_duration(self, total_seconds):
+        """Format beam duration display based on time elapsed.
+        
+        Args:
+            total_seconds (int): Total elapsed time in seconds
+            
+        Returns:
+            str: Formatted time string
+                - Under 60s: "42s"
+                - 60s to 3600s: "5m 42s" 
+                - Over 3600s: "2h 5m 42s"
+        """
+        if total_seconds < 60:
+            # Under 60 seconds: show just seconds
+            return f"{total_seconds}s"
+        elif total_seconds < 3600:
+            # Between 60 seconds and 1 hour: show minutes and seconds
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            return f"{minutes}m {seconds}s"
+        else:
+            # Over 1 hour: show hours, minutes, and seconds
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            return f"{hours}h {minutes}m {seconds}s"
     
     def update_dc_mode_display(self, beam_index):
         """Update DC mode display with runtime counter."""
@@ -845,8 +871,11 @@ class EBEAMSystemDashboard:
             # Solid yellow background
             status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="gold", outline="")
             
+            # Format time based on duration
+            formatted_time = self.format_beam_duration(runtime_seconds)
+            
             # Runtime text overlay
-            runtime_text = f"Beam {beam_names[beam_index]}: {runtime_seconds}s"
+            runtime_text = f"Beam {beam_names[beam_index]}: {formatted_time}"
             status_bar.create_text(
                 bar_width // 2, bar_height // 2,
                 text=runtime_text,
