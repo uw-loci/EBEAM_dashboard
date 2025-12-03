@@ -256,9 +256,9 @@ class EBEAMSystemDashboard:
         frames_config[right_i] = (right_title, row, new_right, right_h)
 
         # Keep merged column width in sync across rows
-        if left_title in ("Beam Steering/Pulse", "Beam Pulse Spacer"):
+        if left_title in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
             self._sync_merged_column_width(new_left)
-        if right_title in ("Beam Steering/Pulse", "Beam Pulse Spacer"):
+        if right_title in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
             self._sync_merged_column_width(new_right)
 
         self._reflow_all()
@@ -266,7 +266,7 @@ class EBEAMSystemDashboard:
     def _sync_merged_column_width(self, new_width):
         """Ensure the merged middle column keeps the same width in all rows."""
         for i, (t, r, w, h) in enumerate(frames_config):
-            if t in ("Beam Steering/Pulse", "Beam Pulse Spacer"):
+            if t in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
                 frames_config[i] = (t, r, int(new_width), h)
 
     def _resize_vertical(self, row, title, dy):

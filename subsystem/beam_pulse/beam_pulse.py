@@ -280,17 +280,22 @@ class BeamPulseSubsystem:
         pulse_row = ttk.Frame(main_frame)
         pulse_row.pack(fill=tk.X, pady=(0, 10))
 
-        # Create pulse duration controls for beams A, B, C
-        self.create_beam_duration_control(pulse_row, 0, "Beam A Duration (ms)",
+        # Create pulse duration controls for beams A, B, C (centered with less spacing)
+        # Use columns 1, 2, 3 with spacer columns 0 and 4 for centering
+        self.create_beam_duration_control(pulse_row, 1, "Beam A Duration (ms)",
                                            self.beam_a_duration)
-        self.create_beam_duration_control(pulse_row, 1, "Beam B Duration (ms)",
+        self.create_beam_duration_control(pulse_row, 2, "Beam B Duration (ms)",
                                            self.beam_b_duration)
-        self.create_beam_duration_control(pulse_row, 2, "Beam C Duration (ms)",
+        self.create_beam_duration_control(pulse_row, 3, "Beam C Duration (ms)",
                                            self.beam_c_duration)
 
-        # Configure column weights for pulse row (3 columns)
-        for i in range(3):
-            pulse_row.grid_columnconfigure(i, weight=1)
+        # Configure column weights for pulse row (5 columns total)
+        # Columns 0 and 4 are spacers with higher weight to center the controls
+        pulse_row.grid_columnconfigure(0, weight=2)  # Left spacer
+        pulse_row.grid_columnconfigure(1, weight=0)  # Beam A (no expansion)
+        pulse_row.grid_columnconfigure(2, weight=0)  # Beam B (no expansion)
+        pulse_row.grid_columnconfigure(3, weight=0)  # Beam C (no expansion)
+        pulse_row.grid_columnconfigure(4, weight=2)  # Right spacer
 
         # Set initial state of frequency spinbox based on default wave type
         self.update_frequency_spinbox_state()
@@ -1667,7 +1672,7 @@ class BeamPulseSubsystem:
     def create_beam_duration_control(self, parent, column, label_text, duration_var):
         """Create Beam Duration spinbox control."""
         frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
+        frame.grid(row=0, column=column, padx=2, pady=2, sticky="")
 
         # Label
         ttk.Label(frame, text=label_text, font=("Arial", 9, "bold")).pack()
