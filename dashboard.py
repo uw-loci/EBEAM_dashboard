@@ -332,7 +332,7 @@ class EBEAMSystemDashboard:
             bg="red",
             fg="white",
             font=("Helvetica",14,"bold"),
-            command=lambda:self.subsystems['Cathode Heating'].turn_off_all_beams()
+            command=self.handle_beams_off
         )
         beams_off_button.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
 
@@ -577,6 +577,35 @@ class EBEAMSystemDashboard:
         except Exception as e:
             self.logger.error(f"Error in handle_arm_beams: {str(e)}")
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
+
+    def handle_beams_off(self):
+        """Handle BEAMS OFF button press - turn off cathode heating and disarm beams if armed."""
+        try:
+            # Turn off cathode heating power supplies
+            if 'Cathode Heating' in self.subsystems and self.subsystems['Cathode Heating'] is not None:
+                cathode = self.subsystems['Cathode Heating']
+                if hasattr(cathode, 'turn_off_all_beams'):
+                    cathode.turn_off_all_beams()
+                    self.logger.info("Cathode heating turned off via BEAMS OFF button")
+            
+            # Check if beams are armed and disarm them
+            if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                beam_pulse = self.subsystems['Beam Pulse']
+                if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
+                    # Beams are armed, so disarm them
+                    if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
+                        # Update the ARM BEAMS button state
+                        self.beams_ready_button.config(
+                            text="ARM BEAMS",
+                            bg="sky blue"
+                        )
+                        # Disable beam toggle buttons and reset their states
+                        self.update_beam_toggle_states(enabled=False, reset=True)
+                        self.logger.info("Beams disarmed via BEAMS OFF button")
+                    else:
+                        self.logger.error("Failed to disarm beams via BEAMS OFF")
+        except Exception as e:
+            self.logger.error(f"Error in handle_beams_off: {str(e)}")
 
     def toggle_individual_beam_with_status(self, beam_index):
         """Toggle individual beam on/off with status bar animation."""
