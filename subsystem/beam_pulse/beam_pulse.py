@@ -1124,25 +1124,17 @@ class BeamPulseSubsystem:
             return None
 
     def _interpolate_single_energy(self, lut_data, input_value):
-        """Interpolate single-energy LUT data using linear interpolation."""
-        # If input is outside bounds, return boundary values
-        if input_value <= lut_data[0]['input']:
-            return lut_data[0]['output']
-
-        if input_value >= lut_data[-1]['input']:
-            return lut_data[-1]['output']
-
-        # Find surrounding points for linear interpolation
-        for i in range(len(lut_data) - 1):
-            if lut_data[i]['input'] <= input_value <= lut_data[i + 1]['input']:
-                # Linear interpolation between two points
-                x1, y1 = lut_data[i]['input'], lut_data[i]['output']
-                x2, y2 = lut_data[i + 1]['input'], lut_data[i + 1]['output']
-
-                # y = y1 + (y2 - y1) * (x - x1) / (x2 - x1)
-                interpolated = y1 + (y2 - y1) * (input_value - x1) / (x2 - x1)
-                return interpolated
-
+        """Look up exact match in single-energy LUT data.
+        
+        Returns the output value only if input_value exactly matches an entry in the LUT.
+        Returns None if no exact match is found.
+        """
+        # Search for exact match in LUT
+        for entry in lut_data:
+            if abs(entry['input'] - input_value) < 1e-9:  # Float comparison with small tolerance
+                return entry['output']
+        
+        # No exact match found
         return None
 
 
@@ -1257,13 +1249,14 @@ class BeamPulseSubsystem:
                 if deflection is not None:
                     self._log(f"Using deflection LUT '{selected_file}': {current_amplitude} A → {deflection:.1f} cm", LogLevel.DEBUG)
                     return deflection
+                else:
+                    # Value is outside LUT range
+                    self._log(f"Deflection value out of range: {current_amplitude} A not in LUT '{selected_file}'", LogLevel.WARNING)
+                    return None
 
-            # Fallback to simple linear relationship if no LUT selected/loaded
-            # This is a placeholder formula - replace with actual calibration
-            deflection_per_amp = 4.0  # cm per amp (example value)
-            fallback_deflection = max(0.0, current_amplitude * deflection_per_amp)
-            self._log(f"No deflection LUT selected, using fallback: {current_amplitude} A → {fallback_deflection:.1f} cm", LogLevel.DEBUG)
-            return fallback_deflection
+            # No LUT selected - return None to show dashes
+            self._log(f"No deflection LUT selected", LogLevel.DEBUG)
+            return None
 
         except Exception as e:
             self._log(f"Error calculating beam deflection: {e}", LogLevel.ERROR)
@@ -1294,13 +1287,14 @@ class BeamPulseSubsystem:
                 if scan_speed is not None:
                     self._log(f"Using scan speed LUT '{selected_file}': {frequency_hz} Hz → {scan_speed:.2f} m/s", LogLevel.DEBUG)
                     return scan_speed
+                else:
+                    # Value is outside LUT range
+                    self._log(f"Scan speed value out of range: {frequency_hz} Hz not in LUT '{selected_file}'", LogLevel.WARNING)
+                    return None
 
-            # Fallback to simple linear relationship if no LUT selected/loaded
-            # This is a placeholder formula - replace with actual calibration
-            speed_per_hz = 0.1  # m/s per Hz (example value)
-            fallback_speed = max(0.0, frequency_hz * speed_per_hz)
-            self._log(f"No scan speed LUT selected, using fallback: {frequency_hz} Hz → {fallback_speed:.2f} m/s", LogLevel.DEBUG)
-            return fallback_speed
+            # No LUT selected - return None to show dashes
+            self._log(f"No scan speed LUT selected", LogLevel.DEBUG)
+            return None
 
         except Exception as e:
             self._log(f"Error calculating scan speed: {e}", LogLevel.ERROR)
@@ -2382,25 +2376,42 @@ class BeamPulseSubsystem:
         # Update each beam's deflection, scan speed, and B-field values
         try:
             for beam_num in [1, 2, 3]:
-                # Get current amplitude for this beam to calculate stats
-                amplitude = self.get_beam_amplitude(beam_num - 1)  # Convert to 0-based index
-                frequency = self.frequency_hz.get()
+                beam_index = beam_num - 1  # Convert to 0-based index
+                
+                # Check if beam is ON - only show values if beam is ON, otherwise show dashes
+                if self.beam_on_status[beam_index]:
+                    # Beam is ON - calculate and display values
+                    amplitude = self.get_beam_amplitude(beam_index)
+                    
+                    # Get frequency, handling both tkinter Variable and plain float
+                    if hasattr(self, 'frequency_hz'):
+                        if isinstance(self.frequency_hz, tk.Variable):
+                            frequency = self.frequency_hz.get()
+                        else:
+                            frequency = float(self.frequency_hz)
+                    else:
+                        frequency = 10.0
 
-                # Calculate stats for this beam
-                deflection = self.calculate_beam_deflection_from_amplitude(amplitude)
-                scan_speed = self.calculate_scan_speed_from_frequency(frequency)
-                bfield = self.calculate_b_field_from_current(amplitude, beam_num)  # Pass beam number
+                    # Debug logging to see actual values
+                    self._log(f"Beam {beam_num}: amplitude={amplitude:.2f}A, frequency={frequency:.1f}Hz", LogLevel.DEBUG)
 
-                # Update table cells
-                self.update_table_cell('deflection', beam_num, f"{deflection:.1f}")
-                self.update_table_cell('scan_speed', beam_num, f"{scan_speed:.2f}")
-                self.update_table_cell('bfield', beam_num, f"{bfield:.0f}")
+                    # Calculate stats for this beam (may return None if out of LUT range)
+                    deflection = self.calculate_beam_deflection_from_amplitude(amplitude)
+                    scan_speed = self.calculate_scan_speed_from_frequency(frequency)
+                    bfield = self.calculate_b_field_from_current(amplitude, beam_num)  # Pass beam number
+                    power = self.calculate_solenoid_power_from_current(amplitude)
 
-            # Update power estimate (individual per beam)
-            for beam_num in [1, 2, 3]:
-                amplitude = self.get_beam_amplitude(beam_num - 1)  # Convert to 0-based index
-                power = self.calculate_solenoid_power_from_current(amplitude)
-                self.update_table_cell('power', beam_num, f"{power:.0f}")
+                    # Update table cells - show dashes if LUT lookup failed (returned None)
+                    self.update_table_cell('deflection', beam_num, f"{deflection:.1f}" if deflection is not None else "--")
+                    self.update_table_cell('scan_speed', beam_num, f"{scan_speed:.2f}" if scan_speed is not None else "--")
+                    self.update_table_cell('bfield', beam_num, f"{bfield:.0f}" if bfield is not None else "--")
+                    self.update_table_cell('power', beam_num, f"{power:.0f}" if power is not None else "--")
+                else:
+                    # Beam is OFF - display dashes
+                    self.update_table_cell('deflection', beam_num, "--")
+                    self.update_table_cell('scan_speed', beam_num, "--")
+                    self.update_table_cell('bfield', beam_num, "--")
+                    self.update_table_cell('power', beam_num, "--")
 
         except Exception as e:
             self._log(f"Error updating deflection table: {e}", LogLevel.WARNING)
@@ -2450,18 +2461,22 @@ class BeamPulseSubsystem:
     def get_beam_amplitude(self, beam_index: int) -> float:
         """Get the amplitude for a specific beam (0-based index)."""
         try:
-            # Try to read from hardware registers first
-            if hasattr(self, 'modbus_client') and self.modbus_client:
+            # Try to read from hardware registers first (via bcon_driver)
+            if hasattr(self, 'bcon_driver') and self.bcon_driver and self.bcon_driver.is_connected():
                 register_name = f"BEAM_{beam_index + 1}_AMPLITUDE"
-                if register_name in self.REGISTER:
-                    result = self.read_register(self.REGISTER[register_name])
-                    if result is not None:
-                        return float(result)
+                result = self.read_register(register_name)
+                if result is not None:
+                    return float(result)
         except Exception as e:
             self._log(f"Error reading beam {beam_index + 1} amplitude from hardware: {e}", LogLevel.DEBUG)
 
         # Fallback to shared amplitude control
-        return self.wave_amplitude.get() if hasattr(self, 'wave_amplitude') else 5.0
+        if hasattr(self, 'wave_amplitude'):
+            if isinstance(self.wave_amplitude, tk.Variable):
+                return self.wave_amplitude.get()
+            else:
+                return float(self.wave_amplitude)
+        return 5.0
 
     def get_deflection_est(self) -> float:
         """Get current deflection estimate value."""
