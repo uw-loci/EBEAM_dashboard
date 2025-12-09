@@ -65,6 +65,8 @@ class Logger:
             if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
                 self.setup_log_file()
             try:
+                if not self.log_file:
+                    return  # No log file available
                 file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
