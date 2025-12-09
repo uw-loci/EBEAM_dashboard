@@ -453,3 +453,4 @@ class EBEAMSystemDashboard:
                     self.logger.debug(f"Key {comp} not found in dict_logger (already cleared?)")
 
         self.logger.info(f"COM ports updated: {self.com_ports}")
+        
