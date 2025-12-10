@@ -1917,6 +1917,15 @@ class BeamPulseSubsystem:
             elif i == 2:
                 ax.set_ylabel('')
                 ax.set_yticklabels([])  # Hide y-tick labels on Beam C
+                
+                # Add legend to the rightmost graph (Beam C)
+                # Create dummy plot objects for legend entries
+                from matplotlib.lines import Line2D
+                legend_elements = [
+                    Line2D([0], [0], color='red', linewidth=2, label='Current step'),
+                    Line2D([0], [0], color='blue', linewidth=1, alpha=0.7, label='Past step')
+                ]
+                ax.legend(handles=legend_elements, loc='upper right', fontsize=7, framealpha=0.9)
 
 
         # Beam status LED indicators above graphs (LED left of label, compact row)
