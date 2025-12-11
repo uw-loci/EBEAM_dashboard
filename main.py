@@ -185,7 +185,7 @@ def config_com_ports(saved_com_ports):
     # Close the PyInstaller splash if running as bundled executable
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
-            import pyi_splash
+            import pyi_splash # type: ignore[import]
             pyi_splash.close()
         except ImportError:
             pass
