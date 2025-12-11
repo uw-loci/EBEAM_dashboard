@@ -19,8 +19,9 @@ class LogLevel(enum.IntEnum):
     CRITICAL = 5
 
 class Logger:
-    def __init__(self, text_widget, log_level=LogLevel.INFO, log_to_file=False):
+    def __init__(self, text_widget, file_log_level = LogLevel.DEBUG, log_level=LogLevel.INFO, log_to_file=False):
         self.text_widget = text_widget
+        self.file_log_level = file_log_level
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
@@ -101,16 +102,18 @@ class Logger:
         # return early if file logging is disabled
         if not self.log_to_file:
             return
-        now = datetime.datetime.now()
-        # close the log file at intervals of 8 hours and create a new one
-        if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
-            self.setup_log_file()
-        try:
-            file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-            self.log_file.write(file_formatted_message)
-            self.log_file.flush()
-        except Exception as e:
-            print(f"Error writing to log file: {str(e)}")   
+        # write to log file if enabled
+        if self.log_to_file and level >= self.file_log_level:
+            now = datetime.datetime.now()
+            # close the log file at intervals of 8 hours and create a new one
+            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+                self.setup_log_file()
+            try:
+                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+                self.log_file.write(file_formatted_message)
+                self.log_file.flush()
+            except Exception as e:
+                print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
         if field in self.dict_logger:
             self.dict_logger[field] = value
@@ -221,7 +224,7 @@ class MessagesFrame:
         )
 
         self.file_logging_enabled = True
-        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
+        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, file_log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
@@ -270,6 +273,9 @@ class MessagesFrame:
 
     def get_log_level(self):
         return self.logger.log_level
+    
+    def get_file_log_level(self):
+        return self.logger.file_log_level
 
     def flush(self):
         """ Flush method needed for stdout redirection compatibility. """
