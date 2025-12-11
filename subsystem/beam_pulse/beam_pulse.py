@@ -1001,7 +1001,7 @@ class BeamPulseSubsystem:
                 old_deflection = self.beam_deflection_lut_var.get()
                 self.beam_deflection_lut_var.set(expected_deflection)
                 self.load_deflection_stats_lut(self.beam_deflection_lut_var, expected_deflection)
-                self._log(f"Auto-updated deflection LUT: {old_deflection} → {expected_deflection}", LogLevel.INFO)
+                self._log(f"Auto-updated deflection LUT: {old_deflection} -> {expected_deflection}", LogLevel.INFO)
             else:
                 self._log(f"Deflection file not found: {expected_deflection}", LogLevel.WARNING)
 
@@ -1010,7 +1010,7 @@ class BeamPulseSubsystem:
                 old_scan_speed = self.scan_speed_lut_var.get()
                 self.scan_speed_lut_var.set(expected_scan_speed)
                 self.load_deflection_stats_lut(self.scan_speed_lut_var, expected_scan_speed)
-                self._log(f"Auto-updated scan speed LUT: {old_scan_speed} → {expected_scan_speed}", LogLevel.INFO)
+                self._log(f"Auto-updated scan speed LUT: {old_scan_speed} -> {expected_scan_speed}", LogLevel.INFO)
             else:
                 self._log(f"Scan speed file not found: {expected_scan_speed}", LogLevel.WARNING)
 
@@ -1191,7 +1191,7 @@ class BeamPulseSubsystem:
             # Debug logging
             if hasattr(self, '_log'):
                 self._log(f"B-field calc: Beam {beam_number} ({beam_position}): "
-                         f"{current_amplitude:.3f} A (|{current_magnitude:.3f}|) → {b_field_gauss:.1f} G",
+                         f"{current_amplitude:.3f} A (|{current_magnitude:.3f}|) -> {b_field_gauss:.1f} G",
                          LogLevel.DEBUG)
 
             return b_field_gauss
@@ -1247,7 +1247,7 @@ class BeamPulseSubsystem:
                     current_amplitude
                 )
                 if deflection is not None:
-                    self._log(f"Using deflection LUT '{selected_file}': {current_amplitude} A → {deflection:.1f} cm", LogLevel.DEBUG)
+                    self._log(f"Using deflection LUT '{selected_file}': {current_amplitude} A -> {deflection:.1f} cm", LogLevel.DEBUG)
                     return deflection
                 else:
                     # Value is outside LUT range
@@ -1285,7 +1285,7 @@ class BeamPulseSubsystem:
                     frequency_hz
                 )
                 if scan_speed is not None:
-                    self._log(f"Using scan speed LUT '{selected_file}': {frequency_hz} Hz → {scan_speed:.2f} m/s", LogLevel.DEBUG)
+                    self._log(f"Using scan speed LUT '{selected_file}': {frequency_hz} Hz -> {scan_speed:.2f} m/s", LogLevel.DEBUG)
                     return scan_speed
                 else:
                     # Value is outside LUT range
