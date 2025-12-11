@@ -266,6 +266,8 @@ class MessagesFrame:
             
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
+            if not self.logger.webMonitor_log_file:
+                self.logger.setup_wm_logfile()
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
                 self.logging_indicator_circle, 
