@@ -247,10 +247,15 @@ class MessagesFrame:
             if self.logger.log_file:
                 try:
                     self.logger.log_file.close()
-                    self.logger.webMonitor_log_file.close()
                 except Exception as e:
                     print(f"Error closing log file: {e}")
                 self.logger.log_file = None
+            if self.logger.webMonitor_log_file:
+                try:
+                    self.logger.webMonitor_log_file.close()
+                except Exception as e:
+                    print(f"Error closing web monitor log file: {e}")
+                self.logger.webMonitor_log_file = None
 
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
