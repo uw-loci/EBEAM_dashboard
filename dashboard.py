@@ -54,6 +54,14 @@ class EBEAMSystemDashboard:
         "AG0KLEQ8A" : "Interlocks"
     }
 
+    CLEAR_MAP = {
+        "Interlocks": [
+        "safetyOutputDataFlags",
+        "safetyInputDataFlags",
+        "safetyOutputStatusFlags",
+        "safetyInputStatusFlags"
+    ]}
+
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
@@ -433,9 +441,11 @@ class EBEAMSystemDashboard:
             # Process removed ports
             for port in dif:
                 if port.serial_number in self.PORT_INFO:
+                    subsystem_name = self.PORT_INFO[port.serial_number]
                     self.logger.warning(
-                        f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
-                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+                        f"Lost connection to {subsystem_name} on {port}"
+                    )
+                    self._update_com_ports(subsystem_name, None)
 
             # Process added ports
             for port in added_ports:
@@ -462,5 +472,11 @@ class EBEAMSystemDashboard:
             if subsystem_str == "Interlocks":
                 self.subsystems[subsystem_str].update_com_port(str_port)
             #TODO: Need to add Vacuum system and Cathode Heating
+        if str_port is None:
+            for comp in self.CLEAR_MAP.get(subsystem_str, []):
+                try:
+                    self.logger.clear_value(comp)
+                except KeyError:
+                    self.logger.debug(f"Key {comp} not found in dict_logger (already cleared?)")
 
         self.logger.info(f"COM ports updated: {self.com_ports}")

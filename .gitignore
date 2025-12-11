@@ -4,3 +4,4 @@ venv/
 build/
 dist/
 EBEAM-Dashboard-Logs/
+EBEAM-Dashboard-WMLogs/

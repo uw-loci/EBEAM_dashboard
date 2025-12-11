@@ -58,6 +58,7 @@ class G9Driver:
     }
 
     def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+        self.logger = logger
         self.debug_mode = debug_mode
         self.ser = None
         self.setup_serial(port, baudrate, timeout)
@@ -118,8 +119,16 @@ class G9Driver:
                     if response_data:
                         result = self._process_response(response_data)
                         self._update_queue(result)
-           
-            except PermissionError:
+
+            except (ValueError, TimeoutError) as e:
+                self._update_queue()
+                if hasattr(self.logger, "clear_value"):
+                    for field in ["safetyOutputDataFlags",
+                        "safetyInputDataFlags",
+                        "safetyOutputStatusFlags",
+                        "safetyInputStatusFlags"]:
+                        self.logger.clear_value(field)
+            except PermissionError as e:
                 self._update_queue()
                 self._running = False
                 self._close_serial()
@@ -223,7 +232,13 @@ class G9Driver:
             'sotdf': self._extract_flags(status_data['sotdf'], 7),
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
-        
+
+        if self.logger and hasattr(self.logger, "update_field"):
+            self.logger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
+            self.logger.update_field("safetyInputDataFlags", binary_data["sitdf"])
+            self.logger.update_field("safetyOutputStatusFlags", binary_data["sotsf"])
+            self.logger.update_field("safetyInputStatusFlags", binary_data["sitsf"])
+
         # Store data flags to be logged in interlock.py for web monitor
         debug_data = {
             'sotdf': binary_data['sotdf'],
