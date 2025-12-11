@@ -11,10 +11,8 @@ from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
 import serial.tools.list_ports
 try:
     from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
-    from instrumentctl.BCON_modbus.BCON_modbus import BCONModbus
 except Exception:
     BeamPulseSubsystem = None
-    BCONModbus = None
 
 try:
     from matplotlib.figure import Figure
@@ -1010,21 +1008,14 @@ class EBEAMSystemDashboard:
         # Beam Pulse subsystem (BCON)
         try:
             bp_port = self.com_ports.get('BeamPulse', self.com_ports.get('Beam Pulse', ''))
-            if BeamPulseSubsystem is not None and BCONModbus is not None:
-                # Create BCON driver
-                bcon_driver = None
-                if bp_port:  # Only create driver if port is configured
-                    bcon_driver = BCONModbus(
-                        port=bp_port,
-                        unit=1,
-                        logger=self.logger
-                    )
-                
+            if BeamPulseSubsystem is not None:
                 # Host Beam Pulse UI inside the merged pane
                 parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
                 beam_pulse_subsystem = BeamPulseSubsystem(
                     parent_frame=parent,
-                    bcon_driver=bcon_driver,
+                    port=bp_port if bp_port else None,
+                    unit=1,
+                    baudrate=115200,
                     logger=self.logger
                 )
                 

@@ -65,20 +65,34 @@ class BeamPulseSubsystem:
 
     # Register addresses for BCON hardware (see README.md for register map)
 
-    def __init__(self, parent_frame=None, bcon_driver=None, logger=None,
-                 debug: bool = False):
+    def __init__(self, parent_frame=None, port=None, unit=1, baudrate=115200,
+                 logger=None, debug: bool = False):
         """Create the BeamPulseSubsystem.
 
         Parameters:
             parent_frame: tkinter frame for GUI components (if None, no GUI created)
-            bcon_driver: E5CNModbus-based driver instance for hardware communication
+            port: Serial port for BCON hardware (e.g., 'COM3')
+            unit: Modbus unit/slave address (default: 1)
+            baudrate: Serial baudrate for Modbus RTU communication (default: 115200)
             logger: optional logger object compatible with utils.LogLevel
             debug: enable debug logs
         """
         self.parent_frame = parent_frame
-        self.bcon_driver = bcon_driver
         self.logger = logger
         self.debug = debug
+        
+        # Instantiate E5CNModbus driver if port is provided
+        if port:
+            from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
+            self.bcon_driver = E5CNModbus(
+                port=port,
+                unit=unit,
+                baudrate=baudrate,
+                timeout=1.0,
+                debug=debug
+            )
+        else:
+            self.bcon_driver = None
 
         # Initialize GUI variables only if GUI is being created
         if parent_frame:
@@ -2734,12 +2748,13 @@ if __name__ == "__main__":
     parser.add_argument("--read-all", action="store_true", help="Read all registers")
     args = parser.parse_args()
 
-    # Create E5CNModbus-based driver for BCON hardware
-    # Note: You'll need to create a proper BCON driver wrapper that uses E5CNModbus
-    bcon_driver = E5CNModbus(port=args.port, baudrate=115200, timeout=1, debug_mode=True)
-
-    # Create BeamPulseSubsystem with the driver
-    b = BeamPulseSubsystem(bcon_driver=bcon_driver, debug=True)
+    # Create BeamPulseSubsystem - it will instantiate E5CNModbus internally
+    b = BeamPulseSubsystem(
+        port=args.port,
+        unit=args.unit,
+        baudrate=115200,
+        debug=True
+    )
 
     if not b.connect():
         print("Could not connect to device; aborting smoke test")
