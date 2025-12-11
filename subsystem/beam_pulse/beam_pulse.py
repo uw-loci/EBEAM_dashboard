@@ -7,7 +7,7 @@ import sys
 import math
 import csv
 
-from instrumentctl.BCON_modbus.BCON_modbus import BCONModbus
+from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import LogLevel
 
 # Check for numpy availability
@@ -40,12 +40,12 @@ class BeamPulseSubsystem:
 
     This class provides the GUI interface and high-level control logic for the beam
     pulse control system with ENERGY-AWARE LUT CALIBRATION. Hardware communication
-    is handled by the BCON_modbus driver.
+    uses the project's E5CNModbus wrapper for serial/Modbus I/O.
 
     Contract:
-      - Inputs: BCON driver instance for hardware communication
+      - Inputs: E5CNModbus-based driver instance for hardware communication
       - Outputs: GUI controls and physics calculations (B-field, power, deflection)
-      - Error modes: hardware failures are handled by the BCON driver
+      - Error modes: hardware failures are handled by the underlying driver
 
     Physics calculations include B-field, power dissipation, beam deflection,
     and scan speed using empirical formulas and lookup tables.
@@ -63,7 +63,7 @@ class BeamPulseSubsystem:
     # This constant kept for reference/legacy compatibility
     SOLENOID_RESISTANCE = 12.0         # ohms - LEGACY: no longer used in power calc
 
-    # Register addresses are now defined in BCON_modbus.py
+    # Register addresses for BCON hardware (see README.md for register map)
 
     def __init__(self, parent_frame=None, bcon_driver=None, logger=None,
                  debug: bool = False):
@@ -71,7 +71,7 @@ class BeamPulseSubsystem:
 
         Parameters:
             parent_frame: tkinter frame for GUI components (if None, no GUI created)
-            bcon_driver: BCONModbus driver instance for hardware communication
+            bcon_driver: E5CNModbus-based driver instance for hardware communication
             logger: optional logger object compatible with utils.LogLevel
             debug: enable debug logs
         """
@@ -2521,10 +2521,10 @@ class BeamPulseSubsystem:
             self.parent_frame.after(100, update_loop)  # Start after 100ms
 
     # --- Hardware Driver Interface ---
-    # These methods delegate to the BCON driver for hardware communication
+    # These methods delegate to the E5CNModbus-based driver for hardware communication
 
     def connect(self) -> bool:
-        """Connect to BCON hardware via driver."""
+        """Connect to BCON hardware via E5CNModbus driver."""
         if not self.bcon_driver:
             self._log("No BCON driver configured", LogLevel.ERROR)
             return False
@@ -2725,7 +2725,7 @@ class BeamPulseSubsystem:
 
 
 if __name__ == "__main__":
-    # Quick manual smoke test using BCON driver. Use for development.
+    # Quick manual smoke test. Use for development.
     import argparse
 
     parser = argparse.ArgumentParser(description="BeamPulseSubsystem quick test")
@@ -2734,8 +2734,9 @@ if __name__ == "__main__":
     parser.add_argument("--read-all", action="store_true", help="Read all registers")
     args = parser.parse_args()
 
-    # Create BCON driver
-    bcon_driver = BCONModbus(port=args.port, unit=args.unit, debug=True)
+    # Create E5CNModbus-based driver for BCON hardware
+    # Note: You'll need to create a proper BCON driver wrapper that uses E5CNModbus
+    bcon_driver = E5CNModbus(port=args.port, baudrate=115200, timeout=1, debug_mode=True)
 
     # Create BeamPulseSubsystem with the driver
     b = BeamPulseSubsystem(bcon_driver=bcon_driver, debug=True)
