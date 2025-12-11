@@ -208,6 +208,11 @@ class VTRXSubsystem:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
 
+        #Clear the webmonitor fields if error state
+        if self.logger and hasattr(self.logger, "clear_value"):
+            self.logger.clear_value("vacuumBits")
+            self.logger.clear_value("pressure")
+
     def handle_serial_data(self, data):
         """
         Parse and handle a single line of raw serial data from the VTRX system.
@@ -448,9 +453,12 @@ class VTRXSubsystem:
             )
             self.update_plot()
 
+            # Refresh switch indicator lights
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
+            
+            # Push state/pressure to logs and external logger
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
             if self.logger and hasattr(self.logger, "update_field"):
