@@ -54,6 +54,14 @@ class EBEAMSystemDashboard:
         "AG0KLEQ8A" : "Interlocks"
     }
 
+    CLEAR_MAP = {
+        "Interlocks": [
+        "safetyOutputDataFlags",
+        "safetyInputDataFlags",
+        "safetyOutputStatusFlags",
+        "safetyInputStatusFlags"
+    ]}
+
     def __init__(self, root, com_ports):
         self.root = root
         self.com_ports = com_ports
@@ -167,6 +175,7 @@ class EBEAMSystemDashboard:
 
         # 4. Log Level dropdown
         self.create_log_level_dropdown(config_frame)
+        self.file_create_log_level_dropdown(config_frame)
 
         # Add F1 help hint
         help_label = ttk.Label(
@@ -264,10 +273,36 @@ class EBEAMSystemDashboard:
         log_level_dropdown.set(current_level.name) 
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
+    def file_create_log_level_dropdown(self, parent_frame):
+        file_log_frame = ttk.Frame(parent_frame)
+        file_log_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        ttk.Label(file_log_frame, text="File Log Level:").pack(side=tk.LEFT)
+
+        self.file_log_level_var = tk.StringVar()
+        file_log_levels = ["DEBUG", "VERBOSE"]
+        self.file_log_level_dropdown = ttk.Combobox(
+            file_log_frame, 
+            textvariable=self.file_log_level_var, 
+            values=file_log_levels, 
+            state="readonly", 
+            width=15
+        )
+        self.file_log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
+        
+        current_file_level = self.messages_frame.get_file_log_level()
+        self.file_log_level_dropdown.set(current_file_level.name) 
+        self.file_log_level_dropdown.bind("<<ComboboxSelected>>", self.on_file_log_level_change)
+
     def on_log_level_change(self, event):
         selected_level = LogLevel[self.log_level_var.get()]
         self.messages_frame.set_log_level(selected_level)
-        print(f"Log level changed to: {selected_level.name}")
+
+    def on_file_log_level_change(self, event):
+        selected_level = self.file_log_level_var.get()
+        if selected_level == "DEBUG":
+            self.messages_frame.logger.file_log_level = LogLevel.DEBUG
+        elif selected_level == "VERBOSE":
+            self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
 
     def create_subsystems(self):
         """
@@ -406,9 +441,11 @@ class EBEAMSystemDashboard:
             # Process removed ports
             for port in dif:
                 if port.serial_number in self.PORT_INFO:
+                    subsystem_name = self.PORT_INFO[port.serial_number]
                     self.logger.warning(
-                        f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
-                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+                        f"Lost connection to {subsystem_name} on {port}"
+                    )
+                    self._update_com_ports(subsystem_name, None)
 
             # Process added ports
             for port in added_ports:
@@ -435,5 +472,11 @@ class EBEAMSystemDashboard:
             if subsystem_str == "Interlocks":
                 self.subsystems[subsystem_str].update_com_port(str_port)
             #TODO: Need to add Vacuum system and Cathode Heating
+        if str_port is None:
+            for comp in self.CLEAR_MAP.get(subsystem_str, []):
+                try:
+                    self.logger.clear_value(comp)
+                except KeyError:
+                    self.logger.debug(f"Key {comp} not found in dict_logger (already cleared?)")
 
         self.logger.info(f"COM ports updated: {self.com_ports}")

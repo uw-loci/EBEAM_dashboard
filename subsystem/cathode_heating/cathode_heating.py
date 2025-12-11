@@ -353,7 +353,6 @@ class CathodeHeatingSubsystem:
             clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
             clamp_temp_label.grid(row=10, column=1, sticky='w')
             self.clamp_temp_labels.append(clamp_temp_label)
-
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
             line, = ax.plot([], [])
@@ -1054,6 +1053,16 @@ class CathodeHeatingSubsystem:
                     
                     self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
+
+                    cathode_label = ['A', 'B', 'C'][i]
+                    key_current = f"Cathode {cathode_label} - Heater Current:"
+                    value_current = current
+
+                    key_voltage = f"Cathode {cathode_label} - Heater Voltage:"
+                    value_voltage = voltage
+                    if self.logger and hasattr(self.logger, "update_field"):
+                        self.logger.update_field(key_current, value_current)
+                        self.logger.update_field(key_voltage, value_voltage)
                     
                     # Update heater voltage display
                     if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
@@ -1081,6 +1090,10 @@ class CathodeHeatingSubsystem:
                 self.actual_target_current_vars[i].set("-- mA")
 
             temperature = self.read_temperature(i)
+            if self.logger and hasattr(self.logger, "update_field"):
+                cathode_label = ['A', 'B', 'C'][i]
+                self.logger.update_field(f"clamp_temperature_{cathode_label}", temperature)
+
 
             if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")

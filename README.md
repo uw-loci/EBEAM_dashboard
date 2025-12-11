@@ -159,7 +159,7 @@ All code development intended to impact a future release is done on the latest `
 The `main` branch contains the latest production code.
 
 #### Development Process 
-Clone the repo to your machine.
+Clone the repo to your machine. Current libraries require the use of Python version 3.11.
 ```
 git clone https://github.com/bwalkerMIR/EBEAM_dashboard.git
 ```
