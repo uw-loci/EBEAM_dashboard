@@ -186,8 +186,8 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
-        self.heater_current_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set current
+        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set current
         self.actual_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured current
         
@@ -1555,10 +1555,15 @@ class CathodeHeatingSubsystem:
         self.predicted_heater_current_vars[index].set('--')
         self.predicted_heater_voltage_vars[index].set('--')
 
-        if self.heater_voltage_vars[index] is None:
-            self.heater_voltage_vars[index].set('--')
-        if self.heater_current_vars[index] is None:
-            self.heater_current_vars[index].set('--')
+        # Clear UI set points unconditionally
+        self.heater_voltage_vars[index].set('--')
+        self.heater_current_vars[index].set('--')
+
+        # Reset state flags
+        self.user_set_voltages[index] = None
+        self.user_set_currents[index] = None
+        self.voltage_set[index] = False
+        self.current_set[index] = False
 
     def reset_power_supply(self, index):
         """
