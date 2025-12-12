@@ -41,6 +41,33 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+def _load_lookup_tables(self):
+    """Load lookup table CSVs with graceful fallback for missing files."""
+    self.current_options = {}
+    required_columns = ['voltage', 'heater_current', 'beam_current']
+    fallback_df = pd.DataFrame(columns=required_columns)
+    
+    for cathode_label, filename in [
+        ("Cathode A", 'subsystem/cathode_heating/powersupply_A.csv'),
+        ("Cathode B", 'subsystem/cathode_heating/powersupply_B.csv'),
+        ("Cathode C", 'subsystem/cathode_heating/powersupply_C.csv'),
+    ]:
+        try:
+            df = pd.read_csv(resource_path(filename))
+            
+            missing_cols = set(required_columns) - set(df.columns)
+            if missing_cols:
+                raise ValueError(f"Missing required columns: {missing_cols}")
+            
+            self.current_options[cathode_label] = df
+            self.log(f"Loaded lookup table: {cathode_label}", LogLevel.INFO)
+        except FileNotFoundError:
+            self.log(f"Warning: Lookup table for {cathode_label} not found. Using empty table.", LogLevel.WARNING)
+            self.current_options[cathode_label] = fallback_df.copy()
+        except Exception as e:
+            self.log(f"Error loading {cathode_label}: {str(e)}. Using empty table.", LogLevel.ERROR)
+            self.current_options[cathode_label] = fallback_df.copy()
+
 class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
@@ -85,11 +112,9 @@ class CathodeHeatingSubsystem:
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
         self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
-        self.current_options = {
-            "Cathode A" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_A.csv')),
-            "Cathode B" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_B.csv')),
-            "Cathode C" : pd.read_csv(resource_path('subsystem/cathode_heating/powersupply_C.csv')),
-        }
+
+        # Open lookup table data if available
+        _load_lookup_tables(self)
         self.lookup_table_setting = [self.current_options["Cathode A"], 
                                     self.current_options["Cathode B"], 
                                     self.current_options["Cathode C"],
@@ -1976,26 +2001,32 @@ class CathodeHeatingSubsystem:
             return False
         
     def _max_current_at_voltage(self, index: int, voltage: float):
-        """
-        Data lookup helper to return the largest heater current listed for the exact
-        voltage in the active lookup table, or None if the voltage does not appear
-        """
-        table = self.lookup_table_setting[index]
-        rows = table[table["voltage"].round(2) == round(voltage, 2)]
-        if rows.empty:
+        """Return max heater current for given voltage, or None if not found."""
+        try:
+            table = self.lookup_table_setting[index]
+            if table.empty or 'voltage' not in table.columns or 'heater_current' not in table.columns:
+                return None
+            rows = table[table["voltage"].round(2) == round(voltage, 2)]
+            if rows.empty:
+                return None
+            return rows["heater_current"].max()
+        except Exception as e:
+            self.log(f"Error in _max_current_at_voltage: {e}", LogLevel.ERROR)
             return None
-        return rows["heater_current"].max()
-    
+
     def _max_voltage_for_current(self, index: int, current: float):
-        """
-        Data lookup helper to return the largest heater voltage listed for the exact
-        current in the active lookup table, or None if current does not appear
-        """
-        table = self.lookup_table_setting[index]
-        rows = table[table["heater_current"].round(2) == round(current, 2)]
-        if rows.empty:
+        """Return max voltage for given current, or None if not found."""
+        try:
+            table = self.lookup_table_setting[index]
+            if table.empty or 'heater_current' not in table.columns or 'voltage' not in table.columns:
+                return None
+            rows = table[table["heater_current"].round(2) == round(current, 2)]
+            if rows.empty:
+                return None
+            return rows["voltage"].max()
+        except Exception as e:
+            self.log(f"Error in _max_voltage_for_current: {e}", LogLevel.ERROR)
             return None
-        return rows["voltage"].max()
 
 
     def get_ocp(self, index):
@@ -2122,35 +2153,39 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid selection: {selected_value}", LogLevel.WARNING)
 
     def emission_cur_vlt_converter(self, index, val):
-        """
-        Convert between voltage and current using the DataFrame lookup.
-        
-        Args:
-            index (int): Index of the cathode (0-2)
-            val (float): Input value (voltage or current)
+        """Convert between voltage and current using the DataFrame lookup."""
+        try:
+            if not isinstance(self.lookup_table_setting[index], pd.DataFrame):
+                self.log(f"Lookup table for cathode {index} is not a DataFrame", LogLevel.ERROR)
+                return (val, -1, -1)
             
-        Returns:
-            tuple: (heater_voltage, heater_current, beam_current)
-        """
-        if isinstance(self.lookup_table_setting[index], pd.DataFrame):
             df = self.lookup_table_setting[index]
+            
+            if df.empty:
+                self.log(f"Lookup table empty for cathode {index}", LogLevel.WARNING)
+                return (val, 0.0, 0.0)
+            
+            # Add column validation
+            if 'voltage' not in df.columns or 'heater_current' not in df.columns or 'beam_current' not in df.columns:
+                self.log(f"Lookup table for cathode {index} missing required columns", LogLevel.ERROR)
+                return (val, -1, -1)
+            
             # Look for exact match in voltage column
             exact_match = df[df['voltage'] == val]
             if exact_match.empty:
-                heater_voltage = val
-                heater_current = -1
-                beam_current = -1
-                return (heater_voltage, heater_current, beam_current)
+                return (val, -1, -1)
             
             # Use the first exact match found
             match_row = exact_match.iloc[0]
             heater_voltage = match_row['voltage']
-            heater_current = match_row['heater_current']  # This is the heater current
-            beam_current = match_row['beam_current']     # This is the beam current
+            heater_current = match_row['heater_current']
+            beam_current = match_row['beam_current']
             return (heater_voltage, heater_current, beam_current)
-        else:
-            raise ValueError("Lookup table not properly configured as DataFrame")
-    
+        
+        except Exception as e:
+            self.log(f"Error in emission_cur_vlt_converter for cathode {index}: {str(e)}", LogLevel.ERROR)
+            return (val, -1, -1)
+        
     # Ramping helper methods
     def set_output_button_state(self, index:int, state:str):
         """Enable or disable the Ramp-Mode radio buttons for one cathode."""
