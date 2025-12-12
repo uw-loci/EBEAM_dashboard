@@ -2282,6 +2282,10 @@ class CathodeHeatingSubsystem:
         if new_current < 0 or new_current is None:
             msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
             return False
+        
+        if ocp is None:
+            self.log(f"Cannot validate current for Cathode {['A','B','C'][index]}: OCP unavailable (power supply disconnected or GOCP failed).", LogLevel.ERROR)
+            return False
 
         if new_current > ocp:
             self.log(f"Calculated current ({new_current:.2f}A) exceeds OCP ({ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
