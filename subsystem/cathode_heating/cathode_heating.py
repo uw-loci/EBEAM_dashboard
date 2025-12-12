@@ -2255,6 +2255,9 @@ class CathodeHeatingSubsystem:
         """
         ovp = self.get_ovp(index)
 
+        if ovp is None:
+            self.log(f"Cannot validate voltage for Cathode {['A','B','C'][index]}: OCP unavailable (power supply disconnected or GOCP failed).", LogLevel.ERROR)
+            return False
         if new_voltage < 0 or new_voltage is None:
             msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
             return False
