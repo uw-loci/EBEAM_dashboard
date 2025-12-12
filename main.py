@@ -48,10 +48,12 @@ def start_main_app(com_ports):
 
     # Track fullscreen state
     fullscreen = False
+    app = None # Placeholder for app instance to prevent errors
   
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            app.cleanup()
+            if app is not None:
+                app.cleanup()
             root.destroy()
         return "break"
     
