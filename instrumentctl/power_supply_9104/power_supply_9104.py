@@ -5,6 +5,8 @@ from utils import LogLevel
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
+    HIT_LIMIT = 3 # number of times to hit limit before stopping ramp
+    GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.port = port
@@ -285,6 +287,65 @@ class PowerSupply9104:
         Safe to call even if no ramp is running.
         """
         self.stop_event.set()    
+
+    def is_being_limited(self, ramp_type: str, hit_count:dict, start_time: float, set_value: float) -> bool:
+        """
+        This function checks if the power supply is being limited during a ramp operation. This is crucial when controlling both
+        voltage and current to prevent any background ramping when one of the parameters limits the other. 
+        Args:
+            ramp_type (str): The type of ramp being performed, either "voltage" or "current".
+            start_time (float): The time when the ramp started, used to determine if the grace period has passed.
+            set_value (float): The recently set value (either voltage or current).
+        """
+        # Acceptable offsets between measured and set values
+        voltage_offset = .02
+        current_offset = .02
+
+        if time.monotonic() - start_time < self.GRACE_PERIOD_SEC:
+            # Ignore limits for the first second to allow for initial settling
+            hit_count["hits"] = 0
+            return False
+
+        measured_voltage, measured_current, op_mode = self.get_voltage_current_mode()
+
+        if measured_voltage is None or measured_current is None or op_mode == "Err":
+            self.log("Could not get valid readings to determine if being limited", LogLevel.ERROR)
+            hit_count["hits"] = 0
+            return False
+
+        # Check control mode vs ramp type
+        wrong_mode = (
+        (ramp_type == "current"  and op_mode == "CV Mode") or
+        (ramp_type == "voltage" and op_mode == "CC Mode")
+        )
+
+        # Compare measured vs set values
+        if ramp_type == "voltage":
+            stalled = abs(measured_voltage - set_value) > voltage_offset
+        elif ramp_type == "current":
+            stalled = abs(measured_current - set_value) > current_offset
+        else:
+            raise ValueError(f"is_being_limited called with invalid ramp_type: {ramp_type}")
+
+        # Increment hit count if the ramp is stalled and in wrong mode
+        if stalled and wrong_mode:
+            self.log(f"Detected limit condition during {ramp_type} ramp: "
+                     f"Measured {ramp_type}: {measured_voltage if ramp_type == 'voltage' else measured_current:.2f}, "
+                     f"Set {ramp_type}: {set_value:.2f}, "
+                     f"Mode: {op_mode}", LogLevel.DEBUG)
+            hit_count["hits"] += 1
+        else:
+            hit_count["hits"] = 0   
+
+        # Check if hit count exceeds limit    
+        if hit_count["hits"] >= self.HIT_LIMIT:
+            self.log(f"Power supply is being limited during {ramp_type} ramp: "
+                     f"Measured {ramp_type}: {measured_voltage if ramp_type == 'voltage' else measured_current:.2f}, "
+                     f"Previous {ramp_type}: {set_value:.2f}, "
+                     f"Mode: {op_mode}", LogLevel.WARNING)
+            return True
+
+        return False
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
