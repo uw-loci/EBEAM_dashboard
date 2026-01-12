@@ -199,6 +199,8 @@ class PowerSupply9104:
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
+        start_time = time.monotonic()
+
         try:
             # Get initial voltage
             voltage, _, _ = self.get_voltage_current_mode()
@@ -209,6 +211,8 @@ class PowerSupply9104:
                 return
                 
             current_voltage = voltage
+            limit_hit_count = {"hits": 0} # tracks limit hits during ramp
+
             self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
             
             # Calculate steps
@@ -241,6 +245,25 @@ class PowerSupply9104:
                     try:
                        # Attempt to set voltage
                         if self.set_voltage(preset, next_voltage):
+
+                            # Check if voltage is being limited by current
+                            if self.is_being_limited("voltage", limit_hit_count, start_time, next_voltage):
+                                # Limit detected - abort ramp and snap voltage to measured value
+                                self.log(f"Voltage limit engaged during ramping at {next_voltage:.2f}V - aborting ramp.", LogLevel.WARNING)
+
+                                measured_voltage, _,_ = self.get_voltage_current_mode()
+
+                                if measured_voltage is not None:
+                                    self.log(f"Snapping set value down to measured limit: {measured_voltage:.2f}V", LogLevel.INFO)
+                                    if not self.set_voltage(preset, measured_voltage):
+                                        self.log("Failed to snap voltage value to measured.", LogLevel.ERROR)
+                                else:
+                                    self.log("Limit detected but could not read measured voltage", LogLevel.ERROR)
+
+                                if callback:
+                                    callback(False)
+                                return
+                            
                             break # Success, exit retry loop
                         else:
                             self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
