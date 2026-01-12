@@ -53,7 +53,6 @@ class PowerSupply9104:
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        # with self.serial_lock:
         try:
             self.flush_serial()
             
@@ -537,14 +536,6 @@ class PowerSupply9104:
             self.log(f"Closed serial port {self.port}", LogLevel.INFO)
         else:
             self.log(f"{self.port} port already closed", LogLevel.INFO)
-
-    # def close(self):
-    #     """Close the serial connection."""
-    #     if self.ser and self.ser.is_open:
-    #         self.ser.close()
-    #         self.log(f"Closed serial port {self.port}", LogLevel.INFO)
-    #     else:
-    #         self.log(f"{self.port} port already closed", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
