@@ -201,7 +201,7 @@ class PowerSupply9104:
             # Get initial voltage
             voltage, _, _ = self.get_voltage_current_mode()
             if voltage is None:
-                self.log("Could not get initial voltage reading, using 0V", LogLevel.WARNING)
+                self.log("Could not get initial voltage reading, aborting ramp", LogLevel.WARNING)
                 if callback:
                     callback(False)
                 return
