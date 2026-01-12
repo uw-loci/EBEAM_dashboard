@@ -237,16 +237,16 @@ class PowerSupply9104:
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
                     try:
-                        if not self.set_voltage(preset, next_voltage):
+                       # Attempt to set voltage
+                        if self.set_voltage(preset, next_voltage):
+                            break # Success, exit retry loop
+                        else:
                             self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
-
                     except Exception as e:
                         self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
-                        if callback:
-                            callback(False)
-                        return
-                    
-                if attempt > self.MAX_RETRIES:
+                        time.sleep(0.1) # brief pause before retry
+                else:
+                    # All retries failed
                     self.log(f"Failed to set voltage to {next_voltage:.2f}V. Aborting ramp", LogLevel.ERROR)
                     if callback:
                         callback(False)
