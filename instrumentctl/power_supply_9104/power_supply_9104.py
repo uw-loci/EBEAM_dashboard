@@ -278,6 +278,13 @@ class PowerSupply9104:
             self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
+    
+    def stop_ramp(self):
+        """
+        Signal any active ramp thread to exit cleanly.
+        Safe to call even if no ramp is running.
+        """
+        self.stop_event.set()    
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
