@@ -54,6 +54,10 @@ class PowerSupply9104:
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
         try:
+            if not self.is_connected():
+                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                return None # return immediately to prevent blocking GUI on serial read
+            
             self.flush_serial()
             
             self.log(f"Sending command: {command}", LogLevel.DEBUG)
@@ -87,11 +91,21 @@ class PowerSupply9104:
         """ Expected return value: OK[CR] """
         
         voltage, _ = self.get_settings(3)
+ 
+        # Verify valid value is returned
+        if voltage is None:
+            self.log(f"Cannot switch on output. Could not read voltage setting", LogLevel.ERROR)
+            return False
         
         if not self.validate_voltage(voltage):
             self.log(f"Cannot switch on output. Check voltage vs. OVP", LogLevel.ERROR)
             return False
         else:
+            # Stop any ongoing ramping before changing output state
+            if self.ramp_thread and self.ramp_thread.is_alive():
+                self.log("Ramping thread is running, stopping it before changing output state", LogLevel.INFO)
+                self.stop_event.set()
+
             command = f"SOUT{state}"
             response = self.send_command(command)
             self.log(f"Set output to {state}: {response}", LogLevel.DEBUG)
