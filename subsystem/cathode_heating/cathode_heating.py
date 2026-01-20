@@ -146,10 +146,10 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set voltage
         self.heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set current
-        self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
-        self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
+        self.actual_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured voltage
+        self.actual_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured current
         
         # Beam current monitoring
         self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Total emission
@@ -437,8 +437,8 @@ class CathodeHeatingSubsystem:
             display_label = ttk.Label(config_tab, text='\nProtection Settings:')
             display_label.grid(row=6, column=0, columnspan=1, sticky='ew')
 
-            voltage_display_var = tk.StringVar(value='Voltage: -- V')
-            current_display_var = tk.StringVar(value='Current: -- A')
+            voltage_display_var = tk.StringVar(value='Voltage: --')
+            current_display_var = tk.StringVar(value='Current: --')
             operation_mode_var = tk.StringVar(value='Mode: --')
 
             voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
@@ -1060,8 +1060,8 @@ class CathodeHeatingSubsystem:
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
-                    self.actual_heater_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f} V" if voltage is not None else "-- V")
+                    self.actual_heater_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")
 
                     cathode_label = ['A', 'B', 'C'][i]
                     key_current = f"Cathode {cathode_label} - Heater Current:"
@@ -1076,11 +1076,11 @@ class CathodeHeatingSubsystem:
                     # Update heater voltage display
                     if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
                         last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f} V")
+                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
                     elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f} V")
+                        self.heater_voltage_vars[i].set(f"{voltage:.2f}")
                     else:
-                        self.heater_voltage_vars[i].set("-- V")
+                        self.heater_voltage_vars[i].set("--")
 
                     # Update mode display
                     if mode in ["CV Mode", "CC Mode"]:
@@ -1090,13 +1090,13 @@ class CathodeHeatingSubsystem:
     
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
-                    self.actual_heater_current_vars[i].set("-- A")
-                    self.actual_heater_voltage_vars[i].set("-- V")
+                    self.actual_heater_current_vars[i].set("--")
+                    self.actual_heater_voltage_vars[i].set("--")
                     self.operation_mode_var[i].set("Mode: --")
             else:
-                self.actual_heater_current_vars[i].set("-- A")
-                self.actual_heater_voltage_vars[i].set("-- V")
-                self.actual_target_current_vars[i].set("-- mA")
+                self.actual_heater_current_vars[i].set("--")
+                self.actual_heater_voltage_vars[i].set("--")
+                self.actual_target_current_vars[i].set("--")
 
             temperature = self.read_temperature(i)
             if self.logger and hasattr(self.logger, "update_field"):
@@ -1123,11 +1123,11 @@ class CathodeHeatingSubsystem:
                 self.last_plot_time = current_time  # Reset the plot timer
 
             # Update Main Page labels for voltage and current
-            self.e_beam_current_vars[i].set(f"{current:.2f} A" if current is not None else "-- A")
+            self.e_beam_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
 
             # Update Config page labels
-            self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f} V' if voltage is not None else 'Voltage: -- V')
-            self.current_display_vars[i].set(f'Current: {current:.2f} A' if current is not None else 'Current: -- A')
+            self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f}' if voltage is not None else 'Voltage: --')
+            self.current_display_vars[i].set(f'Current: {current:.2f}' if current is not None else 'Current: --')
             if mode in ["CV Mode", "CC Mode"]:
                 self.operation_mode_var[i].set(f'Mode: {mode}')
             else:
