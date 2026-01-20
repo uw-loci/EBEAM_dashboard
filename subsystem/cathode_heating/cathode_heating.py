@@ -1581,7 +1581,27 @@ class CathodeHeatingSubsystem:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             self.reset_related_variables(index)
             return False
-
+        
+    def get_ocp(self, index):
+        '''
+        Get the current over-current protection setting.
+        Args:
+            index (int): Index of the power supply (0-2)
+            
+        Returns:
+            float or None: Current OCP setting in amps, None if retrieval fails
+        '''
+        try: 
+            ocp = self.power_supplies[index].get_over_current_protection()
+            if ocp is not None:
+                return ocp
+            else:
+                self.log(f"Failed to get OCP for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return None
+        except Exception as e:
+            self.log(f"Error getting OCP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            return None
+        
     def get_ovp(self, index):
         """
         Get the current over-voltage protection setting.
