@@ -1652,6 +1652,57 @@ class CathodeHeatingSubsystem:
         except Exception as e:
             self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
+
+    # Voltage input validation
+    def validate_voltage(self, index:int, new_voltage: float):
+        """
+        Checks new heater voltage is non-negative and does not exceed the OVP.
+        
+        """
+        ovp = self.get_ovp(index)
+
+        if ovp is None:
+            self.log(f"Cannot validate voltage for Cathode {['A','B','C'][index]}: OCP unavailable (power supply disconnected or GOCP failed).", LogLevel.ERROR)
+            return False
+        if new_voltage < 0 or new_voltage is None:
+            msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
+            return False
+        
+        remainder = new_voltage % 0.02
+        if abs(remainder) > 1e-10 and abs(remainder - 0.02) > 1e-10:
+            self.log(f"Calculated voltage ({new_voltage:.2f}V) is not divisible by 0.02 for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+            msgbox.showwarning("Invalid Voltage", f"The voltage entered ({new_voltage:.2f}V) is invalid. Please enter a voltage that is a multiple of 0.02V.")
+            return False
+
+        if new_voltage > ovp:
+            self.log(f"Calculated voltage ({new_voltage:.2f}V) exceeds OVP ({ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+            msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({new_voltage:.2f}V) exceeds the current OVP setting ({ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
+            return False
+        
+        return True
+    
+    # Current input validation
+    def validate_current(self, index:int, new_current: float):
+        """
+        Checks new heater current is non-negative and does not exceed the OCP.
+        
+        """
+        ocp = self.get_ocp(index)
+
+        if new_current < 0 or new_current is None:
+            msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
+            return False
+        
+        if ocp is None:
+            self.log(f"Cannot validate current for Cathode {['A','B','C'][index]}: OCP unavailable (power supply disconnected or GOCP failed).", LogLevel.ERROR)
+            return False
+
+        if new_current > ocp:
+            self.log(f"Calculated current ({new_current:.2f}A) exceeds OCP ({ocp:.2f}A) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
+            msgbox.showwarning("Current Exceeds OCP", f"The calculated current ({new_current:.2f}A) exceeds the current OCP setting ({ocp:.2f}A). Please adjust the OCP or choose a lower target current.")
+            return False
+        
+        return True
     
     def close_com_ports(self):
         """
