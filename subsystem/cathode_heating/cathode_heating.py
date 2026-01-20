@@ -71,15 +71,23 @@ class CathodeHeatingSubsystem:
         # Power supply state tracking
         self.power_supplies_initialized = False
         self.voltage_set = [False, False, False]
+        self.current_set = [False, False, False]
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
+
+        # GUI element references
         self.toggle_buttons = []
         self.ramp_toggle_buttons = []
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
+        self.user_set_currents = [None, None, None]
         self.slew_rates = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.ramp_status = [True, True, True]
         self.query_settings_buttons = []
+        self.curr_adjustment_buttons = []  # Track current +/- buttons 
+        self.vlt_adjustment_buttons = []  # Track voltage +/- buttons 
+        self.set_button_states = [] # Track both voltage and current set button states to disable during ramp
+
 
         # Temperature controller state tracking
         self.temp_controllers_connected = False
@@ -139,6 +147,7 @@ class CathodeHeatingSubsystem:
         """
         # Heater control and monitoring variables
         self.heater_voltage_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Set voltage
+        self.heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set current
         self.actual_heater_voltage_vars = [tk.StringVar(value='-- V') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='-- A') for _ in range(3)]  # Measured current
         
