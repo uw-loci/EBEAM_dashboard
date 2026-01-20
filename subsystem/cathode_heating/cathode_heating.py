@@ -1420,12 +1420,21 @@ class CathodeHeatingSubsystem:
             - Predicted temperature
             - Heater voltage (if not previously set)
         """
+        # Reset prediction values
         self.predicted_emission_current_vars[index].set('--')
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
-        if not self.voltage_set[index]:
-            self.heater_voltage_vars[index].set('--')
+
+        # Clear UI setpoints
+        self.heater_voltage_vars[index].set('--')
+        self.heater_current_vars[index].set('--')
+
+        # Reset state flags
+        self.user_set_voltages[index] = None
+        self.user_set_currents[index] = None
+        self.voltage_set[index] = False
+        self.current_set[index] = False        
 
     def reset_power_supply(self, index):
         """
@@ -1446,8 +1455,10 @@ class CathodeHeatingSubsystem:
         self.predicted_emission_current_vars[index].set('--')
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
-        self.heater_voltage_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
+        
+        self.heater_voltage_vars[index].set('--')
+        self.heater_current_vars[index].set('--')
 
     def on_voltage_label_click(self, index):
         """ 
