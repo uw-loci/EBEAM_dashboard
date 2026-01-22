@@ -81,8 +81,10 @@ class CathodeHeatingSubsystem:
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
         self.user_set_currents = [None, None, None]
-        self.slew_rates = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
-        self.ramp_status = [True, True, True]
+        self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
+        self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
+        self.ramp_status = [False, False, False]
+        self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
         self.query_settings_buttons = []
         self.curr_adjustment_buttons = []  # Track current +/- buttons 
         self.vlt_adjustment_buttons = []  # Track voltage +/- buttons 
