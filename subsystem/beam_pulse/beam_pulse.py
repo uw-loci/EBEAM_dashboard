@@ -1,6 +1,6 @@
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from typing import Optional, Dict
 import os
 import sys
@@ -2037,8 +2037,45 @@ class BeamPulseSubsystem:
 
     def on_pulsing_behavior_change(self, event=None):
         """Handle pulsing behavior dropdown change."""
-        pulsing_behavior = self.pulsing_behavior.get()
-        self._log(f"Pulsing Behavior changed to: {pulsing_behavior}", LogLevel.DEBUG)
+        new_pulsing_behavior = self.pulsing_behavior.get()
+        
+        # Get the current pulsing behavior before the change is applied
+        # We need to revert to get the old value
+        current_options = self.pulsing_behavior_combo.cget('values')
+        current_index = current_options.index(new_pulsing_behavior)
+        old_index = 1 - current_index  # Toggle between 0 and 1
+        old_pulsing_behavior = current_options[old_index]
+        
+        # Check if switching from DC to Pulsed mode with beams on
+        if old_pulsing_behavior == "DC" and new_pulsing_behavior == "Pulsed":
+            # Find which beams are currently on
+            beams_on = []
+            beam_names = ['A', 'B', 'C']
+            for i in range(3):
+                if self.beam_on_status[i]:
+                    beams_on.append(beam_names[i])
+            
+            # If any beams are on, show warning
+            if beams_on:
+                beams_list = ", ".join(beams_on)
+                message = f"Warning: Switching to Pulsed mode will cut off beam(s) {beams_list}.\n\nDo you want to continue?"
+                
+                result = messagebox.askyesno(
+                    "Pulsed Mode - Beams Will Be Cut Off",
+                    message
+                )
+                
+                if not result:
+                    # User clicked Cancel, revert to DC mode
+                    self.pulsing_behavior.set(old_pulsing_behavior)
+                    return
+                else:
+                    # User confirmed, turn off all beams
+                    for i in range(3):
+                        if self.beam_on_status[i]:
+                            self.set_beam_status(i, False)
+        
+        self._log(f"Pulsing Behavior changed to: {new_pulsing_behavior}", LogLevel.DEBUG)
 
         # Update all control states based on current pulsing behavior
         self.update_frequency_spinbox_state()
