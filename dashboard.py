@@ -804,17 +804,26 @@ class EBEAMSystemDashboard:
             if status and duration > 0:
                 # Beam turned ON in Pulsed mode - animate and schedule auto turn-off
                 self.animate_beam_status_bar(beam_index, duration)
+                # Update button text to show ON
+                if beam_index < len(self.beam_toggle_buttons):
+                    self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
                 # Delay auto turn-off to allow completion display to show (750ms + small buffer)
                 self.root.after(int(duration + 800), lambda: self.auto_turn_off_beam(beam_index))
                 self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
             elif status and duration == 0:
                 # Beam turned ON in DC mode - show solid bar with runtime counter
                 self.start_dc_mode_counter(beam_index)
+                # Update button text to show ON
+                if beam_index < len(self.beam_toggle_buttons):
+                    self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
                 self.logger.info(f"Beam {beam_names[beam_index]} turned ON in DC mode")
             elif not status:
                 # Beam turned OFF - clear animation and stop DC counter
                 self.clear_beam_status_bar(beam_index)
                 self.stop_dc_mode_counter(beam_index)
+                # Update button text to show OFF
+                if beam_index < len(self.beam_toggle_buttons):
+                    self.beam_toggle_buttons[beam_index].config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
                 
         except Exception as e:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
