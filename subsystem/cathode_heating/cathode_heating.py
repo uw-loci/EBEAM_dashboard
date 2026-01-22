@@ -68,7 +68,7 @@ class CathodeHeatingSubsystem:
             str: Full path to the dataset file
         """
         filename = self.cathode_datasets.get(cathode_key, default_file)
-        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
+        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply')
         
         # If filename is absolute, use as is
         if os.path.isabs(filename):
@@ -118,8 +118,8 @@ class CathodeHeatingSubsystem:
         self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
 
-        # Load all CSV LUTs in the LUT directory
-        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT')
+        # Load all CSV LUTs from the power_supply folder in the LUT submodule
+        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply')
         self.current_options = {}
         
         def validate_lut(df):
