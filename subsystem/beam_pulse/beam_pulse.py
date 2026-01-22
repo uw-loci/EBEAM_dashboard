@@ -656,14 +656,18 @@ class BeamPulseSubsystem:
     def get_available_deflection_stats_lut_files(self):
         """Get list of available CSV files specifically for deflection stats LUTs."""
         try:
-            # Get the current beam_pulse directory
-            beam_pulse_dir = os.path.dirname(__file__)
+            # Get the LUT directory in the submodule
+            # Navigate from subsystem/beam_pulse/ to usr/usr_data/EBEAM_dashboard_LUT/beam_control/
+            current_dir = os.path.dirname(__file__)
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+            lut_dir = os.path.join(project_root, "usr", "usr_data", "EBEAM_dashboard_LUT", "beam_control")
 
-            if not os.path.exists(beam_pulse_dir):
+            if not os.path.exists(lut_dir):
+                self._log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
                 return ["None"]
 
             csv_files = []
-            for file in os.listdir(beam_pulse_dir):
+            for file in os.listdir(lut_dir):
                 if file.endswith('.csv'):
                     csv_files.append(file)
 
@@ -776,7 +780,7 @@ class BeamPulseSubsystem:
         """Load a specific deflection stats LUT file.
 
         ENERGY-AWARE LUT LOADING PROCESS:
-        1. Attempts to load CSV file from beam_pulse directory
+        1. Attempts to load CSV file from submodule beam_control directory
         2. Validates column headers match expected format
         3. Extracts energy value from filename if present
         4. Logs loading success with energy information
@@ -786,8 +790,11 @@ class BeamPulseSubsystem:
         making it easy to track which calibration data is currently loaded.
         """
         try:
-            beam_pulse_dir = os.path.dirname(__file__)
-            file_path = os.path.join(beam_pulse_dir, filename)
+            # Get the LUT directory in the submodule
+            current_dir = os.path.dirname(__file__)
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+            lut_dir = os.path.join(project_root, "usr", "usr_data", "EBEAM_dashboard_LUT", "beam_control")
+            file_path = os.path.join(lut_dir, filename)
 
             lut_data = self.load_deflection_stats_csv(file_path, filename)
 
