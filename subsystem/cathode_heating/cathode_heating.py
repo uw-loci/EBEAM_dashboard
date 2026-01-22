@@ -77,6 +77,7 @@ class CathodeHeatingSubsystem:
 
         # GUI element references
         self.toggle_buttons = []
+        self.stop_ramp_buttons = []
         self.ramp_toggle_buttons = []
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
@@ -131,6 +132,9 @@ class CathodeHeatingSubsystem:
         
         # Heater current predictions - used for power supply control
         self.predicted_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]
+
+        # Heater voltage predictions - used for power supply control
+        self.predicted_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
         
         # Temperature predictions from heater current model
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
@@ -204,6 +208,8 @@ class CathodeHeatingSubsystem:
         style.configure('OverTemp.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))  # Overtemperature style
         style.configure('RampOn.TButton', background='green', foreground='black', font=('Helvetica', 8, 'bold'))
         style.configure('RampOff.TButton', background='red', foreground='black', font=('Helvetica', 8, 'bold')) # Ramp button style
+        style.configure('StopInactive.TButton', foreground='grey')
+        style.configure('StopActive.TButton',  foreground='red')
 
         # Load toggle images
         self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -236,6 +242,8 @@ class CathodeHeatingSubsystem:
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
         self.ramp_mode_vars = []
+        self.ramp_radio_buttons = []
+        self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
         ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
@@ -265,105 +273,236 @@ class CathodeHeatingSubsystem:
             config_tab.columnconfigure(1, minsize=70)
             config_tab.columnconfigure(2, minsize=20)
 
-            # Create target current (mA) and heater voltage labels
-            
-            # Set target current (mA) label
-            set_target_label = ttk.Label(main_tab, text='Set Target Current (mA):', style='RightAlign.TLabel')
-            set_target_label.grid(row=0, column=0, sticky='e')
-            ToolTip(set_target_label, "Target current is predicted to be 72% of cathode emission current")
-            entry_field = ttk.Entry(main_tab, width=7)
-            entry_field.grid(row=0, column=1, sticky='w')
-            self.entry_fields.append(entry_field)
-            set_button = ttk.Button(main_tab, text="Set", width=4, command=lambda i=i, entry_field=entry_field: self.set_target_current(i, entry_field))
-            set_button.grid(row=0, column=1, sticky='e')
+            # ======Main Control Menu=====
+            control_frame = ttk.Frame(main_tab)
+            control_frame.grid(row=0, column=0, pady=(15,0))
 
-            # Set heater voltage (V) label
-            ttk.Label(main_tab, text='Set Heater (V):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='e')
-            voltage_label = ttk.Label(main_tab, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
-            voltage_label.grid(row=1, column=1, sticky='w')
-            voltage_label.bind("<Button-1>", lambda e, i=i: self.on_voltage_label_click(i))
-            ToolTip(voltage_label, plot_data=ES440_cathode.heater_voltage_current_data, voltage_var=self.predicted_heater_current_vars[i], current_var=self.heater_voltage_vars[i])
+            # Create current control section
+            current_control_frame = ttk.Frame(control_frame)
+            current_control_frame.grid(row=0, column=0, sticky='w')
 
-            # Create labels for predicted values
-            
-            # Predicted emission current (mA)
-            pred_emission_label = ttk.Label(main_tab, text='Pred Emission Current (mA):', style='RightAlign.TLabel')
-            pred_emission_label.grid(row=2, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
+            ttk.Label(current_control_frame, text='Set Heater Current (A)', style='Bold.TLabel').grid(row=0, column=0, sticky='w')
 
-            # Predicted grid current (mA)
-            set_grid_label = ttk.Label(main_tab, text='Pred Grid Current (mA):', style='RightAlign.TLabel')
-            set_grid_label.grid(row=3, column=0, sticky='e')
-            ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
-            ttk.Label(main_tab, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=3, column=1, sticky='w')
-            
-            # Predicted heater current (A)
-            ttk.Label(main_tab, text='Pred Heater Current (A):', style='RightAlign.TLabel').grid(row=4, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=4, column=1, sticky='w')
+            # Set target current entry box
+            current_entry_frame = ttk.Frame(current_control_frame)
+            current_entry_frame.grid(row=1, column=0, sticky='w', padx=(10,0))
 
-            # Predicted cathode temperature (C)
-            ttk.Label(main_tab, text='Pred CathTemp (C):', style='RightAlign.TLabel').grid(row=5, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.predicted_temperature_vars[i], style='Bold.TLabel').grid(row=5, column=1, sticky='w')
+            target_current = tk.DoubleVar(value=0.0)  # Default target current
+            current_entry_field = ttk.Entry(current_entry_frame, textvariable=target_current, width=6)
+            current_entry_field.grid(row=0, column=1, sticky='w', padx=(5,2))
+            self.entry_fields.append(current_entry_field)
+
+            set_current_button = ttk.Button(current_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=current_entry_field: self.on_current_label_click(i, entry_field))
+            set_current_button.grid(row=0, column=2, sticky='w')
+
+            # Frame to hold value + unit side-by-side
+            current_display_frame = tk.Frame(current_entry_frame, bd=2, relief='groove', padx=2, pady=1)
+            current_display_frame.configure(bg='#d9d9d9')
+            current_display_frame.grid(row=0, column=0, sticky='w')
+            # Dynamic current value
+            current_label = ttk.Label(current_display_frame, textvariable=self.heater_current_vars[i], style='Bold.TLabel') 
+            current_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(current_display_frame, text=" A", style="Bold.TLabel")
+            unit_label.pack(side='left')
+
+            # Create nudge buttons for current adjustment
+            inc_current_button = ttk.Button(current_control_frame, text="+0.01A", width=6,command=lambda i=i: self.adjust_current(i, 0.01))
+            inc_current_button.grid(row=0, column=1, sticky='w', padx=(4,0))
+            dec_current_button = ttk.Button(current_control_frame, text="-0.01A", width=6, command=lambda i=i: self.adjust_current(i, -0.01))
+            dec_current_button.grid(row=1, column=1, sticky='w', padx=(4,0))
+
+            # Create voltage control section
+            voltage_control_frame = ttk.Frame(control_frame)
+            voltage_control_frame.grid(row=1, column=0, sticky='w', pady=(10,0))
+
+            ttk.Label(voltage_control_frame, text='Set Heater Voltage (V)', style='Bold.TLabel').grid(row=0, column=0, sticky='w')
+
+            voltage_entry_frame = ttk.Frame(voltage_control_frame)
+            voltage_entry_frame.grid(row=1, column=0, sticky='w', padx=(10,0))
+
+            target_voltage = tk.DoubleVar(value=0.0)  # Default target voltage
+            voltage_entry_field = ttk.Entry(voltage_entry_frame, textvariable=target_voltage, width=6)
+            voltage_entry_field.grid(row=0, column=1, sticky='w', padx=(5,2))
+            self.entry_fields.append(voltage_entry_field)
+
+            set_voltage_button = ttk.Button(voltage_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.on_voltage_label_click(i, entry_field))
+            set_voltage_button.grid(row=0, column=2, sticky='w')
+
+            self.set_button_states.append([set_voltage_button, set_current_button])
+
+            # Frame to hold value + unit side-by-side
+            voltage_display_frame = tk.Frame(voltage_entry_frame, bd=2, relief='groove', padx=2, pady=1)
+            voltage_display_frame.configure(bg='#d9d9d9')
+            voltage_display_frame.grid(row=0, column=0, sticky='w')
+            # Dynamic voltage value
+            voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
+            voltage_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
+            unit_label.pack(side='left')
+
+            # Create nudge buttons for voltage adjustment
+            inc_voltage_button = ttk.Button(voltage_control_frame, text="+0.02V", width=6,command=lambda i=i: self.adjust_voltage(i, 0.02))
+            inc_voltage_button.grid(row=0, column=1, sticky='w', padx=(2,0))
+            dec_voltage_button = ttk.Button(voltage_control_frame, text="-0.02V", width=6, command=lambda i=i: self.adjust_voltage(i, -0.02))
+            dec_voltage_button.grid(row=1, column=1, sticky='w', padx=(2,0))
+
+            # Store adjustment buttons for enabling/disabling during ramps
+            self.curr_adjustment_buttons.append([inc_current_button, dec_current_button])
+            self.vlt_adjustment_buttons.append([inc_voltage_button, dec_voltage_button])
 
             # Create entries and display labels
-            heater_label = ttk.Label(main_tab, text=heater_labels[i], style='Bold.TLabel')
-            heater_label.grid(row=6, column=0, sticky='e', padx=(0, 5))
+            output_control_frame = ttk.Frame(main_tab)
+            output_control_frame.grid(row=0, column=1, sticky='w', padx=(20,0), pady=(22,0))
 
-            control_frame = ttk.Frame(main_tab)
-            control_frame.grid(row=6, column=1, sticky='w')
+            heater_label = ttk.Label(output_control_frame, text=heater_labels[i], style='Bold.TLabel')
+            heater_label.grid(row=0, column=0, sticky='w')
 
             # Create a label frame for radio buttons with title
-            ramp_frame = ttk.Frame(control_frame)
-            ramp_frame.grid(row=0, column=0, padx=(0, 10))
+            ramp_frame = ttk.Frame(output_control_frame)
+            ramp_frame.grid(row=2, column=0, sticky='w', padx=(0, 5))
 
-            ramp_var = tk.StringVar(value="gradual" if self.ramp_status[i] else "immediate")
-            gradual_radio = ttk.Radiobutton(
+            ramp_var = tk.StringVar(value="immediate")
+            self.set_ramp_mode(i, "immediate") # Default to immediate set
+            gradual_voltage_radio = ttk.Radiobutton(
                 ramp_frame, 
-                text="Ramp Mode",
-                value="gradual",
+                text="Ramp Current",
+                value="ramp_current",
                 variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, True)
+                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, v.get())
+            )
+            gradual_current_radio = ttk.Radiobutton(
+                ramp_frame, 
+                text="Ramp Voltage",
+                value="ramp_voltage",
+                variable=ramp_var,
+                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, v.get())
             )
             immediate_radio = ttk.Radiobutton(
                 ramp_frame,
                 text="Immediate Set",
                 value="immediate",
                 variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, False)
+                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, v.get())
             )
-            gradual_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
-            immediate_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
-            
+            gradual_voltage_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
+            gradual_current_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
+            immediate_radio.grid(row=2, column=0, sticky='w', padx=1, pady=1)
+
             self.ramp_mode_vars.append(ramp_var)
+            self.ramp_radio_buttons.append([gradual_voltage_radio, gradual_current_radio, immediate_radio])
+
+            # Create frame for output buttons
+            output_button_frame = ttk.Frame(output_control_frame)
+            output_button_frame.grid(row=1, column=0, sticky='w')
 
             # Create toggle switch for output
-            toggle_button = ttk.Button(control_frame, image=self.toggle_off_image, style='Flat.TButton', 
-                                       command=lambda i=i: self.toggle_output(i))
-            toggle_button.grid(row=0, column=1)
+            toggle_button = ttk.Button(output_button_frame, image=self.toggle_off_image, style='Flat.TButton', 
+                                       command=lambda i=i: self.toggle_output(i, self.ramp_control_mode[i]))
+            toggle_button.grid(row=0, column=0, sticky='w')
 
             self.toggle_buttons.append(toggle_button)
-            
-            ToolTip(ramp_frame, f"Slow Ramp Mode: Increases output voltage to set point at 0.1V/s\nImmediate: direct set voltage application")
 
-            # Create measured values labels
+            # Create stop ramp button
+            stop_ramp_btn = ttk.Button(
+                output_button_frame,
+                text='STOP RAMP',
+                width=12,
+                state='disabled',                   # greyed‑out by default
+                style='StopInactive.TButton',
+                command=lambda i=i: self.stop_ramp(i)
+            )
+            stop_ramp_btn.grid(row=0, column=1, sticky='e',padx=(6, 0))
+            self.stop_ramp_buttons.append(stop_ramp_btn)
+
+            # Predicted Values
+            predictions_frame = ttk.Frame(main_tab)
+            predictions_frame.grid(row=1, column=0, columnspan=4, sticky='w', pady=(10, 0))
+
+            ttk.Label(predictions_frame, text="Predicted Values", style="Bold.TLabel").grid(row=0, column=0, sticky="w")
+
+            # Predicted emission current (mA)
+            pred_emission_label = ttk.Label(predictions_frame, text='Emission Current (mA):', style='RightAlign.TLabel')
+            pred_emission_label.grid(row=1, column=0, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w')
+
+            # Predicted grid current (mA)
+            set_grid_label = ttk.Label(predictions_frame, text='Grid Current (mA):', style='RightAlign.TLabel')
+            set_grid_label.grid(row=2, column=0, sticky='w')
+            ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
+            ttk.Label(predictions_frame, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w')
+
+            # Predicted heater voltage (V)
+            ttk.Label(predictions_frame, text='Heater Voltage (V):', style='RightAlign.TLabel').grid(row=1, column=2, sticky='e', padx=(5,0))
+            ttk.Label(predictions_frame, textvariable=self.predicted_heater_voltage_vars[i], style='Bold.TLabel').grid(row=1, column=3, sticky='w')
+
+            # Predicted heater current (A)
+            ttk.Label(predictions_frame, text='Heater Current (A):', style='RightAlign.TLabel').grid(row=2, column=2, sticky='e', padx=(5,0))
+            ttk.Label(predictions_frame, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=2, column=3, sticky='w')
+
+            # Measured/Actual values
+            measured_frame = ttk.Frame(main_tab)
+            measured_frame.grid(row=2, column=0, sticky='w', pady=(10,0))
+            measured_frame.grid_rowconfigure(0, minsize=26)
+
+            ttk.Label(measured_frame, text="Measured Values", style='Bold.TLabel').grid(row=0, column=0, sticky='w')
+
+            # CV / CC mode indicator
+            indicator_frame = ttk.Frame(measured_frame)        # keeps both labels together
+            indicator_frame.grid(row=0, column=1, rowspan=3, padx=(6, 0),sticky='n')
+
+            cv_label = tk.Label(indicator_frame, text='CV', width=3,
+                            fg='white', bg='grey', relief='ridge')
+            cv_label.grid(row=0, column=0, padx=1)
+
+            cc_label = tk.Label(indicator_frame, text='CC', width=3,
+                            fg='white', bg='grey', relief='ridge')
+            cc_label.grid(row=0, column=1, padx=1)
+
+            self.cv_cc_labels.append((cv_label, cc_label))
             
             # Actual heater current (A)
-            ttk.Label(main_tab, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=7, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel').grid(row=7, column=1, sticky='w')
+            ttk.Label(measured_frame, text='Actual Heater (A):', style='RightAlign.TLabel').grid(row=1, column=0, sticky='w')
+            # Frame to hold value + unit side-by-side
+            actual_current_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
+            actual_current_frame.configure(bg='#d9d9d9')
+            actual_current_frame.grid(row=1, column=1, sticky='w')
+            # Dynamic current value
+            actual_current_label = ttk.Label(actual_current_frame, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel') 
+            actual_current_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(actual_current_frame, text=" A", style="Bold.TLabel")
+            unit_label.pack(side='left')
             
             # Actual heater voltage (V)
-            ttk.Label(main_tab, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=8, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel').grid(row=8, column=1, sticky='w')
-            
-            # Actual target current (mA)
-            ttk.Label(main_tab, text='Actual Target (mA):', style='RightAlign.TLabel').grid(row=9, column=0, sticky='e')
-            ttk.Label(main_tab, textvariable=self.actual_target_current_vars[i], style='Bold.TLabel').grid(row=9, column=1, sticky='w')
+            ttk.Label(measured_frame, text='Actual Heater (V):', style='RightAlign.TLabel').grid(row=2, column=0, sticky='w')
+            # Frame to hold value + unit side-by-side
+            actual_voltage_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
+            actual_voltage_frame.configure(bg='#d9d9d9')
+            actual_voltage_frame.grid(row=2, column=1, sticky='w')
+            # Dynamic voltage value
+            actual_voltage_label = ttk.Label(actual_voltage_frame, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel') 
+            actual_voltage_label.pack(side='left')
+            # Static unit label
+            unit_label = ttk.Label(actual_voltage_frame, text=" V", style="Bold.TLabel")
+            unit_label.pack(side='left')
             
             # Temperature monitoring (C)
-            ttk.Label(main_tab, text='Actual ClampTemp (C):', style='RightAlign.TLabel').grid(row=10, column=0, sticky='e')
-            clamp_temp_label = ttk.Label(main_tab, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel')
-            clamp_temp_label.grid(row=10, column=1, sticky='w')
-            self.clamp_temp_labels.append(clamp_temp_label)
+            ttk.Label(measured_frame, text='Clamp Temp (C):', style='RightAlign.TLabel').grid(row=3, column=0, sticky='w')
+            # Frame to hold value + unit side-by-side
+            actual_temp_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
+            actual_temp_frame.configure(bg='#d9d9d9')
+            actual_temp_frame.grid(row=3, column=1, sticky='w')
+            # Dynamic temperature value
+            actual_temp_label = ttk.Label(actual_temp_frame, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel') 
+            actual_temp_label.pack(side='left')
+            # Static unit label
+            # unit_label = ttk.Label(actual_temp_frame, text=" C", style="Bold.TLabel")
+            # unit_label.pack(side='left')
+
+            self.clamp_temp_labels.append(actual_temp_label)
+
             # Create plot for each cathode
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
             line, = ax.plot([], [])
