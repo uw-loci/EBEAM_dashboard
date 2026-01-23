@@ -1787,6 +1787,120 @@ class CathodeHeatingSubsystem:
             self.reset_related_variables(index)
             return False
         
+    def update_output_from_current(self, index:int, new_current:float):
+        """
+        Updates the set current on the power supply. Assumes guard rails are checked prior to function call.
+        Args:
+            index(int): identifies correct power supply
+            new_current(float): new target heater current to be set
+        Returns:
+            (bool): True is success, False if failed
+        """
+        try:
+
+            if not self.power_supplies_initialized or not self.power_supplies:
+                self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+                return
+
+            self.user_set_currents[index] = new_current
+
+            # Set current directly if output enabled
+            if self.toggle_states[index]:
+                if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
+                    # Ramp Current mode
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_current(
+                        new_current,
+                        step_size = self.curr_slew_rate[index],
+                        step_delay = 1.0,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    )
+                    self.current_set[index] = True
+                elif self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
+                    # Ramp Voltage Mode
+                    #Immediate set new current
+                    if not self.power_supplies[index].set_current(3, new_current):
+                        self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
+
+                    # Ramp Voltage
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_voltage(
+                        self.user_set_voltages[index],
+                        step_size = self.vlt_slew_rate[index],
+                        step_delay = 1.0,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    )
+                    self.voltage_set[index] = True
+                else: # Immediate set
+                    self.power_supplies[index].set_current(3, new_current)
+                    self.current_set[index] = True
+            self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_current:.2f}A", LogLevel.INFO)
+
+            return True
+        except Exception as e:
+            self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
+            self.reset_related_variables(index)
+            return False
+
+    def update_output_from_voltage(self, index: int, new_voltage:float):
+        """
+        Updates the set voltage on the power supply. Assumes guard rails are checked prior to function call.
+        Args:
+            index(int): identifies correct power supply
+            new_voltage(float): new target heater voltage to be set
+        Returns:
+            (bool): True is success, False if failed
+        """
+        try:
+
+            if not self.power_supplies and len(self.power_supplies) < index:
+                self.log(f"Cathode {['A', 'B', 'C'][index]} power supply uninitialized or lost connection", LogLevel.WARNING)
+                return False
+
+            self.user_set_voltages[index] = new_voltage
+
+            # Set voltage directly if output enabled
+            if self.toggle_states[index]:
+                if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
+                    # Ramp Voltage mode
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_voltage(
+                        new_voltage,
+                        step_size = self.vlt_slew_rate[index],
+                        step_delay = 1.0,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    )
+                    self.voltage_set[index] = True
+                elif self.ramp_status[index] and self.ramp_control_mode[index] == "current":
+                    # Ramp Current mode
+                    # Immediate set new voltage
+                    if not self.power_supplies[index].set_voltage(3, new_voltage):
+                        self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
+
+                    # Ramp Current
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_current(
+                        self.user_set_currents[index],
+                        step_size = self.curr_slew_rate[index],
+                        step_delay = 1.0,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    )
+                    self.current_set[index] = True
+                else: # Immediate set
+                    self.power_supplies[index].set_voltage(3, new_voltage)
+                    self.voltage_set[index] = True
+            self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_voltage:.2f}V", LogLevel.INFO)
+
+            return True
+        except Exception as e:
+            self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
+            self.reset_related_variables(index)
+            return False
+        
     def get_ocp(self, index):
         '''
         Get the current over-current protection setting.
