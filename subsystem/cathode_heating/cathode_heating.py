@@ -936,21 +936,38 @@ class CathodeHeatingSubsystem:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
 
-    def set_ramp_mode(self, index, is_gradual):
+    def set_ramp_mode(self, index: int, mode: str):
         """
         Set the ramping mode for the specified power supply.
         
         Args:
             index (int): Index of the cathode (0-2)
-            is_gradual (bool): True for gradual ramping, False for immediate changes
+            mode (str): string containing ramp mode, either "ramp_current", "ramp_voltage", or "immediate"
         """
-        self.ramp_status[index] = is_gradual
-        
-        mode_str = "Gradual" if is_gradual else "Immediate"
+        if mode == "ramp_current":
+            self.ramp_status[index] = True
+            self.ramp_control_mode[index] = "current"
+            mode_str = "gradual current."
+
+            # Disable current adjustment buttons when in current ramp mode
+            self.set_curr_adjustment_buttons_state(index, 'disabled')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        elif mode == "ramp_voltage":
+            self.ramp_status[index] = True
+            self.ramp_control_mode[index] = "voltage"
+            mode_str = "gradual voltage."
+
+            # Disable voltage adjustment buttons when in voltage ramp mode
+            self.set_vlt_adjustment_buttons_state(index, 'disabled')
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+        else: # immediate
+            self.ramp_status[index] = False
+            mode_str = "immediate set."
+
+            # Enable both sets of adjustment buttons when not ramping
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
-        
-        if not is_gradual:
-            self.log(f"Immediate set voltage change mode for Cathode {index}", LogLevel.WARNING)
 
     def set_overvoltage_limit(self, index):
         if not self.power_supply_status[index]:
