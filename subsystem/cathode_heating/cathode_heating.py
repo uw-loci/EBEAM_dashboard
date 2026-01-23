@@ -1785,6 +1785,62 @@ class CathodeHeatingSubsystem:
         
         return True
     
+    # Ramping helper methods for GUI state changes
+    def set_output_button_state(self, index:int, state:str):
+        """Enable or disable the Ramp-Mode radio buttons for one cathode."""
+        for btn in self.ramp_radio_buttons[index]:
+            btn.config(state=state)
+
+    def is_ramping(self, index:int) -> bool:
+        ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+        return bool(ps and ps.ramp_thread and ps.ramp_thread.is_alive())
+
+    def on_ramp_start(self, index:int):
+        self.stop_ramp_buttons[index]['state'] = 'normal'
+        self.stop_ramp_buttons[index].config(style='StopActive.TButton')
+        self.set_output_button_state(index, 'disabled')
+        self.set_vlt_adjustment_buttons_state(index, 'disabled')
+        self.set_curr_adjustment_buttons_state(index, 'disabled')
+        self.set_text_set_buttons_state(index, 'disabled')
+
+    def on_ramp_complete(self, index:int):
+        self.stop_ramp_buttons[index]['state'] = 'disabled'
+        self.stop_ramp_buttons[index].config(style='StopInactive.TButton')
+        self.set_output_button_state(index, 'normal')
+        if self.ramp_control_mode[index] == "voltage":
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+        elif self.ramp_control_mode[index] == "current":
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        self.set_text_set_buttons_state(index, 'normal')
+
+    def stop_ramp(self, index:int):
+        """
+        UI callback - user pressed STOP RAMP.
+        """
+        ps = self.power_supplies[index]
+        if ps:
+            ps.stop_ramp()
+        self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
+        self.on_ramp_complete(index)
+
+    def set_curr_adjustment_buttons_state(self, index: int, state: str):
+        """Enable or disable the current +/- adjustment buttons for one cathode."""
+        if index < len(self.curr_adjustment_buttons):
+            for btn in self.curr_adjustment_buttons[index]:
+                btn.config(state=state)
+
+    def set_vlt_adjustment_buttons_state(self, index: int, state: str):
+        """Enable or disable the current +/- adjustment buttons for one cathode."""  
+        if index < len(self.vlt_adjustment_buttons):
+            for btn in self.vlt_adjustment_buttons[index]:
+                btn.config(state=state)
+
+    def set_text_set_buttons_state(self, index:int, state: str):
+        """Enable or disable textbox set buttons during ramp operations on one cathode."""
+        if index < len(self.set_button_states):
+            for btn in self.set_button_states[index]:
+                btn.config(state=state)
+
     def close_com_ports(self):
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.
