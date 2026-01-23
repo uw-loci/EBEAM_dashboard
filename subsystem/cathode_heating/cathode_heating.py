@@ -1521,7 +1521,45 @@ class CathodeHeatingSubsystem:
         self.heater_voltage_vars[index].set('--')
         self.heater_current_vars[index].set('--')
 
-    def on_voltage_label_click(self, index):
+
+    def on_current_label_click(self, index, target_current):
+        """ 
+        Handler for user clicks on heater current label for manual current setting
+        Args:
+            index (int): Index of the clicked current label (0-2)
+        Shows a dialog for current input if output is disabled. 
+        Updates predictions and display values based on entered current.
+        """
+        # Check for active ramping
+        if self.is_ramping(index):
+            self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+            msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+            return
+
+        try:
+            new_current = float(target_current.get())
+            valid_input = self.validate_current(index, new_current)
+            if not valid_input:
+                # Error message already shown in validate_current
+                return
+        except (tk.TclError, ValueError):
+            msgbox.showerror("Invalid Input", "Please enter a valid current value.")
+            return
+
+        # NO PREDICTIONS UNTIL LUT INTEGRATION
+        # prediction_success = self.update_predictions_from_current(index, new_current)
+        # if not prediction_success:
+        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+        set_success = self.update_output_from_current(index, new_current)
+        if set_success:
+            self.heater_current_vars[index].set(f"{new_current:.2f}")
+            setattr(self, f"last_set_current_{index}", new_current)
+            self.current_set[index] = True
+        else:
+            self.log(f"Failed to set manual current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def on_voltage_label_click(self, index, target_voltage):
         """ 
         Handler for user clicks on heater voltage label for manual voltage setting
 
@@ -1531,17 +1569,123 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
+        # Check for active ramping
+        if self.is_ramping(index):
+                self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
 
-        new_voltage = tksd.askfloat("Set Heater Voltage", "Enter new heater voltage (V):", parent=self.parent)
-        if new_voltage is not None:
-            success = self.update_predictions_from_voltage(index, new_voltage)
-            if success:
-                self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
-                setattr(self, f'last_set_voltage_{index}', new_voltage)
-                self.voltage_set[index] = True
-                self.entry_fields[index].delete(0, tk.END)
-            else:
-                self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        try:
+            new_voltage = float(target_voltage.get())
+            valid_input = self.validate_voltage(index, new_voltage)
+            if not valid_input:
+                # Error message already shown in validate_voltage
+                return
+        except (tk.TclError, ValueError):
+            msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
+            return
+
+        # NO PREDICTIONS UNTIL LUT INTEGRATION
+        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        # if not prediction_success:
+        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+        set_success = self.update_output_from_voltage(index, new_voltage)
+        if set_success:
+            self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+            setattr(self, f'last_set_voltage_{index}', new_voltage)
+            self.voltage_set[index] = True
+        else:
+            self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def adjust_current(self, index: int, delta: float) -> None:
+        """
+        Increment / decrement the *requested* heater current by *delta* amps
+        and push the change through the same pathway used for manual entry.
+        Parameters
+        ----------
+        index : int
+            Cathode index 0-2  (A, B, C).
+        delta : float
+            +0.01 → raise 10 mA   |   -0.01 → lower 10 mA.
+        """
+        # Check for active ramping
+        if self.is_ramping(index):
+                self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
+        # Pull whatever text is currently shown under “Set Heater (A)”.
+        try:
+            raw = self.heater_current_vars[index].get()
+            current_a = float(raw)
+        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
+            current_a = 0.0
+
+        new_current = round(current_a + delta, 2)      # keep two decimals for UI
+
+        # Guard-rails
+        valid_input = self.validate_current(index, new_current)
+        if not valid_input:
+            # Error message already shown in validate_current
+            return
+
+        # NO PREDICTIONS UNTIL LUT INTEGRATION
+        # prediction_success = self.update_predictions_from_current(index, new_current)
+        # if not prediction_success:
+        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+        set_success = self.update_output_from_current(index, new_current)
+        if set_success:
+            self.heater_current_vars[index].set(f"{new_current:.2f}")
+            setattr(self, f"last_set_current_{index}", new_current)
+            self.current_set[index] = True
+        else:
+            self.log(f"Failed to set manual current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def adjust_voltage(self, index: int, delta: float) -> None:
+        """
+        Increment / decrement the *requested* heater voltage by *delta* volts
+        and push the change through the same pathway used for manual entry.
+        Parameters
+        ----------
+        index : int
+            Cathode index 0-2  (A, B, C).
+        delta : float
+            +0.02 → raise 20 mV   |   -0.02 → lower 20 mV.
+        """
+        # Check for active ramping
+        if self.is_ramping(index):
+                self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
+                return
+
+        # Pull whatever text is currently shown under “Set Heater (V)”.
+        try:
+            raw = self.heater_voltage_vars[index].get()
+            current_voltage = float(raw)
+        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
+            current_voltage = 0.0
+
+        new_voltage = round(current_voltage + delta, 2)      # keep two decimals for UI
+
+        # Guard-rails
+        valid_input = self.validate_voltage(index, new_voltage)
+        if not valid_input:
+            # Error message already shown in validate_voltage
+            return
+
+        # NO PREDICTIONS UNTIL LUT INTEGRATION
+        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        # if not prediction_success:
+        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+        set_success = self.update_output_from_voltage(index, new_voltage)
+        if set_success:
+            self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
+            setattr(self, f'last_set_voltage_{index}', new_voltage)
+            self.voltage_set[index] = True
+        else:
+            self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
     def update_predictions_from_voltage(self, index, voltage):
         """
