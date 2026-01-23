@@ -1386,45 +1386,81 @@ class CathodeHeatingSubsystem:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
-    def toggle_output(self, index):
+    def toggle_output(self, index, control_mode: str = None):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
             return
+        
+        if control_mode not in ("current", "voltage"):
+            control_mode = self.ramp_control_mode[index]
 
         new_state = not self.toggle_states[index]
 
         if new_state:  # If turning output ON
+            # Retrieve target voltage and current
+            target_voltage = self.user_set_voltages[index]
+            if target_voltage is None:
+                msgbox.showwarning("Warning", f"Target voltage for Cathode {['A', 'B', 'C'][index]} is not set.")
+                return
+
+            target_current = self.user_set_currents[index]
+            if target_current is None:
+                msgbox.showwarning("Warning", f"Target current for Cathode {['A', 'B', 'C'][index]} is not set.")
+                return
+            
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
-            target_voltage = self.user_set_voltages[index]
             
-            if self.ramp_status[index]:
-                if target_voltage is not None:
-                    # Set voltage to 0 before starting the ramp-up
-                    self.power_supplies[index].set_voltage(3, 0.0)
-                    self.log(f"Voltage set to 0 for Cathode {['A', 'B', 'C'][index]} before ramping up.", LogLevel.DEBUG)
-                    
+            if self.ramp_status[index]: # ramp is on; Gradual Set
+                if target_current is not None and control_mode == "current":
+                    # Set voltage
+                    if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
+                        self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
+                    # Ramp to target current
+                    slew_rate = self.curr_slew_rate[index]
+                    step_delay = 1.0  # seconds
+                    step_size = slew_rate * step_delay
+
+                    self.log(f"Starting current ramp with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.on_ramp_start(index)
+                    self.power_supplies[index].ramp_current(
+                        target_current,
+                        step_size=step_size,
+                        step_delay=step_delay,
+                        preset=3,
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                    ) 
+                if target_voltage is not None and control_mode == "voltage":
+                    # Set current
+                    if not self.power_supplies[index].set_current(current=target_current, preset=3):
+                        self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
+                        
                     # Ramp up to the target voltage
-                    slew_rate = self.slew_rates[index]
+                    slew_rate = self.vlt_slew_rate[index]
                     step_delay = 1.0  # seconds
                     step_size = slew_rate * step_delay
                     
                     self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.on_ramp_start(index)
                     self.power_supplies[index].ramp_voltage(
                         target_voltage,
                         step_size=step_size,
                         step_delay=step_delay,
-                        preset=3
+                        preset=3,
+                        callback = lambda ok,
+                        i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
                     )
-            else: # ramp is off; just set output voltage
+            else: # ramp is off; Immediate Set both voltage and current
+                if not self.power_supplies[index].set_current(current=target_current, preset=3):
+                    self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
                 if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
                     self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
-                    msgbox.showerror("Error", f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}")
                 
         else:
             # turning off the output
             self.power_supplies[index].set_output("0")
+            self.on_ramp_complete(index)
 
         # Update the toggle state and button image
         self.toggle_states[index] = new_state
