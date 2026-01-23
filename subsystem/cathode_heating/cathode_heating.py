@@ -911,7 +911,7 @@ class CathodeHeatingSubsystem:
         self.log(f"Failed to reconnect after {max_retries} attempts", LogLevel.ERROR)
         return False
     
-    def set_slew_rate(self, index, var):
+    def set_slew_rate(self, index, var, control_mode="current"):
         """
         Set the voltage slew rate for a 9104 power supply.
 
@@ -926,8 +926,12 @@ class CathodeHeatingSubsystem:
             new_slew_rate = float(var.get())
             if new_slew_rate <= 0:
                 raise ValueError("Slew rate must be positive.")
-            self.slew_rates[index] = new_slew_rate
-            self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} V/s", LogLevel.INFO)
+            if control_mode == "current":
+                self.curr_slew_rate[index] = new_slew_rate
+                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} A/s", LogLevel.INFO)
+            else:  # control_mode == "voltage"
+                self.vlt_slew_rate[index] = new_slew_rate
+                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} V/s", LogLevel.INFO)
         except ValueError as e:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
