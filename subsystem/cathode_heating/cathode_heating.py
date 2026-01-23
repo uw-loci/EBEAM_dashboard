@@ -1246,21 +1246,19 @@ class CathodeHeatingSubsystem:
                     if self.logger and hasattr(self.logger, "update_field"):
                         self.logger.update_field(key_current, value_current)
                         self.logger.update_field(key_voltage, value_voltage)
-                    
-                    # Update heater voltage display
-                    if self.voltage_set[i] and hasattr(self, f'last_set_voltage_{i}'):
-                        last_set_voltage = getattr(self, f'last_set_voltage_{i}')
-                        self.heater_voltage_vars[i].set(f"{last_set_voltage:.2f}")
-                    elif voltage is not None:
-                        self.heater_voltage_vars[i].set(f"{voltage:.2f}")
-                    else:
-                        self.heater_voltage_vars[i].set("--")
 
                     # Update mode display
-                    if mode in ["CV Mode", "CC Mode"]:
-                        self.operation_mode_var[i].set(f'Mode: {mode}')
-                    else:
-                        self.operation_mode_var[i].set('Mode: --')
+                    cv_lbl, cc_lbl = self.cv_cc_labels[i]
+
+                    if mode == "CV Mode":
+                        cv_lbl.config(bg='green')
+                        cc_lbl.config(bg='grey')
+                    elif mode == "CC Mode":
+                        cc_lbl.config(bg='green')
+                        cv_lbl.config(bg='grey')
+                    else: # supply off or error
+                        cv_lbl.config(bg='grey')
+                        cc_lbl.config(bg='grey') 
     
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
