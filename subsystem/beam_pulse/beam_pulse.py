@@ -344,14 +344,23 @@ class BeamPulseSubsystem:
         right_spacer = ttk.Frame(header_frame)
         right_spacer.pack(side=tk.LEFT, expand=True)
 
-        # Clear Graph / Show All button on the far right
+        # Show All button on the far right
+        self.show_all_button = ttk.Button(
+            header_frame,
+            text="Show All",
+            command=self.show_all_beam_plots,
+            width=10
+        )
+        self.show_all_button.pack(side=tk.RIGHT, padx=(0, 5))
+
+        # Clear Graph button to the left of Show All
         self.clear_graph_button = ttk.Button(
             header_frame,
             text="Clear Graph",
-            command=self.toggle_graph_visibility,
-            width=12
+            command=self.clear_beam_plots,
+            width=15
         )
-        self.clear_graph_button.pack(side=tk.RIGHT)
+        self.clear_graph_button.pack(side=tk.RIGHT, padx=(0, 10))
 
         # Plots frame
         plots_frame = ttk.Frame(plots_container)
@@ -2008,20 +2017,17 @@ class BeamPulseSubsystem:
 
         self._log(f"Wave Gen {'enabled' if self.wave_gen_toggle_state else 'disabled'}", LogLevel.DEBUG)
 
-    def toggle_graph_visibility(self):
-        """Toggle visibility of beam position history on graphs."""
-        self.graph_history_visible = not self.graph_history_visible
+    def clear_beam_plots(self):
+        """Clear all beam plots from display (but keep data in history)."""
+        self.graph_history_visible = False
+        self.clear_all_beam_plots_display()
+        self._log("Beam plots cleared from display", LogLevel.DEBUG)
 
-        if self.graph_history_visible:
-            # Show all history - redraw everything
-            self.redraw_all_beam_plots()
-            self.clear_graph_button.configure(text="Clear Graph")
-            self._log("Beam position history shown", LogLevel.DEBUG)
-        else:
-            # Clear all visible plots but keep data
-            self.clear_all_beam_plots_display()
-            self.clear_graph_button.configure(text="Show All")
-            self._log("Beam position history hidden", LogLevel.DEBUG)
+    def show_all_beam_plots(self):
+        """Show all beam plots from history."""
+        self.graph_history_visible = True
+        self.redraw_all_beam_plots()
+        self._log("All beam plots restored to display", LogLevel.DEBUG)
 
     def on_wave_gen_change(self, value=None):
         """Handle wave generator slider change (legacy method for compatibility)."""
