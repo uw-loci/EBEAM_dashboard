@@ -543,7 +543,7 @@ class CathodeHeatingSubsystem:
 
             set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
             set_overvoltage_button.grid(row=2, column=2, sticky='e')
-            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
+            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 60 V")
 
             # Overcurrent limit entry
             overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
@@ -1402,10 +1402,20 @@ class CathodeHeatingSubsystem:
             if target_voltage is None:
                 msgbox.showwarning("Warning", f"Target voltage for Cathode {['A', 'B', 'C'][index]} is not set.")
                 return
+            
+            ovp = self.get_ovp(index)
+            if target_voltage > ovp:
+                msgbox.showerror("Error", f"Target voltage {target_voltage:.2f}V exceeds OVP limit of {ovp:.2f}V for Cathode {['A', 'B', 'C'][index]}.")
+                return
 
             target_current = self.user_set_currents[index]
             if target_current is None:
                 msgbox.showwarning("Warning", f"Target current for Cathode {['A', 'B', 'C'][index]} is not set.")
+                return
+            
+            ocp = self.get_ocp(index)
+            if target_current > ocp:
+                msgbox.showerror("Error", f"Target current {target_current:.2f}A exceeds OCP limit of {ocp:.2f}A for Cathode {['A', 'B', 'C'][index]}.")
                 return
             
             if not self.power_supplies[index].set_output("1"):
