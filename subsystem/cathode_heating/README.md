@@ -148,75 +148,77 @@ flowchart TB
     end
 ```
 
-# Defining a target electron beam emission current
+# Setting current output via dashboard
  
 ```mermaid
 flowchart TB
-    Input["User Enters<b> Target Current"] --> Calculate["Calculate Settings
-                                                        - Emission Current 
-                                                        - Heater Current
-                                                        - Heater Voltage"]
-    
-    Calculate --> ValidateRange{"Within Model<b> Ranges?"}
-    
-    ValidateRange -->|No| ResetVars["Reset Variables <b>Show Error"]
-    ValidateRange -->|Yes| CheckOVP{"Voltage < OVP<b> Limit?"}
-    
-    CheckOVP -->|No| OVPWarn["Show OVP Warning"]
-    CheckOVP -->|Yes| CheckOCP{"Current < OCP Limit?"}
+    Input["User enters new current using textbox or nudge buttons"] --> ActiveRamp{"Active ramp process?"}
 
-    CheckOCP -->|No| OCPWarn["Show OCP Warning"]
-    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage & Current"]
-    
-    SetPS --> Confirm{"Confirm Settings"}
-    
-    Confirm -->|Mismatch| LogError["Log Mismatch<b> Show Warning"]
-    Confirm -->|Match| UpdateDisplay["Update Display<b> - Predictions<b> - Status"]
-    
+    ActiveRamp -->|No| ValidateCurrent{"Validate Input Current
+                                        Current < OCP
+                                        Current > 0"}
+    ActiveRamp -->|Yes| RampWarn["Display ramp warning"]
 
-    UpdateDisplay --> OutputToggled{"Did user toggle output?"}
+    RampWarn --> End
 
-    OutputToggled --> |No| End
-    OutputToggled --> |Yes| OutputOn["Output Switched On"]
-    
-    
-    ResetVars --> End
-    OVPWarn --> End
-    OCPWarn --> End
-    LogError --> End
+    ValidateCurrent -->|Fail| DispWarn["Display invalid input warning"]
+    ValidateCurrent -->|Pass| UpdatePredictions["Update predictions from new current"]
+
+    DispWarn --> End
+
+    UpdatePredictions --> StoreCurrent["Store new set current value"]
+
+    StoreCurrent --> UpdateOutput{"Is output enabled?"}
+
+    UpdateOutput -->|No| End
+    UpdateOutput -->|Yes| OutputMode{"Immediate Set or Ramp?"}
+
+    OutputMode -->|Immediate| SetOutput["Immediate set new current"]
+    OutputMode -->|Ramp| RampMode{"Ramp current or voltage?"}
+
+    SetOutput --> End
+
+    RampMode -->|Current| RampCurrent["Ramp current to new value"]
+    RampMode -->|Voltage| RampVoltage["Ramp voltage given new current restraint"]
+
+    RampCurrent --> End
+    RampVoltage --> End
 ```
 
-# Setting output via Dashboard for Benchmarking
+# Setting voltage output via dashboard 
  
 ```mermaid
 flowchart TB
-    Input["User Enters<b> Voltage"] --> LUT["Use Voltage LUT to set Heater Voltage"]
-    
+    Input["User enters new voltage using textbox or nudge buttons"] --> ActiveRamp{"Active ramp process?"}
 
-    LUT --> CheckOVP{"Voltage < OVP<b> Limit?"}
-    
-    CheckOVP -->|No| OVPWarn["Show OVP Warning"]
-    CheckOVP -->|Yes| CheckOCP{"Current < OCP Limit?"}
+    ActiveRamp -->|No| ValidateVoltage{"Validate Input Voltage
+                                        Voltage < OVP
+                                        Voltage > 0
+                                        Voltage is a multiple of .02"}
+    ActiveRamp -->|Yes| RampWarn["Display ramp warning"]
 
-    CheckOCP -->|No| OCPWarn["Show OCP Warning"]
-    CheckOCP -->|Yes| SetPS["Set Power Supply Voltage & Current"]
-    
-    SetPS --> Confirm{"Confirm<b> Settings"}
-    
-    Confirm -->|Match| UpdateDisplay["Update Display 
-                                     - Predictions 
-                                     - Status"]
-    Confirm -->|Mismatch| LogError["Log Mismatch<b> Show Warning"]
+    RampWarn --> End
 
-    UpdateDisplay --> OutputToggle{"Did user toggle output?"}
+    ValidateVoltage -->|Fail| DispWarn["Display invalid input warning"]
+    ValidateVoltage -->|Pass| UpdatePredictions["Update predictions from new voltage"]
 
-    OutputToggle --> |Yes| RampToggle{"Did user toggle a ramp?"}
+    DispWarn --> End
 
-    RampToggle --> |Yes| Ramp --> OutputOn["Output turned on"]
-    RampToggle --> |No| OutputOn
-    OutputToggle --> |No| End
+    UpdatePredictions --> StoreVoltage["Store new set voltage value"]
 
-    OVPWarn --> End
-    OCPWarn --> End
-    LogError --> End
+    StoreVoltage --> UpdateOutput{"Is output enabled?"}
+
+    UpdateOutput -->|No| End
+    UpdateOutput -->|Yes| OutputMode{"Immediate Set or Ramp?"}
+
+    OutputMode -->|Immediate| SetOutput["Immediate set new voltage"]
+    OutputMode -->|Ramp| RampMode{"Ramp current or voltage?"}
+
+    SetOutput --> End
+
+    RampMode -->|Current| RampCurrent["Ramp current given new voltage constraint"]
+    RampMode -->|Voltage| RampVoltage["Ramp voltage to new value"]
+
+    RampCurrent --> End
+    RampVoltage --> End
 ```
