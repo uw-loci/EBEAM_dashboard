@@ -1,6 +1,7 @@
 import serial
 import threading
 import time
+import math
 from utils import LogLevel
 
 class PowerSupply9104:
@@ -219,7 +220,7 @@ class PowerSupply9104:
 
             # Calculate steps
             current_difference = target_current - current_current
-            num_steps = max(1, int(abs(current_difference) / step_size))
+            num_steps = max(1, math.ceil(abs(current_difference) / step_size))
             current_step = current_difference / num_steps
 
             # Simple ramping loop
@@ -353,7 +354,7 @@ class PowerSupply9104:
             
             # Calculate steps
             voltage_difference = target_voltage - current_voltage
-            num_steps = max(1, int(abs(voltage_difference) / step_size))
+            num_steps = max(1, math.ceil(abs(voltage_difference) / step_size))
             voltage_step = voltage_difference / num_steps
             
             # Simple ramping loop
