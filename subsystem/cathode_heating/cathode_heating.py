@@ -1865,9 +1865,10 @@ class CathodeHeatingSubsystem:
         """
         try:
 
-            if not self.power_supplies and len(self.power_supplies) < index:
-                self.log(f"Cathode {['A', 'B', 'C'][index]} power supply uninitialized or lost connection", LogLevel.WARNING)
-                return False
+            if not self.power_supplies_initialized or not self.power_supplies:
+                self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+                return
+
 
             self.user_set_voltages[index] = new_voltage
 
