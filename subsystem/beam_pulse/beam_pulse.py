@@ -51,7 +51,6 @@ class BeamPulseSubsystem:
     and scan speed using empirical formulas and lookup tables.
     """
 
-    # Physics constants for B-field and power calculations
     # B-field linear approximation constants (empirically derived)
     # Source: "2019-09-26 field measurements - 2 solenoids no covers.xlsx"
     # From "Avg" column at position 0 in "Coil A" and "Coil B" tabs
@@ -143,10 +142,19 @@ class BeamPulseSubsystem:
         # Store references to duration spinboxes for enable/disable control
         self.duration_spinboxes = []
 
-        # Beam position tracking for plotting
-        self.beam_history = [[], [], []]  # [Beam A, Beam B, Beam C] - completed positions
-        self.beam_current = [None, None, None]  # Current/projected positions
-        self.beam_plot_objects = [[], [], []]  # Store plot objects for updating
+        # Step history storage - robust dictionary-based approach
+        # Each step is stored as a dictionary with all data needed to reconstruct the plot
+        # ONLY committed steps go here (when beam ON + Deflect Beam ON)
+        self.step_history = []  # List of step record dictionaries
+        self._next_step_id = 1  # Auto-incrementing step ID
+        
+        # Active plot objects on the canvas (for display management only)
+        # These are recreated from step_history when needed
+        self._plot_objects = [[], [], []]  # [Beam A, Beam B, Beam C] - historical (blue) matplotlib objects
+        
+        # Preview plot objects - shows current settings in real-time (red)
+        # These are NOT stored in step_history, just matplotlib objects for live preview
+        self._preview_objects = [None, None, None]  # [Beam A, Beam B, Beam C] - preview (red) matplotlib objects
 
         # Deflection stats variables
         if parent_frame:
@@ -1604,7 +1612,7 @@ class BeamPulseSubsystem:
         frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
 
         # Label
-        ttk.Label(frame, text="Wave Type", font=("Arial", 9, "bold")).pack()
+        ttk.Label(frame, text="Deflection Type", font=("Arial", 9, "bold")).pack()
 
         # Dropdown (Combobox) with three wave type options (Pulse functionality moved to Pulsing Behavior)
         wave_types = ["Sine", "Triangle", "Fixed"]
@@ -1916,7 +1924,18 @@ class BeamPulseSubsystem:
 
         # Configure each subplot with grid lines and labels
         section_labels = ['Beam A (x-dir)', 'Beam B (x-dir)', 'Beam C (x-dir)']
+        
+        # Add legend to the rightmost graph (Beam C) to show color coding
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], color='red', lw=2, label='Projected Step'),
+            Line2D([0], [0], color='blue', lw=2, label='Past Steps')
+        ]
+        
         for i, ax in enumerate(axs):
+            # Add legend only to the rightmost graph (Beam C)
+            if i == 2:
+                ax.legend(handles=legend_elements, loc='upper right', fontsize=8, framealpha=0.9)
             ax.set_xlabel(section_labels[i], fontsize=6)
             ax.tick_params(labelsize=6)
             ax.title.set_fontsize(8)
@@ -1952,7 +1971,7 @@ class BeamPulseSubsystem:
                 # Create dummy plot objects for legend entries
                 from matplotlib.lines import Line2D
                 legend_elements = [
-                    Line2D([0], [0], color='red', linewidth=2, label='Current step'),
+                    Line2D([0], [0], color='red', linewidth=2, label='Projected step'),
                     Line2D([0], [0], color='blue', linewidth=1, alpha=0.7, label='Past step')
                 ]
                 ax.legend(handles=legend_elements, loc='upper right', fontsize=7, framealpha=0.9)
@@ -1985,6 +2004,9 @@ class BeamPulseSubsystem:
         self._bp_axes = axs
         self._bp_canvas = FigureCanvasTkAgg(fig, master=parent)
         self._bp_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Initialize preview plots to show current settings
+        self._update_all_previews()
 
     # Event handlers for controls
     def toggle_wave_gen(self):
@@ -2003,31 +2025,38 @@ class BeamPulseSubsystem:
                 # Fallback text button
                 self.wave_gen_toggle.configure(text="ON" if self.wave_gen_toggle_state else "OFF")
 
-        # When Deflect Beam is turned ON, check wave type
-        # For Fixed, Sine, and Triangle: create graphs for all beams that are currently ON
+        # When Deflect Beam is turned ON, commit current preview to history for all beams that are ON
         if self.wave_gen_toggle_state:
-            wave_type = self.wave_type.get().lower()
-            if wave_type in ["fixed", "sine", "triangle"]:
-                # Check each beam and create graph if beam is ON
-                for beam_index in range(3):
-                    if self.beam_on_status[beam_index]:
-                        self.add_beam_position_to_plot(beam_index)
-                        beam_names = ['A', 'B', 'C']
-                        self._log(f"Deflection started for Beam {beam_names[beam_index]} ({wave_type})", LogLevel.DEBUG)
+            for beam_index in range(3):
+                if self.beam_on_status[beam_index]:
+                    self._commit_preview_to_history(beam_index)
+                    beam_names = ['A', 'B', 'C']
+                    self._log(f"Deflection started for Beam {beam_names[beam_index]}", LogLevel.DEBUG)
+        
+        # Update preview display (previews still show when deflect is off)
+        self._update_all_previews()
 
         self._log(f"Wave Gen {'enabled' if self.wave_gen_toggle_state else 'disabled'}", LogLevel.DEBUG)
 
     def clear_beam_plots(self):
-        """Clear all beam plots from display (but keep data in history)."""
+        """Clear all completed beam plots from display (but keep data in history).
+        
+        Hides all previous steps, leaving only the most recent current step visible.
+        All step data is retained in memory for restoration with Show All.
+        """
         self.graph_history_visible = False
         self.clear_all_beam_plots_display()
-        self._log("Beam plots cleared from display", LogLevel.DEBUG)
+        self._log("Beam plots cleared from display (history retained)", LogLevel.DEBUG)
 
     def show_all_beam_plots(self):
-        """Show all beam plots from history."""
+        """Show all beam plots from complete history.
+        
+        Restores visualization of all recorded steps, including both completed steps (blue)
+        and the current step (red), allowing full experiment history review.
+        """
         self.graph_history_visible = True
         self.redraw_all_beam_plots()
-        self._log("All beam plots restored to display", LogLevel.DEBUG)
+        self._log("All beam plots restored to display (full history)", LogLevel.DEBUG)
 
     def on_wave_gen_change(self, value=None):
         """Handle wave generator slider change (legacy method for compatibility)."""
@@ -2040,47 +2069,13 @@ class BeamPulseSubsystem:
 
         # Update all control states based on current wave type and pulsing behavior
         self.update_frequency_spinbox_state()
+        
+        # Update preview plots to reflect new wave type
+        self._update_all_previews()
 
     def on_pulsing_behavior_change(self, event=None):
         """Handle pulsing behavior dropdown change."""
         new_pulsing_behavior = self.pulsing_behavior.get()
-        
-        # Get the current pulsing behavior before the change is applied
-        # We need to revert to get the old value
-        current_options = self.pulsing_behavior_combo.cget('values')
-        current_index = current_options.index(new_pulsing_behavior)
-        old_index = 1 - current_index  # Toggle between 0 and 1
-        old_pulsing_behavior = current_options[old_index]
-        
-        # Check if switching from DC to Pulsed mode with beams on
-        if old_pulsing_behavior == "DC" and new_pulsing_behavior == "Pulsed":
-            # Find which beams are currently on
-            beams_on = []
-            beam_names = ['A', 'B', 'C']
-            for i in range(3):
-                if self.beam_on_status[i]:
-                    beams_on.append(beam_names[i])
-            
-            # If any beams are on, show warning
-            if beams_on:
-                beams_list = ", ".join(beams_on)
-                message = f"Warning: Switching to Pulsed mode will cut off beam(s) {beams_list}.\n\nDo you want to continue?"
-                
-                result = messagebox.askyesno(
-                    "Pulsed Mode - Beams Will Be Cut Off",
-                    message
-                )
-                
-                if not result:
-                    # User clicked Cancel, revert to DC mode
-                    self.pulsing_behavior.set(old_pulsing_behavior)
-                    return
-                else:
-                    # User confirmed, turn off all beams
-                    for i in range(3):
-                        if self.beam_on_status[i]:
-                            self.set_beam_status(i, False)
-        
         self._log(f"Pulsing Behavior changed to: {new_pulsing_behavior}", LogLevel.DEBUG)
 
         # Update all control states based on current pulsing behavior
@@ -2094,6 +2089,9 @@ class BeamPulseSubsystem:
         # Update scan speed for all three beams based on new frequency
         # All beams use the same frequency -> same scan speed
         self.update_deflection_stats()
+        
+        # Update preview plots to reflect new frequency
+        self._update_all_previews()
 
     def on_wave_amplitude_change(self):
         """Handle wave amplitude spinbox change and update deflection stats."""
@@ -2102,6 +2100,9 @@ class BeamPulseSubsystem:
 
         # Update deflection, B-field, and power for all beams based on new amplitude
         self.update_deflection_stats()
+        
+        # Update preview plots to reflect new amplitude
+        self._update_all_previews()
 
     def on_duration_change(self, duration_var):
         """Handle beam duration spinbox change."""
@@ -2149,9 +2150,9 @@ class BeamPulseSubsystem:
             self.beam_on_status[beam_index] = status
             self.update_beam_led_indicators()
 
-            # Add position to plot if beam is turned on and wave generation is enabled
+            # Commit preview to history if beam turns ON and Deflect Beam is enabled
             if status and self.wave_gen_toggle_state:
-                self.add_beam_position_to_plot(beam_index)
+                self._commit_preview_to_history(beam_index)
 
             beam_names = ['A', 'B', 'C']
             self._log(f"Beam {beam_names[beam_index]} status set to {'ON' if status else 'OFF'}", LogLevel.DEBUG)
@@ -2291,8 +2292,261 @@ class BeamPulseSubsystem:
             return self.beam_c_duration.get()
         return 100.0
 
+    def _generate_step_id(self) -> int:
+        """Generate a unique step ID."""
+        step_id = self._next_step_id
+        self._next_step_id += 1
+        return step_id
+
+    def _create_step_record(self, beam_index: int, position_data: dict) -> dict:
+        """Create a step record dictionary with all data needed to reconstruct the plot.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+            position_data: Position data from calculate_beam_position()
+            
+        Returns:
+            dict: Complete step record
+        """
+        import time
+        
+        wave_type = position_data['type']
+        
+        # Extract position coordinates (convert numpy arrays to lists for serialization)
+        x_data = position_data['x']
+        y_data = position_data['y']
+        
+        # Convert to lists if numpy arrays
+        if _HAS_NUMPY and hasattr(x_data, 'tolist'):
+            x_data = x_data.tolist()
+        if _HAS_NUMPY and hasattr(y_data, 'tolist'):
+            y_data = y_data.tolist()
+        
+        # Get current pulsing behavior setting
+        pulsing_behavior = self.get_pulsing_behavior()
+        
+        return {
+            'id': self._generate_step_id(),
+            'beam_index': beam_index,
+            'timestamp': time.time(),
+            'deflection_type': wave_type,        # 'sine', 'triangle', or 'fixed'
+            'pulsing_behavior': pulsing_behavior, # 'DC' or 'Pulsed'
+            'position': {
+                'x': x_data,
+                'y': y_data,
+            },
+            'parameters': {
+                'amplitude': position_data.get('amplitude', 0.0),
+                'frequency': position_data.get('frequency', 0.0),
+                'duration': position_data.get('duration', 0.0),
+            },
+        }
+
+    def get_steps_for_beam(self, beam_index: int) -> list:
+        """Get all steps for a specific beam.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+            
+        Returns:
+            list: List of step records for the specified beam
+        """
+        return [step for step in self.step_history if step['beam_index'] == beam_index]
+
+    def get_current_step_for_beam(self, beam_index: int) -> dict:
+        """Get the most recent step for a specific beam.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+            
+        Returns:
+            dict: Most recent step record, or None if no steps exist
+        """
+        beam_steps = self.get_steps_for_beam(beam_index)
+        return beam_steps[-1] if beam_steps else None
+
+    def _draw_step_on_axes(self, step: dict, ax, color: str, is_current: bool = False) -> object:
+        """Draw a step on the given axes and return the plot object.
+        
+        Args:
+            step: Step record dictionary
+            ax: Matplotlib axes to draw on
+            color: Color for the plot ('red' for current, 'blue' for history)
+            is_current: Whether this is the current (most recent) step
+            
+        Returns:
+            matplotlib plot object
+        """
+        deflection_type = step['deflection_type']
+        x = step['position']['x']
+        y = step['position']['y']
+        
+        if deflection_type == "fixed":
+            markersize = 8 if is_current else 6
+            alpha = 1.0 if is_current else 0.7
+            plot_obj = ax.plot(x, y, 'o', color=color, markersize=markersize, alpha=alpha)[0]
+            
+        elif deflection_type == "pulse":
+            markersize = 10 if is_current else 8
+            alpha = 1.0 if is_current else 0.7
+            plot_obj = ax.plot(x, y, 's', color=color, markersize=markersize, alpha=alpha)[0]
+            
+        elif deflection_type in ["sine", "triangle"]:
+            linewidth = 2 if is_current else 1
+            alpha = 1.0 if is_current else 0.7
+            plot_obj = ax.plot(x, y, '-', color=color, linewidth=linewidth, alpha=alpha)[0]
+        else:
+            # Fallback for unknown types
+            plot_obj = ax.plot(x, y, 'o', color=color, markersize=6, alpha=0.7)[0]
+            
+        return plot_obj
+
+    # =====================================================
+    # PREVIEW SYSTEM - Real-time visualization of current settings
+    # =====================================================
+    
+    def _update_preview(self, beam_index: int):
+        """Update the preview plot for a single beam based on current settings.
+        
+        The preview (red) shows what the deflection WOULD look like with current
+        settings. It updates in real-time as amplitude, frequency, etc. change.
+        This is NOT stored in step_history - it's purely visual feedback.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+        """
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+        if not hasattr(self, '_preview_objects'):
+            self._preview_objects = [None, None, None]
+            
+        ax = self._bp_axes[beam_index]
+        
+        # Remove existing preview for this beam
+        if self._preview_objects[beam_index] is not None:
+            try:
+                self._preview_objects[beam_index].remove()
+            except (AttributeError, ValueError):
+                pass
+            self._preview_objects[beam_index] = None
+        
+        # Calculate position based on current settings
+        position_data = self.calculate_beam_position(beam_index)
+        if position_data is None:
+            return
+            
+        wave_type = position_data['type']
+        x = position_data['x']
+        y = position_data['y']
+        
+        # Draw preview in RED with slightly transparent style to distinguish from committed
+        if wave_type == "fixed":
+            preview_obj = ax.plot(x, y, 'o', color='red', markersize=8, alpha=0.8)[0]
+        elif wave_type == "pulse":
+            preview_obj = ax.plot(x, y, 's', color='red', markersize=10, alpha=0.8)[0]
+        elif wave_type in ["sine", "triangle"]:
+            preview_obj = ax.plot(x, y, '-', color='red', linewidth=2, alpha=0.8)[0]
+        else:
+            preview_obj = ax.plot(x, y, 'o', color='red', markersize=6, alpha=0.8)[0]
+            
+        self._preview_objects[beam_index] = preview_obj
+    
+    def _update_all_previews(self):
+        """Update preview plots for all three beams and refresh the canvas.
+        
+        Called whenever settings change (amplitude, frequency, wave type, etc.)
+        to show real-time visual feedback of what the deflection would look like.
+        """
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+            
+        for beam_index in range(3):
+            self._update_preview(beam_index)
+        
+        # Refresh the canvas to show updated previews
+        if hasattr(self, '_bp_canvas') and self._bp_canvas:
+            self._bp_canvas.draw()
+    
+    def _commit_preview_to_history(self, beam_index: int):
+        """Commit the current preview to history (convert red to blue).
+        
+        This is called when:
+        - Beam turns ON while Deflect Beam is already ON
+        - Deflect Beam turns ON while Beam is already ON
+        
+        The current settings are captured as a step record, stored in step_history,
+        and the preview is converted to a historical (blue) plot.
+        
+        The blue historical step remains visible on top until the user adjusts
+        settings (amplitude, frequency, wave type), which will trigger a preview update.
+        
+        Args:
+            beam_index: Beam index (0=A, 1=B, 2=C)
+        """
+        if not hasattr(self, '_bp_axes') or self._bp_axes is None:
+            return
+            
+        position_data = self.calculate_beam_position(beam_index)
+        if position_data is None:
+            return
+        
+        # Create and store the step record (this is the persistent data)
+        step_record = self._create_step_record(beam_index, position_data)
+        self.step_history.append(step_record)
+        
+        self._log(f"Step {step_record['id']} committed for Beam {['A', 'B', 'C'][beam_index]}: "
+                  f"{step_record['deflection_type']} ({step_record['pulsing_behavior']}), "
+                  f"amp={step_record['parameters']['amplitude']:.2f}",
+                  LogLevel.DEBUG)
+        
+        # Remove the preview object (it's now part of history)
+        if hasattr(self, '_preview_objects') and self._preview_objects[beam_index] is not None:
+            try:
+                self._preview_objects[beam_index].remove()
+            except (AttributeError, ValueError):
+                pass
+            self._preview_objects[beam_index] = None
+        
+        # Redraw from history (which now includes the committed step in blue)
+        # The blue line will be visible on top since we removed the preview
+        # Preview will reappear when user adjusts settings (triggers _update_all_previews)
+        if self.graph_history_visible:
+            self._redraw_beam_from_history(beam_index)
+        
+        # NOTE: We intentionally do NOT recreate the preview here.
+        # This keeps the blue (committed) line visible on top.
+        # The red preview will reappear when user changes settings
+        # (amplitude, frequency, wave type) which triggers _update_all_previews()
+        
+        # Refresh canvas
+        if hasattr(self, '_bp_canvas') and self._bp_canvas:
+            self._bp_canvas.draw()
+    
+    def _clear_all_previews(self):
+        """Remove all preview plots from display.
+        
+        Called when clearing the graph or when previews should be hidden.
+        """
+        if not hasattr(self, '_preview_objects'):
+            return
+            
+        for beam_index in range(3):
+            if self._preview_objects[beam_index] is not None:
+                try:
+                    self._preview_objects[beam_index].remove()
+                except (AttributeError, ValueError):
+                    pass
+                self._preview_objects[beam_index] = None
+
     def add_beam_position_to_plot(self, beam_index: int):
-        """Add current beam position to the plot and history."""
+        """Add current beam position to step history and update the plot.
+        
+        This method:
+        1. Calculates the current beam position based on wave type and parameters
+        2. Creates a step record with all data needed to reconstruct the plot
+        3. Stores the step in step_history (data persists regardless of display state)
+        4. Redraws the plot if graphs are visible
+        """
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
 
@@ -2300,149 +2554,147 @@ class BeamPulseSubsystem:
         if position_data is None:
             return
 
-        ax = self._bp_axes[beam_index]
-        wave_type = position_data['type']
+        # Create and store the step record (this is the persistent data)
+        step_record = self._create_step_record(beam_index, position_data)
+        self.step_history.append(step_record)
+        
+        self._log(f"Step {step_record['id']} added for Beam {['A', 'B', 'C'][beam_index]}: "
+                  f"{step_record['deflection_type']} ({step_record['pulsing_behavior']}), "
+                  f"amp={step_record['parameters']['amplitude']:.2f}",
+                  LogLevel.DEBUG)
 
-        # Always move previous current position to history (if it exists)
-        if self.beam_current[beam_index] is not None:
-            self.beam_history[beam_index].append(self.beam_current[beam_index])
+        # Redraw the display if graphs are visible
+        if self.graph_history_visible:
+            self._redraw_beam_from_history(beam_index)
+            if hasattr(self, '_bp_canvas'):
+                self._bp_canvas.draw()
 
-        # Always create plot objects for data persistence, regardless of visibility
-        # Colors: blue for history (completed), red for current
-        history_color = 'blue'
-        current_color = 'red'
-
-        # Create the plot object based on wave type
-        if wave_type == "fixed":
-            # Plot single point
-            x, y = position_data['x'], position_data['y']
-            current_plot = ax.plot(x, y, 'o', color=current_color, markersize=8)[0]
-
-        elif wave_type == "pulse":
-            # Plot pulse as a larger dot
-            x, y = position_data['x'], position_data['y']
-            current_plot = ax.plot(x, y, 's', color=current_color, markersize=10)[0]
-
-        elif wave_type in ["sine", "triangle"]:
-            # Plot wave path
-            x, y = position_data['x'], position_data['y']
-            current_plot = ax.plot(x, y, '-', color=current_color, linewidth=2)[0]
-
-        # Store the current plot object
-        self.beam_current[beam_index] = current_plot
-
-        # Handle visibility - if hidden, remove from display but keep object for history
-        if not self.graph_history_visible:
-            # Hide the current plot but keep the object for data persistence
-            current_plot.remove()
-        else:
-            # Graphs are visible - redraw history to ensure proper colors
-            self.redraw_beam_history(beam_index)
-
-        # Always update canvas if graphs are visible
-        if self.graph_history_visible and hasattr(self, '_bp_canvas'):
-            self._bp_canvas.draw()
-
-    def redraw_beam_history(self, beam_index: int):
-        """Redraw beam history in blue color."""
+    def _redraw_beam_from_history(self, beam_index: int):
+        """Redraw all steps for a beam from step_history data.
+        
+        This method clears existing plot objects and redraws everything
+        from the persistent step_history data. ALL historical steps are
+        drawn in BLUE. The red preview is handled separately by _update_preview().
+        """
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
 
         ax = self._bp_axes[beam_index]
-        history_color = 'blue'
 
-        # Remove old history plot objects from display
-        for obj in self.beam_plot_objects[beam_index]:
+        # Remove all existing historical plot objects for this beam
+        for obj in self._plot_objects[beam_index]:
             try:
                 obj.remove()
-            except AttributeError:
-                pass  # Already removed
-        self.beam_plot_objects[beam_index].clear()
+            except (AttributeError, ValueError):
+                pass  # Already removed or invalid
+        self._plot_objects[beam_index].clear()
 
         # Only redraw if graphs should be visible
         if not self.graph_history_visible:
             return
 
-        # Redraw all history items from stored data
-        for hist_item in self.beam_history[beam_index]:
-            if hist_item is not None:
-                try:
-                    # Create new plot object in history color
-                    xdata, ydata = hist_item.get_data()
-                    marker = hist_item.get_marker()
-                    if marker == 'None' or marker is None:  # Line plot
-                        new_obj = ax.plot(xdata, ydata, '-', color=history_color, alpha=0.7, linewidth=1)[0]
-                    else:  # Point plot
-                        new_obj = ax.plot(xdata, ydata, marker, color=history_color, alpha=0.7, markersize=6)[0]
-                    self.beam_plot_objects[beam_index].append(new_obj)
-                except Exception as e:
-                    self._log(f"Error redrawing history item for beam {beam_index}: {e}", LogLevel.WARNING)
+        # Get all steps for this beam
+        beam_steps = self.get_steps_for_beam(beam_index)
+        if not beam_steps:
+            return
+            
+        # Draw ALL historical steps in BLUE (preview handles red)
+        for step in beam_steps:
+            try:
+                plot_obj = self._draw_step_on_axes(step, ax, color='blue', is_current=False)
+                self._plot_objects[beam_index].append(plot_obj)
+            except Exception as e:
+                self._log(f"Error drawing step {step['id']} for beam {beam_index}: {e}", LogLevel.WARNING)
 
     def clear_all_beam_plots_display(self):
-        """Clear all visible beam plots except the current position (last move)."""
+        """Clear all beam plots from display (history AND previews).
+        
+        This implements the Clear Graph behavior: hides all plots from the display
+        but retains all step data in step_history for later restoration with Show All.
+        
+        Note: Data is NOT deleted - only the visual display is cleared.
+        """
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
 
+        # Remove all historical plot objects from all beams
         for beam_index in range(3):
-            ax = self._bp_axes[beam_index]
-
-            # Keep the current position plot visible (the last move)
-            # Only remove history plots, not the current position
-
-            # Remove all history plot objects from display but keep references in beam_history
-            for obj in self.beam_plot_objects[beam_index]:
-                obj.remove()
-            # Clear the display objects list but keep beam_history intact
-            self.beam_plot_objects[beam_index].clear()
+            for obj in self._plot_objects[beam_index]:
+                try:
+                    obj.remove()
+                except (AttributeError, ValueError):
+                    pass  # Already removed or invalid
+            self._plot_objects[beam_index].clear()
+        
+        # Also clear previews
+        self._clear_all_previews()
 
         # Update canvas
         if hasattr(self, '_bp_canvas'):
             self._bp_canvas.draw()
+            
+        self._log(f"Display cleared. {len(self.step_history)} steps retained in history.", LogLevel.DEBUG)
 
     def redraw_all_beam_plots(self):
-        """Redraw all beam plots (history and current positions)."""
+        """Redraw all beam plots from step_history data, plus current previews.
+        
+        This implements the Show All behavior: redraws all recorded steps
+        from the persistent step_history in BLUE, then adds the current
+        preview (RED) on top.
+        """
         if not hasattr(self, '_bp_axes') or self._bp_axes is None:
             return
 
+        # Redraw historical steps (blue) for each beam
         for beam_index in range(3):
-            # Redraw history for this beam
-            self.redraw_beam_history(beam_index)
-
-            # If there's a current beam position, redraw it in the correct color
-            if self.beam_current[beam_index] is not None:
-                # The current position object exists but was removed from display
-                # We need to recreate it on the axes
-                try:
-                    # Get the data from the existing plot object
-                    xdata, ydata = self.beam_current[beam_index].get_data()
-                    marker = self.beam_current[beam_index].get_marker()
-
-                    # Create new current position plot in red on the correct axes
-                    ax = self._bp_axes[beam_index]
-                    if marker and marker != 'None':  # Point plot
-                        if marker == 'o':
-                            new_plot = ax.plot(xdata, ydata, 'o', color='red', markersize=8)[0]
-                        elif marker == 's':
-                            new_plot = ax.plot(xdata, ydata, 's', color='red', markersize=10)[0]
-                        else:
-                            new_plot = ax.plot(xdata, ydata, marker, color='red', markersize=8)[0]
-                    else:  # Line plot
-                        new_plot = ax.plot(xdata, ydata, '-', color='red', linewidth=2)[0]
-
-                    # Replace the old object with the new one
-                    self.beam_current[beam_index] = new_plot
-
-                except Exception as e:
-                    # If there's any issue, just log it and continue
-                    self._log(f"Error redrawing current beam position {beam_index}: {e}", LogLevel.WARNING)
+            self._redraw_beam_from_history(beam_index)
+        
+        # Restore previews (red) on top of history
+        self._update_all_previews()
 
         # Update canvas
         if hasattr(self, '_bp_canvas'):
             self._bp_canvas.draw()
+            
+        self._log(f"Restored {len(self.step_history)} historical steps + previews to display.", LogLevel.DEBUG)
+
+    def clear_step_history(self):
+        """Permanently delete all step history data.
+        
+        Use this to completely reset the step history (e.g., starting a new experiment).
+        This is different from clear_all_beam_plots_display() which only hides the display.
+        """
+        # Clear display first
+        self.clear_all_beam_plots_display()
+        
+        # Clear the persistent data
+        self.step_history.clear()
+        self._next_step_id = 1
+        
+        self._log("Step history permanently cleared.", LogLevel.INFO)
+
+    def get_step_history_summary(self) -> dict:
+        """Get a summary of the current step history.
+        
+        Returns:
+            dict: Summary including total steps, steps per beam, etc.
+        """
+        return {
+            'total_steps': len(self.step_history),
+            'beam_a_steps': len(self.get_steps_for_beam(0)),
+            'beam_b_steps': len(self.get_steps_for_beam(1)),
+            'beam_c_steps': len(self.get_steps_for_beam(2)),
+            'next_step_id': self._next_step_id,
+        }
 
     # Deflection stats update methods for 3x3 table
     def update_deflection_stats(self):
-        """Update all deflection stats displays with current values."""
+        """Update all deflection stats displays with current values.
+        
+        Note: Deflection stats are calculated based on current control settings
+        (amplitude, frequency, wave type) regardless of whether any beams are on.
+        This allows the user to preview what the deflection would be before turning on beams.
+        """
         if not hasattr(self, 'deflection_table_elements'):
             return
 
@@ -2451,40 +2703,33 @@ class BeamPulseSubsystem:
             for beam_num in [1, 2, 3]:
                 beam_index = beam_num - 1  # Convert to 0-based index
                 
-                # Check if beam is ON - only show values if beam is ON, otherwise show dashes
-                if self.beam_on_status[beam_index]:
-                    # Beam is ON - calculate and display values
-                    amplitude = self.get_beam_amplitude(beam_index)
-                    
-                    # Get frequency, handling both tkinter Variable and plain float
-                    if hasattr(self, 'frequency_hz'):
-                        if isinstance(self.frequency_hz, tk.Variable):
-                            frequency = self.frequency_hz.get()
-                        else:
-                            frequency = float(self.frequency_hz)
+                # Calculate and display values based on current control settings
+                # (independent of whether beams are on or off)
+                amplitude = self.get_beam_amplitude(beam_index)
+                
+                # Get frequency, handling both tkinter Variable and plain float
+                if hasattr(self, 'frequency_hz'):
+                    if isinstance(self.frequency_hz, tk.Variable):
+                        frequency = self.frequency_hz.get()
                     else:
-                        frequency = 10.0
-
-                    # Debug logging to see actual values
-                    self._log(f"Beam {beam_num}: amplitude={amplitude:.2f}A, frequency={frequency:.1f}Hz", LogLevel.DEBUG)
-
-                    # Calculate stats for this beam (may return None if out of LUT range)
-                    deflection = self.calculate_beam_deflection_from_amplitude(amplitude)
-                    scan_speed = self.calculate_scan_speed_from_frequency(frequency)
-                    bfield = self.calculate_b_field_from_current(amplitude, beam_num)  # Pass beam number
-                    power = self.calculate_solenoid_power_from_current(amplitude)
-
-                    # Update table cells - show dashes if LUT lookup failed (returned None)
-                    self.update_table_cell('deflection', beam_num, f"{deflection:.1f}" if deflection is not None else "--")
-                    self.update_table_cell('scan_speed', beam_num, f"{scan_speed:.2f}" if scan_speed is not None else "--")
-                    self.update_table_cell('bfield', beam_num, f"{bfield:.0f}" if bfield is not None else "--")
-                    self.update_table_cell('power', beam_num, f"{power:.0f}" if power is not None else "--")
+                        frequency = float(self.frequency_hz)
                 else:
-                    # Beam is OFF - display dashes
-                    self.update_table_cell('deflection', beam_num, "--")
-                    self.update_table_cell('scan_speed', beam_num, "--")
-                    self.update_table_cell('bfield', beam_num, "--")
-                    self.update_table_cell('power', beam_num, "--")
+                    frequency = 10.0
+
+                # Debug logging to see actual values
+                self._log(f"Beam {beam_num}: amplitude={amplitude:.2f}A, frequency={frequency:.1f}Hz", LogLevel.DEBUG)
+
+                # Calculate stats for this beam (may return None if out of LUT range)
+                deflection = self.calculate_beam_deflection_from_amplitude(amplitude)
+                scan_speed = self.calculate_scan_speed_from_frequency(frequency)
+                bfield = self.calculate_b_field_from_current(amplitude, beam_num)  # Pass beam number
+                power = self.calculate_solenoid_power_from_current(amplitude)
+
+                # Update table cells - show dashes if LUT lookup failed (returned None)
+                self.update_table_cell('deflection', beam_num, f"{deflection:.1f}" if deflection is not None else "--")
+                self.update_table_cell('scan_speed', beam_num, f"{scan_speed:.2f}" if scan_speed is not None else "--")
+                self.update_table_cell('bfield', beam_num, f"{bfield:.0f}" if bfield is not None else "--")
+                self.update_table_cell('power', beam_num, f"{power:.0f}" if power is not None else "--")
 
         except Exception as e:
             self._log(f"Error updating deflection table: {e}", LogLevel.WARNING)
