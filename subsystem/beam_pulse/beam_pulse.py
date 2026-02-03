@@ -100,7 +100,7 @@ class BeamPulseSubsystem:
             self.wave_type = tk.StringVar(value="Sine")  # Default to Sine
             self.pulsing_behavior = tk.StringVar(value="DC")  # Default to DC mode
             self.frequency_hz = tk.DoubleVar(value=10.0)
-            self.wave_amplitude = tk.DoubleVar(value=5.0)
+            self.wave_amplitude = tk.DoubleVar(value=0.0)
 
             # Pulse duration variables for each beam (A, B, C)
             self.beam_a_duration = tk.DoubleVar(value=50.0)
@@ -120,7 +120,7 @@ class BeamPulseSubsystem:
             self.wave_type = "Sine"
             self.pulsing_behavior = "DC"
             self.frequency_hz = 10.0
-            self.wave_amplitude = 5.0
+            self.wave_amplitude = 0.0
             self.beam_a_duration = 50.0
             self.beam_b_duration = 50.0
             self.beam_c_duration = 50.0
@@ -2522,7 +2522,7 @@ class BeamPulseSubsystem:
         if hasattr(self, '_bp_canvas') and self._bp_canvas:
             self._bp_canvas.draw()
     
-    def _clear_all_previews(self):
+    def _clear_all_previews(self): 
         """Remove all preview plots from display.
         
         Called when clearing the graph or when previews should be hidden.
