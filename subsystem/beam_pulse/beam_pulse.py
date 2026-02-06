@@ -241,6 +241,7 @@ class BeamPulseSubsystem:
 
         # Graph visibility control
         self.graph_history_visible = True
+        self.graph_preview_visible = True
 
         # Dashboard integration callback
         self._dashboard_beam_callback = None
@@ -289,35 +290,35 @@ class BeamPulseSubsystem:
         # Create control columns with labels on top and controls below
         self.create_wave_gen_control(control_row, 0)
         self.create_wave_type_control(control_row, 1)
-        self.create_pulsing_behavior_control(control_row, 2)
-        self.create_frequency_control(control_row, 3)
-        self.create_wave_amplitude_control(control_row, 4)
-        self.create_bcon_connection_status(control_row, 5)
+        self.create_frequency_control(control_row, 2)
+        self.create_wave_amplitude_control(control_row, 3)
+        self.create_bcon_connection_status(control_row, 4)
 
-        # Configure column weights for responsive layout (now 6 columns)
-        for i in range(6):
+        # Configure column weights for responsive layout (now 5 columns)
+        for i in range(5):
             control_row.grid_columnconfigure(i, weight=1)
 
-        # Second control row for pulse duration controls
+        # Second control row for Pulsing Behavior and pulse duration controls
         pulse_row = ttk.Frame(main_frame)
         pulse_row.pack(fill=tk.X, pady=(0, 10))
 
-        # Create pulse duration controls for beams A, B, C (centered with less spacing)
-        # Use columns 1, 2, 3 with spacer columns 0 and 4 for centering
-        self.create_beam_duration_control(pulse_row, 1, "Beam A Duration (ms)",
+        # Create Pulsing Behavior and pulse duration controls
+        # Use columns 1-4 with spacer columns 0 and 5 for centering
+        self.create_pulsing_behavior_control(pulse_row, 1)
+        self.create_beam_duration_control(pulse_row, 2, "Beam A Duration (ms)",
                                            self.beam_a_duration)
-        self.create_beam_duration_control(pulse_row, 2, "Beam B Duration (ms)",
+        self.create_beam_duration_control(pulse_row, 3, "Beam B Duration (ms)",
                                            self.beam_b_duration)
-        self.create_beam_duration_control(pulse_row, 3, "Beam C Duration (ms)",
+        self.create_beam_duration_control(pulse_row, 4, "Beam C Duration (ms)",
                                            self.beam_c_duration)
 
-        # Configure column weights for pulse row (5 columns total)
-        # Columns 0 and 4 are spacers with higher weight to center the controls
-        pulse_row.grid_columnconfigure(0, weight=2)  # Left spacer
-        pulse_row.grid_columnconfigure(1, weight=0)  # Beam A (no expansion)
-        pulse_row.grid_columnconfigure(2, weight=0)  # Beam B (no expansion)
-        pulse_row.grid_columnconfigure(3, weight=0)  # Beam C (no expansion)
-        pulse_row.grid_columnconfigure(4, weight=2)  # Right spacer
+        # Configure column weights for pulse row (6 columns total)
+        pulse_row.grid_columnconfigure(0, weight=1)  # Left spacer
+        pulse_row.grid_columnconfigure(1, weight=0)  # Pulsing Behavior (no expansion)
+        pulse_row.grid_columnconfigure(2, weight=0)  # Beam A (no expansion)
+        pulse_row.grid_columnconfigure(3, weight=0)  # Beam B (no expansion)
+        pulse_row.grid_columnconfigure(4, weight=0)  # Beam C (no expansion)
+        pulse_row.grid_columnconfigure(5, weight=1)  # Right spacer
 
         # Set initial state of frequency spinbox based on default wave type
         self.update_frequency_spinbox_state()
@@ -352,23 +353,60 @@ class BeamPulseSubsystem:
         right_spacer = ttk.Frame(header_frame)
         right_spacer.pack(side=tk.LEFT, expand=True)
 
-        # Show All button on the far right
-        self.show_all_button = ttk.Button(
-            header_frame,
-            text="Show All",
-            command=self.show_all_beam_plots,
-            width=10
-        )
-        self.show_all_button.pack(side=tk.RIGHT, padx=(0, 5))
+        # Toggle controls frame on the far right
+        toggles_frame = ttk.Frame(header_frame)
+        toggles_frame.pack(side=tk.RIGHT, padx=(0, 0))
 
-        # Clear Graph button to the left of Show All
-        self.clear_graph_button = ttk.Button(
-            header_frame,
-            text="Clear Graph",
-            command=self.clear_beam_plots,
-            width=15
-        )
-        self.clear_graph_button.pack(side=tk.RIGHT, padx=(0, 10))
+        # Title for toggle section
+        ttk.Label(toggles_frame, text="Show Steps", font=("Arial", 9, "bold")).pack(pady=(0, 2))
+
+        # Container for the two toggles
+        toggles_container = ttk.Frame(toggles_frame)
+        toggles_container.pack()
+
+        # History toggle (right) - Show/Hide blue lines
+        history_toggle_frame = ttk.Frame(toggles_container)
+        history_toggle_frame.pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Label(history_toggle_frame, text="History", font=("Arial", 8)).pack()
+        if self.toggle_on_image and self.toggle_off_image:
+            self.history_toggle = tk.Button(
+                history_toggle_frame,
+                image=self.toggle_on_image,
+                command=self.toggle_history_visibility,
+                relief=tk.FLAT,
+                bd=0,
+                bg="white"
+            )
+        else:
+            self.history_toggle = ttk.Button(
+                history_toggle_frame,
+                text="HIDE",
+                command=self.toggle_history_visibility,
+                width=8
+            )
+        self.history_toggle.pack()
+
+        # Preview toggle (left) - Show/Hide red lines
+        preview_toggle_frame = ttk.Frame(toggles_container)
+        preview_toggle_frame.pack(side=tk.RIGHT, padx=(0, 5))
+        ttk.Label(preview_toggle_frame, text="Projected", font=("Arial", 8)).pack()
+        if self.toggle_on_image and self.toggle_off_image:
+            self.preview_toggle = tk.Button(
+                preview_toggle_frame,
+                image=self.toggle_on_image,
+                command=self.toggle_preview_visibility,
+                relief=tk.FLAT,
+                bd=0,
+                bg="white"
+            )
+        else:
+            self.preview_toggle = ttk.Button(
+                preview_toggle_frame,
+                text="HIDE",
+                command=self.toggle_preview_visibility,
+                width=8
+            )
+        self.preview_toggle.pack()
 
         # Plots frame
         plots_frame = ttk.Frame(plots_container)
@@ -1929,7 +1967,7 @@ class BeamPulseSubsystem:
         from matplotlib.lines import Line2D
         legend_elements = [
             Line2D([0], [0], color='red', lw=2, label='Projected Step'),
-            Line2D([0], [0], color='blue', lw=2, label='Past Steps')
+            Line2D([0], [0], color='blue', lw=2, label='Historical Steps')
         ]
         
         for i, ax in enumerate(axs):
@@ -1972,7 +2010,7 @@ class BeamPulseSubsystem:
                 from matplotlib.lines import Line2D
                 legend_elements = [
                     Line2D([0], [0], color='red', linewidth=2, label='Projected step'),
-                    Line2D([0], [0], color='blue', linewidth=1, alpha=0.7, label='Past step')
+                    Line2D([0], [0], color='blue', linewidth=1, alpha=0.7, label='Historical steps')
                 ]
                 ax.legend(handles=legend_elements, loc='upper right', fontsize=7, framealpha=0.9)
 
@@ -2057,6 +2095,65 @@ class BeamPulseSubsystem:
         self.graph_history_visible = True
         self.redraw_all_beam_plots()
         self._log("All beam plots restored to display (full history)", LogLevel.DEBUG)
+
+    def toggle_preview_visibility(self):
+        """Toggle visibility of preview (red) plots."""
+        self.graph_preview_visible = not self.graph_preview_visible
+        
+        # Update toggle button appearance
+        if hasattr(self, 'preview_toggle'):
+            if self.toggle_on_image and self.toggle_off_image:
+                if self.graph_preview_visible:
+                    self.preview_toggle.config(image=self.toggle_on_image)
+                else:
+                    self.preview_toggle.config(image=self.toggle_off_image)
+            else:
+                self.preview_toggle.config(text="HIDE" if self.graph_preview_visible else "SHOW")
+        
+        # Update display
+        if self.graph_preview_visible:
+            self._update_all_previews()
+        else:
+            self._clear_all_previews()
+            if hasattr(self, '_bp_canvas') and self._bp_canvas:
+                self._bp_canvas.draw()
+        
+        status = "shown" if self.graph_preview_visible else "hidden"
+        self._log(f"Preview plots {status}", LogLevel.DEBUG)
+
+    def toggle_history_visibility(self):
+        """Toggle visibility of history (blue) plots."""
+        self.graph_history_visible = not self.graph_history_visible
+        
+        # Update toggle button appearance
+        if hasattr(self, 'history_toggle'):
+            if self.toggle_on_image and self.toggle_off_image:
+                if self.graph_history_visible:
+                    self.history_toggle.config(image=self.toggle_on_image)
+                else:
+                    self.history_toggle.config(image=self.toggle_off_image)
+            else:
+                self.history_toggle.config(text="HIDE" if self.graph_history_visible else "SHOW")
+        
+        # Update display
+        if self.graph_history_visible:
+            # Redraw all history
+            self.redraw_all_beam_plots()
+        else:
+            # Clear only history, keep previews
+            for beam_index in range(3):
+                for obj in self._plot_objects[beam_index]:
+                    try:
+                        obj.remove()
+                    except (AttributeError, ValueError):
+                        pass
+                self._plot_objects[beam_index].clear()
+            
+            if hasattr(self, '_bp_canvas') and self._bp_canvas:
+                self._bp_canvas.draw()
+        
+        status = "shown" if self.graph_history_visible else "hidden"
+        self._log(f"History plots {status}", LogLevel.DEBUG)
 
     def on_wave_gen_change(self, value=None):
         """Handle wave generator slider change (legacy method for compatibility)."""
@@ -2429,6 +2526,10 @@ class BeamPulseSubsystem:
             except (AttributeError, ValueError):
                 pass
             self._preview_objects[beam_index] = None
+        
+        # Only draw if preview is visible
+        if not self.graph_preview_visible:
+            return
         
         # Calculate position based on current settings
         position_data = self.calculate_beam_position(beam_index)
