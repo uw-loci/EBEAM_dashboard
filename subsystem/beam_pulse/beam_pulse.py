@@ -2506,8 +2506,12 @@ class BeamPulseSubsystem:
         """Update the preview plot for a single beam based on current settings.
         
         The preview (red) shows what the deflection WOULD look like with current
-        settings. It updates in real-time as amplitude, frequency, etc. change.
-        This is NOT stored in step_history - it's purely visual feedback.
+        settings, taking into account:
+        - Whether grids are armed (beams armed status)
+        - Whether solenoids are powered (wave gen/deflect beam toggle)
+        - Current amplitude, frequency, and wave type settings
+        
+        Special case: If amplitude is 0, shows as a red dot (fixed position at center).
         
         Args:
             beam_index: Beam index (0=A, 1=B, 2=C)
@@ -2531,17 +2535,40 @@ class BeamPulseSubsystem:
         if not self.graph_preview_visible:
             return
         
-        # Calculate position based on current settings
+        # Check if beams can pass through grid (must be armed)
+        if not self.beams_armed_status:
+            return  # No preview if grids are not armed
+        
+        # Get current settings
+        wave_type = self.wave_type.get().lower()
+        amplitude = self.wave_amplitude.get() if hasattr(self, 'wave_amplitude') else 0.0
+        if hasattr(self.wave_amplitude, 'get'):
+            amplitude = self.wave_amplitude.get()
+        
+        # Check if solenoids are powered (deflect beam toggle)
+        deflect_beam_on = self.wave_gen_toggle_state
+        
+        # If solenoids are off, beam passes straight through (red dot at center)
+        if not deflect_beam_on:
+            preview_obj = ax.plot(0, 0, 'o', color='red', markersize=8, alpha=0.8)[0]
+            self._preview_objects[beam_index] = preview_obj
+            return
+        
+        # Solenoids are on: calculate deflection pattern
+        # If amplitude is 0, sine/triangle waves collapse to a dot at center
+        # If amplitude > 0, show the full wave pattern
         position_data = self.calculate_beam_position(beam_index)
         if position_data is None:
             return
             
-        wave_type = position_data['type']
         x = position_data['x']
         y = position_data['y']
         
-        # Draw preview in RED with slightly transparent style to distinguish from committed
-        if wave_type == "fixed":
+        # For sine/triangle waves with amplitude = 0, show as a dot at center
+        if wave_type in ["sine", "triangle"] and amplitude == 0:
+            preview_obj = ax.plot(0, 0, 'o', color='red', markersize=8, alpha=0.8)[0]
+        # Draw preview in RED based on wave type
+        elif wave_type == "fixed":
             preview_obj = ax.plot(x, y, 'o', color='red', markersize=8, alpha=0.8)[0]
         elif wave_type == "pulse":
             preview_obj = ax.plot(x, y, 's', color='red', markersize=10, alpha=0.8)[0]
@@ -3038,6 +3065,10 @@ class BeamPulseSubsystem:
 
             # Keep beams off when armed - they need to be manually toggled
             # (LEDs will remain red until individual beams are turned on)
+            
+            # Update preview display to show beam paths now that grid is open
+            if hasattr(self, '_update_all_previews'):
+                self._update_all_previews()
 
             self._log("Beams successfully armed and ready for operation", LogLevel.INFO)
 
@@ -3065,6 +3096,10 @@ class BeamPulseSubsystem:
 
             # Turn off all beam LEDs when disarmed
             self.set_all_beams_status(False)
+            
+            # Update preview display to hide beam paths since grid is closed
+            if hasattr(self, '_update_all_previews'):
+                self._update_all_previews()
 
             self._log("Beams successfully disarmed", LogLevel.INFO)
 
