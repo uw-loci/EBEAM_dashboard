@@ -10,6 +10,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
 import json
 from collections import deque
+from db.supabase_client import SupabaseClient
 
 class LogLevel(enum.IntEnum):
     VERBOSE = 0
@@ -34,6 +35,12 @@ class Logger:
         self.log_filepath = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
+        self.supabase_client = None
+        self.last_supabase_write = None
+        try:
+            self.supabase_client = SupabaseClient()
+        except Exception as e:
+            print(f"Warning: Supabase client failed to initialize: {e}")
         self.dict_logger = {
             "pressure": None,
             "safetyOutputDataFlags": None,
@@ -146,11 +153,22 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
+        now = datetime.datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Write to Supabase if 2 seconds have passed since last write
+        if self.supabase_client:
+            if self.last_supabase_write is None or (now - self.last_supabase_write).total_seconds() >= 2:
+                try:
+                    self.supabase_client.insert_status_log(timestamp, update_dict)
+                    self.last_supabase_write = now
+                except Exception as e:
+                    print(f"Supabase write error: {e}")
+
         # return early if file logging is disabled
         if not self.log_to_file:
                 return
         try:
-            now = datetime.datetime.now()
             # overwrite logs on the same webMonitor file every hour
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                 if self.webMonitor_log_file:
@@ -159,7 +177,7 @@ class Logger:
             if self.webMonitor_log_file is None:
                 return
             entry = {
-                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": timestamp,
                 "status": update_dict
             }
             self.webMonitor_log_file.write(json.dumps(entry) + "\n")
