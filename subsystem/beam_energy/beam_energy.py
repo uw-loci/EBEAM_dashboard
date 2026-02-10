@@ -39,8 +39,8 @@ class BeamEnergySubsystem:
         self.power_supplies = [
             {"name": "+1kV Matsusada PS", "type": "matsusada", "voltage": 1000},
             {"name": "-1kV Matsusada PS", "type": "matsusada", "voltage": -1000},
-            {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
             {"name": "+20kV Bertran PS", "type": "bertran", "voltage": 20000},
+            {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
         ]
 
         # Global data storing each power supply's latest readings
