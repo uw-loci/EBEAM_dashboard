@@ -3,18 +3,47 @@ import time
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
-# ==== MODBUS MAP (update with firmware) =====
+#============= MODBUS MAP ==================================
+#===========================================================
 # Input Registers (Function Code 04)
-IREG_MODE_ADDR        = 1   # 0=3kV Bertan, 1=20kV Bertan, 2=1kV Matsusada, 255=error
-IREG_V_SET_ADDR       = 2   # integer volts
-IREG_V_READ_ADDR      = 3   # integer volts
-IREG_I_READ_ADDR      = 4   # integer milliamps
+IREG_HEALTH_ADDR =      0   # track health/error mode
+IREG_V_SET_ADDR =       1   # integer volts
+IREG_V_READ_ADDR =      2   # integer volts
+IREG_I_READ_ADDR =      3   # integer microamps
 
 # Discrete Inputs (Function Code 02)
-DINPUT_OVERCURRENT_ADDR = 0  # boolean 0/1
+DINPUT_HVENABLE_ADDR =          0
+# below are just reported by the matsusada monitoring arduinos
+DINPUT_RESET_STATE_ADDR =       1
+# below are just reported by the 3kV monitoring arduino
+# (logic arduino outputs)
+DINPUT_ARMBEAMS_ADDR =          2
+DINPUT_CCSPOWER_ADDR =          3
+DINPUT_ARM80KV_ADDR =           4 
+DINPUT_3KV_ENABLE_ADDR =        5
+# (logic arduino flags)
+DINPUT_NOMOP_FLAG_ADDR =        6
+DINPUT_3K_HVENABLE_FLAG_ADDR =  7
+DINPUT_ARMBEAMS_FLAG_ADDR =     8
+DINPUT_CCSPOWER_FLAG_ADDR =     9
+DINPUT_ARM80KV_FLAG_ADDR =      10
+DINPUT_1K_VCOMP_FLAG_ADDR =     11
+DINPUT_1K_ICOMP_FLAG_ADDR =     12
+DINPUT_NEG_1K_VCOMP_FLAG_ADDR = 13
+DINPUT_NEG_1K_ICOMP_FLAG_ADDR = 14
+DINPUT_20K_VCOMP_FLAG_ADDR =    15
+DINPUT_20K_ICOMP_FLAG_ADDR =    16
+DINPUT_3K_VCOMP_FLAG_ADDR =     17
+DINPUT_3K_ICOMP_FLAG_ADDR =     18
+
+# as the Modbus Map is updated, update these counts:
+IREG_COUNT = 4
+DINPUT_COUNT = 19
+#===========================================================
+#============= END MODBUS MAP ==============================
 
 DATA_TEMPLATE = {
-    "mode": 255,
+    "health": 255,
     "set_voltage_V": 0.0,
     "actual_voltage_V": 0.0,
     "actual_current_mA": 0.0,
@@ -37,7 +66,12 @@ class KnobBoxModbus:
         UNIT_NUMBERS (list): List of valid unit addresses
         MAX_ATTEMPTS (int): Maximum retry attempts for failed reads
     """
-    UNIT_IDS = [1, 2, 3, 4, 5] # Unit numbers for each power supply
+    # Identifiers for power supplies:
+    #      - 1: -1kV Matsusada
+    #      - 2: +1kV Matsusada
+    #      - 3: +20kV Bertan
+    #      - 4: +3kV Bertan
+    UNIT_IDS = [1, 2, 3, 4]
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
@@ -137,30 +171,70 @@ class KnobBoxModbus:
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             try:
                 with self.modbus_lock:
-                    # Read Input Registers containing MODE, V_SET, V_READ, I_READ
+                    # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ
                     # Continuous block starting at address 1 (count=4)
-                    input_registers = self.client.read_input_registers(address=IREG_MODE_ADDR, count=4, slave=unit_id)
+                    input_registers = self.client.read_input_registers(address=IREG_HEALTH_ADDR, count=IREG_COUNT, slave=unit_id)
                     if input_registers is None or not getattr(input_registers, "registers"):
                         raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id})")
 
                     if len(input_registers.registers) < 4:
                         raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
                     
-                    mode, v_set, v_read, i_read = input_registers.registers
+                    health, v_set, v_read, i_read = input_registers.registers
                 
                     # Read Discrete Input for Overcurrent status
-                    discrete_input = self.client.read_discrete_inputs(address=DINPUT_OVERCURRENT_ADDR, count=1, slave=unit_id)
+                    discrete_input = self.client.read_discrete_inputs(address=DINPUT_HVENABLE_ADDR, count=DINPUT_COUNT, slave=unit_id)
                     if discrete_input is None or not getattr(discrete_input, "bits"):
                         raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
+                    
+                    # 3kV Bertan must report 16 bits
+                    if len(discrete_input.bits) < 18:
+                        raise RuntimeError(f"FC02 read returned insufficient bits (unit {unit_id})")
+                    
+                    hv_enable = int(bool(discrete_input.bits[DINPUT_HVENABLE_ADDR]))
+                    arm_beams = int(bool(discrete_input.bits[DINPUT_ARMBEAMS_ADDR]))
+                    ccs_power = int(bool(discrete_input.bits[DINPUT_CCSPOWER_ADDR]))
+                    arm_80kv = int(bool(discrete_input.bits[DINPUT_ARM80KV_ADDR]))
 
-                    overcurrent = int(bool(discrete_input.bits[0])) if discrete_input.bits else 0
+                    reset_state = int(bool(discrete_input.bits[DINPUT_RESET_STATE_ADDR]))
+
+                    nomop_flag = int(bool(discrete_input.bits[DINPUT_NOMOP_FLAG_ADDR]))
+                    hvenable_flag = int(bool(discrete_input.bits[DINPUT_3K_HVENABLE_FLAG_ADDR]))
+                    armbeams_flag = int(bool(discrete_input.bits[DINPUT_ARMBEAMS_FLAG_ADDR]))
+                    ccspower_flag = int(bool(discrete_input.bits[DINPUT_CCSPOWER_FLAG_ADDR]))
+                    arm80kv_flag = int(bool(discrete_input.bits[DINPUT_ARM80KV_FLAG_ADDR]))
+                    vcomp_1k_flag = int(bool(discrete_input.bits[DINPUT_1K_VCOMP_FLAG_ADDR]))
+                    icomp_1k_flag = int(bool(discrete_input.bits[DINPUT_1K_ICOMP_FLAG_ADDR]))
+                    neg_vcomp_1k_flag = int(bool(discrete_input.bits[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
+                    neg_icomp_1k_flag = int(bool(discrete_input.bits[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
+                    vcomp_20k_flag = int(bool(discrete_input.bits[DINPUT_20K_VCOMP_FLAG_ADDR]))
+                    icomp_20k_flag = int(bool(discrete_input.bits[DINPUT_20K_ICOMP_FLAG_ADDR]))
+                    vcomp_3k_flag = int(bool(discrete_input.bits[DINPUT_3K_VCOMP_FLAG_ADDR]))
+                    icomp_3k_flag = int(bool(discrete_input.bits[DINPUT_3K_ICOMP_FLAG_ADDR]))
 
                     new_data = {
-                        "mode": mode,
+                        "health": health,
                         "set_voltage_V": float(v_set),
                         "actual_voltage_V": float(v_read),
                         "actual_current_mA": float(i_read),
-                        "overcurrent": overcurrent
+                        "hv_enable": hv_enable,
+                        "arm_beams": arm_beams,
+                        "ccs_power": ccs_power,
+                        "arm_80kv": arm_80kv,
+                        "reset_state": reset_state,
+                        "nomop_flag": nomop_flag,
+                        "hvenable_flag": hvenable_flag,
+                        "armbeams_flag": armbeams_flag,
+                        "ccspower_flag": ccspower_flag,
+                        "arm80kv_flag": arm80kv_flag,
+                        "vcomp_1k_flag": vcomp_1k_flag,
+                        "icomp_1k_flag": icomp_1k_flag,
+                        "neg_vcomp_1k_flag": neg_vcomp_1k_flag,
+                        "neg_icomp_1k_flag": neg_icomp_1k_flag,
+                        "vcomp_20k_flag": vcomp_20k_flag,
+                        "icomp_20k_flag": icomp_20k_flag,
+                        "vcomp_3k_flag": vcomp_3k_flag,
+                        "icomp_3k_flag": icomp_3k_flag
                     }
 
                     # Success - update data and return
