@@ -242,6 +242,9 @@ class BeamPulseSubsystem:
         # Graph visibility control
         self.graph_history_visible = True
         self.graph_preview_visible = True
+        
+        # Preview deflect beam control (hold-down button for simulating deflection)
+        self.preview_deflect_beam_active = False
 
         # Dashboard integration callback
         self._dashboard_beam_callback = None
@@ -360,7 +363,7 @@ class BeamPulseSubsystem:
         # Title for toggle section
         ttk.Label(toggles_frame, text="Show Steps", font=("Arial", 9, "bold")).pack(pady=(0, 2))
 
-        # Container for the two toggles
+        # Container for the three controls (preview deflect beam + two toggles)
         toggles_container = ttk.Frame(toggles_frame)
         toggles_container.pack()
 
@@ -386,9 +389,9 @@ class BeamPulseSubsystem:
             )
         self.history_toggle.pack()
 
-        # Preview toggle (left) - Show/Hide red lines
+        # Preview toggle (middle) - Show/Hide red lines
         preview_toggle_frame = ttk.Frame(toggles_container)
-        preview_toggle_frame.pack(side=tk.RIGHT, padx=(0, 5))
+        preview_toggle_frame.pack(side=tk.RIGHT, padx=(5, 5))
         ttk.Label(preview_toggle_frame, text="Projected", font=("Arial", 8)).pack()
         if self.toggle_on_image and self.toggle_off_image:
             self.preview_toggle = tk.Button(
@@ -407,6 +410,20 @@ class BeamPulseSubsystem:
                 width=8
             )
         self.preview_toggle.pack()
+        
+        # Preview Deflect Beam button (left) - Hold to preview deflection
+        preview_deflect_frame = ttk.Frame(toggles_container)
+        preview_deflect_frame.pack(side=tk.RIGHT, padx=(0, 5))
+        ttk.Label(preview_deflect_frame, text="Preview", font=("Arial", 8)).pack()
+        self.preview_deflect_button = ttk.Button(
+            preview_deflect_frame,
+            text="Deflect Beam",
+            width=12
+        )
+        self.preview_deflect_button.pack()
+        # Bind press and release events for hold-down behavior
+        self.preview_deflect_button.bind('<ButtonPress-1>', self.on_preview_deflect_press)
+        self.preview_deflect_button.bind('<ButtonRelease-1>', self.on_preview_deflect_release)
 
         # Plots frame
         plots_frame = ttk.Frame(plots_container)
@@ -2121,6 +2138,26 @@ class BeamPulseSubsystem:
         status = "shown" if self.graph_preview_visible else "hidden"
         self._log(f"Preview plots {status}", LogLevel.DEBUG)
 
+    def on_preview_deflect_press(self, event=None):
+        """Handle Preview Deflect Beam button press (hold down)."""
+        self.preview_deflect_beam_active = True
+        # Update button appearance to show it's active
+        if hasattr(self, 'preview_deflect_button'):
+            self.preview_deflect_button.config(state='pressed')
+        # Update all previews to show deflection pattern
+        self._update_all_previews()
+        self._log("Preview Deflect Beam activated (held)", LogLevel.DEBUG)
+    
+    def on_preview_deflect_release(self, event=None):
+        """Handle Preview Deflect Beam button release."""
+        self.preview_deflect_beam_active = False
+        # Reset button appearance
+        if hasattr(self, 'preview_deflect_button'):
+            self.preview_deflect_button.config(state='normal')
+        # Update all previews to revert to normal (beam passing straight)
+        self._update_all_previews()
+        self._log("Preview Deflect Beam deactivated (released)", LogLevel.DEBUG)
+
     def toggle_history_visibility(self):
         """Toggle visibility of history (blue) plots."""
         self.graph_history_visible = not self.graph_history_visible
@@ -2507,9 +2544,11 @@ class BeamPulseSubsystem:
         
         The preview (red) shows what the deflection WOULD look like with current
         settings, taking into account:
-        - Whether grids are armed (beams armed status)
-        - Whether solenoids are powered (wave gen/deflect beam toggle)
+        - Whether the Preview Deflect Beam button is held down
         - Current amplitude, frequency, and wave type settings
+        
+        Note: The actual Deflect Beam hardware toggle does NOT affect previews,
+        only the Preview Deflect Beam button controls the preview visualization.
         
         Special case: If amplitude is 0, shows as a red dot (fixed position at center).
         
@@ -2535,20 +2574,16 @@ class BeamPulseSubsystem:
         if not self.graph_preview_visible:
             return
         
-        # Check if beams can pass through grid (must be armed)
-        if not self.beams_armed_status:
-            return  # No preview if grids are not armed
-        
         # Get current settings
         wave_type = self.wave_type.get().lower()
         amplitude = self.wave_amplitude.get() if hasattr(self, 'wave_amplitude') else 0.0
         if hasattr(self.wave_amplitude, 'get'):
             amplitude = self.wave_amplitude.get()
         
-        # Check if solenoids are powered (deflect beam toggle)
-        deflect_beam_on = self.wave_gen_toggle_state
+        # Check if Preview Deflect Beam button is held (ONLY this controls preview)
+        deflect_beam_on = self.preview_deflect_beam_active
         
-        # If solenoids are off, beam passes straight through (red dot at center)
+        # If preview button not held, beam passes straight through (red dot at center)
         if not deflect_beam_on:
             preview_obj = ax.plot(0, 0, 'o', color='red', markersize=8, alpha=0.8)[0]
             self._preview_objects[beam_index] = preview_obj
