@@ -288,14 +288,14 @@ class BeamPulseSubsystem:
         control_row.pack(fill=tk.X, pady=(0, 5))
 
         # Create control columns with labels on top and controls below
-        self.create_wave_gen_control(control_row, 0)
-        self.create_wave_type_control(control_row, 1)
-        self.create_frequency_control(control_row, 2)
-        self.create_wave_amplitude_control(control_row, 3)
-        self.create_bcon_connection_status(control_row, 4)
+        # Note: Deflect Beam control moved to main dashboard panel
+        self.create_wave_type_control(control_row, 0)
+        self.create_frequency_control(control_row, 1)
+        self.create_wave_amplitude_control(control_row, 2)
+        self.create_bcon_connection_status(control_row, 3)
 
-        # Configure column weights for responsive layout (now 5 columns)
-        for i in range(5):
+        # Configure column weights for responsive layout (now 4 columns)
+        for i in range(4):
             control_row.grid_columnconfigure(i, weight=1)
 
         # Second control row for Pulsing Behavior and pulse duration controls
@@ -3112,6 +3112,30 @@ class BeamPulseSubsystem:
     def get_beams_armed_status(self) -> bool:
         """Get current beams armed status."""
         return self.beams_armed_status
+
+    def get_deflect_beam_status(self) -> bool:
+        """Get current deflect beam (wave gen) status."""
+        return self.wave_gen_toggle_state
+
+    def set_deflect_beam_status(self, enable: bool) -> bool:
+        """Set deflect beam (wave gen) status.
+        
+        Parameters:
+            enable: True to enable deflection, False to disable
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Only change if different from current state
+            if self.wave_gen_toggle_state != enable:
+                # Use the existing toggle method which handles all the logic
+                self.toggle_wave_gen()
+            return True
+        except Exception as e:
+            if self.logger:
+                self._log(f"Error setting deflect beam status: {str(e)}", LogLevel.ERROR)
+            return False
 
     def safe_shutdown(self, reason: Optional[str] = None) -> bool:
         """Perform a safe shutdown of pulses/waveforms on the BCON device.

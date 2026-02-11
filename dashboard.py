@@ -326,7 +326,7 @@ class EBEAMSystemDashboard:
         # Add safety beams off button (bottom)
         beams_off_button = tk.Button(
             main_frame,
-            text="BEAMS OFF",
+            text="BEAMS E-STOP",
             bg="red",
             fg="white",
             font=("Helvetica",14,"bold"),
@@ -349,6 +349,10 @@ class EBEAMSystemDashboard:
         self.beam_status_timers = []  # For managing progress animations
         self.dc_mode_timers = []  # For DC mode runtime counters
         self.dc_mode_start_times = []  # Track when DC mode started
+        
+        # Deflect beam timer variables
+        self.deflect_beam_timer = None
+        self.deflect_beam_start_time = None
         
         # Configure grid columns to have equal weight
         for i in range(3):
@@ -395,7 +399,7 @@ class EBEAMSystemDashboard:
         # Schedule status bar width synchronization after layout is complete
         self.root.after(100, self.sync_status_bar_widths)
 
-        # Add beams ready button (above beams off)
+        # Add beams ready button
         self.beams_ready_button = tk.Button(
             main_frame,
             text="ARM BEAMS",
@@ -405,6 +409,33 @@ class EBEAMSystemDashboard:
             command=self.handle_arm_beams
         )
         self.beams_ready_button.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
+
+        # Add deflect beam control (status bar + button) - matches beam button layout pattern
+        deflect_beam_control_frame = tk.Frame(main_frame)
+        deflect_beam_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
+        
+        # Status bar above deflect beam button (matches beam button spacing)
+        deflect_beam_status_frame = tk.Frame(deflect_beam_control_frame)
+        deflect_beam_status_frame.pack(side="top", fill="x", pady=(0, 2))
+        
+        self.deflect_beam_status_bar = tk.Canvas(
+            deflect_beam_status_frame,
+            height=12,
+            bg="lightgray",
+            highlightthickness=0
+        )
+        self.deflect_beam_status_bar.pack(fill="x")
+
+        # Deflect beam button
+        self.deflect_beam_button = tk.Button(
+            deflect_beam_control_frame,
+            text="DEFLECT BEAM",
+            bg="orange",
+            fg="white",
+            font=("Helvetica",14,"bold"),
+            command=self.handle_deflect_beam
+        )
+        self.deflect_beam_button.pack(side="top", fill="x")
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -576,15 +607,60 @@ class EBEAMSystemDashboard:
             self.logger.error(f"Error in handle_arm_beams: {str(e)}")
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
 
+    def handle_deflect_beam(self):
+        """Handle DEFLECT BEAM button press with state management."""
+        try:
+            # Check if Beam Pulse subsystem is available
+            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                self.logger.error("Beam Pulse subsystem not available")
+                messagebox.showerror("Error", "Beam Pulse subsystem not available")
+                return
+            
+            beam_pulse = self.subsystems['Beam Pulse']
+            
+            # Check current deflect beam state
+            if hasattr(beam_pulse, 'get_deflect_beam_status') and beam_pulse.get_deflect_beam_status():
+                # Deflect beam is currently ON, so turn it OFF
+                if hasattr(beam_pulse, 'set_deflect_beam_status') and beam_pulse.set_deflect_beam_status(False):
+                    # Successfully disabled
+                    self.deflect_beam_button.config(
+                        text="DEFLECT BEAM",
+                        bg="orange"
+                    )
+                    # Stop and clear the timer
+                    self.stop_deflect_beam_timer()
+                    self.logger.info("Beam deflection disabled via dashboard button")
+                else:
+                    self.logger.error("Failed to disable beam deflection")
+                    messagebox.showerror("Error", "Failed to disable beam deflection")
+            else:
+                # Deflect beam is currently OFF, so turn it ON
+                if hasattr(beam_pulse, 'set_deflect_beam_status') and beam_pulse.set_deflect_beam_status(True):
+                    # Successfully enabled
+                    self.deflect_beam_button.config(
+                        text="DEFLECTING BEAM",
+                        bg="#D2691E"  # Chocolate/dark orange
+                    )
+                    # Start the timer
+                    self.start_deflect_beam_timer()
+                    self.logger.info("Beam deflection enabled via dashboard button")
+                else:
+                    self.logger.error("Failed to enable beam deflection")
+                    messagebox.showerror("Error", "Failed to enable beam deflection")
+                    
+        except Exception as e:
+            self.logger.error(f"Error in handle_deflect_beam: {str(e)}")
+            messagebox.showerror("Error", f"Error handling beam deflection: {str(e)}")
+
     def handle_beams_off(self):
-        """Handle BEAMS OFF button press - turn off cathode heating and disarm beams if armed."""
+        """Handle Beams E-stop button press - turn off cathode heating and disarm beams if armed."""
         try:
             # Turn off cathode heating power supplies
             if 'Cathode Heating' in self.subsystems and self.subsystems['Cathode Heating'] is not None:
                 cathode = self.subsystems['Cathode Heating']
                 if hasattr(cathode, 'turn_off_all_beams'):
                     cathode.turn_off_all_beams()
-                    self.logger.info("Cathode heating turned off via BEAMS OFF button")
+                    self.logger.info("Cathode heating turned off via Beams E-stop button")
             
             # Check if beams are armed and disarm them
             if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
@@ -599,9 +675,9 @@ class EBEAMSystemDashboard:
                         )
                         # Disable beam toggle buttons and reset their states
                         self.update_beam_toggle_states(enabled=False, reset=True)
-                        self.logger.info("Beams disarmed via BEAMS OFF button")
+                        self.logger.info("Beams disarmed via Beams E-stop button")
                     else:
-                        self.logger.error("Failed to disarm beams via BEAMS OFF")
+                        self.logger.error("Failed to disarm beams via Beams E-stop")
         except Exception as e:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
 
@@ -924,6 +1000,83 @@ class EBEAMSystemDashboard:
             
         except Exception as e:
             self.logger.error(f"Error updating DC mode display for beam {beam_index}: {str(e)}")
+
+    def start_deflect_beam_timer(self):
+        """Start the deflect beam timer."""
+        try:
+            if not hasattr(self, 'deflect_beam_start_time'):
+                return
+            
+            self.deflect_beam_start_time = time.time()
+            # Start the display update
+            self.update_deflect_beam_display()
+        except Exception as e:
+            self.logger.error(f"Error starting deflect beam timer: {str(e)}")
+
+    def stop_deflect_beam_timer(self):
+        """Stop and clear the deflect beam timer."""
+        try:
+            if hasattr(self, 'deflect_beam_timer') and self.deflect_beam_timer:
+                self.root.after_cancel(self.deflect_beam_timer)
+                self.deflect_beam_timer = None
+            if hasattr(self, 'deflect_beam_start_time'):
+                self.deflect_beam_start_time = None
+            # Clear the status bar
+            if hasattr(self, 'deflect_beam_status_bar'):
+                self.deflect_beam_status_bar.delete("all")
+                self.deflect_beam_status_bar.config(bg="lightgray")
+        except Exception as e:
+            self.logger.error(f"Error stopping deflect beam timer: {str(e)}")
+
+    def update_deflect_beam_display(self):
+        """Update deflect beam display with runtime counter."""
+        try:
+            if not hasattr(self, 'deflect_beam_start_time') or self.deflect_beam_start_time is None:
+                return
+            
+            status_bar = self.deflect_beam_status_bar
+            
+            # Calculate runtime in seconds
+            runtime_seconds = int(time.time() - self.deflect_beam_start_time)
+            
+            # Update status bar with solid orange background and runtime text
+            status_bar.delete("all")
+            # Force update to get accurate dimensions
+            status_bar.update_idletasks()
+            bar_width = status_bar.winfo_width()
+            if bar_width <= 1:
+                bar_width = 100  # Fallback width
+            bar_height = 12
+            
+            # Solid orange background
+            status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="#FFB366", outline="")
+            
+            # Format time: hours, minutes, seconds
+            hours = runtime_seconds // 3600
+            minutes = (runtime_seconds % 3600) // 60
+            seconds = runtime_seconds % 60
+            
+            if hours > 0:
+                formatted_time = f"{hours}h {minutes}m {seconds}s"
+            elif minutes > 0:
+                formatted_time = f"{minutes}m {seconds}s"
+            else:
+                formatted_time = f"{seconds}s"
+            
+            # Runtime text overlay
+            runtime_text = f"Deflecting: {formatted_time}"
+            status_bar.create_text(
+                bar_width // 2, bar_height // 2,
+                text=runtime_text,
+                fill="black",
+                font=("Arial", 8, "bold")
+            )
+            
+            # Schedule next update in 1 second
+            self.deflect_beam_timer = self.root.after(1000, self.update_deflect_beam_display)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating deflect beam display: {str(e)}")
 
     def sync_status_bar_widths(self):
         """Synchronize status bar widths with button widths after layout changes."""
