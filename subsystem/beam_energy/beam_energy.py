@@ -49,7 +49,8 @@ class BeamEnergySubsystem:
         self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
         self.output_status = [tk.StringVar(value="DISABLED") for _ in range(len(self.power_supplies))]
         self.connection_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies) )]
-        self.reset_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies)-1)] # Exclude 20kV Bertan
+        self.reset_status_colors = [tk.StringVar(value="white") for _ in range(len(self.power_supplies))]
+        # Indicator Panel -> not power supply specific
         self.glassman_interlock_var = tk.StringVar(value="ACTIVE")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
@@ -141,14 +142,17 @@ class BeamEnergySubsystem:
                 canvas, oval = self.create_indicator_circle(row)
                 canvas.pack(side=tk.RIGHT, padx=4)
 
-                # Store reference for later color updates
-                if not hasattr(self, "indicator_circles"):
-                    self.indicator_circles = []
-                self.indicator_circles.append((canvas, oval, color_var))
+                def update_circle(*args):
+                    canvas.itemconfig(oval, fill=color_var.get())
+
+                color_var.trace_add("write", update_circle)
+
+                # Initialize with current value
+                canvas.itemconfig(oval, fill=color_var.get())
 
         add_row("Arm Beams:",      self.arm_beams_var)
         add_row("CCS Power:",      self.ccs_power_var)
-        add_row("+80kV Interlock:",     self.glassman_interlock_var)
+        add_row("Arm 80kV:",     self.glassman_interlock_var)
         add_row("Logic Comms:",    color_var=self.logic_comms_color)
         add_row("Interlocks:",     color_var=self.interlocks_color)        
 
@@ -159,7 +163,7 @@ class BeamEnergySubsystem:
         Args:
             frame: Frame to contain the displays
             ps_config: Power supply configuration dict
-            index: Index of the power supply (1-4, since 0 is Glassman)
+            index: Index of the power supply, 1 through 4
         """
         # Connection status indicator (at top left)
         top_row_frame = ttk.Frame(frame)
@@ -171,10 +175,11 @@ class BeamEnergySubsystem:
         # TODO store references
 
         # Reset status indicator (at top right)
-        canvas, oval = self.create_indicator_circle(top_row_frame, color = self.connection_status_colors[index].get())
-        canvas.pack(side=tk.RIGHT, padx=4)
-        reset_label = ttk.Label(top_row_frame, text="Reset:", font=("Segoe UI", 8))
-        reset_label.pack(side=tk.RIGHT)
+        if index != 2: # Exclude 20kV Bertan which does not have a reset function
+            canvas, oval = self.create_indicator_circle(top_row_frame, color = self.reset_status_colors[index].get())
+            canvas.pack(side=tk.RIGHT, padx=4)
+            reset_label = ttk.Label(top_row_frame, text="Reset:", font=("Segoe UI", 8))
+            reset_label.pack(side=tk.RIGHT)
         # TODO store references
         
         # Output status indicator
@@ -310,7 +315,29 @@ class BeamEnergySubsystem:
                 self.output_status[index].set("DISABLED")
                 self.ui_elements[index]['status_label'].config(foreground="red")
 
-    
+    def update_reset_status(self, index, reset_state):
+        if index < len(self.ui_elements) and index != 2:
+            if reset_state:
+                self.reset_status_colors[index].set("yellow")
+            else:
+                self.reset_status_colors[index].set("white")
+
+    def update_connection_status(self, index, connected):
+        """Update connection status indicators."""
+        if index < len(self.ui_elements):
+            if connected:
+                self.connection_status_colors[index].set("blue")
+            else:
+                self.connection_status_colors[index].set("red")
+
+    def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
+        """Update system status indicators."""
+        if index < len(self.ui_elements):
+            self.arm_beams_var.set("ARMED" if arm_beams else "UNARMED")
+            self.ccs_power_var.set("ON" if ccs_power else "OFF")
+            self.glassman_interlock_var.set("BYPASSED" if arm_80kv else "ACTIVE")
+            self.logic_comms_color.set("blue" if logic_comms else "red")
+            self.interlocks_color.set("green" if interlocks else "red")
 
     def start_polling_thread(self):
         """Start a background thread to poll power supply data periodically."""
@@ -357,41 +384,47 @@ class BeamEnergySubsystem:
                 data = data_snapshot.get(unit_id, None)
                 
                 if data:
+                    health = data.get('health', 'unknown')
                     v_set = data.get('set_voltage_V', None)
                     v_read = data.get('actual_voltage_V', None)
                     i_read = data.get('actual_current_mA', None)
-                    overcurrent = data.get('overcurrent', None)
-                    mode_val = data.get('mode', 255)
+                    hv_enable = data.get('hv_enable', False)
+                    arm_beams = data.get('arm_beams', False)
+                    ccs_power = data.get('ccs_power', False)
+                    arm_80kV = data.get('arm_80kV', False)
+                    reset_state = data.get('reset_state', False)
+                    nomop_flag = data.get('nomop_flag', False)
+                    # TODO flags for interlocks
+
                     # Map mode integer to human-readable label for logging
-                    mode_map = {0: "3kV Bertan", 1: "20kV Bertan", 2: "1kV Matsusada", 255: "error"}
-                    mode_text = mode_map.get(mode_val, str(mode_val))
+                    mode_text = "health unintialized" if health == 0 else "health unknown"
 
                     # Overcurrent Handling:
-                    if overcurrent:
-                        # Log once when overcurrent condition is first detected
-                        if not self.overcurrent_flags[index]:
-                            self.log(f"Overcurrent detected on Power Supply {unit_id}!", LogLevel.WARNING)
+                    # if overcurrent:
+                    #     # Log once when overcurrent condition is first detected
+                    #     if not self.overcurrent_flags[index]:
+                    #         self.log(f"Overcurrent detected on Power Supply {unit_id}!", LogLevel.WARNING)
                             
-                            messagebox.showwarning(
-                                title="Overcurrent Warning",
-                                message=f"Overcurrent detected on Power Supply {unit_id}.\n"
-                                        f"The hardware system has taken protective action.\n\n"
-                                        f"Press OK to acknowledge.")
+                    #         messagebox.showwarning(
+                    #             title="Overcurrent Warning",
+                    #             message=f"Overcurrent detected on Power Supply {unit_id}.\n"
+                    #                     f"The hardware system has taken protective action.\n\n"
+                    #                     f"Press OK to acknowledge.")
 
-                        self.overcurrent_flags[index] = True
+                    #     self.overcurrent_flags[index] = True
 
-                    else:
-                        # Clear flag and log recovery from overcurrent state
-                        if self.overcurrent_flags[index]:
-                            self.log(f"Power Supply {unit_id} recovered from overcurrent.", LogLevel.INFO)
-                        self.overcurrent_flags[index] = False
+                    # else:
+                    #     # Clear flag and log recovery from overcurrent state
+                    #     if self.overcurrent_flags[index]:
+                    #         self.log(f"Power Supply {unit_id} recovered from overcurrent.", LogLevel.INFO)
+                    #     self.overcurrent_flags[index] = False
 
                     # print structured DEBUG log line per unit when measurements are present
                     if (v_read is not None) and (i_read is not None):
                         try:
                             voltage_V = float(v_read)
                             current_A = float(i_read) / 1000.0  # mA -> A
-                            ps_number = unit_id  # keep 1-5 numbering aligned with UNIT_IDS
+                            ps_number = unit_id  # keep 1-4 numbering aligned with UNIT_IDS
                             self.log(
                                 f"Power supply {ps_number} readings - Voltage: {voltage_V:.3f}V, Current: {current_A:.6f}A, Mode: {mode_text}",
                                 LogLevel.DEBUG
@@ -419,6 +452,16 @@ class BeamEnergySubsystem:
                 else:
                     self.actual_currents[index].set("-- mA")
 
+                # Get the connection status for the current unit
+                comms = self.get_unit_connection_status(unit_id)
+
+                # Update indicators based on data
+                interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
+                self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, True, interlocks)
+                self.update_output_status(index, hv_enable)
+                self.update_reset_status(index, reset_state)
+                self.update_connection_status(index, comms)
+
         except Exception as e:  
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
             for index, _ in enumerate(self.power_supplies): 
@@ -441,6 +484,8 @@ class BeamEnergySubsystem:
         self.actual_currents[index].set("-- A")
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
+        self.update_reset_status(index, False)
+        self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, comms=False, interlocks=False)
 
     def update_com_ports(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""
@@ -485,7 +530,6 @@ class BeamEnergySubsystem:
         else:
             print(f"{level.name}: {message}")
 
-# TODO: Add output status, interlock status updating when supported by firmware
+# TODO: Add checks for logic arduino comms
 # TODO: Update for finalized unit ID assignments and expected voltage/current units
-# TODO: Add function to update indicators in system status panel
 # TODO: Change Overcurrent Handling - we do not want popups. maybe change to some sort of indicator light?
