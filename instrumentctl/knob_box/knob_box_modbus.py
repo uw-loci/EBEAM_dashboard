@@ -5,21 +5,23 @@ from utils import LogLevel  # Ensure this module is correctly implemented
 
 #============= MODBUS MAP ==================================
 #===========================================================
-# Input Registers (Function Code 04)
-IREG_HEALTH_ADDR =      0   # track health/error mode
-IREG_V_SET_ADDR =       1   # integer volts
-IREG_V_READ_ADDR =      2   # integer volts
-IREG_I_READ_ADDR =      3   # integer microamps
+"""Input Registers (Function Code 04)"""
+IREG_HEALTH_ADDR =          0   # track health/error mode
+IREG_V_SET_ADDR =           1   # integer volts
+IREG_V_READ_ADDR =          2   # integer volts
+IREG_I_READ_ADDR =          3   # integer microamps
+IREG_3KV_RESET_COUNT_ADDR = 4   # count of reset events for 3kV Bertan
 
-# Discrete Inputs (Function Code 02)
+"""Discrete Inputs (Function Code 02)"""
 DINPUT_HVENABLE_ADDR =          0
 # below are just reported by the matsusada monitoring arduinos
-DINPUT_RESET_STATE_ADDR =       1
+DINPUT_RESET_STATE_1KV_ADDR =   1
 # below are just reported by the 3kV monitoring arduino
+# (raw switch states)
+DINPUT_ARM80KV_ADDR =           2
 # (logic arduino outputs)
-DINPUT_ARMBEAMS_ADDR =          2
-DINPUT_CCSPOWER_ADDR =          3
-DINPUT_ARM80KV_ADDR =           4 
+DINPUT_ARMBEAMS_ADDR =          3
+DINPUT_CCSPOWER_ADDR =          4 
 DINPUT_3KV_ENABLE_ADDR =        5
 # (logic arduino flags)
 DINPUT_NOMOP_FLAG_ADDR =        6
@@ -37,7 +39,7 @@ DINPUT_3K_VCOMP_FLAG_ADDR =     17
 DINPUT_3K_ICOMP_FLAG_ADDR =     18
 
 # as the Modbus Map is updated, update these counts:
-IREG_COUNT = 4
+IREG_COUNT = 5
 DINPUT_COUNT = 19
 #===========================================================
 #============= END MODBUS MAP ==============================
@@ -47,7 +49,25 @@ DATA_TEMPLATE = {
     "set_voltage_V": 0.0,
     "actual_voltage_V": 0.0,
     "actual_current_mA": 0.0,
-    "overcurrent": 0
+    "hv_enable": 0,
+    "arm_80kv": 0,
+    "arm_beams": 0,
+    "ccs_power": 0,
+    "3kV_enable": 0,
+    "reset_state_1kV": 0,
+    "nomop_flag": 0,
+    "hvenable_flag": 0,
+    "armbeams_flag": 0,
+    "ccspower_flag": 0,
+    "arm80kv_flag": 0,
+    "vcomp_1k_flag": 0,
+    "icomp_1k_flag": 0,
+    "neg_vcomp_1k_flag": 0,
+    "neg_icomp_1k_flag": 0,
+    "vcomp_20k_flag": 0,
+    "icomp_20k_flag": 0,
+    "vcomp_3k_flag": 0,
+    "icomp_3k_flag": 0
 }
 
 class KnobBoxModbus:
@@ -94,6 +114,8 @@ class KnobBoxModbus:
         self.data_lock = threading.Lock()  # Lock for data state updates
         self.port = port
         self.connected = False
+        self.last_success = {uid: 0 for uid in self.UNIT_IDS} # Track last successful poll time for each unit
+        self.CONNECTION_TIMEOUT = 2.0 # seconds without successful poll before considering connection lost
 
         # Create data dictionary for each unit in the list of UNIT_IDS
         self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS} 
@@ -187,16 +209,19 @@ class KnobBoxModbus:
                     if discrete_input is None or not getattr(discrete_input, "bits"):
                         raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
                     
-                    # 3kV Bertan must report 16 bits
+                    # 3kV Bertan must report 18 bits
                     if len(discrete_input.bits) < 18:
                         raise RuntimeError(f"FC02 read returned insufficient bits (unit {unit_id})")
                     
                     hv_enable = int(bool(discrete_input.bits[DINPUT_HVENABLE_ADDR]))
-                    arm_beams = int(bool(discrete_input.bits[DINPUT_ARMBEAMS_ADDR]))
-                    ccs_power = int(bool(discrete_input.bits[DINPUT_CCSPOWER_ADDR]))
+
                     arm_80kv = int(bool(discrete_input.bits[DINPUT_ARM80KV_ADDR]))
 
-                    reset_state = int(bool(discrete_input.bits[DINPUT_RESET_STATE_ADDR]))
+                    arm_beams = int(bool(discrete_input.bits[DINPUT_ARMBEAMS_ADDR]))
+                    ccs_power = int(bool(discrete_input.bits[DINPUT_CCSPOWER_ADDR]))
+                    enable_3kV = int(bool(discrete_input.bits[DINPUT_3KV_ENABLE_ADDR]))
+
+                    reset_state_1kV = int(bool(discrete_input.bits[DINPUT_RESET_STATE_1KV_ADDR]))
 
                     nomop_flag = int(bool(discrete_input.bits[DINPUT_NOMOP_FLAG_ADDR]))
                     hvenable_flag = int(bool(discrete_input.bits[DINPUT_3K_HVENABLE_FLAG_ADDR]))
@@ -216,12 +241,13 @@ class KnobBoxModbus:
                         "health": health,
                         "set_voltage_V": float(v_set),
                         "actual_voltage_V": float(v_read),
-                        "actual_current_mA": float(i_read),
+                        "actual_current_mA": float(i_read) / 1000.0, # convert uA to mA    
                         "hv_enable": hv_enable,
+                        "arm_80kv": arm_80kv,
                         "arm_beams": arm_beams,
                         "ccs_power": ccs_power,
-                        "arm_80kv": arm_80kv,
-                        "reset_state": reset_state,
+                        "3kV_enable": enable_3kV,
+                        "reset_state_1kV": reset_state_1kV,
                         "nomop_flag": nomop_flag,
                         "hvenable_flag": hvenable_flag,
                         "armbeams_flag": armbeams_flag,
@@ -240,6 +266,7 @@ class KnobBoxModbus:
                     # Success - update data and return
                     with self.data_lock:
                         self.data[unit_id] = new_data
+                        self.last_success[unit_id] = time.time()
                         self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
                     return
 
@@ -263,6 +290,14 @@ class KnobBoxModbus:
         """
         with self.data_lock:
             return self.data.copy()
+        
+    def get_unit_connection_status(self):
+        """Get the connection status for each Monitioring Arduino"""
+        now = time.time()
+        return {
+            uid: (now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT
+            for uid in self.UNIT_IDS
+    }
 
     def check_connection(self):
         """Check if the Modbus client is connected and attempt to reconnect if not."""
