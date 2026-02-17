@@ -29,9 +29,7 @@ class Logger:
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
-        self.webMonitor_log_file = None
         self.log_start_time = None
-        self.webMonitor_log_start_time = None
         self.log_filepath = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
@@ -61,7 +59,21 @@ class Logger:
             }
         if log_to_file:
             self.setup_log_file()
-            self.setup_wm_logfile()
+
+    def _get_dashboard_base_path(self):
+        return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+
+    def _write_to_text_widget(self, formatted_message):
+        if self.text_widget is None:
+            return
+        self.text_widget.insert(tk.END, formatted_message, ("log",))
+        self.text_widget.tag_config("log", font=("Helvetica", 9))
+        self.text_widget.see(tk.END)
+
+    def attach_text_widget(self, text_widget):
+        self.text_widget = text_widget
+        while self._pending_widget_messages:
+            self._write_to_text_widget(self._pending_widget_messages.popleft())
 
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
@@ -280,6 +292,10 @@ class MessagesFrame:
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
 
+        # Ensure that the log directory exists
+        self.ensure_log_directory()
+
+
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
@@ -297,13 +313,6 @@ class MessagesFrame:
                 except Exception as e:
                     print(f"Error closing log file: {e}")
                 self.logger.log_file = None
-            if self.logger.webMonitor_log_file:
-                try:
-                    self.logger.webMonitor_log_file.close()
-                except Exception as e:
-                    print(f"Error closing web monitor log file: {e}")
-                self.logger.webMonitor_log_file = None
-
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
@@ -313,8 +322,6 @@ class MessagesFrame:
             
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
-            if not self.logger.webMonitor_log_file:
-                self.logger.setup_wm_logfile()
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
                 self.logging_indicator_circle, 
@@ -360,24 +367,6 @@ class MessagesFrame:
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
     
-    def ensure_wm_log_directory(self):
-        ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
-        try:
-            # For PyInstaller, _MEIPASS is the path to the temporary folder where the app is unpacked.
-            # os.path.abspath(".") gives the path to the current directory when running the script normally.
-            if hasattr(sys, '_MEIPASS'):
-                # If running as a bundled executable
-                base_path = os.path.expanduser("~")  # Gets the home directory
-            else:
-                # If running as a script (e.g., python main.py)
-                base_path = os.path.abspath(".")
-
-            self.wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
-            if not os.path.exists(self.wm_log_dir):
-                os.makedirs(self.wm_log_dir)
-        except Exception as e:
-            print(f"Failed to create wm log directory: {str(e)}")
-
     def export_log(self):
         """ Export the current log contents to a user-specified file. """
         try:
