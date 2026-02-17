@@ -21,6 +21,14 @@ try:
 except Exception:
     _HAS_MATPLOTLIB = False
 
+def resource_path(relative_path):
+    """Get absolute path to resource for PyInstaller."""
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1920, 30),
@@ -71,6 +79,15 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
+        
+        # Load toggle images
+        try:
+            self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
+            self.toggle_off_image = tk.PhotoImage(file=resource_path("media/toggle_off.png"))
+        except Exception as e:
+            self.toggle_on_image = None
+            self.toggle_off_image = None
+            print(f"Could not load toggle images: {e}")
         
         
         # if save file exists call it and open it
@@ -399,22 +416,39 @@ class EBEAMSystemDashboard:
         # Schedule status bar width synchronization after layout is complete
         self.root.after(100, self.sync_status_bar_widths)
 
-        # Add beams ready button
-        self.beams_ready_button = tk.Button(
-            main_frame,
-            text="ARM BEAMS",
-            bg="sky blue",
-            fg="white",
-            font=("Helvetica",16,"bold"),
-            command=self.handle_arm_beams
-        )
-        self.beams_ready_button.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
+        # Add beams armed toggle
+        beams_armed_control_frame = tk.Frame(main_frame)
+        beams_armed_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
+        
+        beams_armed_label_frame = ttk.Frame(beams_armed_control_frame)
+        beams_armed_label_frame.pack(pady=(0, 2))
+        ttk.Label(beams_armed_label_frame, text="BEAMS ARMED", font=("Helvetica", 12, "bold")).pack()
+        
+        if self.toggle_on_image and self.toggle_off_image:
+            self.beams_ready_button = tk.Button(
+                beams_armed_control_frame,
+                image=self.toggle_off_image,
+                command=self.handle_arm_beams,
+                relief=tk.FLAT,
+                bd=0,
+                bg="white"
+            )
+        else:
+            self.beams_ready_button = tk.Button(
+                beams_armed_control_frame,
+                text="ARM BEAMS",
+                bg="sky blue",
+                fg="white",
+                font=("Helvetica",16,"bold"),
+                command=self.handle_arm_beams
+            )
+        self.beams_ready_button.pack()
 
-        # Add deflect beam control (status bar + button) - matches beam button layout pattern
+        # Add deflect beam control with toggle
         deflect_beam_control_frame = tk.Frame(main_frame)
         deflect_beam_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
         
-        # Status bar above deflect beam button (matches beam button spacing)
+        # Status bar above deflect beam toggle (matches beam button spacing)
         deflect_beam_status_frame = tk.Frame(deflect_beam_control_frame)
         deflect_beam_status_frame.pack(side="top", fill="x", pady=(0, 2))
         
@@ -426,16 +460,30 @@ class EBEAMSystemDashboard:
         )
         self.deflect_beam_status_bar.pack(fill="x")
 
-        # Deflect beam button
-        self.deflect_beam_button = tk.Button(
-            deflect_beam_control_frame,
-            text="DEFLECT BEAM",
-            bg="orange",
-            fg="white",
-            font=("Helvetica",14,"bold"),
-            command=self.handle_deflect_beam
-        )
-        self.deflect_beam_button.pack(side="top", fill="x")
+        # Deflect beam toggle label and button
+        deflect_beam_label_frame = ttk.Frame(deflect_beam_control_frame)
+        deflect_beam_label_frame.pack(pady=(0, 2))
+        ttk.Label(deflect_beam_label_frame, text="DEFLECT BEAM", font=("Helvetica", 12, "bold")).pack()
+        
+        if self.toggle_on_image and self.toggle_off_image:
+            self.deflect_beam_button = tk.Button(
+                deflect_beam_control_frame,
+                image=self.toggle_off_image,
+                command=self.handle_deflect_beam,
+                relief=tk.FLAT,
+                bd=0,
+                bg="white"
+            )
+        else:
+            self.deflect_beam_button = tk.Button(
+                deflect_beam_control_frame,
+                text="DEFLECT BEAM",
+                bg="orange",
+                fg="white",
+                font=("Helvetica",14,"bold"),
+                command=self.handle_deflect_beam
+            )
+        self.deflect_beam_button.pack()
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -563,7 +611,7 @@ class EBEAMSystemDashboard:
         print(f"Log level changed to: {selected_level.name}")
 
     def handle_arm_beams(self):
-        """Handle ARM BEAMS button press with state management."""
+        """Handle ARM BEAMS toggle press with state management."""
         try:
             # Check if Beam Pulse subsystem is available
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
@@ -577,11 +625,14 @@ class EBEAMSystemDashboard:
             if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
                 # Beams are already armed, so disarm them
                 if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
-                    # Successfully disarmed
-                    self.beams_ready_button.config(
-                        text="ARM BEAMS",
-                        bg="sky blue"
-                    )
+                    # Successfully disarmed - update toggle to OFF
+                    if self.toggle_on_image and self.toggle_off_image:
+                        self.beams_ready_button.config(image=self.toggle_off_image)
+                    else:
+                        self.beams_ready_button.config(
+                            text="ARM BEAMS",
+                            bg="sky blue"
+                        )
                     # Disable beam toggle buttons and reset their states
                     self.update_beam_toggle_states(enabled=False, reset=True)
                     self.logger.info("Beams disarmed via dashboard button")
@@ -591,11 +642,14 @@ class EBEAMSystemDashboard:
             else:
                 # Beams are not armed, so arm them
                 if hasattr(beam_pulse, 'arm_beams') and beam_pulse.arm_beams():
-                    # Successfully armed
-                    self.beams_ready_button.config(
-                        text="BEAMS ARMED",
-                        bg="navy"  # Darker shade of blue
-                    )
+                    # Successfully armed - update toggle to ON
+                    if self.toggle_on_image and self.toggle_off_image:
+                        self.beams_ready_button.config(image=self.toggle_on_image)
+                    else:
+                        self.beams_ready_button.config(
+                            text="BEAMS ARMED",
+                            bg="navy"  # Darker shade of blue
+                        )
                     # Enable beam toggle buttons
                     self.update_beam_toggle_states(enabled=True)
                     self.logger.info("Beams armed via dashboard button")
@@ -608,7 +662,7 @@ class EBEAMSystemDashboard:
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
 
     def handle_deflect_beam(self):
-        """Handle DEFLECT BEAM button press with state management."""
+        """Handle DEFLECT BEAM toggle press with state management."""
         try:
             # Check if Beam Pulse subsystem is available
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
@@ -622,11 +676,14 @@ class EBEAMSystemDashboard:
             if hasattr(beam_pulse, 'get_deflect_beam_status') and beam_pulse.get_deflect_beam_status():
                 # Deflect beam is currently ON, so turn it OFF
                 if hasattr(beam_pulse, 'set_deflect_beam_status') and beam_pulse.set_deflect_beam_status(False):
-                    # Successfully disabled
-                    self.deflect_beam_button.config(
-                        text="DEFLECT BEAM",
-                        bg="orange"
-                    )
+                    # Successfully disabled - update toggle to OFF
+                    if self.toggle_on_image and self.toggle_off_image:
+                        self.deflect_beam_button.config(image=self.toggle_off_image)
+                    else:
+                        self.deflect_beam_button.config(
+                            text="DEFLECT BEAM",
+                            bg="orange"
+                        )
                     # Stop and clear the timer
                     self.stop_deflect_beam_timer()
                     self.logger.info("Beam deflection disabled via dashboard button")
@@ -636,11 +693,14 @@ class EBEAMSystemDashboard:
             else:
                 # Deflect beam is currently OFF, so turn it ON
                 if hasattr(beam_pulse, 'set_deflect_beam_status') and beam_pulse.set_deflect_beam_status(True):
-                    # Successfully enabled
-                    self.deflect_beam_button.config(
-                        text="DEFLECTING BEAM",
-                        bg="#D2691E"  # Chocolate/dark orange
-                    )
+                    # Successfully enabled - update toggle to ON
+                    if self.toggle_on_image and self.toggle_off_image:
+                        self.deflect_beam_button.config(image=self.toggle_on_image)
+                    else:
+                        self.deflect_beam_button.config(
+                            text="DEFLECTING BEAM",
+                            bg="#D2691E"  # Chocolate/dark orange
+                        )
                     # Start the timer
                     self.start_deflect_beam_timer()
                     self.logger.info("Beam deflection enabled via dashboard button")
@@ -668,11 +728,14 @@ class EBEAMSystemDashboard:
                 if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
                     # Beams are armed, so disarm them
                     if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
-                        # Update the ARM BEAMS button state
-                        self.beams_ready_button.config(
-                            text="ARM BEAMS",
-                            bg="sky blue"
-                        )
+                        # Update the ARM BEAMS toggle state to OFF
+                        if self.toggle_on_image and self.toggle_off_image:
+                            self.beams_ready_button.config(image=self.toggle_off_image)
+                        else:
+                            self.beams_ready_button.config(
+                                text="ARM BEAMS",
+                                bg="sky blue"
+                            )
                         # Disable beam toggle buttons and reset their states
                         self.update_beam_toggle_states(enabled=False, reset=True)
                         self.logger.info("Beams disarmed via Beams E-stop button")
