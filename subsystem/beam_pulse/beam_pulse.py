@@ -112,6 +112,9 @@ class BeamPulseSubsystem:
 
         # Start BCON connection monitoring
         self.start_bcon_connection_monitoring()
+        
+        # Start pulser status monitoring
+        self.start_pulser_status_monitoring()
 
     def setup_main_tab(self):
         """Setup the Main tab with pulser controls."""
@@ -154,6 +157,40 @@ class BeamPulseSubsystem:
         # Set initial state of duration spinboxes based on default pulsing behavior
         self.update_duration_spinbox_state()
 
+        # Pulser status indicators section
+        pulser_status_frame = ttk.LabelFrame(main_frame, text="Pulser Status", padding="10")
+        pulser_status_frame.pack(fill=tk.X, pady=(10, 5))
+
+        # Create status indicators for each pulser
+        self.pulser_status_canvases = []
+        self.pulser_enabled_canvases = []
+        
+        for i in range(3):
+            # Frame for each pulser
+            pulser_frame = ttk.Frame(pulser_status_frame)
+            pulser_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+            
+            # Pulser label
+            ttk.Label(pulser_frame, text=f"Pulser {i+1}", font=("Arial", 9, "bold")).pack()
+            
+            # Enabled/Disabled indicator
+            enabled_frame = ttk.Frame(pulser_frame)
+            enabled_frame.pack(pady=(2, 0))
+            ttk.Label(enabled_frame, text="Status:", font=("Arial", 8)).pack(side=tk.LEFT)
+            enabled_canvas = tk.Canvas(enabled_frame, width=15, height=15, highlightthickness=0)
+            enabled_canvas.pack(side=tk.LEFT, padx=(3, 0))
+            enabled_canvas.create_oval(2, 2, 13, 13, fill="gray", outline="black", tags="indicator")
+            self.pulser_enabled_canvases.append(enabled_canvas)
+            
+            # Overcurrent indicator
+            overcurrent_frame = ttk.Frame(pulser_frame)
+            overcurrent_frame.pack(pady=(2, 0))
+            ttk.Label(overcurrent_frame, text="Overcurrent:", font=("Arial", 8)).pack(side=tk.LEFT)
+            status_canvas = tk.Canvas(overcurrent_frame, width=15, height=15, highlightthickness=0)
+            status_canvas.pack(side=tk.LEFT, padx=(3, 0))
+            status_canvas.create_oval(2, 2, 13, 13, fill="green", outline="black", tags="indicator")
+            self.pulser_status_canvases.append(status_canvas)
+
     def start_bcon_connection_monitoring(self):
         """Start periodic monitoring of BCON connection status."""
         def check_connection():
@@ -171,6 +208,21 @@ class BeamPulseSubsystem:
         # Start the monitoring loop
         if hasattr(self, 'parent_frame') and self.parent_frame:
             self.parent_frame.after(1000, check_connection)  # Start after 1 second
+    
+    def start_pulser_status_monitoring(self):
+        """Start periodic monitoring of pulser status."""
+        def check_pulser_status():
+            # Update pulser status for all 3 pulsers
+            for i in range(3):
+                self.update_pulser_status_display(i)
+            
+            # Schedule next check
+            if hasattr(self, 'parent_frame') and self.parent_frame:
+                self.parent_frame.after(500, check_pulser_status)  # Update every 500ms
+        
+        # Start the monitoring loop
+        if hasattr(self, 'parent_frame') and self.parent_frame:
+            self.parent_frame.after(1000, check_pulser_status)  # Start after 1 second
 
     def create_pulsing_behavior_control(self, parent, column):
         """Create Pulsing Behavior dropdown control."""
@@ -255,6 +307,56 @@ class BeamPulseSubsystem:
     # Status indicator update methods
     def update_bcon_connection_status(self):
         """Update the BCON connection status indicator."""
+    
+    def update_pulser_status_display(self, pulser_index: int):
+        """Update the status indicators for a specific pulser.
+        
+        Args:
+            pulser_index: Index of pulser (0, 1, or 2)
+        """
+        if not (0 <= pulser_index < 3):
+            return
+        
+        try:
+            # Update enabled/disabled status
+            is_enabled = self.beam_on_status[pulser_index]
+            enabled_canvas = self.pulser_enabled_canvases[pulser_index]
+            enabled_canvas.delete("indicator")
+            enabled_color = "green" if is_enabled else "gray"
+            enabled_canvas.create_oval(2, 2, 13, 13, fill=enabled_color, outline="black", tags="indicator")
+            
+            # Update overcurrent status
+            has_overcurrent = self.get_pulser_overcurrent_status(pulser_index)
+            status_canvas = self.pulser_status_canvases[pulser_index]
+            status_canvas.delete("indicator")
+            overcurrent_color = "red" if has_overcurrent else "green"
+            status_canvas.create_oval(2, 2, 13, 13, fill=overcurrent_color, outline="black", tags="indicator")
+            
+        except Exception as e:
+            self._log(f"Error updating pulser {pulser_index} status: {e}", LogLevel.ERROR)
+    
+    def get_pulser_overcurrent_status(self, pulser_index: int) -> bool:
+        """Check if a pulser has overcurrent condition.
+        
+        Args:
+            pulser_index: Index of pulser (0, 1, or 2)
+            
+        Returns:
+            True if overcurrent detected, False otherwise
+        """
+        # TODO: Read overcurrent status from hardware registers
+        # For now, return False (no overcurrent)
+        # In real implementation, should read from BCON hardware status registers
+        if self.bcon_driver and self.bcon_connection_status:
+            try:
+                # Example: read status register for overcurrent
+                # status = self.read_register('PULSER_STATUS')
+                # Check specific bit for pulser_index overcurrent flag
+                pass
+            except Exception as e:
+                self._log(f"Error reading overcurrent status for pulser {pulser_index}: {e}", LogLevel.ERROR)
+        
+        return False  # Default: no overcurrent
         if hasattr(self, 'bcon_connection_canvas'):
             color = "green" if self.bcon_connection_status else "red"
             self.bcon_connection_canvas.create_oval(2, 2, 18, 18, fill=color, outline="black")

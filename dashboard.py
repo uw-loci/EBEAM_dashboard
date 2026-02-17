@@ -358,38 +358,7 @@ class EBEAMSystemDashboard:
         beam_toggles_frame = tk.Frame(main_frame)
         beam_toggles_frame.pack(side="top", fill="x", padx=10, pady=(10, 0))
         
-        # Create status bars above beam buttons using grid for precise alignment
-        status_bars_frame = tk.Frame(beam_toggles_frame)
-        status_bars_frame.pack(side="top", fill="x", pady=(0, 2))
-        
-        self.beam_status_bars = []
-        self.beam_status_timers = []  # For managing progress animations
-        self.dc_mode_timers = []  # For DC mode runtime counters
-        self.dc_mode_start_times = []  # Track when DC mode started
-        
-        # Deflect beam timer variables
-        self.deflect_beam_timer = None
-        self.deflect_beam_start_time = None
-        
-        # Configure grid columns to have equal weight
-        for i in range(3):
-            status_bars_frame.grid_columnconfigure(i, weight=1, uniform="status_bar")
-        
-        for i in range(3):
-            # Create thin status bar canvas using grid for proper width distribution
-            status_bar = tk.Canvas(
-                status_bars_frame,
-                height=12,
-                bg="lightgray",
-                highlightthickness=0
-            )
-            status_bar.grid(row=0, column=i, sticky="ew", padx=2)
-            self.beam_status_bars.append(status_bar)
-            self.beam_status_timers.append(None)
-            self.dc_mode_timers.append(None)
-            self.dc_mode_start_times.append(None)
-        
-        # Create toggle buttons for each beam using matching grid system
+        # Create toggle buttons for each beam using grid system
         buttons_frame = tk.Frame(beam_toggles_frame)
         buttons_frame.pack(side="top", fill="x")
         
@@ -412,9 +381,6 @@ class EBEAMSystemDashboard:
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
-        
-        # Schedule status bar width synchronization after layout is complete
-        self.root.after(100, self.sync_status_bar_widths)
 
         # Add beams armed toggle
         beams_armed_control_frame = tk.Frame(main_frame)
@@ -443,47 +409,6 @@ class EBEAMSystemDashboard:
                 command=self.handle_arm_beams
             )
         self.beams_ready_button.pack()
-
-        # Add deflect beam control with toggle
-        deflect_beam_control_frame = tk.Frame(main_frame)
-        deflect_beam_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
-        
-        # Status bar above deflect beam toggle (matches beam button spacing)
-        deflect_beam_status_frame = tk.Frame(deflect_beam_control_frame)
-        deflect_beam_status_frame.pack(side="top", fill="x", pady=(0, 2))
-        
-        self.deflect_beam_status_bar = tk.Canvas(
-            deflect_beam_status_frame,
-            height=12,
-            bg="lightgray",
-            highlightthickness=0
-        )
-        self.deflect_beam_status_bar.pack(fill="x")
-
-        # Deflect beam toggle label and button
-        deflect_beam_label_frame = ttk.Frame(deflect_beam_control_frame)
-        deflect_beam_label_frame.pack(pady=(0, 2))
-        ttk.Label(deflect_beam_label_frame, text="DEFLECT BEAM", font=("Helvetica", 12, "bold")).pack()
-        
-        if self.toggle_on_image and self.toggle_off_image:
-            self.deflect_beam_button = tk.Button(
-                deflect_beam_control_frame,
-                image=self.toggle_off_image,
-                command=self.handle_deflect_beam,
-                relief=tk.FLAT,
-                bd=0,
-                bg="white"
-            )
-        else:
-            self.deflect_beam_button = tk.Button(
-                deflect_beam_control_frame,
-                text="DEFLECT BEAM",
-                bg="orange",
-                fg="white",
-                font=("Helvetica",14,"bold"),
-                command=self.handle_deflect_beam
-            )
-        self.deflect_beam_button.pack()
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -661,57 +586,6 @@ class EBEAMSystemDashboard:
             self.logger.error(f"Error in handle_arm_beams: {str(e)}")
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
 
-    def handle_deflect_beam(self):
-        """Handle DEFLECT BEAM toggle press with state management."""
-        try:
-            # Check if Beam Pulse subsystem is available
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                self.logger.error("Beam Pulse subsystem not available")
-                messagebox.showerror("Error", "Beam Pulse subsystem not available")
-                return
-            
-            beam_pulse = self.subsystems['Beam Pulse']
-            
-            # Check current deflect beam state
-            if hasattr(beam_pulse, 'get_deflect_beam_status') and beam_pulse.get_deflect_beam_status():
-                # Deflect beam is currently ON, so turn it OFF
-                if hasattr(beam_pulse, 'set_deflect_beam_status') and beam_pulse.set_deflect_beam_status(False):
-                    # Successfully disabled - update toggle to OFF
-                    if self.toggle_on_image and self.toggle_off_image:
-                        self.deflect_beam_button.config(image=self.toggle_off_image)
-                    else:
-                        self.deflect_beam_button.config(
-                            text="DEFLECT BEAM",
-                            bg="orange"
-                        )
-                    # Stop and clear the timer
-                    self.stop_deflect_beam_timer()
-                    self.logger.info("Beam deflection disabled via dashboard button")
-                else:
-                    self.logger.error("Failed to disable beam deflection")
-                    messagebox.showerror("Error", "Failed to disable beam deflection")
-            else:
-                # Deflect beam is currently OFF, so turn it ON
-                if hasattr(beam_pulse, 'set_deflect_beam_status') and beam_pulse.set_deflect_beam_status(True):
-                    # Successfully enabled - update toggle to ON
-                    if self.toggle_on_image and self.toggle_off_image:
-                        self.deflect_beam_button.config(image=self.toggle_on_image)
-                    else:
-                        self.deflect_beam_button.config(
-                            text="DEFLECTING BEAM",
-                            bg="#D2691E"  # Chocolate/dark orange
-                        )
-                    # Start the timer
-                    self.start_deflect_beam_timer()
-                    self.logger.info("Beam deflection enabled via dashboard button")
-                else:
-                    self.logger.error("Failed to enable beam deflection")
-                    messagebox.showerror("Error", "Failed to enable beam deflection")
-                    
-        except Exception as e:
-            self.logger.error(f"Error in handle_deflect_beam: {str(e)}")
-            messagebox.showerror("Error", f"Error handling beam deflection: {str(e)}")
-
     def handle_beams_off(self):
         """Handle Beams E-stop button press - turn off cathode heating and disarm beams if armed."""
         try:
@@ -767,13 +641,9 @@ class EBEAMSystemDashboard:
                     btn = self.beam_toggle_buttons[beam_index]
                     if new_status:
                         btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-                        
-                        # Animation handled by beam pulse callback if in Pulsed mode
                         self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
                     else:
                         btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                        # Clear any running status bar animation
-                        self.clear_beam_status_bar(beam_index)
                         self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
                     
         except Exception as e:
@@ -828,340 +698,32 @@ class EBEAMSystemDashboard:
         except Exception as e:
             self.logger.error(f"Error auto-turning off beam {beam_index}: {str(e)}")
     
-    def animate_beam_status_bar(self, beam_index, duration_ms):
-        """Animate status bar to show pulse progress with consistent visual feedback."""
-        try:
-            status_bar = self.beam_status_bars[beam_index]
-            beam_names = ["A", "B", "C"]
-            
-            # Clear any existing animation
-            if self.beam_status_timers[beam_index]:
-                self.root.after_cancel(self.beam_status_timers[beam_index])
-            
-            # Consistent behavior: always show progress during actual duration + green confirmation
-            actual_duration = duration_ms
-            completion_display_time = 750  # Always show green completion for 750ms
-            
-            # Clear and setup status bar
-            status_bar.delete("all")
-            # Force update to get accurate dimensions
-            status_bar.update_idletasks()
-            bar_width = status_bar.winfo_width()
-            if bar_width <= 1:  # Widget not yet sized properly
-                # Get button width as fallback
-                try:
-                    btn_width = self.beam_toggle_buttons[beam_index].winfo_width()
-                    if btn_width > 1:
-                        bar_width = btn_width - 4  # Account for padding
-                    else:
-                        bar_width = 120  # Reasonable default
-                except:
-                    bar_width = 120
-            bar_height = 12
-            
-            # Animation parameters
-            start_time = time.time() * 1000  # Current time in ms
-            steps = max(20, int(actual_duration / 10))  # More steps for longer durations
-            step_duration = actual_duration / steps
-            
-            def update_progress():
-                current_time = time.time() * 1000
-                elapsed = current_time - start_time
-                
-                if elapsed >= actual_duration:
-                    # Pulse complete - show green confirmation
-                    status_bar.delete("all")
-                    status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="lightgreen", outline="")
-                    status_bar.create_text(bar_width//2, bar_height//2, 
-                                         text=f"Beam {beam_names[beam_index]}: {actual_duration}ms completed", 
-                                         font=("Arial", 8), fill="darkgreen")
-                    
-                    # Clear after completion display time
-                    self.beam_status_timers[beam_index] = self.root.after(completion_display_time, 
-                                                                           lambda: self.clear_beam_status_bar(beam_index))
-                    return
-                
-                # Calculate progress during active pulse
-                progress = elapsed / actual_duration
-                color = "orange"  # Active pulse color
-                status_text = f"Beam {beam_names[beam_index]}: {actual_duration}ms active"
-                
-                # Update progress bar
-                status_bar.delete("all")
-                fill_width = int(bar_width * progress)
-                
-                # Background
-                status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="lightgray", outline="")
-                
-                # Progress fill
-                if fill_width > 0:
-                    status_bar.create_rectangle(0, 0, fill_width, bar_height, fill=color, outline="")
-                
-                # Text overlay
-                status_bar.create_text(bar_width//2, bar_height//2, text=status_text, 
-                                     font=("Arial", 7), fill="black")
-                
-                # Schedule next update
-                self.beam_status_timers[beam_index] = self.root.after(int(step_duration), update_progress)
-            
-            # Start animation
-            update_progress()
-            
-        except Exception as e:
-            self.logger.error(f"Error animating status bar for beam {beam_index}: {str(e)}")
-    
-    def clear_beam_status_bar(self, beam_index):
-        """Clear beam status bar and cancel any running animation."""
-        try:
-            if beam_index < len(self.beam_status_bars):
-                # Cancel any running timer
-                if self.beam_status_timers[beam_index]:
-                    self.root.after_cancel(self.beam_status_timers[beam_index])
-                    self.beam_status_timers[beam_index] = None
-                
-                # Clear status bar
-                status_bar = self.beam_status_bars[beam_index]
-                status_bar.delete("all")
-                status_bar.update_idletasks()
-                bar_width = status_bar.winfo_width()
-                if bar_width <= 1:
-                    bar_width = 120  # Default fallback
-                status_bar.create_rectangle(0, 0, bar_width, 12, 
-                                           fill="lightgray", outline="")
-        except Exception as e:
-            self.logger.error(f"Error clearing status bar for beam {beam_index}: {str(e)}")
-
     def handle_beam_pulse_callback(self, beam_index, status, duration=0):
-        """Handle beam pulse callback for animation control.
+        """Handle beam pulse callback for button updates.
         
-        This method is called by the beam pulse subsystem when beam status changes
-        and handles pulse animations based on pulsing behavior setting.
+        This method is called by the beam pulse subsystem when beam status changes.
         """
         try:
             beam_names = ["A", "B", "C"]
             
-            if status and duration > 0:
-                # Beam turned ON in Pulsed mode - animate and schedule auto turn-off
-                self.animate_beam_status_bar(beam_index, duration)
-                # Update button text to show ON
+            if status:
+                # Beam turned ON - update button display
                 if beam_index < len(self.beam_toggle_buttons):
                     self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-                # Delay auto turn-off to allow completion display to show (750ms + small buffer)
-                self.root.after(int(duration + 800), lambda: self.auto_turn_off_beam(beam_index))
-                self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
-            elif status and duration == 0:
-                # Beam turned ON in DC mode - show solid bar with runtime counter
-                self.start_dc_mode_counter(beam_index)
-                # Update button text to show ON
-                if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-                self.logger.info(f"Beam {beam_names[beam_index]} turned ON in DC mode")
-            elif not status:
-                # Beam turned OFF - clear animation and stop DC counter
-                self.clear_beam_status_bar(beam_index)
-                self.stop_dc_mode_counter(beam_index)
-                # Update button text to show OFF
+                
+                if duration > 0:
+                    self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
+                    # Schedule auto turn-off after pulse duration
+                    self.root.after(int(duration), lambda: self.auto_turn_off_beam(beam_index))
+                else:
+                    self.logger.info(f"Beam {beam_names[beam_index]} turned ON in DC mode")
+            else:
+                # Beam turned OFF - update button display
                 if beam_index < len(self.beam_toggle_buttons):
                     self.beam_toggle_buttons[beam_index].config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
                 
         except Exception as e:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
-
-    def start_dc_mode_counter(self, beam_index):
-        """Start DC mode runtime counter for a beam."""
-        try:
-            if not hasattr(self, 'dc_mode_start_times'):
-                return
-                
-            import time
-            self.dc_mode_start_times[beam_index] = time.time()
-            self.update_dc_mode_display(beam_index)
-            
-        except Exception as e:
-            self.logger.error(f"Error starting DC mode counter for beam {beam_index}: {str(e)}")
-    
-    def stop_dc_mode_counter(self, beam_index):
-        """Stop DC mode runtime counter for a beam."""
-        try:
-            if hasattr(self, 'dc_mode_timers') and beam_index < len(self.dc_mode_timers):
-                if self.dc_mode_timers[beam_index]:
-                    self.root.after_cancel(self.dc_mode_timers[beam_index])
-                    self.dc_mode_timers[beam_index] = None
-            if hasattr(self, 'dc_mode_start_times') and beam_index < len(self.dc_mode_start_times):
-                self.dc_mode_start_times[beam_index] = None
-                
-        except Exception as e:
-            self.logger.error(f"Error stopping DC mode counter for beam {beam_index}: {str(e)}")
-    def format_beam_duration(self, total_seconds):
-        """Format beam duration display based on time elapsed.
-        
-        Args:
-            total_seconds (int): Total elapsed time in seconds
-            
-        Returns:
-            str: Formatted time string
-                - Under 60s: "42s"
-                - 60s to 3600s: "5m 42s" 
-                - Over 3600s: "2h 5m 42s"
-        """
-        if total_seconds < 60:
-            # Under 60 seconds: show just seconds
-            return f"{total_seconds}s"
-        elif total_seconds < 3600:
-            # Between 60 seconds and 1 hour: show minutes and seconds
-            minutes = total_seconds // 60
-            seconds = total_seconds % 60
-            return f"{minutes}m {seconds}s"
-        else:
-            # Over 1 hour: show hours, minutes, and seconds
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            seconds = total_seconds % 60
-            return f"{hours}h {minutes}m {seconds}s"
-    
-    def update_dc_mode_display(self, beam_index):
-        """Update DC mode display with runtime counter."""
-        try:
-            if (not hasattr(self, 'dc_mode_start_times') or 
-                beam_index >= len(self.dc_mode_start_times) or
-                self.dc_mode_start_times[beam_index] is None):
-                return
-                
-            import time
-            beam_names = ["A", "B", "C"]
-            status_bar = self.beam_status_bars[beam_index]
-            
-            # Calculate runtime in seconds
-            runtime_seconds = int(time.time() - self.dc_mode_start_times[beam_index])
-            
-            # Update status bar with solid yellow background and runtime text
-            status_bar.delete("all")
-            # Force update to get accurate dimensions
-            status_bar.update_idletasks()
-            bar_width = status_bar.winfo_width()
-            if bar_width <= 1:
-                bar_width = 100  # Fallback width
-            bar_height = 12
-            
-            # Solid yellow background
-            status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="gold", outline="")
-            
-            # Format time based on duration
-            formatted_time = self.format_beam_duration(runtime_seconds)
-            
-            # Runtime text overlay
-            runtime_text = f"Beam {beam_names[beam_index]}: {formatted_time}"
-            status_bar.create_text(
-                bar_width // 2, bar_height // 2,
-                text=runtime_text,
-                fill="black",
-                font=("Arial", 8, "bold")
-            )
-            
-            # Schedule next update in 1 second
-            self.dc_mode_timers[beam_index] = self.root.after(1000, lambda: self.update_dc_mode_display(beam_index))
-            
-        except Exception as e:
-            self.logger.error(f"Error updating DC mode display for beam {beam_index}: {str(e)}")
-
-    def start_deflect_beam_timer(self):
-        """Start the deflect beam timer."""
-        try:
-            if not hasattr(self, 'deflect_beam_start_time'):
-                return
-            
-            self.deflect_beam_start_time = time.time()
-            # Start the display update
-            self.update_deflect_beam_display()
-        except Exception as e:
-            self.logger.error(f"Error starting deflect beam timer: {str(e)}")
-
-    def stop_deflect_beam_timer(self):
-        """Stop and clear the deflect beam timer."""
-        try:
-            if hasattr(self, 'deflect_beam_timer') and self.deflect_beam_timer:
-                self.root.after_cancel(self.deflect_beam_timer)
-                self.deflect_beam_timer = None
-            if hasattr(self, 'deflect_beam_start_time'):
-                self.deflect_beam_start_time = None
-            # Clear the status bar
-            if hasattr(self, 'deflect_beam_status_bar'):
-                self.deflect_beam_status_bar.delete("all")
-                self.deflect_beam_status_bar.config(bg="lightgray")
-        except Exception as e:
-            self.logger.error(f"Error stopping deflect beam timer: {str(e)}")
-
-    def update_deflect_beam_display(self):
-        """Update deflect beam display with runtime counter."""
-        try:
-            if not hasattr(self, 'deflect_beam_start_time') or self.deflect_beam_start_time is None:
-                return
-            
-            status_bar = self.deflect_beam_status_bar
-            
-            # Calculate runtime in seconds
-            runtime_seconds = int(time.time() - self.deflect_beam_start_time)
-            
-            # Update status bar with solid orange background and runtime text
-            status_bar.delete("all")
-            # Force update to get accurate dimensions
-            status_bar.update_idletasks()
-            bar_width = status_bar.winfo_width()
-            if bar_width <= 1:
-                bar_width = 100  # Fallback width
-            bar_height = 12
-            
-            # Solid orange background
-            status_bar.create_rectangle(0, 0, bar_width, bar_height, fill="#FFB366", outline="")
-            
-            # Format time: hours, minutes, seconds
-            hours = runtime_seconds // 3600
-            minutes = (runtime_seconds % 3600) // 60
-            seconds = runtime_seconds % 60
-            
-            if hours > 0:
-                formatted_time = f"{hours}h {minutes}m {seconds}s"
-            elif minutes > 0:
-                formatted_time = f"{minutes}m {seconds}s"
-            else:
-                formatted_time = f"{seconds}s"
-            
-            # Runtime text overlay
-            runtime_text = f"Deflecting: {formatted_time}"
-            status_bar.create_text(
-                bar_width // 2, bar_height // 2,
-                text=runtime_text,
-                fill="black",
-                font=("Arial", 8, "bold")
-            )
-            
-            # Schedule next update in 1 second
-            self.deflect_beam_timer = self.root.after(1000, self.update_deflect_beam_display)
-            
-        except Exception as e:
-            self.logger.error(f"Error updating deflect beam display: {str(e)}")
-
-    def sync_status_bar_widths(self):
-        """Synchronize status bar widths with button widths after layout changes."""
-        try:
-            # Force layout update
-            self.root.update_idletasks()
-            
-            for i, (status_bar, button) in enumerate(zip(self.beam_status_bars, self.beam_toggle_buttons)):
-                try:
-                    # Get button width
-                    btn_width = button.winfo_width()
-                    if btn_width > 1:
-                        # Configure status bar to match button width
-                        status_bar.configure(width=btn_width - 4)  # Account for padding
-                        # Clear and redraw background
-                        status_bar.delete("all")
-                        status_bar.create_rectangle(0, 0, btn_width - 4, 12, 
-                                                   fill="lightgray", outline="")
-                except Exception as e:
-                    self.logger.error(f"Error syncing status bar {i} width: {str(e)}")
-        except Exception as e:
-            self.logger.error(f"Error syncing status bar widths: {str(e)}")
 
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
