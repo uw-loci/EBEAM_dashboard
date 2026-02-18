@@ -12,7 +12,7 @@ This directory contains the Beam Pulse control subsystem for the EBEAM Dashboard
 - **GUI Interface:** Tabbed interface (Main and Config tabs) with real-time controls
 - **Wave Generation:** Wave type selection, frequency control, and amplitude adjustment
 - **Pulsing Control:** Configure pulsing behavior and individual beam durations
-- **Hardware Communication:** Uses `E5CNModbus` driver from `instrumentctl/E5CN_modbus/` for Modbus RTU serial communication
+- **Hardware Communication:** Uses `BCONDriver` from `instrumentctl/BCON/` for RS-485 serial communication
 - **Connection Monitoring:** Real-time BCON connection status indicator
 - **Safety Features:** Beam arming/disarming with safe shutdown capabilities
 - **Deflection Bounds:** Configurable amplitude and frequency limits in Config tab
@@ -20,39 +20,66 @@ This directory contains the Beam Pulse control subsystem for the EBEAM Dashboard
 ## Architecture
 
 The subsystem integrates with the dashboard through:
-- **Hardware Layer:** `E5CNModbus` wrapper handles low-level Modbus RTU communication
+- **Hardware Layer:** `BCONDriver` handles low-level RS-485 serial communication with Arduino firmware
 - **Control Layer:** `BeamPulseSubsystem` provides GUI controls and logic
 - **Integration:** Dashboard callbacks for beam status synchronization
 
-## Hardware Register Map
+## Hardware Communication
 
-The subsystem communicates with BCON hardware through these Modbus holding registers (zero-based addressing):
+The subsystem communicates with BCON hardware through RS-485 serial commands (not Modbus registers). The BCON Arduino firmware supports the following command interface:
+
+### Command Structure
+
+| Command | Example | Description |
+|---------|---------|-------------|
+| `PING` | `PING\n` | Check communication and refresh watchdog |
+| `STATUS` | `STATUS\n` | Get full system and channel status |
+| `STOP ALL` | `STOP ALL\n` | Force all channels to OFF mode |
+| `SET WATCHDOG` | `SET WATCHDOG 1000\n` | Set watchdog timeout (50-60000 ms) |
+| `SET TELEMETRY` | `SET TELEMETRY 500\n` | Set telemetry interval (0=disabled) |
+| `SET CH OFF` | `SET CH 1 OFF\n` | Turn off channel 1 |
+| `SET CH DC` | `SET CH 2 DC\n` | Set channel 2 to DC mode |
+| `SET CH PULSE` | `SET CH 3 PULSE 250\n` | Pulse channel 3 for 250ms |
+| `ARM` / `CLEAR FAULT` | `ARM\n` | Clear latched faults |
+
+### System States
+
+- **READY** - System ready for commands, outputs can be enabled
+- **SAFE_INTERLOCK** - Interlock signal low, all outputs forced OFF
+- **SAFE_WATCHDOG** - Communication watchdog expired, all outputs forced OFF
+- **FAULT_LATCHED** - Overcurrent or other fault latched, outputs disabled
+
+### Channel Modes
+
+- **OFF** - Channel output is LOW (no beam formation)
+- **DC** - Channel output is HIGH (continuous beam)
+- **PULSE** - Channel pulses HIGH for configured duration then returns to OFF
+
+### Telemetry
+
+BCON periodically transmits telemetry:
+
+```
+SYS state=READY reason=NONE fault_latched=0 telemetry_ms=500
+CH1 mode=DC pulse_ms=0 en_st=1 pwr_st=1 oc_st=0 gated_st=0
+CH2 mode=OFF pulse_ms=0 en_st=0 pwr_st=1 oc_st=0 gated_st=0
+CH3 mode=PULSE pulse_ms=250 en_st=1 pwr_st=1 oc_st=0 gated_st=0
+```
 
 ```mermaid
 %%{init: { 'theme': 'base', 'themeVariables': { 'primaryColor': '#1f78b4'}}}%%
-classDiagram
-	class Registers {
-		<<Register Map>>
-		0 COMMAND : Command register
-		1 X_DIRECT_WRITE : Direct write to DAC (direct command mode)
-		2 Y_DIRECT_WRITE : Direct write to DAC (unused)
-		3 PULSER_1_DUTY : PWM duty (Uint8)
-		4 PULSER_2_DUTY : PWM duty (unused)
-		5 PULSER_3_DUTY : PWM duty (unused)
-		6 PULSER_1_DURATION : Pulse duration (ms, Uint16)
-		7 PULSER_2_DURATION : Pulse duration (ms, Uint16)
-		8 PULSER_3_DURATION : Pulse duration (ms, Uint16)
-		9 SAMPLES_RATE : Samples per period (Uint16, default 8192)
-		10 BEAM_1_AMPLITUDE : Amplitude (Uint16, default 32767)
-		11 BEAM_1_PHASE : Phase (Uint16)
-		12 BEAM_1_OFFSET : Offset (Uint16)
-		13 BEAM_2_AMPLITUDE : Amplitude (Uint16, default 32767)
-		14 BEAM_2_PHASE : Phase (Uint16)
-		15 BEAM_2_OFFSET : Offset (Uint16)
-		16 BEAM_3_AMPLITUDE : Amplitude (Uint16, default 32767)
-		17 BEAM_3_PHASE : Phase (Uint16)
-		18 BEAM_3_OFFSET : Offset (Uint16)
-	}
+stateDiagram-v2
+    [*] --> READY: Power On / ARM
+    READY --> DC: SET CH n DC
+    READY --> PULSE: SET CH n PULSE
+    READY --> SAFE_INTERLOCK: Interlock Low
+    READY --> SAFE_WATCHDOG: Watchdog Expired
+    DC --> READY: SET CH n OFF
+    PULSE --> READY: Pulse Complete
+    SAFE_INTERLOCK --> READY: Interlock High + ARM
+    SAFE_WATCHDOG --> READY: Command Received + ARM
+    READY --> FAULT_LATCHED: Overcurrent Detected
+    FAULT_LATCHED --> READY: CLEAR FAULT (after OC cleared)
 ```
 
 ## GUI Controls
@@ -97,7 +124,6 @@ root.title("Beam Pulse Control")
 beam_pulse = BeamPulseSubsystem(
     parent_frame=root,
     port='COM3',
-    unit=1,
     baudrate=115200,
     debug=True
 )
@@ -129,7 +155,6 @@ from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
 beam_pulse = BeamPulseSubsystem(
     parent_frame=None,  # No GUI
     port='COM3',
-    unit=1,
     baudrate=115200,
     debug=True
 )
@@ -138,26 +163,24 @@ beam_pulse = BeamPulseSubsystem(
 if not beam_pulse.connect():
     raise SystemExit('Could not connect to BCON device')
 
-# Read register
-samples = beam_pulse.read_register('SAMPLES_RATE')
-print(f'Samples rate: {samples}')
+# Ping device
+if beam_pulse.ping():
+    print("Device responding")
 
-# Set beam parameters
-ok = beam_pulse.set_beam_parameters(1, amplitude=32767)
-print(f'Set beam 1 amplitude: {ok}')
+# Get system status
+status = beam_pulse.get_system_status()
+print(f"System state: {status['system']['state']}")
 
-# Set pulser duty (0..255)
-ok = beam_pulse.set_pulser_duty(1, 128)
-print(f'Set pulser 1 duty: {ok}')
+# Set channel 1 to DC mode
+if beam_pulse.set_channel_mode(0, 'DC'):
+    print("Channel 1 in DC mode")
 
-# Arm beams (safety feature)
-if beam_pulse.arm_beams():
-    print("Beams armed successfully")
+# Pulse channel 2 for 250ms
+if beam_pulse.set_channel_mode(1, 'PULSE', 250):
+    print("Channel 2 pulsing")
 
-# Read all registers
-all_vals = beam_pulse.read_all()
-for k, v in all_vals.items():
-    print(f"{k} => {v}")
+# Stop all channels
+beam_pulse.stop_all_channels()
 
 # Safe shutdown
 beam_pulse.safe_shutdown("Test complete")
@@ -188,88 +211,101 @@ print(f"Dashboard integration: {status}")
 - `connect() -> bool` - Connect to BCON hardware
 - `disconnect() -> None` - Disconnect from hardware
 - `is_connected() -> bool` - Check connection status
+- `ping() -> bool` - Ping device to verify communication
 
-### Register Operations
+### System Status
 
-- `read_register(name: str) -> Optional[int]` - Read single register
-- `write_register(name: str, value: int) -> bool` - Write single register
-- `read_all() -> Dict[str, Optional[int]]` - Read all registers
+- `get_system_status() -> Dict` - Get full system and channel status
+- `get_beams_armed_status() -> bool` - Check if beams are armed
 
-### Beam Control
+### Channel Control
 
-- `arm_beams() -> bool` - Enable beam operations (safety)
-- `disarm_beams() -> bool` - Disable beam operations
-- `set_beam_parameters(beam_index: int, amplitude=None, phase=None, offset=None) -> Dict[str, bool]`
+- `set_channel_mode(channel_index: int, mode: str, duration_ms: int = 0) -> bool` - Set channel mode (OFF, DC, PULSE)
+- `stop_all_channels() -> bool` - Stop all channels immediately
 - `set_beam_status(beam_index: int, status: bool)` - Set individual beam on/off
 - `get_beam_status(beam_index: int) -> bool` - Get beam status
-
-### Pulser Control
-
-- `set_pulser_duty(pulser_index: int, duty: int) -> bool` - Set duty cycle (0-255)
-- `set_pulser_duration(pulser_index: int, duration_ms: int) -> bool` - Set pulse duration
-- `get_pulsing_behavior() -> str` - Get current pulsing mode
-- `get_beam_duration(beam_index: int) -> float` - Get beam pulse duration
+- `set_all_beams_status(status: bool)` - Set all beams to same status
 
 ### Configuration
 
+- `get_pulsing_behavior() -> str` - Get current pulsing mode (DC or Pulsed)
+- `get_beam_duration(beam_index: int) -> float` - Get beam pulse duration
 - `get_deflection_bounds() -> tuple` - Get (lower, upper) amplitude bounds
 - `is_deflection_within_bounds(value: float) -> bool` - Validate amplitude value
 
 ### Safety Features
 
+- `arm_beams() -> bool` - Enable beam operations (arms BCON hardware)
+- `disarm_beams() -> bool` - Disable beam operations (stops all channels)
 - `safe_shutdown(reason: Optional[str] = None) -> bool` - Safe shutdown of all beams
 - `get_beams_armed_status() -> bool` - Check if beams are armed
 
+### Status Monitoring
+
+- `get_pulser_overcurrent_status(pulser_index: int) -> bool` - Check channel overcurrent status
+- `set_bcon_connection_status(status: bool)` - Update BCON connection status indicator
+
 ## Hardware Register Details
 
-**Data Types:**
-- Beam amplitude/phase/offset: Unsigned 16-bit (0..65535)
-- Sample rate: Unsigned 16-bit (default: 8192)
-- Pulser duty: Uint8 (0..255), written as 16-bit register
-- Pulser duration: Uint16 (milliseconds)
+**Note:** BCON firmware uses RS-485 serial commands, not Modbus registers. See the **Hardware Communication** section above for command details.
 
-**Register Access:**
-- All registers are Modbus holding registers (function code 3 for read, 6/16 for write)
-- Zero-based addressing (register 0 = COMMAND)
-- Thread-safe access through `E5CNModbus` wrapper's modbus_lock
+**Communication Details:**
+- **Protocol:** RS-485 serial (ASCII commands, newline terminated)
+- **Baud Rate:** 115200 (configurable)
+- **Parity:** None
+- **Stop Bits:** 1
+- **Data Bits:** 8
+- **Flow Control:** None
+
+**Channel Numbers:**
+- Python API uses 0-based indexing (0, 1, 2 for channels A, B, C)
+- Arduino firmware uses 1-based channel numbers (1, 2, 3)
+- Driver automatically converts between the two
+
+**Pulse Duration Range:** 1-60000 milliseconds
+**Watchdog Range:** 50-60000 milliseconds
 
 ## Troubleshooting
 
 ### Connection Issues
 - Verify serial port permissions and COM port name (e.g., 'COM3' on Windows)
 - Confirm device baudrate matches (default: 115200)
-- Check parity settings match between software and hardware
-- Enable `debug=True` for verbose Modbus communication logs
+- Check RS-485 transceiver connections and termination resistors
+- Enable `debug=True` for verbose communication logs
 
-### Register Read/Write Failures
-- Returns `None` or `False` indicate communication errors
-- Check physical connections and cable integrity
-- Verify Modbus unit/slave address is correct (default: 1)
-- Review debug logs from underlying `E5CNModbus` wrapper
+### Command Failures
+- If commands return `False`, check system state with `get_system_status()`
+- System must be in **READY** state to accept channel control commands
+- If in SAFE_INTERLOCK, check hardware interlock signal
+- If in FAULT_LATCHED, use `arm_beams()` to clear fault after resolving issue
 
 ### GUI Issues
 - If GUI doesn't appear, verify `parent_frame` is a valid tkinter widget
 - If controls are disabled, check BCON connection status indicator
 - Connection monitoring runs every 2 seconds - allow time for status updates
 
-### Hardware Configuration
-- If register addresses differ from expected, modify the register map in [beam_pulse.py](beam_pulse.py)
-- For custom register packing (e.g., dual 8-bit values in 16-bit register), update read/write methods
+### Hardware Issues
+- Check Arduino power and RS-485 transceiver power
+- Verify interlock signal is HIGH (5V) when operation is expected
+- Monitor telemetry for overcurrent conditions (`oc_st`)
+- Use device `PING` command to verify basic communication
 
 ## Dependencies
 
 - **Python Standard Library:** tkinter, ttk, threading
+- **Third-Party:** pyserial (for RS-485 serial communication)
 - **Project Modules:**
-  - `instrumentctl.E5CN_modbus.E5CN_modbus` - Modbus RTU driver
+  - `instrumentctl.BCON.bcon_driver` - BCON RS-485 driver
   - `utils` - Logging utilities (LogLevel)
-- **Hardware:** BCON device with Modbus RTU serial interface
+- **Hardware:** Arduino Mega running BCON firmware with RS-485 interface
 
 ## Security Notes
 
 - This subsystem does not implement authentication
 - Operate only on trusted, isolated serial connections
-- Do not expose Modbus serial devices to untrusted networks
+- Do not expose RS-485 serial devices to untrusted networks
 - Use proper physical access controls for hardware
+- Interlock signal provides hardware-level safety override
 
 ## Development
 
@@ -277,13 +313,12 @@ To run the subsystem standalone for testing:
 
 ```powershell
 # From project root
-python -m subsystem.beam_pulse.beam_pulse --port COM3 --unit 1 --read-all
+python -m subsystem.beam_pulse.beam_pulse --port COM3 --test-status
 ```
 
 Command-line arguments:
 - `--port`: Serial port name (default: COM1)
-- `--unit`: Modbus unit/slave ID (default: 1)
-- `--read-all`: Read all registers on connection
+- `--test-status`: Read system status on connection
 
 ---
 

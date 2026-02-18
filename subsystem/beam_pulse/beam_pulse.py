@@ -5,7 +5,7 @@ from typing import Optional, Dict
 import os
 import sys
 
-from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
+from instrumentctl.BCON import BCONDriver
 from utils import LogLevel
 
 def resource_path(relative_path):
@@ -22,15 +22,13 @@ class BeamPulseSubsystem:
 
     This class provides the GUI interface and high-level control logic for the beam
     pulse control system (pulser controls only). Hardware communication
-    uses the project's E5CNModbus wrapper for serial/Modbus I/O.
+    uses the project's BCONDriver for RS-485 serial communication.
 
     Contract:
-      - Inputs: E5CNModbus-based driver instance for hardware communication
+      - Inputs: BCONDriver instance for hardware communication
       - Outputs: GUI controls for pulsing behavior and beam durations
       - Error modes: hardware failures are handled by the underlying driver
     """
-
-    # Register addresses for BCON hardware (see README.md for register map)
 
     def __init__(self, parent_frame=None, port=None, unit=1, baudrate=115200,
                  logger=None, debug: bool = False):
@@ -48,12 +46,10 @@ class BeamPulseSubsystem:
         self.logger = logger
         self.debug = debug
         
-        # Instantiate E5CNModbus driver if port is provided
+        # Instantiate BCONDriver if port is provided
         if port:
-            from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
-            self.bcon_driver = E5CNModbus(
+            self.bcon_driver = BCONDriver(
                 port=port,
-                unit=unit,
                 baudrate=baudrate,
                 timeout=1.0,
                 debug=debug
@@ -298,11 +294,15 @@ class BeamPulseSubsystem:
     def on_pulsing_behavior_change(self, event=None):
         """Handle pulsing behavior change."""
         self.update_duration_spinbox_state()
+        # Apply new pulsing behavior to hardware if beams are active
+        if any(self.beam_on_status):
+            self._apply_pulsing_behavior()
 
     def on_duration_change(self, duration_var):
         """Handle beam duration change."""
-        # This can be used to update hardware or trigger callbacks
-        pass
+        # Apply new duration to hardware if in Pulsed mode and beams are active
+        if self.get_pulsing_behavior() == "Pulsed" and any(self.beam_on_status):
+            self._apply_pulsing_behavior()
 
     # Status indicator update methods
     def update_bcon_connection_status(self):
@@ -344,15 +344,10 @@ class BeamPulseSubsystem:
         Returns:
             True if overcurrent detected, False otherwise
         """
-        # TODO: Read overcurrent status from hardware registers
-        # For now, return False (no overcurrent)
-        # In real implementation, should read from BCON hardware status registers
         if self.bcon_driver and self.bcon_connection_status:
             try:
-                # Example: read status register for overcurrent
-                # status = self.read_register('PULSER_STATUS')
-                # Check specific bit for pulser_index overcurrent flag
-                pass
+                # Get overcurrent status from BCON driver (channel 1-3)
+                return self.bcon_driver.is_channel_overcurrent(pulser_index + 1)
             except Exception as e:
                 self._log(f"Error reading overcurrent status for pulser {pulser_index}: {e}", LogLevel.ERROR)
         
@@ -377,6 +372,19 @@ class BeamPulseSubsystem:
         if 0 <= beam_index < 3:
             self.beam_on_status[beam_index] = status
             self._log(f"Beam {chr(65 + beam_index)} set to {'ON' if status else 'OFF'}", LogLevel.INFO)
+            
+            # Apply to hardware
+            if status:
+                # Enable beam with current pulsing behavior
+                pulsing_mode = self.get_pulsing_behavior()
+                if pulsing_mode == "DC":
+                    self.set_channel_mode(beam_index, 'DC')
+                elif pulsing_mode == "Pulsed":
+                    duration = self.get_beam_duration(beam_index)
+                    self.set_channel_mode(beam_index, 'PULSE', int(duration))
+            else:
+                # Disable beam
+                self.set_channel_mode(beam_index, 'OFF')
             
             # Call dashboard callback if registered
             if self._dashboard_beam_callback:
@@ -436,17 +444,28 @@ class BeamPulseSubsystem:
         }
 
     # --- Hardware Driver Interface ---
-    # These methods delegate to the E5CNModbus-based driver for hardware communication
+    # These methods delegate to the BCONDriver for hardware communication
 
     def connect(self) -> bool:
         """Connect to BCON hardware."""
         if self.bcon_driver:
-            return self.bcon_driver.connect()
+            success = self.bcon_driver.connect()
+            if success:
+                # Configure initial watchdog (1 second)
+                self.bcon_driver.set_watchdog(1000)
+                # Enable telemetry (500ms interval)
+                self.bcon_driver.set_telemetry(500)
+            return success
         return False
 
     def disconnect(self) -> None:
         """Disconnect from BCON hardware."""
         if self.bcon_driver:
+            # Stop all channels before disconnect
+            try:
+                self.bcon_driver.stop_all()
+            except:
+                pass
             self.bcon_driver.disconnect()
 
     def is_connected(self) -> bool:
@@ -455,70 +474,75 @@ class BeamPulseSubsystem:
             return self.bcon_driver.is_connected()
         return False
 
-    def read_register(self, name: str) -> Optional[int]:
-        """Read a single register from BCON hardware."""
+    def ping(self) -> bool:
+        """Ping BCON hardware to verify communication."""
         if self.bcon_driver:
-            return self.bcon_driver.read_register(name)
-        return None
-
-    def write_register(self, name: str, value: int) -> bool:
-        """Write a single register to BCON hardware."""
-        if self.bcon_driver:
-            return self.bcon_driver.write_register(name, value)
+            return self.bcon_driver.ping()
         return False
 
-    def set_command(self, cmd: int) -> bool:
-        """Set command register."""
-        return self.write_register('COMMAND', cmd)
-
-    def direct_write_x(self, value: int) -> bool:
-        """Direct write to X DAC."""
-        return self.write_register('X_DIRECT_WRITE', value)
-
-    def direct_write_y(self, value: int) -> bool:
-        """Direct write to Y DAC."""
-        return self.write_register('Y_DIRECT_WRITE', value)
-
-    def set_pulser_duty(self, pulser_index: int, duty: int) -> bool:
-        """Set pulser duty cycle (0-255)."""
+    def get_system_status(self) -> Dict:
+        """Get full system status from BCON."""
         if self.bcon_driver:
-            return self.bcon_driver.set_pulser_duty(pulser_index, duty)
+            return self.bcon_driver.get_status()
+        return {'system': {'state': 'UNKNOWN'}, 'channels': []}
+
+    def set_channel_mode(self, channel_index: int, mode: str, duration_ms: int = 0) -> bool:
+        """Set channel mode (OFF, DC, or PULSE).
+        
+        Args:
+            channel_index: Channel index (0, 1, or 2)
+            mode: Mode string ('OFF', 'DC', or 'PULSE')
+            duration_ms: Pulse duration in milliseconds (for PULSE mode only)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.bcon_driver:
+            return False
+        
+        # Convert 0-based index to 1-based channel number
+        channel = channel_index + 1
+        
+        if mode == 'OFF':
+            return self.bcon_driver.set_channel_off(channel)
+        elif mode == 'DC':
+            return self.bcon_driver.set_channel_dc(channel)
+        elif mode == 'PULSE':
+            return self.bcon_driver.set_channel_pulse(channel, duration_ms)
+        else:
+            self._log(f"Invalid mode: {mode}", LogLevel.ERROR)
+            return False
+
+    def stop_all_channels(self) -> bool:
+        """Stop all channels immediately."""
+        if self.bcon_driver:
+            return self.bcon_driver.stop_all()
         return False
-
-    def set_pulser_duration(self, pulser_index: int, duration_ms: int) -> bool:
-        """Set pulser duration in milliseconds."""
-        if self.bcon_driver:
-            return self.bcon_driver.set_pulser_duration(pulser_index, duration_ms)
-        return False
-
-    def set_samples_rate(self, samples: int) -> bool:
-        """Set samples per period."""
-        return self.write_register('SAMPLES_RATE', samples)
-
-    def set_beam_parameters(self, beam_index: int, amplitude: Optional[int] = None, 
-                           phase: Optional[int] = None, offset: Optional[int] = None) -> Dict[str, bool]:
-        """Set beam parameters (amplitude, phase, offset)."""
-        if self.bcon_driver:
-            return self.bcon_driver.set_beam_parameters(beam_index, amplitude, phase, offset)
-        return {'amplitude': False, 'phase': False, 'offset': False}
-
-    def read_all(self) -> Dict[str, Optional[int]]:
-        """Read all registers."""
-        if self.bcon_driver:
-            return self.bcon_driver.read_all()
-        return {}
 
     # --- Safety / Shutdown Helpers ---
     def arm_beams(self) -> bool:
         """Enable beam operations (safety feature)."""
-        self.beams_armed_status = True
-        self._log("Beams ARMED", LogLevel.INFO)
-        return True
+        # Arm BCON hardware
+        if self.bcon_driver:
+            if self.bcon_driver.arm():
+                self.beams_armed_status = True
+                self._log("Beams ARMED", LogLevel.INFO)
+                return True
+            else:
+                self._log("Failed to ARM BCON hardware", LogLevel.ERROR)
+                return False
+        else:
+            self.beams_armed_status = True
+            self._log("Beams ARMED (no hardware)", LogLevel.INFO)
+            return True
 
     def disarm_beams(self) -> bool:
         """Disable beam operations (safety feature)."""
         self.beams_armed_status = False
         self.set_all_beams_status(False)
+        # Stop all channels on hardware
+        if self.bcon_driver:
+            self.bcon_driver.stop_all()
         self._log("Beams DISARMED", LogLevel.INFO)
         return True
 
@@ -536,10 +560,31 @@ class BeamPulseSubsystem:
             if not self.beams_armed_status:
                 self._log("Cannot enable deflect beam - beams not armed", LogLevel.WARNING)
                 return False
-            self.set_all_beams_status(True)
+            # Apply pulsing behavior to hardware
+            self._apply_pulsing_behavior()
         else:
             self.set_all_beams_status(False)
+            # Stop all channels on hardware
+            if self.bcon_driver:
+                self.bcon_driver.stop_all()
         return True
+    
+    def _apply_pulsing_behavior(self):
+        """Apply current pulsing behavior settings to hardware."""
+        if not self.bcon_driver:
+            return
+        
+        pulsing_mode = self.get_pulsing_behavior()
+        
+        for beam_idx in range(3):
+            if self.beam_on_status[beam_idx]:
+                if pulsing_mode == "DC":
+                    self.set_channel_mode(beam_idx, 'DC')
+                elif pulsing_mode == "Pulsed":
+                    duration = self.get_beam_duration(beam_idx)
+                    self.set_channel_mode(beam_idx, 'PULSE', int(duration))
+            else:
+                self.set_channel_mode(beam_idx, 'OFF')
 
     def safe_shutdown(self, reason: Optional[str] = None) -> bool:
         """Safely shutdown all beam operations."""
@@ -568,15 +613,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="BeamPulseSubsystem quick test")
-    parser.add_argument("--port", default="COM1", help="Serial port for Modbus")
-    parser.add_argument("--unit", type=int, default=1, help="Modbus slave id")
-    parser.add_argument("--read-all", action="store_true", help="Read all registers")
+    parser.add_argument("--port", default="COM1", help="Serial port for RS-485")
+    parser.add_argument("--test-status", action="store_true", help="Test status reading")
     args = parser.parse_args()
 
-    # Create BeamPulseSubsystem - it will instantiate E5CNModbus internally
+    # Create BeamPulseSubsystem - it will instantiate BCONDriver internally
     b = BeamPulseSubsystem(
         port=args.port,
-        unit=args.unit,
         baudrate=115200,
         debug=True
     )
@@ -586,10 +629,20 @@ if __name__ == "__main__":
     else:
         print(f"Connected to BCON on {args.port}")
         
-        if args.read_all:
-            result = b.read_all()
-            print("All registers:")
-            for k, v in result.items():
-                print(f"  {k}: {v}")
+        if args.test_status:
+            # Test ping
+            if b.ping():
+                print("✓ Ping successful")
+            
+            # Get status
+            status = b.get_system_status()
+            print(f"\nSystem Status:")
+            print(f"  State: {status['system']['state']}")
+            print(f"  Fault Latched: {status['system']['fault_latched']}")
+            
+            for i, ch in enumerate(status['channels'], 1):
+                print(f"\nChannel {i}:")
+                print(f"  Mode: {ch['mode']}")
+                print(f"  Overcurrent: {ch['oc_st']}")
         
         b.disconnect()
