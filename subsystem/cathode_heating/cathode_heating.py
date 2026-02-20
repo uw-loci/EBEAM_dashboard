@@ -1404,6 +1404,11 @@ class CathodeHeatingSubsystem:
                 return
             
             ovp = self.get_ovp(index)
+
+            if ovp is None:
+                self.log(f"Could not retrieve OVP for Cathode {['A', 'B', 'C'][index]}. Cannot verify voltage limit.", LogLevel.ERROR)
+                return
+                
             if target_voltage > ovp:
                 msgbox.showerror("Error", f"Target voltage {target_voltage:.2f}V exceeds OVP limit of {ovp:.2f}V for Cathode {['A', 'B', 'C'][index]}.")
                 return
@@ -2014,7 +2019,8 @@ class CathodeHeatingSubsystem:
         if ovp is None:
             self.log(f"Cannot validate voltage for Cathode {['A','B','C'][index]}: OCP unavailable (power supply disconnected or GOCP failed).", LogLevel.ERROR)
             return False
-        if new_voltage < 0 or new_voltage is None:
+        
+        if new_voltage is None or new_voltage < 0:
             msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
             return False
         
