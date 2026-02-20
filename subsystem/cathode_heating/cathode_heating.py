@@ -186,8 +186,8 @@ class CathodeHeatingSubsystem:
         Implements system defaults and safety thresholds.
         """
         # Power supply status display variables
-        self.current_display_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Current readings
-        self.voltage_display_vars = [tk.DoubleVar(value='--') for _ in range(3)]  # Voltage readings
+        self.current_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current readings
+        self.voltage_display_vars = [tk.StringVar(value='--') for _ in range(3)]  # Voltage readings
         self.operation_mode_var   = [tk.StringVar(value='Mode: --') for _ in range(3)]  # CV/CC mode
         
         # Safety limit variables
