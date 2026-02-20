@@ -158,8 +158,10 @@ class CathodeHeatingSubsystem:
         Also initializes timing variables for data collection and plotting.
         """
         # Heater control and monitoring variables
-        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set voltage
-        self.heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Set current
+        self.heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Goal voltage
+        self.heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Goal current
+        self.sent_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Sent voltage (not implemented)
+        self.sent_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Sent current (not implemented)
         self.actual_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured current
         
@@ -315,7 +317,7 @@ class CathodeHeatingSubsystem:
             current_display_frame.configure(bg='#d9d9d9')
             current_display_frame.grid(row=1, column=0, sticky='w')
             # Dynamic current value
-            current_label = ttk.Label(current_display_frame, textvariable=self.heater_current_vars[i], style='Bold.TLabel') 
+            current_label = ttk.Label(current_display_frame, textvariable=self.sent_heater_current_vars[i], style='Bold.TLabel') 
             current_label.pack(side='left')
             # Static unit label
             unit_label = ttk.Label(current_display_frame, text=" A", style="Bold.TLabel")
@@ -325,7 +327,7 @@ class CathodeHeatingSubsystem:
             current_display_frame_secondary = tk.Frame(current_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             current_display_frame_secondary.configure(bg='#d9d9d9')
             current_display_frame_secondary.grid(row=1, column=1, sticky='w', padx=(4, 0))
-            current_label_secondary = ttk.Label(current_display_frame_secondary, text='--', style='Bold.TLabel')
+            current_label_secondary = ttk.Label(current_display_frame_secondary, textvariable=self.heater_current_vars[i], style='Bold.TLabel')
             current_label_secondary.pack(side='left')
             unit_label_secondary = ttk.Label(current_display_frame_secondary, text=" A", style="Bold.TLabel")
             unit_label_secondary.pack(side='left')
@@ -364,7 +366,7 @@ class CathodeHeatingSubsystem:
             voltage_display_frame.configure(bg='#d9d9d9')
             voltage_display_frame.grid(row=1, column=0, sticky='w')
             # Dynamic voltage value
-            voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
+            voltage_label = ttk.Label(voltage_display_frame, textvariable=self.sent_heater_voltage_vars[i], style='Bold.TLabel') 
             voltage_label.pack(side='left')
             # Static unit label
             unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
@@ -374,7 +376,7 @@ class CathodeHeatingSubsystem:
             voltage_display_frame_secondary = tk.Frame(voltage_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             voltage_display_frame_secondary.configure(bg='#d9d9d9')
             voltage_display_frame_secondary.grid(row=1, column=1, sticky='w', padx=(4, 0))
-            voltage_label_secondary = ttk.Label(voltage_display_frame_secondary, text='--', style='Bold.TLabel')
+            voltage_label_secondary = ttk.Label(voltage_display_frame_secondary, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel')
             voltage_label_secondary.pack(side='left')
             unit_label_secondary = ttk.Label(voltage_display_frame_secondary, text=" V", style="Bold.TLabel")
             unit_label_secondary.pack(side='left')
