@@ -123,7 +123,7 @@ class PowerSupply9104:
     def set_voltage(self, preset, voltage):
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
-        formatted_voltage = int(voltage * 100)
+        formatted_voltage = round(voltage * 100)
         
         # Voltage must be less than OVP!
         is_voltage_valid = self.validate_voltage(voltage)
@@ -159,7 +159,7 @@ class PowerSupply9104:
     def set_current(self, preset, current):
         """Set the output current."""
         """ Expected return value: OK[CR] """
-        formatted_current = int(current * 100)
+        formatted_current = round(current * 100)
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
