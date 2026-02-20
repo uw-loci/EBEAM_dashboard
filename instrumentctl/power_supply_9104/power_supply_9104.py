@@ -6,13 +6,6 @@ from utils import LogLevel
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
-    HIT_LIMIT = 3 # number of times to hit limit before stopping ramp
-    GRACE_PERIOD_SEC = 1.0 # ignore limits for 1s to prevent false limit hits
-    LIMIT_SETTLE_SEC = 0.25 # short post-settle before evaluating limit status
-    VOLTAGE_LIMIT_OFFSET = 0.04 # base voltage tolerance in V
-    CURRENT_LIMIT_OFFSET = 0.04 # base current tolerance in A
-    RELATIVE_LIMIT_OFFSET = 0.01 # additional tolerance as a fraction of setpoint
-    LIMIT_IMPROVEMENT_EPS = 0.005 # minimum error improvement to reset hit streak
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.port = port
@@ -207,8 +200,6 @@ class PowerSupply9104:
 
     def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback):
         """Main current ramping implementation."""
-        start_time = time.monotonic()
-
         try:
             # Get initial current
             _, current, _ = self.get_voltage_current_mode()
@@ -219,7 +210,6 @@ class PowerSupply9104:
                 return
 
             current_current = current
-            limit_hit_count = {"hits": 0} # tracks limit hits during ramp
 
             self.log(f"Starting ramp from {current_current:.2f}A to {target_current:.2f}A", LogLevel.INFO)
 
@@ -258,23 +248,6 @@ class PowerSupply9104:
 
                     try:
                         if self.set_current(preset, next_current):
-                            # Allow power supply to settle before checking limit status
-                            time.sleep(self.LIMIT_SETTLE_SEC)
-                            if self.is_being_limited("current", limit_hit_count, start_time, next_current):
-                                self.log(f"Current limit engaged during ramping at {next_current:.2f}A - aborting ramp in place.", LogLevel.WARNING)
-
-                                _, measured_current, _ = self.get_voltage_current_mode()
-
-                                if measured_current is not None:
-                                    self.log(f"Snapping set value down to measured limit: {measured_current:.2f}A", LogLevel.INFO)
-                                    if not self.set_current(preset, measured_current):
-                                        self.log("Failed to snap current value to measured. Aborting ramp.", LogLevel.ERROR)
-                                else:
-                                    self.log("Limit detected but could not read measured current", LogLevel.ERROR)
-
-                                if callback:
-                                    callback(False)
-                                return
                             break # Success, exit retry loop
                         else:
                             self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.ERROR)
@@ -343,8 +316,6 @@ class PowerSupply9104:
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
         """Main voltage ramping implementation."""
-        start_time = time.monotonic()
-
         try:
             # Get initial voltage
             voltage, _, _ = self.get_voltage_current_mode()
@@ -355,7 +326,6 @@ class PowerSupply9104:
                 return
                 
             current_voltage = voltage
-            limit_hit_count = {"hits": 0} # tracks limit hits during ramp
 
             self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
             
@@ -389,27 +359,6 @@ class PowerSupply9104:
                     try:
                        # Attempt to set voltage
                         if self.set_voltage(preset, next_voltage):
-                            # Allow power supply to settle before checking limit status
-                            time.sleep(self.LIMIT_SETTLE_SEC)
-
-                            # Check if voltage is being limited by current
-                            if self.is_being_limited("voltage", limit_hit_count, start_time, next_voltage):
-                                # Limit detected - abort ramp and snap voltage to measured value
-                                self.log(f"Voltage limit engaged during ramping at {next_voltage:.2f}V - aborting ramp.", LogLevel.WARNING)
-
-                                measured_voltage, _,_ = self.get_voltage_current_mode()
-
-                                if measured_voltage is not None:
-                                    self.log(f"Snapping set value down to measured limit: {measured_voltage:.2f}V", LogLevel.INFO)
-                                    if not self.set_voltage(preset, measured_voltage):
-                                        self.log("Failed to snap voltage value to measured.", LogLevel.ERROR)
-                                else:
-                                    self.log("Limit detected but could not read measured voltage", LogLevel.ERROR)
-
-                                if callback:
-                                    callback(False)
-                                return
-                            
                             break # Success, exit retry loop
                         else:
                             self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
@@ -456,81 +405,6 @@ class PowerSupply9104:
         Safe to call even if no ramp is running.
         """
         self.stop_event.set()    
-
-    def is_being_limited(self, ramp_type: str, hit_count:dict, start_time: float, set_value: float) -> bool:
-        """
-        This function checks if the power supply is being limited during a ramp operation. This is crucial when controlling both
-        voltage and current to prevent any background ramping when one of the parameters limits the other. 
-        Args:
-            ramp_type (str): The type of ramp being performed, either "voltage" or "current".
-            start_time (float): The time when the ramp started, used to determine if the grace period has passed.
-            set_value (float): The recently set value (either voltage or current).
-        """
-        # Acceptable offsets between measured and set values
-        if ramp_type == "voltage":
-            base_offset = self.VOLTAGE_LIMIT_OFFSET
-        elif ramp_type == "current":
-            base_offset = self.CURRENT_LIMIT_OFFSET
-        else:
-            raise ValueError(f"is_being_limited called with invalid ramp_type: {ramp_type}")
-
-        allowed_error = max(base_offset, abs(set_value) * self.RELATIVE_LIMIT_OFFSET)
-
-        if time.monotonic() - start_time < self.GRACE_PERIOD_SEC:
-            # Ignore limits for the first second to allow for initial settling
-            hit_count["hits"] = 0
-            return False
-
-        measured_voltage, measured_current, op_mode = self.get_voltage_current_mode()
-
-        if measured_voltage is None or measured_current is None or op_mode == "Err":
-            self.log("Could not get valid readings to determine if being limited", LogLevel.ERROR)
-            hit_count["hits"] = 0
-            return False
-
-        # Check control mode vs ramp type
-        wrong_mode = (
-        (ramp_type == "current"  and op_mode == "CV Mode") or
-        (ramp_type == "voltage" and op_mode == "CC Mode")
-        )
-
-        # Compare measured vs set values
-        measured_value = measured_voltage if ramp_type == "voltage" else measured_current
-        error = abs(measured_value - set_value)
-        stalled = error > allowed_error
-
-        # Increment hit count if ramp is stalled, wrong mode, and error is no longer improving
-        if stalled and wrong_mode:
-            previous_error = hit_count.get("previous_error")
-            improving = (
-                previous_error is not None and
-                error < (previous_error - self.LIMIT_IMPROVEMENT_EPS)
-            )
-
-            self.log(f"Detected limit condition during {ramp_type} ramp: "
-                     f"Measured {ramp_type}: {measured_value:.2f}, "
-                     f"Set {ramp_type}: {set_value:.2f}, "
-                     f"Mode: {op_mode}, "
-                     f"Error: {error:.3f}, Allowed: {allowed_error:.3f}", LogLevel.DEBUG)
-
-            if improving:
-                hit_count["hits"] = 0
-            else:
-                hit_count["hits"] += 1
-            hit_count["previous_error"] = error
-        else:
-            hit_count["hits"] = 0
-            hit_count["previous_error"] = error
-
-        # Check if hit count exceeds limit    
-        if hit_count["hits"] >= self.HIT_LIMIT:
-            self.log(f"Power supply is being limited during {ramp_type} ramp: "
-                     f"Measured {ramp_type}: {measured_value:.2f}, "
-                     f"Previous {ramp_type}: {set_value:.2f}, "
-                     f"Mode: {op_mode}", LogLevel.WARNING)
-            return True
-
-        return False
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
