@@ -312,6 +312,15 @@ class CathodeHeatingSubsystem:
             unit_label = ttk.Label(current_display_frame, text=" A", style="Bold.TLabel")
             unit_label.pack(side='left')
 
+            # Secondary current display (reserved for future value)
+            current_display_frame_secondary = tk.Frame(current_entry_frame, bd=2, relief='groove', padx=2, pady=1)
+            current_display_frame_secondary.configure(bg='#d9d9d9')
+            current_display_frame_secondary.grid(row=1, column=0, sticky='w', pady=(2, 0))
+            current_label_secondary = ttk.Label(current_display_frame_secondary, text='--', style='Bold.TLabel')
+            current_label_secondary.pack(side='left')
+            unit_label_secondary = ttk.Label(current_display_frame_secondary, text=" A", style="Bold.TLabel")
+            unit_label_secondary.pack(side='left')
+
             # Create nudge buttons for current adjustment
             inc_current_button = ttk.Button(current_control_frame, text="+0.01A", width=6,command=lambda i=i: self.adjust_current(i, 0.01))
             inc_current_button.grid(row=0, column=1, sticky='w', padx=(4,0))
@@ -347,6 +356,15 @@ class CathodeHeatingSubsystem:
             # Static unit label
             unit_label = ttk.Label(voltage_display_frame, text=" V", style="Bold.TLabel")
             unit_label.pack(side='left')
+
+            # Secondary voltage display (reserved for future value)
+            voltage_display_frame_secondary = tk.Frame(voltage_entry_frame, bd=2, relief='groove', padx=2, pady=1)
+            voltage_display_frame_secondary.configure(bg='#d9d9d9')
+            voltage_display_frame_secondary.grid(row=1, column=0, sticky='w', pady=(2, 0))
+            voltage_label_secondary = ttk.Label(voltage_display_frame_secondary, text='--', style='Bold.TLabel')
+            voltage_label_secondary.pack(side='left')
+            unit_label_secondary = ttk.Label(voltage_display_frame_secondary, text=" V", style="Bold.TLabel")
+            unit_label_secondary.pack(side='left')
 
             # Create nudge buttons for voltage adjustment
             inc_voltage_button = ttk.Button(voltage_control_frame, text="+0.02V", width=6,command=lambda i=i: self.adjust_voltage(i, 0.02))
