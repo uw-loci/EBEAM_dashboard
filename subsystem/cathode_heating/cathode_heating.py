@@ -293,18 +293,22 @@ class CathodeHeatingSubsystem:
             current_entry_frame = ttk.Frame(current_control_frame)
             current_entry_frame.grid(row=1, column=0, sticky='w', padx=(10,0))
 
+            ttk.Label(current_entry_frame, text='Sent', style='RightAlign.TLabel').grid(row=0, column=0, sticky='w')
+            ttk.Label(current_entry_frame, text='Goal', style='RightAlign.TLabel').grid(row=0, column=1, sticky='w', padx=(4, 0))
+            ttk.Label(current_entry_frame, text='Entry', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w', padx=(5, 2))
+
             target_current = tk.DoubleVar(value=0.0)  # Default target current
             current_entry_field = ttk.Entry(current_entry_frame, textvariable=target_current, width=6)
-            current_entry_field.grid(row=0, column=1, sticky='w', padx=(5,2))
+            current_entry_field.grid(row=1, column=2, sticky='w', padx=(5,2))
             self.entry_fields.append(current_entry_field)
 
             set_current_button = ttk.Button(current_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=current_entry_field: self.on_current_label_click(i, entry_field))
-            set_current_button.grid(row=0, column=2, sticky='w')
+            set_current_button.grid(row=1, column=3, sticky='w')
 
             # Frame to hold value + unit side-by-side
             current_display_frame = tk.Frame(current_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             current_display_frame.configure(bg='#d9d9d9')
-            current_display_frame.grid(row=0, column=0, sticky='w')
+            current_display_frame.grid(row=1, column=0, sticky='w')
             # Dynamic current value
             current_label = ttk.Label(current_display_frame, textvariable=self.heater_current_vars[i], style='Bold.TLabel') 
             current_label.pack(side='left')
@@ -315,7 +319,7 @@ class CathodeHeatingSubsystem:
             # Secondary current display (reserved for future value)
             current_display_frame_secondary = tk.Frame(current_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             current_display_frame_secondary.configure(bg='#d9d9d9')
-            current_display_frame_secondary.grid(row=1, column=0, sticky='w', pady=(2, 0))
+            current_display_frame_secondary.grid(row=1, column=1, sticky='w', padx=(4, 0))
             current_label_secondary = ttk.Label(current_display_frame_secondary, text='--', style='Bold.TLabel')
             current_label_secondary.pack(side='left')
             unit_label_secondary = ttk.Label(current_display_frame_secondary, text=" A", style="Bold.TLabel")
@@ -336,20 +340,24 @@ class CathodeHeatingSubsystem:
             voltage_entry_frame = ttk.Frame(voltage_control_frame)
             voltage_entry_frame.grid(row=1, column=0, sticky='w', padx=(10,0))
 
+            ttk.Label(voltage_entry_frame, text='Sent', style='RightAlign.TLabel').grid(row=0, column=0, sticky='w')
+            ttk.Label(voltage_entry_frame, text='Goal', style='RightAlign.TLabel').grid(row=0, column=1, sticky='w', padx=(4, 0))
+            ttk.Label(voltage_entry_frame, text='Entry', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w', padx=(5, 2))
+
             target_voltage = tk.DoubleVar(value=0.0)  # Default target voltage
             voltage_entry_field = ttk.Entry(voltage_entry_frame, textvariable=target_voltage, width=6)
-            voltage_entry_field.grid(row=0, column=1, sticky='w', padx=(5,2))
+            voltage_entry_field.grid(row=1, column=2, sticky='w', padx=(5,2))
             self.entry_fields.append(voltage_entry_field)
 
             set_voltage_button = ttk.Button(voltage_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.on_voltage_label_click(i, entry_field))
-            set_voltage_button.grid(row=0, column=2, sticky='w')
+            set_voltage_button.grid(row=1, column=3, sticky='w')
 
             self.set_button_states.append([set_voltage_button, set_current_button])
 
             # Frame to hold value + unit side-by-side
             voltage_display_frame = tk.Frame(voltage_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             voltage_display_frame.configure(bg='#d9d9d9')
-            voltage_display_frame.grid(row=0, column=0, sticky='w')
+            voltage_display_frame.grid(row=1, column=0, sticky='w')
             # Dynamic voltage value
             voltage_label = ttk.Label(voltage_display_frame, textvariable=self.heater_voltage_vars[i], style='Bold.TLabel') 
             voltage_label.pack(side='left')
@@ -360,7 +368,7 @@ class CathodeHeatingSubsystem:
             # Secondary voltage display (reserved for future value)
             voltage_display_frame_secondary = tk.Frame(voltage_entry_frame, bd=2, relief='groove', padx=2, pady=1)
             voltage_display_frame_secondary.configure(bg='#d9d9d9')
-            voltage_display_frame_secondary.grid(row=1, column=0, sticky='w', pady=(2, 0))
+            voltage_display_frame_secondary.grid(row=1, column=1, sticky='w', padx=(4, 0))
             voltage_label_secondary = ttk.Label(voltage_display_frame_secondary, text='--', style='Bold.TLabel')
             voltage_label_secondary.pack(side='left')
             unit_label_secondary = ttk.Label(voltage_display_frame_secondary, text=" V", style="Bold.TLabel")
@@ -482,8 +490,8 @@ class CathodeHeatingSubsystem:
 
             self.cv_cc_labels.append((cv_label, cc_label))
             
-            # Curr
-            ttk.Label(measured_frame, text='Curr', style='RightAlign.TLabel').grid(row=1, column=0, sticky='w', padx=(0, 2))
+            # Current
+            ttk.Label(measured_frame, text='Current', style='RightAlign.TLabel').grid(row=1, column=0, sticky='w', padx=(0, 2))
             actual_current_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
             actual_current_frame.configure(bg='#d9d9d9')
             actual_current_frame.grid(row=1, column=1, sticky='w', padx=(0, 8))
@@ -492,8 +500,8 @@ class CathodeHeatingSubsystem:
             unit_label = ttk.Label(actual_current_frame, text=" A", style="Bold.TLabel")
             unit_label.pack(side='left')
             
-            # Volt
-            ttk.Label(measured_frame, text='Volt', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w', padx=(0, 2))
+            # Voltage
+            ttk.Label(measured_frame, text='Voltage', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w', padx=(0, 2))
             actual_voltage_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
             actual_voltage_frame.configure(bg='#d9d9d9')
             actual_voltage_frame.grid(row=1, column=3, sticky='w', padx=(0, 8))
