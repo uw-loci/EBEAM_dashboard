@@ -445,11 +445,14 @@ class CathodeHeatingSubsystem:
             measured_frame.grid(row=2, column=0, sticky='w', pady=(10,0))
             measured_frame.grid_rowconfigure(0, minsize=26)
 
-            ttk.Label(measured_frame, text="Measured Values", style='Bold.TLabel').grid(row=0, column=0, sticky='w')
+            measured_header_frame = ttk.Frame(measured_frame)
+            measured_header_frame.grid(row=0, column=0, columnspan=6, sticky='w')
+
+            ttk.Label(measured_header_frame, text="Measured Values", style='Bold.TLabel').grid(row=0, column=0, sticky='w')
 
             # CV / CC mode indicator
-            indicator_frame = ttk.Frame(measured_frame)        # keeps both labels together
-            indicator_frame.grid(row=0, column=1, padx=(6, 0), sticky='n')
+            indicator_frame = ttk.Frame(measured_header_frame)        # keeps both labels together
+            indicator_frame.grid(row=0, column=1, padx=(4, 0), sticky='w')
 
             cv_label = tk.Label(indicator_frame, text='CV', width=3,
                             fg='white', bg='grey', relief='ridge')
