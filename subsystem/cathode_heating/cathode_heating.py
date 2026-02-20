@@ -41,6 +41,12 @@ def resource_path(relative_path):
 class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
+    OUTPUT_MODE_LABEL_TO_VALUE = {
+        'Ramp Current': 'ramp_current',
+        'Ramp Voltage': 'ramp_voltage',
+        'Immediate Set': 'immediate'
+    }
+    OUTPUT_MODE_VALUE_TO_LABEL = {value: label for label, value in OUTPUT_MODE_LABEL_TO_VALUE.items()}
     ERROR_COLORS = {
         'normal': 'blue',         # Normal operation
         'overtemp': 'red',        # Overtemperature condition
@@ -242,7 +248,7 @@ class CathodeHeatingSubsystem:
         # Create frames for each cathode/power supply pair
         self.cathode_frames = []
         self.ramp_mode_vars = []
-        self.ramp_radio_buttons = []
+        self.ramp_mode_dropdowns = []
         self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
         heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
@@ -281,7 +287,7 @@ class CathodeHeatingSubsystem:
             current_control_frame = ttk.Frame(control_frame)
             current_control_frame.grid(row=0, column=0, sticky='w')
 
-            ttk.Label(current_control_frame, text='Set Heater Current (A)', style='Bold.TLabel').grid(row=0, column=0, sticky='w')
+            ttk.Label(current_control_frame, text='Heater Current Control', style='Bold.TLabel').grid(row=0, column=0, sticky='w')
 
             # Set target current entry box
             current_entry_frame = ttk.Frame(current_control_frame)
@@ -316,7 +322,7 @@ class CathodeHeatingSubsystem:
             voltage_control_frame = ttk.Frame(control_frame)
             voltage_control_frame.grid(row=1, column=0, sticky='w', pady=(10,0))
 
-            ttk.Label(voltage_control_frame, text='Set Heater Voltage (V)', style='Bold.TLabel').grid(row=0, column=0, sticky='w')
+            ttk.Label(voltage_control_frame, text='Heater Voltage Control', style='Bold.TLabel').grid(row=0, column=0, sticky='w')
 
             voltage_entry_frame = ttk.Frame(voltage_control_frame)
             voltage_entry_frame.grid(row=1, column=0, sticky='w', padx=(10,0))
@@ -359,39 +365,32 @@ class CathodeHeatingSubsystem:
             heater_label = ttk.Label(output_control_frame, text=heater_labels[i], style='Bold.TLabel')
             heater_label.grid(row=0, column=0, sticky='w')
 
-            # Create a label frame for radio buttons with title
+            # Create a label frame for output mode selector
             ramp_frame = ttk.Frame(output_control_frame)
             ramp_frame.grid(row=2, column=0, sticky='w', padx=(0, 5))
 
-            ramp_var = tk.StringVar(value="immediate")
+            ttk.Label(ramp_frame, text='Output Mode:', style='RightAlign.TLabel').grid(row=0, column=0, sticky='w', padx=(0, 2), pady=(0, 1))
+
+            ramp_var = tk.StringVar(value=self.OUTPUT_MODE_VALUE_TO_LABEL["immediate"])
             self.set_ramp_mode(i, "immediate") # Default to immediate set
-            gradual_voltage_radio = ttk.Radiobutton(
-                ramp_frame, 
-                text="Ramp Current",
-                value="ramp_current",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, v.get())
-            )
-            gradual_current_radio = ttk.Radiobutton(
-                ramp_frame, 
-                text="Ramp Voltage",
-                value="ramp_voltage",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, v.get())
-            )
-            immediate_radio = ttk.Radiobutton(
+            ramp_dropdown = ttk.Combobox(
                 ramp_frame,
-                text="Immediate Set",
-                value="immediate",
-                variable=ramp_var,
-                command=lambda i=i, v=ramp_var: self.set_ramp_mode(i, v.get())
+                textvariable=ramp_var,
+                values=list(self.OUTPUT_MODE_LABEL_TO_VALUE.keys()),
+                state='readonly',
+                width=14
             )
-            gradual_voltage_radio.grid(row=0, column=0, sticky='w', padx=1, pady=1)
-            gradual_current_radio.grid(row=1, column=0, sticky='w', padx=1, pady=1)
-            immediate_radio.grid(row=2, column=0, sticky='w', padx=1, pady=1)
+            ramp_dropdown.bind(
+                '<<ComboboxSelected>>',
+                lambda _event, i=i, v=ramp_var: self.set_ramp_mode(
+                    i,
+                    self.OUTPUT_MODE_LABEL_TO_VALUE.get(v.get(), 'immediate')
+                )
+            )
+            ramp_dropdown.grid(row=1, column=0, sticky='w', padx=1, pady=1)
 
             self.ramp_mode_vars.append(ramp_var)
-            self.ramp_radio_buttons.append([gradual_voltage_radio, gradual_current_radio, immediate_radio])
+            self.ramp_mode_dropdowns.append(ramp_dropdown)
 
             # Create frame for output buttons
             output_button_frame = ttk.Frame(output_control_frame)
@@ -413,7 +412,7 @@ class CathodeHeatingSubsystem:
                 style='StopInactive.TButton',
                 command=lambda i=i: self.stop_ramp(i)
             )
-            stop_ramp_btn.grid(row=0, column=1, sticky='e',padx=(6, 0))
+            stop_ramp_btn.grid(row=1, column=0, sticky='w', pady=(4, 0))
             self.stop_ramp_buttons.append(stop_ramp_btn)
 
             # Predicted Values
@@ -2062,9 +2061,10 @@ class CathodeHeatingSubsystem:
     
     # Ramping helper methods for GUI state changes
     def set_output_button_state(self, index:int, state:str):
-        """Enable or disable the Ramp-Mode radio buttons for one cathode."""
-        for btn in self.ramp_radio_buttons[index]:
-            btn.config(state=state)
+        """Enable or disable the output mode dropdown for one cathode."""
+        if index < len(self.ramp_mode_dropdowns):
+            dropdown_state = 'readonly' if state == 'normal' else 'disabled'
+            self.ramp_mode_dropdowns[index].config(state=dropdown_state)
 
     def is_ramping(self, index:int) -> bool:
         ps = self.power_supplies[index] if index < len(self.power_supplies) else None
