@@ -118,7 +118,7 @@ class PowerSupply9104:
         command = "GOUT"
         return self.send_command(command)
 
-    def set_voltage(self, preset, voltage):
+    def set_voltage(self, preset, voltage, sent_callback=None):
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
         formatted_voltage = round(voltage * 100)
@@ -137,6 +137,11 @@ class PowerSupply9104:
         self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip().startswith("OK"):
             self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
+            if sent_callback:
+                try:
+                    sent_callback(voltage)
+                except Exception as e:
+                    self.log(f"Error in sent voltage callback: {str(e)}", LogLevel.ERROR)
             return True
         else:
             error_message = "No response" if response is None else response
@@ -154,7 +159,7 @@ class PowerSupply9104:
             return False
         return True
     
-    def set_current(self, preset, current):
+    def set_current(self, preset, current, sent_callback=None):
         """Set the output current."""
         """ Expected return value: OK[CR] """
         formatted_current = round(current * 100)
@@ -162,13 +167,18 @@ class PowerSupply9104:
         response = self.send_command(command)
         if response and response.strip() == "OK":
             self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.INFO)
+            if sent_callback:
+                try:
+                    sent_callback(current)
+                except Exception as e:
+                    self.log(f"Error in sent current callback: {str(e)}", LogLevel.ERROR)
             return True
         else:
             error_message = "No response" if response is None else response
             self.log(f"Error setting current: {error_message}", LogLevel.ERROR)
             return False
 
-    def ramp_current(self, target_current, step_size=0.01, step_delay=2.0, preset=3, callback=None):
+    def ramp_current(self, target_current, step_size=0.01, step_delay=2.0, preset=3, callback=None, sent_callback=None):
         """
         Slowly ramp the current to the target current at the specified ramp rate.
         Runs in a separate thread to avoid blocking the GUI
@@ -187,7 +197,7 @@ class PowerSupply9104:
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
             target=self._ramp_current_thread,
-            args=(target_current, step_size, step_delay, preset, callback),
+            args=(target_current, step_size, step_delay, preset, callback, sent_callback),
             daemon=True
         )
         try:
@@ -198,7 +208,7 @@ class PowerSupply9104:
             if callback:
                 callback(False)
 
-    def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback):
+    def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback, sent_callback):
         """Main current ramping implementation."""
         try:
             # Get initial current
@@ -247,7 +257,7 @@ class PowerSupply9104:
                         return
 
                     try:
-                        if self.set_current(preset, next_current):
+                        if self.set_current(preset, next_current, sent_callback=sent_callback):
                             break # Success, exit retry loop
                         else:
                             self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.ERROR)
@@ -286,7 +296,7 @@ class PowerSupply9104:
             if callback:
                 callback(False)
                 
-    def ramp_voltage(self, target_voltage, step_size=0.02, step_delay=2.0, preset=3, callback=None):
+    def ramp_voltage(self, target_voltage, step_size=0.02, step_delay=2.0, preset=3, callback=None, sent_callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
         Runs in a separate thread to avoid blocking the GUI
@@ -303,7 +313,7 @@ class PowerSupply9104:
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
             target=self._ramp_voltage_thread,
-            args=(target_voltage, step_size, step_delay, preset, callback),
+            args=(target_voltage, step_size, step_delay, preset, callback, sent_callback),
             daemon=True
         )
         try:
@@ -314,7 +324,7 @@ class PowerSupply9104:
             if callback:
                 callback(False)
 
-    def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback):
+    def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback, sent_callback):
         """Main voltage ramping implementation."""
         try:
             # Get initial voltage
@@ -358,7 +368,7 @@ class PowerSupply9104:
                 for attempt in range(self.MAX_RETRIES):
                     try:
                        # Attempt to set voltage
-                        if self.set_voltage(preset, next_voltage):
+                        if self.set_voltage(preset, next_voltage, sent_callback=sent_callback):
                             break # Success, exit retry loop
                         else:
                             self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)

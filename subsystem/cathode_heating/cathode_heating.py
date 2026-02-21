@@ -253,7 +253,7 @@ class CathodeHeatingSubsystem:
         self.ramp_mode_dropdowns = []
         self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
-        heater_labels = ['Heater A output:', 'Heater B output:', 'Heater C output:']
+        heater_labels = ['Output A:', 'Output B', 'Output C:']
         ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
@@ -1450,11 +1450,14 @@ class CathodeHeatingSubsystem:
             if not self.power_supplies[index].set_output("1"):
                 self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return
+
+            sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
+            sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
             
             if self.ramp_status[index]: # ramp is on; Gradual Set
                 if target_current is not None and control_mode == "current":
                     # Set voltage
-                    if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
+                    if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
                         self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
                     # Ramp to target current
                     slew_rate = self.curr_slew_rate[index]
@@ -1468,11 +1471,12 @@ class CathodeHeatingSubsystem:
                         step_size=step_size,
                         step_delay=step_delay,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        sent_callback=sent_current_callback
                     ) 
                 if target_voltage is not None and control_mode == "voltage":
                     # Set current
-                    if not self.power_supplies[index].set_current(current=target_current, preset=3):
+                    if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
                         self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
                         
                     # Ramp up to the target voltage
@@ -1488,12 +1492,13 @@ class CathodeHeatingSubsystem:
                         step_delay=step_delay,
                         preset=3,
                         callback = lambda ok,
-                        i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                        i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        sent_callback=sent_voltage_callback
                     )
             else: # ramp is off; Immediate Set both voltage and current
-                if not self.power_supplies[index].set_current(current=target_current, preset=3):
+                if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
                     self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
-                if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3):
+                if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
                     self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
                 
         else:
@@ -1549,8 +1554,8 @@ class CathodeHeatingSubsystem:
             - Logs the reset action
         """
         if self.power_supply_status[index]:
-            self.power_supplies[index].set_voltage(3, 0.0)
-            self.power_supplies[index].set_current(3, 0.0)
+            self.power_supplies[index].set_voltage(3, 0.0, sent_callback=lambda v, i=index: self._update_sent_voltage_display(i, v))
+            self.power_supplies[index].set_current(3, 0.0, sent_callback=lambda c, i=index: self._update_sent_current_display(i, c))
             self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
         self.predicted_emission_current_vars[index].set('--')
         self.predicted_grid_current_vars[index].set('--')
@@ -1768,7 +1773,11 @@ class CathodeHeatingSubsystem:
             # Set Upper Current Limit on the power supply. Voltage is set in the power supply class when toggle_output is called
             if self.power_supplies and len(self.power_supplies) > index:
                 # voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
-                current_set_success = self.power_supplies[index].set_current(3, heater_current)
+                current_set_success = self.power_supplies[index].set_current(
+                    3,
+                    heater_current,
+                    sent_callback=lambda c, i=index: self.parent.after(0, lambda idx=i, val=c: self._update_sent_current_display(idx, val))
+                )
                 if not current_set_success:
                     self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     
@@ -1779,11 +1788,16 @@ class CathodeHeatingSubsystem:
                             voltage,
                             step_size=self.slew_rates[index],
                             step_delay=1.0,
-                            preset=3
+                            preset=3,
+                            sent_callback=lambda v, i=index: self.parent.after(0, lambda idx=i, val=v: self._update_sent_voltage_display(idx, val))
                         )
                         self.voltage_set[index] = True
                     else:
-                        self.power_supplies[index].set_voltage(3, voltage)
+                        self.power_supplies[index].set_voltage(
+                            3,
+                            voltage,
+                            sent_callback=lambda v, i=index: self.parent.after(0, lambda idx=i, val=v: self._update_sent_voltage_display(idx, val))
+                        )
                         self.voltage_set[index] = True
                 
                 # Confirm the set values
@@ -1842,6 +1856,8 @@ class CathodeHeatingSubsystem:
                 return
 
             self.user_set_currents[index] = new_current
+            sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
+            sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
 
             # Set current directly if output enabled
             if self.toggle_states[index]:
@@ -1853,13 +1869,14 @@ class CathodeHeatingSubsystem:
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        sent_callback=sent_current_callback
                     )
                     self.current_set[index] = True
                 elif self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
                     # Ramp Voltage Mode
                     #Immediate set new current
-                    if not self.power_supplies[index].set_current(3, new_current):
+                    if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
                         self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
 
                     # Ramp Voltage
@@ -1869,11 +1886,12 @@ class CathodeHeatingSubsystem:
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        sent_callback=sent_voltage_callback
                     )
                     self.voltage_set[index] = True
                 else: # Immediate set
-                    self.power_supplies[index].set_current(3, new_current)
+                    self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback)
                     self.current_set[index] = True
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_current:.2f}A", LogLevel.INFO)
 
@@ -1900,6 +1918,8 @@ class CathodeHeatingSubsystem:
 
 
             self.user_set_voltages[index] = new_voltage
+            sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
+            sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
 
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
@@ -1911,13 +1931,14 @@ class CathodeHeatingSubsystem:
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        sent_callback=sent_voltage_callback
                     )
                     self.voltage_set[index] = True
                 elif self.ramp_status[index] and self.ramp_control_mode[index] == "current":
                     # Ramp Current mode
                     # Immediate set new voltage
-                    if not self.power_supplies[index].set_voltage(3, new_voltage):
+                    if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
                         self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
 
                     # Ramp Current
@@ -1927,11 +1948,12 @@ class CathodeHeatingSubsystem:
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx))
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        sent_callback=sent_current_callback
                     )
                     self.current_set[index] = True
                 else: # Immediate set
-                    self.power_supplies[index].set_voltage(3, new_voltage)
+                    self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback)
                     self.voltage_set[index] = True
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_voltage:.2f}V", LogLevel.INFO)
 
@@ -2090,6 +2112,14 @@ class CathodeHeatingSubsystem:
         if index < len(self.ramp_mode_dropdowns):
             dropdown_state = 'readonly' if state == 'normal' else 'disabled'
             self.ramp_mode_dropdowns[index].config(state=dropdown_state)
+
+    def _update_sent_current_display(self, index: int, sent_current: float):
+        if index < len(self.sent_heater_current_vars):
+            self.sent_heater_current_vars[index].set(f"{sent_current:.2f}")
+
+    def _update_sent_voltage_display(self, index: int, sent_voltage: float):
+        if index < len(self.sent_heater_voltage_vars):
+            self.sent_heater_voltage_vars[index].set(f"{sent_voltage:.2f}")
 
     def is_ramping(self, index:int) -> bool:
         ps = self.power_supplies[index] if index < len(self.power_supplies) else None
