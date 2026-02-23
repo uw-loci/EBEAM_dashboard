@@ -374,6 +374,13 @@ class BeamEnergySubsystem:
                 for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
                 self.attempt_knob_box_reconnect()
+                # Schedule next update and exit early
+                self.log(
+                    f"KnobBox controller not connected, using default values.",
+                    LogLevel.DEBUG
+                )
+                self.after_id = self.parent_frame.after(500, self.update_readings)
+                return
             
             # Pull data snapshot from KnobBox controller
             data_snapshot = knob_box.get_data_snapshot()
@@ -485,7 +492,7 @@ class BeamEnergySubsystem:
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
         self.update_reset_status(index, False)
-        self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, comms=False, interlocks=False)
+        self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, logic_comms=False, interlocks=False)
 
     def update_com_ports(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""

@@ -91,10 +91,10 @@ class KnobBoxModbus:
     #      - 2: +1kV Matsusada
     #      - 3: +20kV Bertan
     #      - 4: +3kV Bertan
-    UNIT_IDS = [1, 2, 3, 4]
+    UNIT_IDS = [4] # for testing, just using one slave
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='N', stopbits=1, bytesize=8, logger=None, debug_mode=True):
         """
         Initialize the KnobBoxModbus instance with serial communication parameters and optional logging.
         
@@ -196,21 +196,21 @@ class KnobBoxModbus:
                     # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ
                     # Continuous block starting at address 1 (count=4)
                     input_registers = self.client.read_input_registers(address=IREG_HEALTH_ADDR, count=IREG_COUNT, slave=unit_id)
-                    if input_registers is None or not getattr(input_registers, "registers"):
+                    if input_registers.isError():
                         raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id})")
 
-                    if len(input_registers.registers) < 4:
+                    if len(input_registers.registers) < 5:
                         raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
                     
-                    health, v_set, v_read, i_read = input_registers.registers
+                    health, v_set, v_read, i_read, reset_counter = input_registers.registers
                 
                     # Read Discrete Input for Overcurrent status
                     discrete_input = self.client.read_discrete_inputs(address=DINPUT_HVENABLE_ADDR, count=DINPUT_COUNT, slave=unit_id)
-                    if discrete_input is None or not getattr(discrete_input, "bits"):
+                    if discrete_input.isError():
                         raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
                     
                     # 3kV Bertan must report 18 bits
-                    if len(discrete_input.bits) < 18:
+                    if len(discrete_input.bits) < 19:
                         raise RuntimeError(f"FC02 read returned insufficient bits (unit {unit_id})")
                     
                     hv_enable = int(bool(discrete_input.bits[DINPUT_HVENABLE_ADDR]))
