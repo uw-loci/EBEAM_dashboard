@@ -1,634 +1,889 @@
 """
-BCON (Beam Controller) Driver
+BCON (Beam Controller) Driver — Modbus RTU
 
-RS-485 serial driver for Arduino Mega running BCON firmware.
-Provides command interface, status monitoring, and telemetry parsing.
+Modbus RTU master driver for Arduino Mega running BCON firmware.
+Provides register-based control, status polling, and telemetry access
+for three independent pulser channels with safety interlocks.
+
+Register map mirrors the firmware Modbus slave implementation:
+  Control registers  0-9   : watchdog, telemetry, command
+  Channel 1 params  10-13  : mode, pulse_ms, count, enable_toggle
+  Channel 2 params  20-23  : (same layout)
+  Channel 3 params  30-33  : (same layout)
+  System status    100-105  : state, reason, fault, interlock, watchdog, error
+  CH1 status       110-118  : mode_st, pulse_ms_st, count_st, remaining, ...
+  CH2 status       120-128
+  CH3 status       130-138
 """
 
-import serial
+from __future__ import annotations
+
+import copy
+import inspect
+import logging
+import queue
 import threading
 import time
-import re
-from typing import Optional, Dict, List, Tuple
-from enum import Enum
+from typing import Optional, Dict, List, Any, TYPE_CHECKING
+from enum import IntEnum
+
+if TYPE_CHECKING:
+    from pymodbus.client import ModbusSerialClient
+
+# Attempt pymodbus import
+try:
+    from pymodbus.client import ModbusSerialClient as ModbusClient
+except ImportError:
+    ModbusClient = None
+
+# Attempt pyserial import (for port scanning)
+try:
+    import serial.tools.list_ports as list_ports
+except ImportError:
+    list_ports = None
+
+# Suppress chatty pymodbus retry/timeout messages
+logging.getLogger("pymodbus").setLevel(logging.ERROR)
 
 
-class BCONState(Enum):
-    """BCON system states."""
-    READY = "READY"
-    SAFE_INTERLOCK = "SAFE_INTERLOCK"
-    SAFE_WATCHDOG = "SAFE_WATCHDOG"
-    FAULT_LATCHED = "FAULT_LATCHED"
-    UNKNOWN = "UNKNOWN"
+# ======================== Register Map Constants ========================
+
+TOTAL_REGS = 160
+
+# --- Control registers (written by master) ---
+REG_WATCHDOG_MS   = 0
+REG_TELEMETRY_MS  = 1
+REG_COMMAND       = 2     # 0=NOP, 3=ARM/CLEAR_FAULT
+
+# --- Per-channel parameter registers ---
+CH_BASE = [10, 20, 30]    # base address for CH1, CH2, CH3
+CH_MODE_OFF          = 0   # offset: requested mode
+CH_PULSE_MS_OFF      = 1   # offset: pulse duration (ms)
+CH_COUNT_OFF         = 2   # offset: pulse count
+CH_ENABLE_TOGGLE_OFF = 3   # offset: write 1 to toggle enable
+
+# --- System status registers (read-only from master view) ---
+REG_SYS_STATE      = 100
+REG_SYS_REASON     = 101
+REG_FAULT_LATCHED  = 102
+REG_INTERLOCK_OK   = 103
+REG_WATCHDOG_OK    = 104
+REG_LAST_ERROR     = 105
+
+# --- Per-channel status registers (read-only from master view) ---
+REG_CH_STATUS_BASE   = 110
+REG_CH_STATUS_STRIDE = 10
+# Offsets within each channel status block:
+#   +0  mode (actual)
+#   +1  pulse_ms (actual)
+#   +2  count (actual)
+#   +3  remaining pulses
+#   +4  en_st
+#   +5  pwr_st
+#   +6  oc_st
+#   +7  gated_st
+#   +8  output_level
 
 
-class BCONChannelMode(Enum):
-    """BCON channel output modes."""
-    OFF = "OFF"
-    DC = "DC"
-    PULSE = "PULSE"
-    UNKNOWN = "UNKNOWN"
+# ======================== Mode Enumerations ========================
 
+class BCONMode(IntEnum):
+    """Channel operating modes (register values)."""
+    OFF         = 0
+    DC          = 1
+    PULSE       = 2
+    PULSE_TRAIN = 3
+
+MODE_LABEL_TO_CODE = {
+    "OFF":         BCONMode.OFF,
+    "DC":          BCONMode.DC,
+    "PULSE":       BCONMode.PULSE,
+    "PULSE_TRAIN": BCONMode.PULSE_TRAIN,
+}
+
+MODE_CODE_TO_LABEL = {v: k for k, v in MODE_LABEL_TO_CODE.items()}
+
+
+class BCONState(IntEnum):
+    """System state codes read from REG_SYS_STATE."""
+    READY          = 0
+    SAFE_INTERLOCK = 1
+    SAFE_WATCHDOG  = 2
+    FAULT_LATCHED  = 3
+    UNKNOWN        = 255
+
+STATE_LABELS = {
+    BCONState.READY:          "READY",
+    BCONState.SAFE_INTERLOCK: "SAFE_INTERLOCK",
+    BCONState.SAFE_WATCHDOG:  "SAFE_WATCHDOG",
+    BCONState.FAULT_LATCHED:  "FAULT_LATCHED",
+    BCONState.UNKNOWN:        "UNKNOWN",
+}
+
+
+# ======================== Utility ========================
+
+def scan_serial_ports() -> List[str]:
+    """Return a list of available serial ports, with Arduino-like ports first."""
+    if list_ports is None:
+        return []
+    ports = list_ports.comports()
+    preferred, others = [], []
+    for p in ports:
+        desc = (getattr(p, "description", "") or "").lower()
+        hwid = (getattr(p, "hwid", "") or "").lower()
+        if any(tok in desc for tok in ("arduino", "usb serial", "ch340", "cp210")) or "vid:pid=2341" in hwid:
+            preferred.append(p.device)
+        else:
+            others.append(p.device)
+    return preferred + others
+
+
+# ======================== BCONDriver ========================
 
 class BCONDriver:
     """
-    BCON (Beam Controller) RS-485 driver.
-    
-    Communicates with Arduino Mega running BCON firmware to control
-    three independent pulser channels with safety interlocks.
-    
+    BCON (Beam Controller) Modbus RTU driver.
+
+    Communicates with Arduino Mega running BCON firmware over Modbus RTU
+    to control three independent pulser channels with safety interlocks.
+
     Features:
-        - RS-485 serial communication
-        - Command/response interface
-        - Telemetry parsing and monitoring
-        - Thread-safe operation
+        - Modbus RTU serial communication (pymodbus)
+        - Background register polling thread
+        - Thread-safe register cache
+        - Write queue for non-blocking control
         - Watchdog and fault management
+        - Auto-disconnect on repeated poll failures
     """
-    
-    # Command constants
-    CMD_PING = "PING"
-    CMD_HELP = "HELP"
-    CMD_STATUS = "STATUS"
-    CMD_GET_STATUS = "GET STATUS"
-    CMD_STOP_ALL = "STOP ALL"
-    CMD_SET_WATCHDOG = "SET WATCHDOG"
-    CMD_SET_TELEMETRY = "SET TELEMETRY"
-    CMD_SET_CH = "SET CH"
-    CMD_CLEAR_FAULT = "CLEAR FAULT"
-    CMD_ARM = "ARM"
-    
-    # Response constants
-    RESP_PONG = "PONG"
-    RESP_OK = "OK"
-    RESP_ERR = "ERR"
-    
-    # Telemetry prefixes
-    TELEM_SYS = "SYS"
-    TELEM_CH = "CH"
-    
-    def __init__(self, port: str, baudrate: int = 115200, 
-                 timeout: float = 1.0, debug: bool = False):
+
+    # Defaults
+    DEFAULT_BAUD       = 115200
+    DEFAULT_UNIT       = 1
+    DEFAULT_TIMEOUT    = 1.0
+    POLL_INTERVAL      = 0.3     # seconds between register polls
+    MAX_POLL_ERRORS    = 4       # consecutive failures before auto-disconnect
+    SETTLE_TIME        = 2.5     # seconds to wait after opening port (Arduino DTR reset)
+
+    def __init__(self, port: str, baudrate: int = DEFAULT_BAUD,
+                 unit: int = DEFAULT_UNIT, timeout: float = DEFAULT_TIMEOUT,
+                 debug: bool = False):
         """
         Initialize BCON driver.
-        
+
         Args:
-            port: Serial port name (e.g., 'COM3' on Windows, '/dev/ttyUSB0' on Linux)
+            port: Serial port name (e.g., 'COM3')
             baudrate: Serial baudrate (default: 115200)
-            timeout: Serial read timeout in seconds (default: 1.0)
+            unit: Modbus slave/unit address (default: 1)
+            timeout: Modbus read timeout in seconds (default: 1.0)
             debug: Enable debug logging (default: False)
         """
         self.port = port
         self.baudrate = baudrate
+        self.unit = unit
         self.timeout = timeout
         self.debug = debug
-        
-        # Serial connection
-        self._serial: Optional[serial.Serial] = None
-        self._serial_lock = threading.Lock()
-        
-        # Latest telemetry data
-        self._latest_telemetry = {
-            'system': {
-                'state': 'UNKNOWN',
-                'reason': 'NONE',
-                'fault_latched': 0,
-                'telemetry_ms': 0
-            },
-            'channels': [
-                {'mode': 'UNKNOWN', 'pulse_ms': 0, 'en_st': 0, 'pwr_st': 0, 'oc_st': 0, 'gated_st': 0},
-                {'mode': 'UNKNOWN', 'pulse_ms': 0, 'en_st': 0, 'pwr_st': 0, 'oc_st': 0, 'gated_st': 0},
-                {'mode': 'UNKNOWN', 'pulse_ms': 0, 'en_st': 0, 'pwr_st': 0, 'oc_st': 0, 'gated_st': 0}
-            ]
-        }
-        self._telemetry_lock = threading.Lock()
-        
-        # Background telemetry parser thread
-        self._telemetry_thread: Optional[threading.Thread] = None
-        self._telemetry_running = False
-        
+
+        # Modbus client
+        self._client: Optional[ModbusSerialClient] = None
+        self._connected = False
+
+        # Write command queue (thread-safe)
+        self._cmd_queue: queue.Queue = queue.Queue()
+
+        # Latest register snapshot
+        self._regs: List[int] = [0] * TOTAL_REGS
+        self._regs_lock = threading.Lock()
+
+        # Polling thread
+        self._poll_thread: Optional[threading.Thread] = None
+        self._poll_running = False
+        self._poll_errors = 0
+
+        # Callbacks for UI notification  (msg_type, *args)
+        self._ui_queue: Optional[queue.Queue] = None
+
+    def set_ui_queue(self, q: queue.Queue):
+        """Set an optional queue to receive UI notification messages."""
+        self._ui_queue = q
+
+    def _ui_put(self, *msg):
+        """Post a message to the UI queue if one is set."""
+        if self._ui_queue:
+            self._ui_queue.put(msg)
+
+    # ------------------------------------------------------------------ #
+    #                           Logging                                    #
+    # ------------------------------------------------------------------ #
+
     def _log(self, message: str, level: str = "INFO"):
         """Internal logging helper."""
-        if self.debug or level in ["ERROR", "WARNING"]:
+        if self.debug or level in ("ERROR", "WARNING"):
             print(f"[BCON {level}] {message}")
-    
-    # ==================== Connection Management ====================
-    
-    def connect(self) -> bool:
+
+    # ================================================================== #
+    #                       Connection Management                          #
+    # ================================================================== #
+
+    def connect(self, settle_s: Optional[float] = None) -> bool:
         """
-        Connect to BCON hardware.
-        
+        Connect to BCON hardware via Modbus RTU.
+
+        Opening the serial port asserts DTR which resets the Arduino Mega.
+        The driver waits *settle_s* seconds for the firmware to finish setup()
+        before sending any Modbus frames.
+
+        Args:
+            settle_s: Seconds to wait after port open (default: SETTLE_TIME).
+
         Returns:
-            True if connection successful, False otherwise
+            True if connection successful, False otherwise.
         """
+        if ModbusClient is None:
+            self._log("pymodbus is not installed", "ERROR")
+            return False
+
+        if settle_s is None:
+            settle_s = self.SETTLE_TIME
+
+        if self._client:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+
         try:
-            with self._serial_lock:
-                if self._serial and self._serial.is_open:
-                    self._log("Already connected", "WARNING")
-                    return True
-                
-                self._serial = serial.Serial(
-                    port=self.port,
-                    baudrate=self.baudrate,
-                    timeout=self.timeout,
-                    bytesize=serial.EIGHTBITS,
-                    parity=serial.PARITY_NONE,
-                    stopbits=serial.STOPBITS_ONE
+            # pymodbus v3 API
+            try:
+                self._client = ModbusClient(
+                    port=self.port, framer="rtu",
+                    baudrate=self.baudrate, timeout=self.timeout, retries=1
                 )
-                
-                # Clear any stale data
-                self._serial.reset_input_buffer()
-                self._serial.reset_output_buffer()
-                
-                self._log(f"Connected to {self.port} at {self.baudrate} baud", "INFO")
-                
-            # Start telemetry monitoring thread
-            self._start_telemetry_thread()
-            
-            # Verify communication with PING
-            time.sleep(0.1)  # Allow device to stabilize
-            if self.ping():
-                self._log("BCON communication verified", "INFO")
-                return True
-            else:
-                self._log("BCON not responding to PING", "WARNING")
-                return False
-                
-        except serial.SerialException as e:
-            self._log(f"Failed to connect: {e}", "ERROR")
-            return False
+            except TypeError:
+                # Older pymodbus signature
+                self._client = ModbusClient(
+                    method="rtu", port=self.port,
+                    baudrate=self.baudrate, timeout=self.timeout
+                )
+
+            ok = self._client.connect()
         except Exception as e:
-            self._log(f"Unexpected error during connect: {e}", "ERROR")
+            self._client = None
+            self._connected = False
+            self._log(f"Connect failed: {e}", "ERROR")
+            self._ui_put("connected", False)
             return False
-    
+
+        if ok and settle_s > 0:
+            self._log(f"Waiting {settle_s}s for firmware boot…", "INFO")
+            time.sleep(settle_s)
+
+        self._connected = ok
+        self._poll_errors = 0
+
+        if ok:
+            self._log(f"Connected to {self.port} at {self.baudrate} baud (unit={self.unit})", "INFO")
+            self._start_poll_thread()
+        else:
+            self._log("Modbus connect() returned False", "ERROR")
+
+        self._ui_put("connected", ok)
+        return ok
+
     def disconnect(self):
         """Disconnect from BCON hardware."""
-        # Stop telemetry thread
-        self._stop_telemetry_thread()
-        
-        with self._serial_lock:
-            if self._serial and self._serial.is_open:
-                try:
-                    self._serial.close()
-                    self._log("Disconnected from BCON", "INFO")
-                except Exception as e:
-                    self._log(f"Error during disconnect: {e}", "ERROR")
-            self._serial = None
-    
-    def is_connected(self) -> bool:
-        """
-        Check if connected to BCON hardware.
-        
-        Returns:
-            True if connected and serial port is open
-        """
-        with self._serial_lock:
-            return self._serial is not None and self._serial.is_open
-    
-    # ==================== Low-Level Communication ====================
-    
-    def _send_command(self, command: str) -> bool:
-        """
-        Send command to BCON (low-level).
-        
-        Args:
-            command: Command string (without newline)
-            
-        Returns:
-            True if sent successfully, False otherwise
-        """
-        if not self.is_connected():
-            self._log("Cannot send command: not connected", "ERROR")
-            return False
-        
-        try:
-            with self._serial_lock:
-                command_bytes = (command + "\n").encode('ascii')
-                self._serial.write(command_bytes)
-                self._serial.flush()
-                self._log(f"TX: {command}", "DEBUG")
-                return True
-        except Exception as e:
-            self._log(f"Error sending command '{command}': {e}", "ERROR")
-            return False
-    
-    def _read_line(self, timeout: Optional[float] = None) -> Optional[str]:
-        """
-        Read a single line from BCON (low-level).
-        
-        Args:
-            timeout: Optional timeout override (seconds)
-            
-        Returns:
-            Line string without newline, or None on timeout/error
-        """
-        if not self.is_connected():
-            return None
-        
-        try:
-            with self._serial_lock:
-                if timeout is not None:
-                    old_timeout = self._serial.timeout
-                    self._serial.timeout = timeout
-                
-                line_bytes = self._serial.readline()
-                
-                if timeout is not None:
-                    self._serial.timeout = old_timeout
-                
-                if not line_bytes:
-                    return None
-                
-                line = line_bytes.decode('ascii', errors='ignore').strip()
-                if line:
-                    self._log(f"RX: {line}", "DEBUG")
-                return line if line else None
-                
-        except Exception as e:
-            self._log(f"Error reading line: {e}", "ERROR")
-            return None
-    
-    def _send_and_wait_response(self, command: str, expected_prefix: Optional[str] = None,
-                                 timeout: float = 2.0) -> Optional[str]:
-        """
-        Send command and wait for response line.
-        
-        Args:
-            command: Command string
-            expected_prefix: Optional expected response prefix (e.g., "OK", "ERR", "PONG")
-            timeout: Total timeout for response (seconds)
-            
-        Returns:
-            Response line or None on timeout/error
-        """
-        if not self._send_command(command):
-            return None
-        
-        start_time = time.time()
-        while (time.time() - start_time) < timeout:
-            line = self._read_line(timeout=0.1)
-            if line:
-                # Check if this is telemetry (parse in background)
-                if line.startswith(self.TELEM_SYS) or line.startswith(self.TELEM_CH):
-                    self._parse_telemetry_line(line)
-                    continue  # Keep waiting for command response
-                
-                # Check if response matches expected prefix
-                if expected_prefix is None or line.startswith(expected_prefix):
-                    return line
-                
-                # Got a response but not expected prefix
-                return line
-        
-        self._log(f"Timeout waiting for response to '{command}'", "WARNING")
-        return None
-    
-    # ==================== Telemetry Parsing ====================
-    
-    def _parse_telemetry_line(self, line: str):
-        """
-        Parse a telemetry line and update internal state.
-        
-        Telemetry formats:
-            SYS state=READY reason=NONE fault_latched=0 telemetry_ms=1000
-            CH1 mode=DC pulse_ms=0 en_st=1 pwr_st=1 oc_st=0 gated_st=0
-        """
-        try:
-            parts = line.split()
-            if not parts:
-                return
-            
-            prefix = parts[0]
-            
-            # Parse key=value pairs
-            data = {}
-            for part in parts[1:]:
-                if '=' in part:
-                    key, value = part.split('=', 1)
-                    data[key] = value
-            
-            with self._telemetry_lock:
-                if prefix == self.TELEM_SYS:
-                    # System telemetry
-                    self._latest_telemetry['system']['state'] = data.get('state', 'UNKNOWN')
-                    self._latest_telemetry['system']['reason'] = data.get('reason', 'NONE')
-                    self._latest_telemetry['system']['fault_latched'] = int(data.get('fault_latched', '0'))
-                    self._latest_telemetry['system']['telemetry_ms'] = int(data.get('telemetry_ms', '0'))
-                    self._log(f"System state: {data.get('state')}", "DEBUG")
-                    
-                elif prefix.startswith(self.TELEM_CH):
-                    # Channel telemetry (CH1, CH2, CH3)
-                    channel_num = int(prefix[2:])  # Extract number from "CH1", "CH2", "CH3"
-                    channel_idx = channel_num - 1
-                    
-                    if 0 <= channel_idx < 3:
-                        self._latest_telemetry['channels'][channel_idx]['mode'] = data.get('mode', 'UNKNOWN')
-                        self._latest_telemetry['channels'][channel_idx]['pulse_ms'] = int(data.get('pulse_ms', '0'))
-                        self._latest_telemetry['channels'][channel_idx]['en_st'] = int(data.get('en_st', '0'))
-                        self._latest_telemetry['channels'][channel_idx]['pwr_st'] = int(data.get('pwr_st', '0'))
-                        self._latest_telemetry['channels'][channel_idx]['oc_st'] = int(data.get('oc_st', '0'))
-                        self._latest_telemetry['channels'][channel_idx]['gated_st'] = int(data.get('gated_st', '0'))
-                        self._log(f"Channel {channel_num} mode: {data.get('mode')}", "DEBUG")
-                        
-        except Exception as e:
-            self._log(f"Error parsing telemetry line '{line}': {e}", "WARNING")
-    
-    def _telemetry_thread_func(self):
-        """Background thread function to continuously parse telemetry."""
-        self._log("Telemetry thread started", "DEBUG")
-        
-        while self._telemetry_running:
+        self._stop_poll_thread()
+        self._connected = False
+        self._poll_errors = 0
+        if self._client:
             try:
-                line = self._read_line(timeout=0.1)
-                if line and (line.startswith(self.TELEM_SYS) or line.startswith(self.TELEM_CH)):
-                    self._parse_telemetry_line(line)
-            except Exception as e:
-                self._log(f"Telemetry thread error: {e}", "WARNING")
-                time.sleep(0.1)
-    
-    def _start_telemetry_thread(self):
-        """Start background telemetry parsing thread."""
-        if self._telemetry_thread and self._telemetry_thread.is_alive():
-            return
-        
-        self._telemetry_running = True
-        self._telemetry_thread = threading.Thread(target=self._telemetry_thread_func, daemon=True)
-        self._telemetry_thread.start()
-    
-    def _stop_telemetry_thread(self):
-        """Stop background telemetry parsing thread."""
-        self._telemetry_running = False
-        if self._telemetry_thread:
-            self._telemetry_thread.join(timeout=2.0)
-            self._telemetry_thread = None
-    
-    # ==================== Basic Commands ====================
-    
-    def ping(self) -> bool:
+                self._client.close()
+            except Exception:
+                pass
+            self._client = None
+        self._log("Disconnected", "INFO")
+        self._ui_put("connected", False)
+
+    def is_connected(self) -> bool:
+        """Check if connected to BCON hardware."""
+        return self._connected and self._client is not None
+
+    # ================================================================== #
+    #                      Low-level Modbus I/O                            #
+    # ================================================================== #
+
+    def _write_register_compat(self, reg: int, val: int):
+        """Write a single holding register (compatible across pymodbus versions)."""
+        write_fn = self._client.write_register
+        sig = inspect.signature(write_fn)
+        if "device_id" in sig.parameters:
+            return write_fn(reg, int(val), device_id=self.unit)
+        if "unit" in sig.parameters:
+            return write_fn(reg, int(val), unit=self.unit)
+        if "slave" in sig.parameters:
+            return write_fn(reg, int(val), slave=self.unit)
+        return write_fn(reg, int(val))
+
+    def _read_holding_registers_compat(self, start: int, count: int):
+        """Read a block of holding registers (compatible across pymodbus versions)."""
+        read_fn = self._client.read_holding_registers
+        sig = inspect.signature(read_fn)
+        if "device_id" in sig.parameters:
+            return read_fn(start, count=count, device_id=self.unit)
+        if "unit" in sig.parameters:
+            return read_fn(start, count, unit=self.unit)
+        if "slave" in sig.parameters:
+            return read_fn(start, count, slave=self.unit)
+        return read_fn(start, count)
+
+    # ================================================================== #
+    #                        Write Queue                                   #
+    # ================================================================== #
+
+    def enqueue_write(self, reg: int, value: int):
         """
-        Send PING command and wait for PONG response.
-        Also refreshes communication watchdog.
-        
-        Returns:
-            True if PONG received, False otherwise
-        """
-        response = self._send_and_wait_response(self.CMD_PING, self.RESP_PONG, timeout=1.0)
-        return response == self.RESP_PONG
-    
-    def get_status(self) -> Dict:
-        """
-        Request full system status.
-        
-        Returns status as multi-line report, parsing into telemetry structure.
-        
-        Returns:
-            Dictionary with 'system' and 'channels' keys containing status data
-        """
-        if not self._send_command(self.CMD_STATUS):
-            return self._get_latest_telemetry_copy()
-        
-        # Read multiple lines of status report
-        # Status format:
-        #   SYS ...
-        #   CH1 ...
-        #   CH2 ...
-        #   CH3 ...
-        
-        timeout_end = time.time() + 2.0
-        while time.time() < timeout_end:
-            line = self._read_line(timeout=0.1)
-            if line:
-                if line.startswith(self.TELEM_SYS) or line.startswith(self.TELEM_CH):
-                    self._parse_telemetry_line(line)
-        
-        return self._get_latest_telemetry_copy()
-    
-    def stop_all(self) -> bool:
-        """
-        Force all channels to OFF mode immediately.
-        
-        Returns:
-            True if command acknowledged, False otherwise
-        """
-        response = self._send_and_wait_response(self.CMD_STOP_ALL, self.RESP_OK, timeout=1.0)
-        return response is not None and response.startswith(self.RESP_OK)
-    
-    # ==================== Configuration Commands ====================
-    
-    def set_watchdog(self, timeout_ms: int) -> bool:
-        """
-        Configure communication watchdog timeout.
-        
+        Enqueue a register write to be executed by the poll thread.
+
+        This is the primary way to send commands from the UI thread.
+        Writes are executed before each poll cycle to minimise latency.
+
         Args:
-            timeout_ms: Watchdog timeout in milliseconds (50-60000)
-            
-        Returns:
-            True if command acknowledged, False otherwise
+            reg: Register address.
+            value: 16-bit unsigned value.
         """
-        if not (50 <= timeout_ms <= 60000):
-            self._log(f"Invalid watchdog timeout: {timeout_ms} (must be 50-60000)", "ERROR")
+        self._cmd_queue.put(("write", reg, value))
+
+    def write_register_immediate(self, reg: int, value: int) -> bool:
+        """
+        Write a register synchronously (blocks until complete).
+
+        Use this only when you need confirmation; prefer enqueue_write()
+        for non-blocking UI interaction.
+
+        Returns:
+            True if write succeeded, False otherwise.
+        """
+        if not self.is_connected():
             return False
-        
-        command = f"{self.CMD_SET_WATCHDOG} {timeout_ms}"
-        response = self._send_and_wait_response(command, self.RESP_OK, timeout=1.0)
-        return response is not None and response.startswith(self.RESP_OK)
-    
-    def set_telemetry(self, interval_ms: int) -> bool:
-        """
-        Configure periodic telemetry transmission interval.
-        
-        Args:
-            interval_ms: Telemetry interval in milliseconds (0 to disable)
-            
-        Returns:
-            True if command acknowledged, False otherwise
-        """
-        command = f"{self.CMD_SET_TELEMETRY} {interval_ms}"
-        response = self._send_and_wait_response(command, self.RESP_OK, timeout=1.0)
-        return response is not None and response.startswith(self.RESP_OK)
-    
-    # ==================== Channel Control Commands ====================
-    
-    def set_channel_off(self, channel: int) -> bool:
+        try:
+            self._write_register_compat(reg, value)
+            return True
+        except Exception as e:
+            self._log(f"Immediate write reg {reg}: {e}", "ERROR")
+            return False
+
+    # ================================================================== #
+    #                  Background Polling Thread                            #
+    # ================================================================== #
+
+    def _poll_thread_func(self):
+        """Background thread: process write queue then poll registers."""
+        last_error_msg = None
+
+        while self._poll_running:
+            # --- Process queued writes ---
+            try:
+                while not self._cmd_queue.empty():
+                    cmd = self._cmd_queue.get_nowait()
+                    if cmd[0] == "write" and self._client and self._connected:
+                        _, reg, val = cmd
+                        try:
+                            self._write_register_compat(reg, val)
+                            self._ui_put("wrote", reg, val)
+                        except Exception as e:
+                            self._log(f"Write reg {reg}: {e}", "ERROR")
+                            self._ui_put("error", f"Write reg {reg}: {e}")
+            except queue.Empty:
+                pass
+
+            # --- Poll registers ---
+            if self._client and self._connected:
+                try:
+                    regs = [0] * TOTAL_REGS
+
+                    def read_block(start, count):
+                        rr = self._read_holding_registers_compat(start, count)
+                        if not rr or not hasattr(rr, 'registers'):
+                            return False
+                        for i, value in enumerate(rr.registers):
+                            idx = start + i
+                            if 0 <= idx < TOTAL_REGS:
+                                regs[idx] = value
+                        return True
+
+                    ok = True
+                    ok &= read_block(0, 34)      # control + channel params
+                    ok &= read_block(100, 6)     # system status
+                    ok &= read_block(110, 9)     # CH1 status (110-118)
+                    ok &= read_block(120, 9)     # CH2 status (120-128)
+                    ok &= read_block(130, 9)     # CH3 status (130-138)
+
+                    if not ok:
+                        self._poll_errors += 1
+                        err = f"Modbus read failed ({self._poll_errors}/{self.MAX_POLL_ERRORS})"
+                        if err != last_error_msg:
+                            self._log(err, "WARNING")
+                            self._ui_put("error", err)
+                            last_error_msg = err
+                        if self._poll_errors >= self.MAX_POLL_ERRORS:
+                            self._auto_disconnect()
+                    else:
+                        self._poll_errors = 0
+                        last_error_msg = None
+                        with self._regs_lock:
+                            changed = (regs != self._regs)
+                            self._regs = regs
+                        if changed:
+                            self._ui_put("regs", regs)
+
+                except Exception as e:
+                    self._poll_errors += 1
+                    err = f"Poll error ({self._poll_errors}/{self.MAX_POLL_ERRORS}): {e}"
+                    if err != last_error_msg:
+                        self._log(err, "WARNING")
+                        self._ui_put("error", err)
+                        last_error_msg = err
+                    if self._poll_errors >= self.MAX_POLL_ERRORS:
+                        self._auto_disconnect()
+
+            time.sleep(self.POLL_INTERVAL)
+
+    def _auto_disconnect(self):
+        """Called from poll thread when too many consecutive errors."""
+        self._connected = False
+        if self._client:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+            self._client = None
+        self._log("Auto-disconnected after repeated poll failures", "WARNING")
+        self._ui_put("connected", False)
+
+    def _start_poll_thread(self):
+        """Start the background polling thread."""
+        if self._poll_thread and self._poll_thread.is_alive():
+            return
+        self._poll_running = True
+        self._poll_thread = threading.Thread(target=self._poll_thread_func, daemon=True)
+        self._poll_thread.start()
+
+    def _stop_poll_thread(self):
+        """Stop the background polling thread."""
+        self._poll_running = False
+        if self._poll_thread:
+            self._poll_thread.join(timeout=3.0)
+            self._poll_thread = None
+
+    # ================================================================== #
+    #                      Register Cache Access                           #
+    # ================================================================== #
+
+    def get_registers(self) -> List[int]:
+        """Get a thread-safe copy of the latest register snapshot."""
+        with self._regs_lock:
+            return self._regs.copy()
+
+    def get_register(self, addr: int) -> int:
+        """Get a single register value from the cache."""
+        with self._regs_lock:
+            if 0 <= addr < TOTAL_REGS:
+                return self._regs[addr]
+            return 0
+
+    # ================================================================== #
+    #                     High-Level Channel Control                       #
+    # ================================================================== #
+
+    def set_channel_off(self, channel: int) -> None:
         """
         Turn off specified channel.
-        
+
         Args:
-            channel: Channel number (1-3)
-            
-        Returns:
-            True if command acknowledged, False otherwise
+            channel: Channel number (1-3).
         """
         if not (1 <= channel <= 3):
             self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return False
-        
-        command = f"{self.CMD_SET_CH} {channel} OFF"
-        response = self._send_and_wait_response(command, self.RESP_OK, timeout=1.0)
-        return response is not None and response.startswith(self.RESP_OK)
-    
-    def set_channel_dc(self, channel: int) -> bool:
+            return
+        base = CH_BASE[channel - 1]
+        self.enqueue_write(base + CH_MODE_OFF, BCONMode.OFF)
+
+    def set_channel_dc(self, channel: int) -> None:
         """
         Set channel to DC mode (continuous output).
-        
+
         Args:
-            channel: Channel number (1-3)
-            
-        Returns:
-            True if command acknowledged, False otherwise
+            channel: Channel number (1-3).
         """
         if not (1 <= channel <= 3):
             self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return False
-        
-        command = f"{self.CMD_SET_CH} {channel} DC"
-        response = self._send_and_wait_response(command, self.RESP_OK, timeout=1.0)
-        success = response is not None and response.startswith(self.RESP_OK)
-        
-        if not success and response and "NOT_READY" in response:
-            self._log(f"Channel {channel} DC rejected: system not in READY state", "WARNING")
-        
-        return success
-    
-    def set_channel_pulse(self, channel: int, duration_ms: int) -> bool:
+            return
+        base = CH_BASE[channel - 1]
+        self.enqueue_write(base + CH_MODE_OFF, BCONMode.DC)
+
+    def set_channel_pulse(self, channel: int, duration_ms: int, count: int = 1) -> None:
         """
-        Pulse channel for specified duration.
-        Channel automatically returns to OFF after pulse completes.
-        
+        Set channel to PULSE mode.
+
         Args:
-            channel: Channel number (1-3)
-            duration_ms: Pulse duration in milliseconds (1-60000)
-            
-        Returns:
-            True if command acknowledged, False otherwise
+            channel: Channel number (1-3).
+            duration_ms: Pulse duration in milliseconds (1-60000).
+            count: Number of pulses (default 1).
         """
         if not (1 <= channel <= 3):
             self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return False
-        
+            return
         if not (1 <= duration_ms <= 60000):
-            self._log(f"Invalid pulse duration: {duration_ms} (must be 1-60000)", "ERROR")
-            return False
-        
-        command = f"{self.CMD_SET_CH} {channel} PULSE {duration_ms}"
-        response = self._send_and_wait_response(command, self.RESP_OK, timeout=1.0)
-        success = response is not None and response.startswith(self.RESP_OK)
-        
-        if not success and response and "NOT_READY" in response:
-            self._log(f"Channel {channel} PULSE rejected: system not in READY state", "WARNING")
-        
-        return success
-    
-    # ==================== Safety & Fault Management ====================
-    
-    def clear_fault(self) -> bool:
+            self._log(f"Invalid pulse duration: {duration_ms}", "ERROR")
+            return
+        base = CH_BASE[channel - 1]
+        self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
+        self.enqueue_write(base + CH_COUNT_OFF, count)
+        self.enqueue_write(base + CH_MODE_OFF, BCONMode.PULSE)
+
+    def set_channel_pulse_train(self, channel: int, duration_ms: int, count: int) -> None:
         """
-        Clear latched fault condition.
-        
-        Fails if:
-        - Any overcurrent status still asserted
-        - Interlock not satisfied
-        
-        Returns:
-            True if fault cleared, False otherwise
+        Set channel to PULSE_TRAIN mode.
+
+        Args:
+            channel: Channel number (1-3).
+            duration_ms: Pulse duration in milliseconds.
+            count: Number of pulses (must be >= 2).
         """
-        response = self._send_and_wait_response(self.CMD_CLEAR_FAULT, self.RESP_OK, timeout=1.0)
-        success = response is not None and response.startswith(self.RESP_OK)
-        
-        if not success and response:
-            if "FAULT_STILL_ACTIVE" in response:
-                self._log("Clear fault rejected: overcurrent still active", "WARNING")
-            elif "INTERLOCK_NOT_READY" in response:
-                self._log("Clear fault rejected: interlock not satisfied", "WARNING")
-        
-        return success
-    
-    def arm(self) -> bool:
+        if not (1 <= channel <= 3):
+            self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
+            return
+        if count < 2:
+            self._log(f"PULSE_TRAIN requires count >= 2, got {count}", "ERROR")
+            return
+        base = CH_BASE[channel - 1]
+        self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
+        self.enqueue_write(base + CH_COUNT_OFF, count)
+        self.enqueue_write(base + CH_MODE_OFF, BCONMode.PULSE_TRAIN)
+
+    def set_channel_mode(self, channel: int, mode: str,
+                         duration_ms: int = 100, count: int = 1) -> None:
         """
-        Arm system (alias for clear_fault).
-        
-        Returns:
-            True if armed successfully, False otherwise
+        Generic channel mode setter.
+
+        Args:
+            channel: Channel number (1-3).
+            mode: Mode label string ('OFF', 'DC', 'PULSE', 'PULSE_TRAIN').
+            duration_ms: Pulse width for PULSE / PULSE_TRAIN modes.
+            count: Pulse count for PULSE / PULSE_TRAIN modes.
         """
-        response = self._send_and_wait_response(self.CMD_ARM, self.RESP_OK, timeout=1.0)
-        return response is not None and response.startswith(self.RESP_OK)
-    
-    # ==================== Status & Telemetry Access ====================
-    
-    def _get_latest_telemetry_copy(self) -> Dict:
-        """Get thread-safe copy of latest telemetry."""
-        with self._telemetry_lock:
-            import copy
-            return copy.deepcopy(self._latest_telemetry)
-    
-    def get_latest_telemetry(self) -> Dict:
+        mode_upper = mode.strip().upper()
+        if mode_upper == "OFF":
+            self.set_channel_off(channel)
+        elif mode_upper == "DC":
+            self.set_channel_dc(channel)
+        elif mode_upper == "PULSE":
+            self.set_channel_pulse(channel, duration_ms, count)
+        elif mode_upper == "PULSE_TRAIN":
+            self.set_channel_pulse_train(channel, duration_ms, count)
+        else:
+            self._log(f"Unknown mode '{mode}'", "ERROR")
+
+    def set_channel_params(self, channel: int, duration_ms: int, count: int) -> None:
         """
-        Get most recently received telemetry data.
-        
-        Returns:
-            Dictionary with 'system' and 'channels' keys
+        Write pulse parameters without changing the mode register.
+
+        Args:
+            channel: Channel number (1-3).
+            duration_ms: Pulse width in ms.
+            count: Pulse count.
         """
-        return self._get_latest_telemetry_copy()
-    
+        if not (1 <= channel <= 3):
+            return
+        base = CH_BASE[channel - 1]
+        if duration_ms > 0:
+            self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
+        if count > 0:
+            self.enqueue_write(base + CH_COUNT_OFF, count)
+
+    def toggle_channel_enable(self, channel: int) -> None:
+        """
+        Toggle the enable status of a channel (write 1 to enable_toggle register).
+
+        Args:
+            channel: Channel number (1-3).
+        """
+        if not (1 <= channel <= 3):
+            return
+        base = CH_BASE[channel - 1]
+        self.enqueue_write(base + CH_ENABLE_TOGGLE_OFF, 1)
+
+    def stop_all(self) -> None:
+        """Force all three channels to OFF immediately."""
+        for ch in range(3):
+            self.enqueue_write(CH_BASE[ch] + CH_MODE_OFF, BCONMode.OFF)
+
+    # ================================================================== #
+    #              Synchronous Multi-Channel Start/Stop                    #
+    # ================================================================== #
+
+    def sync_start(self, configs: List[Dict]) -> None:
+        """
+        Start multiple channels with minimal inter-channel jitter.
+
+        Phase 1: write duration + count for all channels.
+        Phase 2: write mode for all channels (back-to-back).
+
+        Args:
+            configs: List of dicts with keys:
+                     ch (int 1-3), mode (str), duration_ms (int), count (int)
+        """
+        # Phase 1: parameters
+        for cfg in configs:
+            ch = cfg['ch']
+            mode_code = MODE_LABEL_TO_CODE.get(cfg['mode'].upper(), BCONMode.OFF)
+            if mode_code not in (BCONMode.OFF, BCONMode.DC):
+                base = CH_BASE[ch - 1]
+                self.enqueue_write(base + CH_PULSE_MS_OFF, cfg.get('duration_ms', 100))
+                self.enqueue_write(base + CH_COUNT_OFF, cfg.get('count', 1))
+
+        # Phase 2: modes (close together)
+        for cfg in configs:
+            ch = cfg['ch']
+            mode_code = MODE_LABEL_TO_CODE.get(cfg['mode'].upper(), BCONMode.OFF)
+            self.enqueue_write(CH_BASE[ch - 1] + CH_MODE_OFF, mode_code)
+
+    # ================================================================== #
+    #                      System Configuration                            #
+    # ================================================================== #
+
+    def set_watchdog(self, timeout_ms: int) -> None:
+        """
+        Configure communication watchdog timeout.
+
+        Args:
+            timeout_ms: Watchdog timeout in milliseconds.
+        """
+        self.enqueue_write(REG_WATCHDOG_MS, timeout_ms)
+
+    def set_telemetry(self, interval_ms: int) -> None:
+        """
+        Configure periodic telemetry/polling interval on the firmware side.
+
+        Args:
+            interval_ms: Telemetry interval in milliseconds (0 to disable).
+        """
+        self.enqueue_write(REG_TELEMETRY_MS, interval_ms)
+
+    def send_command(self, cmd_code: int) -> None:
+        """
+        Write to the special COMMAND register.
+
+        Known codes:
+            0 = NOP (can be used to trigger a register refresh),
+            3 = ARM / CLEAR_FAULT.
+
+        Args:
+            cmd_code: Command code.
+        """
+        self.enqueue_write(REG_COMMAND, cmd_code)
+
+    # ================================================================== #
+    #                     Safety / Fault Management                        #
+    # ================================================================== #
+
+    def arm(self) -> None:
+        """Send ARM / CLEAR_FAULT command."""
+        self.send_command(3)
+
+    def clear_fault(self) -> None:
+        """Alias for arm()."""
+        self.arm()
+
+    # ================================================================== #
+    #                     Status / Telemetry Access                        #
+    # ================================================================== #
+
     def get_system_state(self) -> str:
         """
-        Get current system state.
-        
+        Get current system state as a human-readable string.
+
         Returns:
-            State string: READY, SAFE_INTERLOCK, SAFE_WATCHDOG, FAULT_LATCHED, or UNKNOWN
+            State label (e.g. 'READY', 'FAULT_LATCHED').
         """
-        with self._telemetry_lock:
-            return self._latest_telemetry['system']['state']
-    
+        code = self.get_register(REG_SYS_STATE)
+        try:
+            return STATE_LABELS.get(BCONState(code), "UNKNOWN")
+        except ValueError:
+            return "UNKNOWN"
+
+    def get_system_state_code(self) -> int:
+        """Get raw system state register value."""
+        return self.get_register(REG_SYS_STATE)
+
+    def is_interlock_ok(self) -> bool:
+        """Check if the hardware interlock is satisfied."""
+        return bool(self.get_register(REG_INTERLOCK_OK))
+
+    def is_watchdog_ok(self) -> bool:
+        """Check if the communication watchdog is satisfied."""
+        return bool(self.get_register(REG_WATCHDOG_OK))
+
+    def is_fault_latched(self) -> bool:
+        """Check if a latched fault condition exists."""
+        return bool(self.get_register(REG_FAULT_LATCHED))
+
+    def get_last_error(self) -> int:
+        """Get the last error code from firmware."""
+        return self.get_register(REG_LAST_ERROR)
+
+    # --- Per-channel status ---
+
     def get_channel_mode(self, channel: int) -> str:
         """
-        Get current mode for specified channel.
-        
+        Get actual operating mode for a channel (from status registers).
+
         Args:
-            channel: Channel number (1-3)
-            
+            channel: Channel number (1-3).
+
         Returns:
-            Mode string: OFF, DC, PULSE, or UNKNOWN
+            Mode label string.
         """
         if not (1 <= channel <= 3):
             return "UNKNOWN"
-        
-        with self._telemetry_lock:
-            return self._latest_telemetry['channels'][channel - 1]['mode']
-    
+        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+        code = self.get_register(addr + 0)
+        return MODE_CODE_TO_LABEL.get(code, "UNKNOWN")
+
+    def get_channel_remaining(self, channel: int) -> int:
+        """Get remaining pulse count for a channel."""
+        if not (1 <= channel <= 3):
+            return 0
+        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+        return self.get_register(addr + 3)
+
+    def get_channel_output_level(self, channel: int) -> int:
+        """Get current output level for a channel (0 or 1)."""
+        if not (1 <= channel <= 3):
+            return 0
+        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+        return self.get_register(addr + 8)
+
     def get_channel_status(self, channel: int) -> Dict:
         """
-        Get status inputs for specified channel.
-        
+        Get full status for a channel.
+
         Args:
-            channel: Channel number (1-3)
-            
+            channel: Channel number (1-3).
+
         Returns:
-            Dictionary with keys: en_st, pwr_st, oc_st, gated_st
+            Dictionary with keys: mode, pulse_ms, count, remaining,
+            en_st, pwr_st, oc_st, gated_st, output_level.
         """
         if not (1 <= channel <= 3):
-            return {'en_st': 0, 'pwr_st': 0, 'oc_st': 0, 'gated_st': 0}
-        
-        with self._telemetry_lock:
-            ch_data = self._latest_telemetry['channels'][channel - 1]
             return {
-                'en_st': ch_data['en_st'],
-                'pwr_st': ch_data['pwr_st'],
-                'oc_st': ch_data['oc_st'],
-                'gated_st': ch_data['gated_st']
+                'mode': 'UNKNOWN', 'pulse_ms': 0, 'count': 0, 'remaining': 0,
+                'en_st': 0, 'pwr_st': 0, 'oc_st': 0, 'gated_st': 0, 'output_level': 0
             }
-    
+        base = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+        with self._regs_lock:
+            r = self._regs
+            return {
+                'mode':         MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
+                'pulse_ms':     r[base + 1],
+                'count':        r[base + 2],
+                'remaining':    r[base + 3],
+                'en_st':        r[base + 4],
+                'pwr_st':       r[base + 5],
+                'oc_st':        r[base + 6],
+                'gated_st':     r[base + 7],
+                'output_level': r[base + 8],
+            }
+
     def is_channel_overcurrent(self, channel: int) -> bool:
         """
-        Check if channel has overcurrent condition.
-        
+        Check if a channel has an overcurrent condition.
+
         Args:
-            channel: Channel number (1-3)
-            
-        Returns:
-            True if overcurrent detected, False otherwise
+            channel: Channel number (1-3).
         """
-        status = self.get_channel_status(channel)
-        return bool(status['oc_st'])
+        if not (1 <= channel <= 3):
+            return False
+        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 6
+        return bool(self.get_register(addr))
+
+    def is_channel_enabled(self, channel: int) -> bool:
+        """
+        Check if a channel is enabled.
+
+        Args:
+            channel: Channel number (1-3).
+        """
+        if not (1 <= channel <= 3):
+            return False
+        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 4
+        return bool(self.get_register(addr))
+
+    # --- Legacy-compatible telemetry dict ---
+
+    def get_status(self) -> Dict:
+        """
+        Get full system status in a structured dictionary.
+
+        Returns a dict compatible with the old telemetry format:
+            {'system': {state, reason, fault_latched, interlock_ok, watchdog_ok, ...},
+             'channels': [{mode, pulse_ms, count, remaining, en_st, pwr_st, oc_st, ...}, ...]}
+        """
+        with self._regs_lock:
+            r = self._regs
+            state_code = r[REG_SYS_STATE]
+            try:
+                state_label = STATE_LABELS.get(BCONState(state_code), "UNKNOWN")
+            except ValueError:
+                state_label = "UNKNOWN"
+
+            system = {
+                'state':         state_label,
+                'reason':        r[REG_SYS_REASON],
+                'fault_latched': r[REG_FAULT_LATCHED],
+                'interlock_ok':  r[REG_INTERLOCK_OK],
+                'watchdog_ok':   r[REG_WATCHDOG_OK],
+                'last_error':    r[REG_LAST_ERROR],
+                'telemetry_ms':  r[REG_TELEMETRY_MS],
+                'watchdog_ms':   r[REG_WATCHDOG_MS],
+            }
+            channels = []
+            for ch_idx in range(3):
+                base = REG_CH_STATUS_BASE + ch_idx * REG_CH_STATUS_STRIDE
+                channels.append({
+                    'mode':         MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
+                    'pulse_ms':     r[base + 1],
+                    'count':        r[base + 2],
+                    'remaining':    r[base + 3],
+                    'en_st':        r[base + 4],
+                    'pwr_st':       r[base + 5],
+                    'oc_st':        r[base + 6],
+                    'gated_st':     r[base + 7],
+                    'output_level': r[base + 8],
+                })
+
+        return {'system': system, 'channels': channels}
+
+    def get_latest_telemetry(self) -> Dict:
+        """Alias for get_status() — backwards compatibility."""
+        return self.get_status()
+
+    # --- Convenience: ping-like check ---
+
+    def ping(self) -> bool:
+        """
+        Check communication by reading a register block.
+
+        Returns True if the read succeeds, False otherwise.
+        (There is no PING command over Modbus; this reads system status.)
+        """
+        if not self.is_connected():
+            return False
+        try:
+            rr = self._read_holding_registers_compat(REG_SYS_STATE, 1)
+            return rr is not None and hasattr(rr, 'registers')
+        except Exception:
+            return False
 
 
 # ==================== Standalone Test ====================
@@ -636,107 +891,90 @@ class BCONDriver:
 def main():
     """Standalone test function."""
     import argparse
-    
-    parser = argparse.ArgumentParser(description="BCON Driver Test")
+
+    parser = argparse.ArgumentParser(description="BCON Modbus RTU Driver Test")
     parser.add_argument("--port", required=True, help="Serial port (e.g., COM3)")
     parser.add_argument("--baudrate", type=int, default=115200, help="Baud rate")
+    parser.add_argument("--unit", type=int, default=1, help="Modbus unit/slave ID")
     parser.add_argument("--test", action="store_true", help="Run interactive test")
     args = parser.parse_args()
-    
-    # Create driver
-    bcon = BCONDriver(port=args.port, baudrate=args.baudrate, debug=True)
-    
-    # Connect
+
+    bcon = BCONDriver(port=args.port, baudrate=args.baudrate, unit=args.unit, debug=True)
+
     if not bcon.connect():
         print("Failed to connect to BCON")
         return
-    
+
     print("\n=== BCON Connected ===\n")
-    
+
     try:
         if args.test:
-            # Interactive test
             while True:
-                print("\nBCON Test Menu:")
-                print("1. Ping")
+                print("\nBCON Modbus Test Menu:")
+                print("1. Ping (register read)")
                 print("2. Get Status")
                 print("3. Set Channel 1 DC")
-                print("4. Set Channel 2 PULSE (250ms)")
+                print("4. Set Channel 2 PULSE (250ms x1)")
                 print("5. Stop All")
                 print("6. Set Watchdog (1000ms)")
                 print("7. Set Telemetry (500ms)")
-                print("8. Clear Fault / ARM")
-                print("9. Show Latest Telemetry")
+                print("8. ARM / Clear Fault")
+                print("9. Show Latest Registers")
                 print("0. Exit")
-                
+
                 choice = input("\nSelect option: ").strip()
-                
+
                 if choice == "1":
-                    result = bcon.ping()
-                    print(f"Ping: {'SUCCESS' if result else 'FAILED'}")
-                
+                    ok = bcon.ping()
+                    print(f"Ping: {'SUCCESS' if ok else 'FAILED'}")
                 elif choice == "2":
                     status = bcon.get_status()
-                    print(f"\nSystem State: {status['system']['state']}")
-                    print(f"Fault Latched: {status['system']['fault_latched']}")
+                    print(f"\nSystem: {status['system']}")
                     for i, ch in enumerate(status['channels'], 1):
-                        print(f"\nChannel {i}:")
-                        print(f"  Mode: {ch['mode']}")
-                        print(f"  Enable: {ch['en_st']}, Power: {ch['pwr_st']}, Overcurrent: {ch['oc_st']}")
-                
-                elif choice == "3":
-                    result = bcon.set_channel_dc(1)
-                    print(f"Set Channel 1 DC: {'SUCCESS' if result else 'FAILED'}")
-                
-                elif choice == "4":
-                    result = bcon.set_channel_pulse(2, 250)
-                    print(f"Set Channel 2 PULSE: {'SUCCESS' if result else 'FAILED'}")
-                
-                elif choice == "5":
-                    result = bcon.stop_all()
-                    print(f"Stop All: {'SUCCESS' if result else 'FAILED'}")
-                
-                elif choice == "6":
-                    result = bcon.set_watchdog(1000)
-                    print(f"Set Watchdog: {'SUCCESS' if result else 'FAILED'}")
-                
-                elif choice == "7":
-                    result = bcon.set_telemetry(500)
-                    print(f"Set Telemetry: {'SUCCESS' if result else 'FAILED'}")
-                
-                elif choice == "8":
-                    result = bcon.clear_fault()
-                    print(f"Clear Fault: {'SUCCESS' if result else 'FAILED'}")
-                
-                elif choice == "9":
-                    telemetry = bcon.get_latest_telemetry()
-                    print(f"\nSystem: {telemetry['system']}")
-                    for i, ch in enumerate(telemetry['channels'], 1):
                         print(f"Channel {i}: {ch}")
-                
+                elif choice == "3":
+                    bcon.set_channel_dc(1)
+                    print("Enqueued: CH1 -> DC")
+                elif choice == "4":
+                    bcon.set_channel_pulse(2, 250)
+                    print("Enqueued: CH2 -> PULSE 250ms")
+                elif choice == "5":
+                    bcon.stop_all()
+                    print("Enqueued: STOP ALL")
+                elif choice == "6":
+                    bcon.set_watchdog(1000)
+                    print("Enqueued: Watchdog = 1000ms")
+                elif choice == "7":
+                    bcon.set_telemetry(500)
+                    print("Enqueued: Telemetry = 500ms")
+                elif choice == "8":
+                    bcon.arm()
+                    print("Enqueued: ARM command")
+                elif choice == "9":
+                    regs = bcon.get_registers()
+                    print(f"Control regs [0-33]: {regs[0:34]}")
+                    print(f"System regs [100-105]: {regs[100:106]}")
+                    for ch in range(3):
+                        b = 110 + ch * 10
+                        print(f"CH{ch+1} status [{b}-{b+8}]: {regs[b:b+9]}")
                 elif choice == "0":
                     break
-                
                 else:
                     print("Invalid option")
-        
+
+                time.sleep(0.5)  # let poll thread update
         else:
-            # Quick non-interactive test
             print("Running quick test...")
-            
-            # Ping
-            if bcon.ping():
-                print("✓ Ping successful")
-            
-            # Get status
+            time.sleep(1)  # let initial poll complete
+
+            ok = bcon.ping()
+            print(f"Ping: {'SUCCESS' if ok else 'FAILED'}")
+
             status = bcon.get_status()
-            print(f"✓ System state: {status['system']['state']}")
-            
-            # Show telemetry
-            time.sleep(1)
-            telemetry = bcon.get_latest_telemetry()
-            print(f"✓ Latest telemetry: {telemetry}")
-    
+            print(f"System state: {status['system']['state']}")
+            for i, ch in enumerate(status['channels'], 1):
+                print(f"Channel {i}: mode={ch['mode']} oc={ch['oc_st']}")
+
     finally:
         print("\nDisconnecting...")
         bcon.disconnect()

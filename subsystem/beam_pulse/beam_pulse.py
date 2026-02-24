@@ -1,12 +1,38 @@
-import time
-import tkinter as tk
-from tkinter import ttk, messagebox
-from typing import Optional, Dict
+import csv
+import json
 import os
 import sys
+import threading
+import time
+import queue
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+from typing import Optional, Dict
+from pathlib import Path
+from datetime import datetime
 
-from instrumentctl.BCON import BCONDriver
+from instrumentctl.BCON import (
+    BCONDriver,
+    BCONMode,
+    MODE_LABEL_TO_CODE,
+    MODE_CODE_TO_LABEL,
+    CH_BASE,
+    CH_MODE_OFF,
+    CH_PULSE_MS_OFF,
+    CH_COUNT_OFF,
+    CH_ENABLE_TOGGLE_OFF,
+    REG_WATCHDOG_MS,
+    REG_TELEMETRY_MS,
+    REG_COMMAND,
+    REG_SYS_STATE,
+    REG_FAULT_LATCHED,
+    REG_INTERLOCK_OK,
+    REG_WATCHDOG_OK,
+    REG_CH_STATUS_BASE,
+    REG_CH_STATUS_STRIDE,
+)
 from utils import LogLevel
+
 
 def resource_path(relative_path):
     """Get absolute path to resource for PyInstaller."""
@@ -18,17 +44,21 @@ def resource_path(relative_path):
 
 
 class BeamPulseSubsystem:
-    """Beam Pulse subsystem (BCON) with GUI interface for pulser controls.
+    """Beam Pulse subsystem (BCON) with tabbed GUI interface for pulser controls.
 
-    This class provides the GUI interface and high-level control logic for the beam
-    pulse control system (pulser controls only). Hardware communication
-    uses the project's BCONDriver for RS-485 serial communication.
+    Provides three control tabs aligned with pulser_test_gui functionality:
+      1. Manual Separate Control  — per-channel parameters, mode buttons, enable toggle
+      2. Sync Manual Control      — write params + synchronous start/stop across channels
+      3. Auto CSV Sequence        — load/run/stop CSV pulse sequences
 
-    Contract:
-      - Inputs: BCONDriver instance for hardware communication
-      - Outputs: GUI controls for pulsing behavior and beam durations
-      - Error modes: hardware failures are handled by the underlying driver
+    Hardware communication uses the BCONDriver (Modbus RTU).
     """
+
+    # Mode constants matching the firmware register values
+    MODE_OFF         = int(BCONMode.OFF)
+    MODE_DC          = int(BCONMode.DC)
+    MODE_PULSE       = int(BCONMode.PULSE)
+    MODE_PULSE_TRAIN = int(BCONMode.PULSE_TRAIN)
 
     def __init__(self, parent_frame=None, port=None, unit=1, baudrate=115200,
                  logger=None, debug: bool = False):
@@ -45,563 +75,1025 @@ class BeamPulseSubsystem:
         self.parent_frame = parent_frame
         self.logger = logger
         self.debug = debug
-        
+
         # Instantiate BCONDriver if port is provided
         if port:
             self.bcon_driver = BCONDriver(
                 port=port,
                 baudrate=baudrate,
+                unit=unit,
                 timeout=1.0,
-                debug=debug
+                debug=debug,
             )
         else:
             self.bcon_driver = None
 
-        # Initialize GUI variables only if GUI is being created
-        if parent_frame:
-            # GUI variables for controls - only pulsing behavior
-            self.pulsing_behavior = tk.StringVar(value="DC")  # Default to DC mode
+        # UI-facing queue for driver events (regs, connected, error, …)
+        self._ui_queue: queue.Queue = queue.Queue()
+        if self.bcon_driver:
+            self.bcon_driver.set_ui_queue(self._ui_queue)
 
-            # Pulse duration variables for each beam (A, B, C)
+        # Status indicators
+        self.bcon_connection_status = False
+        self.beams_armed_status = False
+        self.beam_on_status = [False, False, False]
+
+        # Dashboard integration callback
+        self._dashboard_beam_callback = None
+
+        # CSV sequence player state
+        self._seq_steps: list = []
+        self._seq_thread: Optional[threading.Thread] = None
+        self._seq_stop = threading.Event()
+
+        # Ensure directories exist for presets, logs, sequences
+        for d in ("presets", "sequences"):
+            Path(d).mkdir(exist_ok=True)
+
+        # GUI variables (populated if parent_frame provided)
+        self.channel_vars: list = []      # per-channel widget references
+        self.sync_configs: list = []      # sync-tab per-channel entries
+        self.sync_ch_vars: list = []      # sync-tab include checkboxes
+
+        # Pulse duration variables for external / non-GUI access
+        if parent_frame:
+            self.pulsing_behavior = tk.StringVar(value="DC")
             self.beam_a_duration = tk.DoubleVar(value=50.0)
             self.beam_b_duration = tk.DoubleVar(value=50.0)
             self.beam_c_duration = tk.DoubleVar(value=50.0)
         else:
-            # Non-GUI mode: use simple values
             self.pulsing_behavior = "DC"
             self.beam_a_duration = 50.0
             self.beam_b_duration = 50.0
             self.beam_c_duration = 50.0
 
-        # Status indicators
-        self.bcon_connection_status = False  # BCON connected status
-        self.beams_armed_status = False  # Beams armed status
-
-        # Beam on/off status for each beam (A, B, C)
-        self.beam_on_status = [False, False, False]  # [Beam A, Beam B, Beam C]
-
-        # Store references to duration spinboxes for enable/disable control
-        self.duration_spinboxes = []
-
-        # Dashboard integration callback
-        self._dashboard_beam_callback = None
-
-        # Hardware connection through BCON driver
-        # Driver should be initialized externally and passed in
+        # Duration spinbox references (for enable/disable in pulsing behaviour)
+        self.duration_spinboxes: list = []
 
         # Create GUI if parent frame is provided
         if parent_frame:
             self.setup_ui()
 
+    # ================================================================== #
+    #                          GUI Setup                                   #
+    # ================================================================== #
+
     def setup_ui(self):
-        """Create the user interface with Main tab."""
-        # Create notebook for tabs
+        """Create the user interface with tabbed layout."""
+        # Top status bar (BCON connection + safety)
+        self._build_status_bar()
+
+        # Notebook with three tabs
         self.notebook = ttk.Notebook(self.parent_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Create Main tab
-        self.main_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.main_tab, text="Main")
+        # Tab 1: Manual Separate Control
+        self.manual_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.manual_tab, text="Manual Control")
+        self._build_manual_tab()
 
-        # Setup Main tab content
-        self.setup_main_tab()
+        # Tab 2: Sync Manual Control
+        self.sync_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.sync_tab, text="Sync Control")
+        self._build_sync_tab()
 
-        # Start BCON connection monitoring
+        # Tab 3: Auto CSV Sequence
+        self.sequence_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.sequence_tab, text="CSV Sequence")
+        self._build_sequence_tab()
+
+        # Start periodic UI update from driver queue
+        self._start_periodic_ui_update()
+
+        # Start connection & pulser status monitoring
         self.start_bcon_connection_monitoring()
-        
-        # Start pulser status monitoring
         self.start_pulser_status_monitoring()
 
-    def setup_main_tab(self):
-        """Setup the Main tab with pulser controls."""
-        # Main container frame
-        main_frame = ttk.Frame(self.main_tab, padding="5")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+    # ----------------------------- Status bar ----------------------------- #
 
-        # Top control row frame for BCON connection status
-        control_row = ttk.Frame(main_frame)
-        control_row.pack(fill=tk.X, pady=(0, 5))
+    def _build_status_bar(self):
+        """Build the top status bar with connection, interlock, arm info."""
+        bar = ttk.Frame(self.parent_frame)
+        bar.pack(fill=tk.X, padx=5, pady=(5, 0))
 
-        # BCON connection status
-        self.create_bcon_connection_status(control_row, 0)
+        # BCON connection indicator
+        conn_frame = ttk.Frame(bar)
+        conn_frame.pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Label(conn_frame, text="BCON", font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        self.bcon_connection_canvas = tk.Canvas(conn_frame, width=15, height=15, highlightthickness=0)
+        self.bcon_connection_canvas.pack(side=tk.LEFT, padx=(4, 0))
+        self.bcon_connection_canvas.create_oval(2, 2, 13, 13, fill="red", outline="black", tags="indicator")
 
-        # Configure column weights for responsive layout
-        control_row.grid_columnconfigure(0, weight=1)
+        # Safety / interlock label
+        self.safety_label = ttk.Label(bar, text="Interlock: --  Watchdog: --  State: --", font=("Arial", 8))
+        self.safety_label.pack(side=tk.LEFT, padx=10)
 
-        # Second control row for Pulsing Behavior and pulse duration controls
-        pulse_row = ttk.Frame(main_frame)
-        pulse_row.pack(fill=tk.X, pady=(0, 10))
+        # Arm button
+        self.arm_btn = ttk.Button(bar, text="Arm Beam", command=self._arm_beam)
+        self.arm_btn.pack(side=tk.RIGHT, padx=4)
+        self.arm_status_lbl = ttk.Label(bar, text="DISARMED", foreground="gray", font=("Arial", 8, "bold"))
+        self.arm_status_lbl.pack(side=tk.RIGHT, padx=4)
 
-        # Create Pulsing Behavior and pulse duration controls
-        # Use columns 1-4 with spacer columns 0 and 5 for centering
-        self.create_pulsing_behavior_control(pulse_row, 1)
-        self.create_beam_duration_control(pulse_row, 2, "Beam A Duration (ms)",
-                                           self.beam_a_duration)
-        self.create_beam_duration_control(pulse_row, 3, "Beam B Duration (ms)",
-                                           self.beam_b_duration)
-        self.create_beam_duration_control(pulse_row, 4, "Beam C Duration (ms)",
-                                           self.beam_c_duration)
+        # System settings row (watchdog / telemetry)
+        sys_frame = ttk.Frame(self.parent_frame)
+        sys_frame.pack(fill=tk.X, padx=5, pady=(2, 0))
+        ttk.Label(sys_frame, text="Watchdog (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
+        self.watchdog_entry = ttk.Entry(sys_frame, width=7)
+        self.watchdog_entry.pack(side=tk.LEFT, padx=2)
+        ttk.Button(sys_frame, text="Set", width=4, command=self._set_watchdog).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(sys_frame, text="Telemetry (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
+        self.telemetry_entry = ttk.Entry(sys_frame, width=7)
+        self.telemetry_entry.pack(side=tk.LEFT, padx=2)
+        ttk.Button(sys_frame, text="Set", width=4, command=self._set_telemetry).pack(side=tk.LEFT, padx=(0, 8))
 
-        # Configure column weights for pulse row (6 columns total)
-        pulse_row.grid_columnconfigure(0, weight=1)  # Left spacer
-        pulse_row.grid_columnconfigure(1, weight=0)  # Pulsing Behavior (no expansion)
-        pulse_row.grid_columnconfigure(2, weight=0)  # Beam A (no expansion)
-        pulse_row.grid_columnconfigure(3, weight=0)  # Beam B (no expansion)
-        pulse_row.grid_columnconfigure(4, weight=0)  # Beam C (no expansion)
-        pulse_row.grid_columnconfigure(5, weight=1)  # Right spacer
+        # Log line
+        self.log_label = ttk.Label(sys_frame, text="Log: ready", font=("Arial", 8), foreground="gray")
+        self.log_label.pack(side=tk.RIGHT, padx=4)
 
-        # Set initial state of duration spinboxes based on default pulsing behavior
-        self.update_duration_spinbox_state()
+    # ----------------------------- Tab 1: Manual Separate Control --------- #
 
-        # Pulser status indicators section
-        pulser_status_frame = ttk.LabelFrame(main_frame, text="Pulser Status", padding="10")
-        pulser_status_frame.pack(fill=tk.X, pady=(10, 5))
+    def _build_manual_tab(self):
+        """Build per-channel control cards (like pulser_test_gui channel cards)."""
+        container = ttk.Frame(self.manual_tab, padding="5")
+        container.pack(fill=tk.BOTH, expand=True)
 
-        # Create status indicators for each pulser
+        # --- Pulser status indicators at the top ---
+        status_frame = ttk.LabelFrame(container, text="Pulser Status", padding="5")
+        status_frame.pack(fill=tk.X, pady=(0, 5))
+
         self.pulser_status_canvases = []
         self.pulser_enabled_canvases = []
-        
+
         for i in range(3):
-            # Frame for each pulser
-            pulser_frame = ttk.Frame(pulser_status_frame)
-            pulser_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
-            
-            # Pulser label
-            ttk.Label(pulser_frame, text=f"Pulser {i+1}", font=("Arial", 9, "bold")).pack()
-            
-            # Enabled/Disabled indicator
-            enabled_frame = ttk.Frame(pulser_frame)
-            enabled_frame.pack(pady=(2, 0))
-            ttk.Label(enabled_frame, text="Status:", font=("Arial", 8)).pack(side=tk.LEFT)
-            enabled_canvas = tk.Canvas(enabled_frame, width=15, height=15, highlightthickness=0)
-            enabled_canvas.pack(side=tk.LEFT, padx=(3, 0))
-            enabled_canvas.create_oval(2, 2, 13, 13, fill="gray", outline="black", tags="indicator")
-            self.pulser_enabled_canvases.append(enabled_canvas)
-            
-            # Overcurrent indicator
-            overcurrent_frame = ttk.Frame(pulser_frame)
-            overcurrent_frame.pack(pady=(2, 0))
-            ttk.Label(overcurrent_frame, text="Overcurrent:", font=("Arial", 8)).pack(side=tk.LEFT)
-            status_canvas = tk.Canvas(overcurrent_frame, width=15, height=15, highlightthickness=0)
-            status_canvas.pack(side=tk.LEFT, padx=(3, 0))
-            status_canvas.create_oval(2, 2, 13, 13, fill="green", outline="black", tags="indicator")
-            self.pulser_status_canvases.append(status_canvas)
+            pf = ttk.Frame(status_frame)
+            pf.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+            ttk.Label(pf, text=f"CH {i+1}", font=("Arial", 9, "bold")).pack()
+
+            ef = ttk.Frame(pf)
+            ef.pack(pady=(2, 0))
+            ttk.Label(ef, text="Enabled:", font=("Arial", 8)).pack(side=tk.LEFT)
+            ec = tk.Canvas(ef, width=15, height=15, highlightthickness=0)
+            ec.pack(side=tk.LEFT, padx=(3, 0))
+            ec.create_oval(2, 2, 13, 13, fill="gray", outline="black", tags="indicator")
+            self.pulser_enabled_canvases.append(ec)
+
+            of = ttk.Frame(pf)
+            of.pack(pady=(2, 0))
+            ttk.Label(of, text="Overcurrent:", font=("Arial", 8)).pack(side=tk.LEFT)
+            sc = tk.Canvas(of, width=15, height=15, highlightthickness=0)
+            sc.pack(side=tk.LEFT, padx=(3, 0))
+            sc.create_oval(2, 2, 13, 13, fill="green", outline="black", tags="indicator")
+            self.pulser_status_canvases.append(sc)
+
+        # --- Per-channel control cards (horizontal layout) ---
+        cards_frame = ttk.Frame(container)
+        cards_frame.pack(fill=tk.BOTH, expand=True)
+        cards_frame.columnconfigure(0, weight=1)
+        cards_frame.columnconfigure(1, weight=1)
+        cards_frame.columnconfigure(2, weight=1)
+
+        self.channel_vars = []
+        for ch in range(3):
+            frame = ttk.LabelFrame(cards_frame, text=f"Channel {ch+1}", padding="5")
+            frame.grid(row=0, column=ch, sticky="nsew", pady=4, padx=4)
+
+            # Row 1: Duration + Count
+            r1 = ttk.Frame(frame)
+            r1.pack(fill=tk.X, pady=2)
+            ttk.Label(r1, text="Duration (ms):").pack(side=tk.LEFT)
+            dur_entry = ttk.Entry(r1, width=8)
+            dur_entry.pack(side=tk.LEFT, padx=(2, 10))
+            ttk.Label(r1, text="Count:").pack(side=tk.LEFT)
+            cnt_entry = ttk.Entry(r1, width=6)
+            cnt_entry.pack(side=tk.LEFT, padx=2)
+
+            # Row 2: Mode selector
+            r2 = ttk.Frame(frame)
+            r2.pack(fill=tk.X, pady=2)
+            ttk.Label(r2, text="Mode:").pack(side=tk.LEFT)
+            mode_cb = ttk.Combobox(r2, values=["OFF", "DC", "PULSE", "PULSE_TRAIN"],
+                                   state="readonly", width=12)
+            mode_cb.set("PULSE")
+            mode_cb.pack(side=tk.LEFT, padx=4)
+
+            # Row 3: Status / pulses remaining
+            r3 = ttk.Frame(frame)
+            r3.pack(fill=tk.X, pady=2)
+            status_lbl = ttk.Label(r3, text="Status: idle", font=("Arial", 8))
+            status_lbl.pack(side=tk.LEFT, padx=(0, 15))
+            pulses_lbl = ttk.Label(r3, text="Remaining: 0", font=("Arial", 8))
+            pulses_lbl.pack(side=tk.LEFT)
+
+            # Row 4: Action buttons
+            r4 = ttk.Frame(frame)
+            r4.pack(fill=tk.X, pady=(4, 2))
+            ttk.Button(r4, text="Apply Params+Mode", width=18,
+                       command=lambda c=ch, d=dur_entry, n=cnt_entry, m=mode_cb:
+                       self._manual_apply(c, d, n, m)).pack(side=tk.LEFT, padx=2)
+            ttk.Button(r4, text="Off",
+                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_OFF)).pack(side=tk.LEFT, padx=2)
+            ttk.Button(r4, text="DC",
+                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_DC)).pack(side=tk.LEFT, padx=2)
+
+            r5 = ttk.Frame(frame)
+            r5.pack(fill=tk.X, pady=2)
+            ttk.Button(r5, text="Pulse",
+                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_PULSE)).pack(side=tk.LEFT, padx=2)
+            ttk.Button(r5, text="Pulse Train",
+                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_PULSE_TRAIN)).pack(side=tk.LEFT, padx=2)
+            ttk.Button(r5, text="Enable Toggle",
+                       command=lambda c=ch: self._manual_toggle_enable(c)).pack(side=tk.LEFT, padx=2)
+
+            self.channel_vars.append({
+                'duration': dur_entry,
+                'count': cnt_entry,
+                'mode': mode_cb,
+                'status': status_lbl,
+                'pulses': pulses_lbl,
+            })
+
+    # ----------------------------- Tab 2: Sync Manual Control ------------- #
+
+    def _build_sync_tab(self):
+        """Build synchronous multi-channel control table."""
+        container = ttk.Frame(self.sync_tab, padding="5")
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Synchronous Control",
+                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+
+        table = ttk.Frame(container)
+        table.pack(fill=tk.X)
+
+        # Header
+        for col, hdr in enumerate(("CH", "Duration (ms)", "Count", "Mode", "Include")):
+            ttk.Label(table, text=hdr, font=("Arial", 9, "bold")).grid(row=0, column=col, padx=6, pady=(0, 4))
+
+        self.sync_ch_vars = [tk.BooleanVar(value=True) for _ in range(3)]
+        self.sync_configs = []
+
+        for ch in range(3):
+            r = ch + 1
+            ttk.Label(table, text=f"CH{ch+1}", font=("Arial", 9, "bold")).grid(row=r, column=0, padx=6, pady=3, sticky="w")
+
+            dur_e = ttk.Entry(table, width=10)
+            dur_e.insert(0, "100")
+            dur_e.grid(row=r, column=1, padx=4, pady=3)
+
+            cnt_e = ttk.Entry(table, width=8)
+            cnt_e.insert(0, "1")
+            cnt_e.grid(row=r, column=2, padx=4, pady=3)
+
+            mode_cb = ttk.Combobox(table, values=["OFF", "DC", "PULSE", "PULSE_TRAIN"],
+                                   state="readonly", width=12)
+            mode_cb.set("PULSE")
+            mode_cb.grid(row=r, column=3, padx=4, pady=3)
+
+            ttk.Checkbutton(table, variable=self.sync_ch_vars[ch]).grid(row=r, column=4, padx=8, pady=3)
+
+            self.sync_configs.append({'duration': dur_e, 'count': cnt_e, 'mode': mode_cb})
+
+        # Action buttons
+        btn_row = ttk.Frame(container)
+        btn_row.pack(fill=tk.X, pady=(8, 4))
+        ttk.Button(btn_row, text="Write Params", command=self._sync_write_params).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="Start Selected", command=self._sync_start).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="Stop All", command=self._sync_stop_all).pack(side=tk.LEFT, padx=4)
+
+    # ----------------------------- Tab 3: Auto CSV Sequence --------------- #
+
+    def _build_sequence_tab(self):
+        """Build CSV pulse sequence player interface."""
+        container = ttk.Frame(self.sequence_tab, padding="5")
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="CSV Pulse Sequence",
+                  font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 5))
+
+        self.seq_file_lbl = ttk.Label(container, text="No sequence loaded", foreground="gray")
+        self.seq_file_lbl.pack(anchor="w", padx=4)
+
+        self.seq_progress_lbl = ttk.Label(container, text="")
+        self.seq_progress_lbl.pack(anchor="w", padx=4, pady=(2, 4))
+
+        btn_row = ttk.Frame(container)
+        btn_row.pack(fill=tk.X, pady=(4, 8))
+        ttk.Button(btn_row, text="Load CSV", command=self._load_sequence).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="Save Template", command=self._save_sequence_template).pack(side=tk.LEFT, padx=4)
+        self.seq_run_btn = ttk.Button(btn_row, text="Run Sequence", command=self._run_sequence, state="disabled")
+        self.seq_run_btn.pack(side=tk.LEFT, padx=4)
+        self.seq_stop_btn = ttk.Button(btn_row, text="Stop", command=self._stop_sequence, state="disabled")
+        self.seq_stop_btn.pack(side=tk.LEFT, padx=4)
+
+        # Sequence preview (simple text view)
+        ttk.Label(container, text="Loaded Steps:", font=("Arial", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
+        self.seq_preview_text = tk.Text(container, height=10, width=60, state="disabled", font=("Courier", 9))
+        self.seq_preview_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    # ================================================================== #
+    #                    Manual Tab Actions                                #
+    # ================================================================== #
+
+    def _manual_apply(self, ch, dur_entry, cnt_entry, mode_cb):
+        """Apply parameters + mode for a single channel."""
+        if not self.bcon_driver:
+            self._log("No BCON driver", LogLevel.WARNING)
+            return
+        try:
+            duration = int(dur_entry.get())
+            count = int(cnt_entry.get())
+        except (ValueError, tk.TclError):
+            messagebox.showerror("Invalid", "Enter numeric values for duration and count")
+            return
+        if duration <= 0:
+            messagebox.showerror("Invalid", "Duration must be > 0")
+            return
+        if count <= 0:
+            messagebox.showerror("Invalid", "Count must be > 0")
+            return
+
+        mode_label = mode_cb.get().strip().upper()
+        if mode_label not in MODE_LABEL_TO_CODE:
+            messagebox.showerror("Invalid", f"Unsupported mode: {mode_label}")
+            return
+
+        channel = ch + 1  # 1-based
+        base = CH_BASE[ch]
+        self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, duration)
+        self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, count)
+        self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
+        self._log_event(f"Applied CH{channel}: mode={mode_label} dur={duration}ms count={count}")
+
+    def _manual_set_mode(self, ch, mode_code):
+        """Quick mode button for a single channel."""
+        if not self.bcon_driver:
+            return
+        base = CH_BASE[ch]
+        if mode_code == self.MODE_PULSE:
+            self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, 1)
+        self.bcon_driver.enqueue_write(base + CH_MODE_OFF, mode_code)
+        label = MODE_CODE_TO_LABEL.get(mode_code, str(mode_code))
+        self._log_event(f"CH{ch+1} -> {label}")
+
+    def _manual_toggle_enable(self, ch):
+        """Toggle enable for a single channel."""
+        if not self.bcon_driver:
+            return
+        self.bcon_driver.toggle_channel_enable(ch + 1)
+        self._log_event(f"CH{ch+1} ENABLE_TOGGLE")
+
+    # ================================================================== #
+    #                    Sync Tab Actions                                   #
+    # ================================================================== #
+
+    def _sync_write_params(self):
+        """Write duration + count for checked channels (without changing mode)."""
+        if not self.bcon_driver:
+            return
+        selected = [ch for ch in range(3) if self.sync_ch_vars[ch].get()]
+        if not selected:
+            self._log_event("Sync: no channels checked")
+            return
+        for ch in selected:
+            cfg = self.sync_configs[ch]
+            dur_str = cfg['duration'].get().strip()
+            cnt_str = cfg['count'].get().strip()
+            try:
+                dur = int(dur_str) if dur_str else None
+                cnt = int(cnt_str) if cnt_str else None
+            except ValueError:
+                messagebox.showerror("Invalid", f"CH{ch+1}: duration and count must be integers")
+                return
+            if dur is not None and dur > 0:
+                self.bcon_driver.set_channel_params(ch + 1, dur, cnt if cnt and cnt > 0 else 1)
+        self._log_event(f"Sync wrote params for CH{[c+1 for c in selected]}")
+
+    def _sync_start(self):
+        """Synchronous start of selected channels (params + mode in two phases)."""
+        if not self.bcon_driver:
+            return
+        selected = [ch for ch in range(3) if self.sync_ch_vars[ch].get()]
+        if not selected:
+            self._log_event("Sync Start: no channels checked")
+            return
+
+        configs = []
+        for ch in selected:
+            cfg = self.sync_configs[ch]
+            dur_str = cfg['duration'].get().strip()
+            cnt_str = cfg['count'].get().strip()
+            mode_label = cfg['mode'].get().strip().upper()
+            try:
+                dur = int(dur_str) if dur_str else 100
+                cnt = int(cnt_str) if cnt_str else 1
+            except ValueError:
+                messagebox.showerror("Invalid", f"CH{ch+1}: duration and count must be integers")
+                return
+            if mode_label not in MODE_LABEL_TO_CODE:
+                messagebox.showerror("Invalid", f"CH{ch+1}: unknown mode '{mode_label}'")
+                return
+            mode_code = MODE_LABEL_TO_CODE[mode_label]
+            if mode_code == self.MODE_PULSE_TRAIN and cnt < 2:
+                messagebox.showerror("Invalid", f"CH{ch+1}: PULSE_TRAIN requires count >= 2")
+                return
+            configs.append({
+                'ch': ch + 1, 'mode': mode_label,
+                'duration_ms': dur, 'count': cnt,
+            })
+
+        self.bcon_driver.sync_start(configs)
+        self._log_event(
+            "Sync Start: " +
+            ", ".join(f"CH{c['ch']}={c['mode']}({c['duration_ms']}ms x{c['count']})" for c in configs)
+        )
+
+    def _sync_stop_all(self):
+        """Stop all channels immediately."""
+        if self.bcon_driver:
+            self.bcon_driver.stop_all()
+        self._log_event("Sync Stop: all channels -> OFF")
+
+    # ================================================================== #
+    #                  CSV Sequence Tab Actions                             #
+    # ================================================================== #
+
+    def _load_sequence(self):
+        """Load a CSV pulse sequence file."""
+        fname = filedialog.askopenfilename(
+            initialdir="sequences",
+            filetypes=[("CSV Sequence", "*.csv"), ("All files", "*.*")],
+            title="Load Pulse Sequence CSV",
+        )
+        if not fname:
+            return
+        try:
+            steps_raw: dict = {}
+            with open(fname, newline="") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.lower().startswith("step"):
+                        continue
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) < 3:
+                        continue
+                    step_num = int(parts[0])
+                    ch_str   = parts[1].upper()
+                    mode     = parts[2].upper()
+                    dur_ms   = int(parts[3]) if len(parts) > 3 and parts[3] else 100
+                    count    = int(parts[4]) if len(parts) > 4 and parts[4] else 1
+                    dwell_ms = int(parts[5]) if len(parts) > 5 and parts[5] else 0
+
+                    if mode not in MODE_LABEL_TO_CODE:
+                        raise ValueError(f"Unknown mode '{mode}' at step {step_num}")
+                    if mode == "PULSE_TRAIN" and count < 2:
+                        raise ValueError(f"Step {step_num}: PULSE_TRAIN requires count >= 2")
+
+                    ch_list = list(range(3)) if ch_str == "ALL" else [int(ch_str) - 1]
+                    if step_num not in steps_raw:
+                        steps_raw[step_num] = {"rows": [], "dwell_ms": 0}
+                    for ch_idx in ch_list:
+                        steps_raw[step_num]["rows"].append(
+                            {"ch": ch_idx, "mode": mode, "duration_ms": dur_ms, "count": count}
+                        )
+                    steps_raw[step_num]["dwell_ms"] = dwell_ms
+
+            self._seq_steps = [
+                (sn, steps_raw[sn]["rows"], steps_raw[sn]["dwell_ms"])
+                for sn in sorted(steps_raw.keys())
+            ]
+            n = len(self._seq_steps)
+            self.seq_file_lbl.configure(
+                text=f"{os.path.basename(fname)}  ({n} step{'s' if n != 1 else ''})")
+            self.seq_progress_lbl.configure(text="Ready")
+            self.seq_run_btn.configure(state="normal")
+
+            # Update preview
+            self.seq_preview_text.configure(state="normal")
+            self.seq_preview_text.delete("1.0", tk.END)
+            for sn, rows, dwell in self._seq_steps:
+                for row in rows:
+                    self.seq_preview_text.insert(tk.END,
+                        f"Step {sn}: CH{row['ch']+1} {row['mode']} "
+                        f"dur={row['duration_ms']}ms cnt={row['count']}  dwell={dwell}ms\n")
+            self.seq_preview_text.configure(state="disabled")
+
+            self._log_event(f"Sequence loaded: {os.path.basename(fname)} ({n} steps)")
+        except Exception as e:
+            messagebox.showerror("Sequence Load Error", str(e))
+            self._log_event(f"Sequence load failed: {e}")
+
+    def _save_sequence_template(self):
+        """Save a CSV template file for reference."""
+        fname = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            initialdir="sequences",
+            filetypes=[("CSV Sequence", "*.csv")],
+            title="Save Sequence Template",
+        )
+        if not fname:
+            return
+        template = (
+            "# BCON Pulse Sequence\n"
+            "# ============================================================\n"
+            "# Columns:\n"
+            "#   step        - integer; rows sharing a step number launch together\n"
+            "#   ch          - channel number (1, 2, 3) or ALL\n"
+            "#   mode        - OFF | DC | PULSE | PULSE_TRAIN\n"
+            "#   duration_ms - pulse width in ms  (PULSE / PULSE_TRAIN only)\n"
+            "#   count       - pulse count        (PULSE_TRAIN must be >= 2)\n"
+            "#   dwell_ms    - wait AFTER this step before the next one\n"
+            "#                 (only the last row per step number is used)\n"
+            "# ============================================================\n"
+            "step,ch,mode,duration_ms,count,dwell_ms\n"
+            "1,1,PULSE,100,5,0\n"
+            "1,2,PULSE,200,1,0\n"
+            "1,3,DC,,,500\n"
+            "2,1,PULSE_TRAIN,50,10,0\n"
+            "2,2,OFF,,,0\n"
+            "2,3,OFF,,,1000\n"
+            "3,ALL,OFF,,,500\n"
+        )
+        with open(fname, "w") as f:
+            f.write(template)
+        self._log_event(f"Sequence template saved: {os.path.basename(fname)}")
+
+    def _run_sequence(self):
+        """Start running the loaded CSV sequence."""
+        if not self._seq_steps:
+            messagebox.showinfo("Sequence", "No sequence loaded.")
+            return
+        if not self.bcon_driver or not self.bcon_driver.is_connected():
+            messagebox.showwarning("Sequence", "Not connected to BCON device.")
+            return
+        if self._seq_thread and self._seq_thread.is_alive():
+            return
+        self._seq_stop.clear()
+        self.seq_run_btn.configure(state="disabled")
+        self.seq_stop_btn.configure(state="normal")
+        self._seq_thread = threading.Thread(target=self._sequence_worker, daemon=True)
+        self._seq_thread.start()
+        self._log_event("Sequence started")
+
+    def _stop_sequence(self):
+        """Request sequence stop."""
+        self._seq_stop.set()
+        self._log_event("Sequence stop requested")
+
+    def _sequence_worker(self):
+        """Background thread that plays the CSV sequence."""
+        total = len(self._seq_steps)
+        for idx, (step_num, rows, dwell_ms) in enumerate(self._seq_steps):
+            if self._seq_stop.is_set():
+                break
+            # Update progress via queue
+            self._ui_queue.put(("seq_status", f"Step {idx+1}/{total} (#{step_num})"))
+
+            # Phase 1: write parameters
+            for row in rows:
+                if row["mode"] in ("OFF", "DC"):
+                    continue
+                ch = row["ch"]  # 0-based
+                base = CH_BASE[ch]
+                self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, row["duration_ms"])
+                self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, row["count"])
+
+            # Phase 2: write modes
+            for row in rows:
+                ch = row["ch"]
+                self.bcon_driver.enqueue_write(
+                    CH_BASE[ch] + CH_MODE_OFF, MODE_LABEL_TO_CODE[row["mode"]]
+                )
+
+            # Dwell
+            deadline = time.time() + dwell_ms / 1000.0
+            while time.time() < deadline and not self._seq_stop.is_set():
+                time.sleep(0.05)
+
+        final = "Sequence complete" if not self._seq_stop.is_set() else "Sequence stopped"
+        self._ui_queue.put(("seq_status", final))
+        self._ui_queue.put(("seq_done", None))
+
+    # ================================================================== #
+    #                   Periodic UI Update                                 #
+    # ================================================================== #
+
+    def _start_periodic_ui_update(self):
+        """Poll the driver's UI queue and update widgets."""
+        def _tick():
+            try:
+                while not self._ui_queue.empty():
+                    msg = self._ui_queue.get_nowait()
+                    self._handle_driver_msg(msg)
+            except queue.Empty:
+                pass
+            if self.parent_frame:
+                self.parent_frame.after(200, _tick)
+        if self.parent_frame:
+            self.parent_frame.after(200, _tick)
+
+    def _handle_driver_msg(self, msg):
+        """Process a single message from the driver/UI queue."""
+        typ = msg[0]
+        if typ == "connected":
+            ok = msg[1]
+            self.bcon_connection_status = ok
+            self.update_bcon_connection_status()
+        elif typ == "regs":
+            regs = msg[1]
+            self._update_ui_from_registers(regs)
+        elif typ == "wrote":
+            reg, val = msg[1], msg[2]
+            self._log_event(f"Wrote R{reg}={val}")
+        elif typ == "error":
+            self._log_event(f"Error: {msg[1]}")
+        elif typ == "seq_status":
+            text = msg[1]
+            if hasattr(self, 'seq_progress_lbl'):
+                self.seq_progress_lbl.configure(text=text)
+            self._log_event(text)
+        elif typ == "seq_done":
+            if hasattr(self, 'seq_run_btn'):
+                self.seq_run_btn.configure(state="normal")
+            if hasattr(self, 'seq_stop_btn'):
+                self.seq_stop_btn.configure(state="disabled")
+
+    def _update_ui_from_registers(self, regs):
+        """Mirror register data into GUI widgets (like pulser_test_gui._handle_msg 'regs')."""
+        # Update manual-tab channel cards
+        for ch in range(3):
+            if ch >= len(self.channel_vars):
+                continue
+            status_base = REG_CH_STATUS_BASE + ch * REG_CH_STATUS_STRIDE
+
+            mode_code = regs[status_base + 0]
+            remaining = regs[status_base + 3]
+            output_level = regs[status_base + 8]
+
+            st_text = MODE_CODE_TO_LABEL.get(mode_code, "unknown")
+            self.channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
+            self.channel_vars[ch]['pulses'].configure(text=f"Remaining: {remaining}")
+
+            mode_label = MODE_CODE_TO_LABEL.get(mode_code)
+            if mode_label:
+                self.channel_vars[ch]['mode'].set(mode_label)
+
+            # Auto-fill duration/count from param registers if widget is empty or '0'
+            base = CH_BASE[ch]
+            pulse_ms = regs[base + CH_PULSE_MS_OFF]
+            count_val = regs[base + CH_COUNT_OFF]
+            self._safe_fill(self.channel_vars[ch]['duration'], pulse_ms)
+            self._safe_fill(self.channel_vars[ch]['count'], count_val)
+
+        # Interlock / watchdog / state
+        interlock_ok = regs[REG_INTERLOCK_OK]
+        watchdog_ok = regs[REG_WATCHDOG_OK]
+        sys_state = regs[REG_SYS_STATE]
+        if hasattr(self, 'safety_label'):
+            self.safety_label.configure(
+                text=f"Interlock: {'ok' if interlock_ok else 'locked'} | "
+                     f"Watchdog: {'ok' if watchdog_ok else 'expired'} | State: {sys_state}")
+
+        # Fault
+        if hasattr(self, 'arm_status_lbl'):
+            if regs[REG_FAULT_LATCHED]:
+                self.arm_status_lbl.configure(text="FAULT LATCHED", foreground="red")
+            else:
+                self.arm_status_lbl.configure(text="NO FAULT", foreground="green")
+
+        # Watchdog / telemetry entries
+        if hasattr(self, 'watchdog_entry'):
+            self._safe_fill(self.watchdog_entry, regs[REG_WATCHDOG_MS])
+        if hasattr(self, 'telemetry_entry'):
+            self._safe_fill(self.telemetry_entry, regs[REG_TELEMETRY_MS])
+
+        # Update pulser enabled/overcurrent canvases
+        for i in range(3):
+            self.update_pulser_status_display(i)
+
+    @staticmethod
+    def _safe_fill(entry_widget, value):
+        """Overwrite entry only if empty or '0'."""
+        try:
+            cur = entry_widget.get().strip()
+        except Exception:
+            return
+        if cur == '' or cur == '0':
+            entry_widget.delete(0, 'end')
+            entry_widget.insert(0, str(value))
+
+    # ================================================================== #
+    #                  Status Monitoring                                    #
+    # ================================================================== #
 
     def start_bcon_connection_monitoring(self):
-        """Start periodic monitoring of BCON connection status."""
-        def check_connection():
-            # Check BCON driver connection status
+        """Periodically check BCON driver connection status."""
+        def check():
             if self.bcon_driver:
-                is_connected = self.bcon_driver.is_connected()
-                self.set_bcon_connection_status(is_connected)
+                connected = self.bcon_driver.is_connected()
+                if connected != self.bcon_connection_status:
+                    self.bcon_connection_status = connected
+                    self.update_bcon_connection_status()
             else:
-                self.set_bcon_connection_status(False)
-            
-            # Schedule next check
-            if hasattr(self, 'parent_frame') and self.parent_frame:
-                self.parent_frame.after(2000, check_connection)
-        
-        # Start the monitoring loop
-        if hasattr(self, 'parent_frame') and self.parent_frame:
-            self.parent_frame.after(1000, check_connection)  # Start after 1 second
-    
+                if self.bcon_connection_status:
+                    self.bcon_connection_status = False
+                    self.update_bcon_connection_status()
+            if self.parent_frame:
+                self.parent_frame.after(2000, check)
+        if self.parent_frame:
+            self.parent_frame.after(1000, check)
+
     def start_pulser_status_monitoring(self):
-        """Start periodic monitoring of pulser status."""
-        def check_pulser_status():
-            # Update pulser status for all 3 pulsers
+        """Periodically refresh pulser status indicators."""
+        def check():
             for i in range(3):
                 self.update_pulser_status_display(i)
-            
-            # Schedule next check
-            if hasattr(self, 'parent_frame') and self.parent_frame:
-                self.parent_frame.after(500, check_pulser_status)  # Update every 500ms
-        
-        # Start the monitoring loop
-        if hasattr(self, 'parent_frame') and self.parent_frame:
-            self.parent_frame.after(1000, check_pulser_status)  # Start after 1 second
+            if self.parent_frame:
+                self.parent_frame.after(500, check)
+        if self.parent_frame:
+            self.parent_frame.after(1000, check)
 
-    def create_pulsing_behavior_control(self, parent, column):
-        """Create Pulsing Behavior dropdown control."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
-
-        # Label
-        ttk.Label(frame, text="Pulsing Behavior", font=("Arial", 9, "bold")).pack()
-
-        # Dropdown (Combobox) with DC and Pulsed options
-        pulsing_types = ["DC", "Pulsed"]
-        self.pulsing_behavior_combo = ttk.Combobox(
-            frame,
-            textvariable=self.pulsing_behavior,
-            values=pulsing_types,
-            state="readonly",
-            width=10
-        )
-        self.pulsing_behavior_combo.pack(pady=(2, 0))
-        self.pulsing_behavior_combo.bind("<<ComboboxSelected>>", self.on_pulsing_behavior_change)
-
-    def create_bcon_connection_status(self, parent, column):
-        """Create BCON Connection status indicator."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=5, pady=2, sticky="ew")
-
-        # Label
-        ttk.Label(frame, text="BCON Connected", font=("Arial", 9, "bold")).pack()
-
-        # Circular status indicator
-        self.bcon_connection_canvas = tk.Canvas(frame, width=20, height=20, highlightthickness=0)
-        self.bcon_connection_canvas.pack(pady=(2, 0))
-        self.update_bcon_connection_status()
-
-    def create_beam_duration_control(self, parent, column, label_text, duration_var):
-        """Create Beam Duration spinbox control."""
-        frame = ttk.Frame(parent)
-        frame.grid(row=0, column=column, padx=2, pady=2, sticky="")
-
-        # Label
-        ttk.Label(frame, text=label_text, font=("Arial", 9, "bold")).pack()
-
-        # Spinbox
-        duration_spinbox = tk.Spinbox(
-            frame,
-            from_=1.0,
-            to=1000.0,
-            increment=1.0,
-            textvariable=duration_var,
-            command=lambda: self.on_duration_change(duration_var),
-            width=8,
-            format="%.1f"
-        )
-        duration_spinbox.pack(pady=(2, 0))
-
-        # Store reference for enable/disable control
-        self.duration_spinboxes.append(duration_spinbox)
-
-    def update_duration_spinbox_state(self):
-        """Update duration spinboxes state based on pulsing behavior."""
-        if hasattr(self, 'duration_spinboxes'):
-            pulsing_behavior = self.pulsing_behavior.get() if hasattr(self.pulsing_behavior, 'get') else self.pulsing_behavior
-            if pulsing_behavior == "Pulsed":
-                # Enable duration spinboxes for Pulsed mode
-                for spinbox in self.duration_spinboxes:
-                    spinbox.configure(state="normal")
-            else:
-                # Disable duration spinboxes for DC mode
-                for spinbox in self.duration_spinboxes:
-                    spinbox.configure(state="disabled")
-
-    # Event handlers for controls
-    def on_pulsing_behavior_change(self, event=None):
-        """Handle pulsing behavior change."""
-        self.update_duration_spinbox_state()
-        # Apply new pulsing behavior to hardware if beams are active
-        if any(self.beam_on_status):
-            self._apply_pulsing_behavior()
-
-    def on_duration_change(self, duration_var):
-        """Handle beam duration change."""
-        # Apply new duration to hardware if in Pulsed mode and beams are active
-        if self.get_pulsing_behavior() == "Pulsed" and any(self.beam_on_status):
-            self._apply_pulsing_behavior()
-
-    # Status indicator update methods
     def update_bcon_connection_status(self):
-        """Update the BCON connection status indicator."""
-    
+        """Repaint the BCON connection indicator."""
+        if hasattr(self, 'bcon_connection_canvas'):
+            self.bcon_connection_canvas.delete("indicator")
+            color = "green" if self.bcon_connection_status else "red"
+            self.bcon_connection_canvas.create_oval(2, 2, 13, 13, fill=color, outline="black", tags="indicator")
+
     def update_pulser_status_display(self, pulser_index: int):
-        """Update the status indicators for a specific pulser.
-        
-        Args:
-            pulser_index: Index of pulser (0, 1, or 2)
-        """
+        """Update enabled + overcurrent indicators for a pulser."""
         if not (0 <= pulser_index < 3):
             return
-        
         try:
-            # Update enabled/disabled status
-            is_enabled = self.beam_on_status[pulser_index]
-            enabled_canvas = self.pulser_enabled_canvases[pulser_index]
-            enabled_canvas.delete("indicator")
-            enabled_color = "green" if is_enabled else "gray"
-            enabled_canvas.create_oval(2, 2, 13, 13, fill=enabled_color, outline="black", tags="indicator")
-            
-            # Update overcurrent status
-            has_overcurrent = self.get_pulser_overcurrent_status(pulser_index)
-            status_canvas = self.pulser_status_canvases[pulser_index]
-            status_canvas.delete("indicator")
-            overcurrent_color = "red" if has_overcurrent else "green"
-            status_canvas.create_oval(2, 2, 13, 13, fill=overcurrent_color, outline="black", tags="indicator")
-            
+            # Enabled
+            is_enabled = False
+            if self.bcon_driver and self.bcon_connection_status:
+                is_enabled = self.bcon_driver.is_channel_enabled(pulser_index + 1)
+            self.beam_on_status[pulser_index] = is_enabled
+            if pulser_index < len(self.pulser_enabled_canvases):
+                ec = self.pulser_enabled_canvases[pulser_index]
+                ec.delete("indicator")
+                ec.create_oval(2, 2, 13, 13,
+                               fill="green" if is_enabled else "gray",
+                               outline="black", tags="indicator")
+            # Overcurrent
+            has_oc = self.get_pulser_overcurrent_status(pulser_index)
+            if pulser_index < len(self.pulser_status_canvases):
+                sc = self.pulser_status_canvases[pulser_index]
+                sc.delete("indicator")
+                sc.create_oval(2, 2, 13, 13,
+                               fill="red" if has_oc else "green",
+                               outline="black", tags="indicator")
         except Exception as e:
             self._log(f"Error updating pulser {pulser_index} status: {e}", LogLevel.ERROR)
-    
+
     def get_pulser_overcurrent_status(self, pulser_index: int) -> bool:
-        """Check if a pulser has overcurrent condition.
-        
-        Args:
-            pulser_index: Index of pulser (0, 1, or 2)
-            
-        Returns:
-            True if overcurrent detected, False otherwise
-        """
+        """Check overcurrent from BCON driver."""
         if self.bcon_driver and self.bcon_connection_status:
             try:
-                # Get overcurrent status from BCON driver (channel 1-3)
                 return self.bcon_driver.is_channel_overcurrent(pulser_index + 1)
-            except Exception as e:
-                self._log(f"Error reading overcurrent status for pulser {pulser_index}: {e}", LogLevel.ERROR)
-        
-        return False  # Default: no overcurrent
-        if hasattr(self, 'bcon_connection_canvas'):
-            color = "green" if self.bcon_connection_status else "red"
-            self.bcon_connection_canvas.create_oval(2, 2, 18, 18, fill=color, outline="black")
+            except Exception:
+                pass
+        return False
 
-    # Status update methods for external use
+    # ================================================================== #
+    #               Safety / System Settings Actions                       #
+    # ================================================================== #
+
+    def _arm_beam(self):
+        """Send ARM / CLEAR_FAULT command."""
+        if not self.bcon_driver:
+            messagebox.showwarning("Arm", "No BCON driver available")
+            return
+        self.bcon_driver.arm()
+        self.beams_armed_status = True
+        self._log_event("ARM command sent")
+
+    def _set_watchdog(self):
+        """Write the watchdog timeout register."""
+        val = self.watchdog_entry.get().strip()
+        if not val:
+            return
+        try:
+            ms = int(val)
+        except ValueError:
+            messagebox.showerror("Invalid", "Watchdog value must be integer")
+            return
+        if self.bcon_driver:
+            self.bcon_driver.set_watchdog(ms)
+            self._log_event(f"Set watchdog = {ms} ms")
+
+    def _set_telemetry(self):
+        """Write the telemetry interval register."""
+        val = self.telemetry_entry.get().strip()
+        if not val:
+            return
+        try:
+            ms = int(val)
+        except ValueError:
+            messagebox.showerror("Invalid", "Telemetry value must be integer")
+            return
+        if self.bcon_driver:
+            self.bcon_driver.set_telemetry(ms)
+            self._log_event(f"Set telemetry = {ms} ms")
+
+    # ================================================================== #
+    #           Event Log Helper                                           #
+    # ================================================================== #
+
+    def _log_event(self, text: str):
+        """Log an event to console, label, and CSV session log."""
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        line = f"[{ts}] {text}"
+        if self.debug:
+            print(line)
+        if hasattr(self, 'log_label'):
+            try:
+                self.log_label.configure(text=text)
+            except Exception:
+                pass
+        self._log(text, LogLevel.INFO)
+
+    # ================================================================== #
+    #          Public API (backward-compatible with dashboard)             #
+    # ================================================================== #
+
+    # --- Status access ---
+
     def set_bcon_connection_status(self, status: bool):
-        """Set the BCON connection status."""
         self.bcon_connection_status = status
         self.update_bcon_connection_status()
 
     def set_beam_status(self, beam_index: int, status: bool):
-        """Set the status of a specific beam (on/off).
-        
-        Args:
-            beam_index: Index of beam (0=A, 1=B, 2=C)
-            status: True for ON, False for OFF
-        """
         if 0 <= beam_index < 3:
             self.beam_on_status[beam_index] = status
-            self._log(f"Beam {chr(65 + beam_index)} set to {'ON' if status else 'OFF'}", LogLevel.INFO)
-            
-            # Apply to hardware
-            if status:
-                # Enable beam with current pulsing behavior
-                pulsing_mode = self.get_pulsing_behavior()
-                if pulsing_mode == "DC":
-                    self.set_channel_mode(beam_index, 'DC')
-                elif pulsing_mode == "Pulsed":
-                    duration = self.get_beam_duration(beam_index)
-                    self.set_channel_mode(beam_index, 'PULSE', int(duration))
-            else:
-                # Disable beam
-                self.set_channel_mode(beam_index, 'OFF')
-            
-            # Call dashboard callback if registered
+            if self.bcon_driver:
+                ch = beam_index + 1
+                if status:
+                    pulsing = self.get_pulsing_behavior()
+                    if pulsing == "Pulsed":
+                        dur = int(self.get_beam_duration(beam_index))
+                        self.bcon_driver.set_channel_pulse(ch, dur)
+                    else:
+                        self.bcon_driver.set_channel_dc(ch)
+                else:
+                    self.bcon_driver.set_channel_off(ch)
             if self._dashboard_beam_callback:
                 try:
                     self._dashboard_beam_callback(beam_index, status)
-                except Exception as e:
-                    self._log(f"Dashboard callback error: {e}", LogLevel.ERROR)
+                except Exception:
+                    pass
 
     def get_beam_status(self, beam_index: int) -> bool:
-        """Get the status of a specific beam.
-        
-        Args:
-            beam_index: Index of beam (0=A, 1=B, 2=C)
-            
-        Returns:
-            True if beam is ON, False if OFF
-        """
         if 0 <= beam_index < 3:
             return self.beam_on_status[beam_index]
         return False
 
     def set_all_beams_status(self, status: bool):
-        """Set all beams to the same status."""
         for i in range(3):
             self.set_beam_status(i, status)
 
     def get_pulsing_behavior(self) -> str:
-        """Get the current pulsing behavior setting."""
         if hasattr(self.pulsing_behavior, 'get'):
             return self.pulsing_behavior.get()
         return self.pulsing_behavior
 
     def get_beam_duration(self, beam_index: int) -> float:
-        """Get the pulse duration for a specific beam."""
-        if beam_index == 0:
-            return self.beam_a_duration.get() if hasattr(self.beam_a_duration, 'get') else self.beam_a_duration
-        elif beam_index == 1:
-            return self.beam_b_duration.get() if hasattr(self.beam_b_duration, 'get') else self.beam_b_duration
-        elif beam_index == 2:
-            return self.beam_c_duration.get() if hasattr(self.beam_c_duration, 'get') else self.beam_c_duration
-        return 50.0  # Default
+        vars_list = [self.beam_a_duration, self.beam_b_duration, self.beam_c_duration]
+        if 0 <= beam_index < 3:
+            v = vars_list[beam_index]
+            return v.get() if hasattr(v, 'get') else float(v)
+        return 50.0
 
     def set_dashboard_beam_callback(self, callback):
-        """Register a callback function for beam status changes.
-        
-        Args:
-            callback: Function(beam_index: int, enabled: bool) to call on beam status change
-        """
         self._dashboard_beam_callback = callback
         self._log("Dashboard beam callback registered", LogLevel.DEBUG)
 
     def get_integration_status(self) -> dict:
-        """Get dashboard integration status."""
         return {
             'has_dashboard_callback': self._dashboard_beam_callback is not None,
-            'bcon_connected': self.bcon_connection_status
+            'bcon_connected': self.bcon_connection_status,
         }
 
-    # --- Hardware Driver Interface ---
-    # These methods delegate to the BCONDriver for hardware communication
+    # --- Hardware driver interface ---
 
     def connect(self) -> bool:
-        """Connect to BCON hardware."""
         if self.bcon_driver:
             success = self.bcon_driver.connect()
             if success:
-                # Configure initial watchdog (1 second)
                 self.bcon_driver.set_watchdog(1000)
-                # Enable telemetry (500ms interval)
                 self.bcon_driver.set_telemetry(500)
             return success
         return False
 
     def disconnect(self) -> None:
-        """Disconnect from BCON hardware."""
         if self.bcon_driver:
-            # Stop all channels before disconnect
             try:
                 self.bcon_driver.stop_all()
-            except:
+                time.sleep(0.3)  # let the write drain
+            except Exception:
                 pass
             self.bcon_driver.disconnect()
 
     def is_connected(self) -> bool:
-        """Check if connected to BCON hardware."""
         if self.bcon_driver:
             return self.bcon_driver.is_connected()
         return False
 
     def ping(self) -> bool:
-        """Ping BCON hardware to verify communication."""
         if self.bcon_driver:
             return self.bcon_driver.ping()
         return False
 
     def get_system_status(self) -> Dict:
-        """Get full system status from BCON."""
         if self.bcon_driver:
             return self.bcon_driver.get_status()
         return {'system': {'state': 'UNKNOWN'}, 'channels': []}
 
     def set_channel_mode(self, channel_index: int, mode: str, duration_ms: int = 0) -> bool:
-        """Set channel mode (OFF, DC, or PULSE).
-        
-        Args:
-            channel_index: Channel index (0, 1, or 2)
-            mode: Mode string ('OFF', 'DC', or 'PULSE')
-            duration_ms: Pulse duration in milliseconds (for PULSE mode only)
-            
-        Returns:
-            True if successful, False otherwise
-        """
         if not self.bcon_driver:
             return False
-        
-        # Convert 0-based index to 1-based channel number
         channel = channel_index + 1
-        
         if mode == 'OFF':
-            return self.bcon_driver.set_channel_off(channel)
+            self.bcon_driver.set_channel_off(channel)
         elif mode == 'DC':
-            return self.bcon_driver.set_channel_dc(channel)
+            self.bcon_driver.set_channel_dc(channel)
         elif mode == 'PULSE':
-            return self.bcon_driver.set_channel_pulse(channel, duration_ms)
+            self.bcon_driver.set_channel_pulse(channel, duration_ms)
+        elif mode == 'PULSE_TRAIN':
+            self.bcon_driver.set_channel_pulse_train(channel, duration_ms, 2)
         else:
             self._log(f"Invalid mode: {mode}", LogLevel.ERROR)
             return False
+        return True
 
     def stop_all_channels(self) -> bool:
-        """Stop all channels immediately."""
         if self.bcon_driver:
-            return self.bcon_driver.stop_all()
+            self.bcon_driver.stop_all()
+            return True
         return False
 
-    # --- Safety / Shutdown Helpers ---
+    # --- Safety ---
+
     def arm_beams(self) -> bool:
-        """Enable beam operations (safety feature)."""
-        # Arm BCON hardware
         if self.bcon_driver:
-            if self.bcon_driver.arm():
-                self.beams_armed_status = True
-                self._log("Beams ARMED", LogLevel.INFO)
-                return True
-            else:
-                self._log("Failed to ARM BCON hardware", LogLevel.ERROR)
-                return False
-        else:
+            self.bcon_driver.arm()
             self.beams_armed_status = True
-            self._log("Beams ARMED (no hardware)", LogLevel.INFO)
+            self._log("Beams ARMED", LogLevel.INFO)
             return True
+        self.beams_armed_status = True
+        return True
 
     def disarm_beams(self) -> bool:
-        """Disable beam operations (safety feature)."""
         self.beams_armed_status = False
         self.set_all_beams_status(False)
-        # Stop all channels on hardware
         if self.bcon_driver:
             self.bcon_driver.stop_all()
         self._log("Beams DISARMED", LogLevel.INFO)
         return True
 
     def get_beams_armed_status(self) -> bool:
-        """Check if beams are armed."""
         return self.beams_armed_status
 
     def get_deflect_beam_status(self) -> bool:
-        """Get deflect beam status (compatibility method)."""
         return any(self.beam_on_status)
 
     def set_deflect_beam_status(self, enable: bool) -> bool:
-        """Set deflect beam status for all beams."""
         if enable:
             if not self.beams_armed_status:
                 self._log("Cannot enable deflect beam - beams not armed", LogLevel.WARNING)
                 return False
-            # Apply pulsing behavior to hardware
             self._apply_pulsing_behavior()
         else:
             self.set_all_beams_status(False)
-            # Stop all channels on hardware
             if self.bcon_driver:
                 self.bcon_driver.stop_all()
         return True
-    
+
     def _apply_pulsing_behavior(self):
-        """Apply current pulsing behavior settings to hardware."""
         if not self.bcon_driver:
             return
-        
         pulsing_mode = self.get_pulsing_behavior()
-        
-        for beam_idx in range(3):
-            if self.beam_on_status[beam_idx]:
-                if pulsing_mode == "DC":
-                    self.set_channel_mode(beam_idx, 'DC')
-                elif pulsing_mode == "Pulsed":
-                    duration = self.get_beam_duration(beam_idx)
-                    self.set_channel_mode(beam_idx, 'PULSE', int(duration))
+        for idx in range(3):
+            ch = idx + 1
+            if self.beam_on_status[idx]:
+                if pulsing_mode == "Pulsed":
+                    dur = int(self.get_beam_duration(idx))
+                    self.bcon_driver.set_channel_pulse(ch, dur)
+                else:
+                    self.bcon_driver.set_channel_dc(ch)
             else:
-                self.set_channel_mode(beam_idx, 'OFF')
+                self.bcon_driver.set_channel_off(ch)
 
     def safe_shutdown(self, reason: Optional[str] = None) -> bool:
-        """Safely shutdown all beam operations."""
-        self._log(f"Safe shutdown initiated: {reason or 'No reason provided'}", LogLevel.WARNING)
-        
-        # Disarm beams
+        self._log(f"Safe shutdown: {reason or 'No reason'}", LogLevel.WARNING)
         self.disarm_beams()
-        
-        # Turn off all beams
         self.set_all_beams_status(False)
-        
         self._log("Safe shutdown complete", LogLevel.INFO)
         return True
 
-    # --- internal helpers ---
-    def _log(self, msg: str, level: LogLevel = LogLevel.INFO) -> None:
-        """Log a message."""
+    # --- internal ---
+
+    def _log(self, msg: str, level=LogLevel.INFO) -> None:
         if self.logger:
             self.logger.log(msg, level)
         elif self.debug:
@@ -609,40 +1101,28 @@ class BeamPulseSubsystem:
 
 
 if __name__ == "__main__":
-    # Quick manual smoke test. Use for development.
     import argparse
 
     parser = argparse.ArgumentParser(description="BeamPulseSubsystem quick test")
-    parser.add_argument("--port", default="COM1", help="Serial port for RS-485")
+    parser.add_argument("--port", default="COM1", help="Serial port for Modbus RTU")
+    parser.add_argument("--unit", type=int, default=1, help="Modbus unit ID")
     parser.add_argument("--test-status", action="store_true", help="Test status reading")
     args = parser.parse_args()
 
-    # Create BeamPulseSubsystem - it will instantiate BCONDriver internally
-    b = BeamPulseSubsystem(
-        port=args.port,
-        baudrate=115200,
-        debug=True
-    )
+    b = BeamPulseSubsystem(port=args.port, unit=args.unit, baudrate=115200, debug=True)
 
     if not b.connect():
         print("Could not connect to BCON device")
     else:
         print(f"Connected to BCON on {args.port}")
-        
+
         if args.test_status:
-            # Test ping
             if b.ping():
-                print("✓ Ping successful")
-            
-            # Get status
+                print("Ping successful")
+
             status = b.get_system_status()
-            print(f"\nSystem Status:")
-            print(f"  State: {status['system']['state']}")
-            print(f"  Fault Latched: {status['system']['fault_latched']}")
-            
+            print(f"\nSystem: {status['system']}")
             for i, ch in enumerate(status['channels'], 1):
-                print(f"\nChannel {i}:")
-                print(f"  Mode: {ch['mode']}")
-                print(f"  Overcurrent: {ch['oc_st']}")
-        
+                print(f"Channel {i}: {ch}")
+
         b.disconnect()
