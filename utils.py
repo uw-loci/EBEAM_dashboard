@@ -169,7 +169,7 @@ class Logger:
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
 
         # Write to Supabase if 2 seconds have passed since last write
-        if self.supabase_client:
+        if self.supabase_client and self.log_to_file:
             if self.last_supabase_write is None or (now - self.last_supabase_write).total_seconds() >= 2:
                 try:
                     self.supabase_client.insert_status_log(timestamp, update_dict)
