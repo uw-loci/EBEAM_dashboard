@@ -134,6 +134,10 @@ class BeamPulseSubsystem:
         if parent_frame:
             self.setup_ui()
 
+        # Auto-connect in background if a port was supplied
+        if self.bcon_driver:
+            threading.Thread(target=self._auto_connect, daemon=True).start()
+
     # ================================================================== #
     #                          GUI Setup                                   #
     # ================================================================== #
@@ -193,6 +197,8 @@ class BeamPulseSubsystem:
         self.arm_btn.pack(side=tk.RIGHT, padx=4)
         self.arm_status_lbl = ttk.Label(bar, text="DISARMED", foreground="gray", font=("Arial", 8, "bold"))
         self.arm_status_lbl.pack(side=tk.RIGHT, padx=4)
+        self.connect_btn = ttk.Button(bar, text="Connect", command=self._manual_connect)
+        self.connect_btn.pack(side=tk.RIGHT, padx=4)
 
         # System settings row (watchdog / telemetry)
         sys_frame = ttk.Frame(self.parent_frame)
@@ -788,11 +794,16 @@ class BeamPulseSubsystem:
             self.parent_frame.after(1000, check)
 
     def update_bcon_connection_status(self):
-        """Repaint the BCON connection indicator."""
+        """Repaint the BCON connection indicator and sync button label."""
         if hasattr(self, 'bcon_connection_canvas'):
             self.bcon_connection_canvas.delete("indicator")
             color = "green" if self.bcon_connection_status else "red"
             self.bcon_connection_canvas.create_oval(2, 2, 13, 13, fill=color, outline="black", tags="indicator")
+        if hasattr(self, 'connect_btn'):
+            self.connect_btn.configure(
+                text="Disconnect" if self.bcon_connection_status else "Reconnect",
+                state="normal"
+            )
 
     def update_pulser_status_display(self, pulser_index: int):
         """Update enabled + overcurrent indicators for a pulser."""
@@ -833,6 +844,38 @@ class BeamPulseSubsystem:
     # ================================================================== #
     #               Safety / System Settings Actions                       #
     # ================================================================== #
+
+    def _auto_connect(self):
+        """Background thread: open the serial port and connect to BCON."""
+        port = self.bcon_driver.port
+        self._ui_queue.put(("seq_status", f"Connecting to BCON on {port}…"))
+        ok = self.bcon_driver.connect()
+        msg = f"BCON connected on {port}" if ok else f"BCON connect failed on {port} — check port & firmware"
+        self._ui_queue.put(("seq_status", msg))
+        self._log(msg, LogLevel.INFO)
+
+    def _manual_connect(self):
+        """Button handler: (re)connect to BCON in a background thread."""
+        if not self.bcon_driver:
+            messagebox.showwarning("Connect", "No port configured for BCON.")
+            return
+        if self.bcon_driver.is_connected():
+            self.bcon_driver.disconnect()
+        if hasattr(self, 'connect_btn'):
+            self.connect_btn.configure(state="disabled", text="Connecting…")
+            self.parent_frame.after(100, lambda: None)  # force redraw
+        def _do():
+            ok = self.bcon_driver.connect()
+            if self.parent_frame:
+                self.parent_frame.after(0, lambda: self._on_connect_done(ok))
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_connect_done(self, ok: bool):
+        """Called on the main thread after a manual connect attempt."""
+        if hasattr(self, 'connect_btn'):
+            self.connect_btn.configure(state="normal",
+                                       text="Disconnect" if ok else "Reconnect")
+        self._log_event("BCON connected" if ok else "BCON connect failed — check port & firmware")
 
     def _arm_beam(self):
         """Send ARM / CLEAR_FAULT command."""
