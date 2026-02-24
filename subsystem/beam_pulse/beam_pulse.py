@@ -189,7 +189,7 @@ class BeamPulseSubsystem:
         self.bcon_connection_canvas.create_oval(2, 2, 13, 13, fill="red", outline="black", tags="indicator")
 
         # Safety / interlock label
-        self.safety_label = ttk.Label(bar, text="Interlock: --  Watchdog: --  State: --", font=("Arial", 8))
+        self.safety_label = ttk.Label(bar, text="Interlock: --  Watchdog: --", font=("Arial", 8))
         self.safety_label.pack(side=tk.LEFT, padx=10)
 
         # Arm button
@@ -207,10 +207,6 @@ class BeamPulseSubsystem:
         self.watchdog_entry = ttk.Entry(sys_frame, width=7)
         self.watchdog_entry.pack(side=tk.LEFT, padx=2)
         ttk.Button(sys_frame, text="Set", width=4, command=self._set_watchdog).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Label(sys_frame, text="Telemetry (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
-        self.telemetry_entry = ttk.Entry(sys_frame, width=7)
-        self.telemetry_entry.pack(side=tk.LEFT, padx=2)
-        ttk.Button(sys_frame, text="Set", width=4, command=self._set_telemetry).pack(side=tk.LEFT, padx=(0, 8))
 
         # Log line
         self.log_label = ttk.Label(sys_frame, text="Log: ready", font=("Arial", 8), foreground="gray")
@@ -280,8 +276,6 @@ class BeamPulseSubsystem:
             r5.pack(fill=tk.X, pady=2)
             ttk.Button(r5, text="Pulse",
                        command=lambda c=ch: self._manual_set_mode(c, self.MODE_PULSE)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(r5, text="Pulse Train",
-                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_PULSE_TRAIN)).pack(side=tk.LEFT, padx=2)
             ttk.Button(r5, text="Enable Toggle",
                        command=lambda c=ch: self._manual_toggle_enable(c)).pack(side=tk.LEFT, padx=2)
 
@@ -732,7 +726,7 @@ class BeamPulseSubsystem:
         if hasattr(self, 'safety_label'):
             self.safety_label.configure(
                 text=f"Interlock: {'ok' if interlock_ok else 'locked'} | "
-                     f"Watchdog: {'ok' if watchdog_ok else 'expired'} | State: {sys_state}")
+                     f"Watchdog: {'ok' if watchdog_ok else 'expired'}")
 
         # Fault
         if hasattr(self, 'arm_status_lbl'):
@@ -741,11 +735,9 @@ class BeamPulseSubsystem:
             else:
                 self.arm_status_lbl.configure(text="NO FAULT", foreground="green")
 
-        # Watchdog / telemetry entries
+        # Watchdog entry
         if hasattr(self, 'watchdog_entry'):
             self._safe_fill(self.watchdog_entry, regs[REG_WATCHDOG_MS])
-        if hasattr(self, 'telemetry_entry'):
-            self._safe_fill(self.telemetry_entry, regs[REG_TELEMETRY_MS])
 
         # Update pulser enabled/overcurrent canvases
         for i in range(3):
