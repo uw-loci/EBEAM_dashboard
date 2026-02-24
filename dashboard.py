@@ -382,6 +382,22 @@ class EBEAMSystemDashboard:
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
 
+        # Enable Toggle buttons for each channel
+        enable_toggle_frame = tk.Frame(beam_toggles_frame)
+        enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
+        for i in range(3):
+            enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
+        ch_names = ["CH1 Enable", "CH2 Enable", "CH3 Enable"]
+        for i, label in enumerate(ch_names):
+            tk.Button(
+                enable_toggle_frame,
+                text=label,
+                bg="#4a6fa5",
+                fg="white",
+                font=("Helvetica", 9),
+                command=lambda idx=i: self._toggle_channel_enable(idx)
+            ).grid(row=0, column=i, sticky="ew", padx=2)
+
         # Add beams armed toggle
         beams_armed_control_frame = tk.Frame(main_frame)
         beams_armed_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
@@ -617,6 +633,18 @@ class EBEAMSystemDashboard:
                         self.logger.error("Failed to disarm beams via Beams E-stop")
         except Exception as e:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
+
+    def _toggle_channel_enable(self, ch_index: int):
+        """Toggle the hardware enable for a BCON channel (0-based index)."""
+        try:
+            beam_pulse = self.subsystems.get('Beam Pulse')
+            if beam_pulse and hasattr(beam_pulse, 'bcon_driver') and beam_pulse.bcon_driver:
+                beam_pulse.bcon_driver.toggle_channel_enable(ch_index + 1)
+                self.logger.info(f"Enable toggle sent for CH{ch_index + 1}")
+            else:
+                self.logger.warning("BCON driver not available for enable toggle")
+        except Exception as e:
+            self.logger.error(f"Error toggling CH{ch_index + 1} enable: {e}")
 
     def toggle_individual_beam_with_status(self, beam_index):
         """Toggle individual beam on/off with status bar animation."""

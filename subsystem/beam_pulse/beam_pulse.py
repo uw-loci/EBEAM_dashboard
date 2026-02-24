@@ -192,11 +192,6 @@ class BeamPulseSubsystem:
         self.safety_label = ttk.Label(bar, text="Interlock: --  Watchdog: --", font=("Arial", 8))
         self.safety_label.pack(side=tk.LEFT, padx=10)
 
-        # Arm button
-        self.arm_btn = ttk.Button(bar, text="Arm Beam", command=self._arm_beam)
-        self.arm_btn.pack(side=tk.RIGHT, padx=4)
-        self.arm_status_lbl = ttk.Label(bar, text="DISARMED", foreground="gray", font=("Arial", 8, "bold"))
-        self.arm_status_lbl.pack(side=tk.RIGHT, padx=4)
         self.connect_btn = ttk.Button(bar, text="Connect", command=self._manual_connect)
         self.connect_btn.pack(side=tk.RIGHT, padx=4)
 
@@ -276,8 +271,6 @@ class BeamPulseSubsystem:
             r5.pack(fill=tk.X, pady=2)
             ttk.Button(r5, text="Pulse",
                        command=lambda c=ch: self._manual_set_mode(c, self.MODE_PULSE)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(r5, text="Enable Toggle",
-                       command=lambda c=ch: self._manual_toggle_enable(c)).pack(side=tk.LEFT, padx=2)
 
             self.channel_vars.append({
                 'duration': dur_entry,
@@ -722,18 +715,12 @@ class BeamPulseSubsystem:
         # Interlock / watchdog / state
         interlock_ok = regs[REG_INTERLOCK_OK]
         watchdog_ok = regs[REG_WATCHDOG_OK]
-        sys_state = regs[REG_SYS_STATE]
+        fault = regs[REG_FAULT_LATCHED]
         if hasattr(self, 'safety_label'):
+            fault_txt = "  FAULT" if fault else ""
             self.safety_label.configure(
                 text=f"Interlock: {'ok' if interlock_ok else 'locked'} | "
-                     f"Watchdog: {'ok' if watchdog_ok else 'expired'}")
-
-        # Fault
-        if hasattr(self, 'arm_status_lbl'):
-            if regs[REG_FAULT_LATCHED]:
-                self.arm_status_lbl.configure(text="FAULT LATCHED", foreground="red")
-            else:
-                self.arm_status_lbl.configure(text="NO FAULT", foreground="green")
+                     f"Watchdog: {'ok' if watchdog_ok else 'expired'}{fault_txt}")
 
         # Watchdog entry
         if hasattr(self, 'watchdog_entry'):
@@ -806,7 +793,6 @@ class BeamPulseSubsystem:
             is_enabled = False
             if self.bcon_driver and self.bcon_connection_status:
                 is_enabled = self.bcon_driver.is_channel_enabled(pulser_index + 1)
-            self.beam_on_status[pulser_index] = is_enabled
             if pulser_index < len(self.pulser_enabled_canvases):
                 ec = self.pulser_enabled_canvases[pulser_index]
                 ec.delete("indicator")
