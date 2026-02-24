@@ -217,33 +217,8 @@ class BeamPulseSubsystem:
         container = ttk.Frame(self.manual_tab, padding="5")
         container.pack(fill=tk.BOTH, expand=True)
 
-        # --- Pulser status indicators at the top ---
-        status_frame = ttk.LabelFrame(container, text="Pulser Status", padding="5")
-        status_frame.pack(fill=tk.X, pady=(0, 5))
-
         self.pulser_status_canvases = []
         self.pulser_enabled_canvases = []
-
-        for i in range(3):
-            pf = ttk.Frame(status_frame)
-            pf.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
-            ttk.Label(pf, text=f"CH {i+1}", font=("Arial", 9, "bold")).pack()
-
-            ef = ttk.Frame(pf)
-            ef.pack(pady=(2, 0))
-            ttk.Label(ef, text="Enabled:", font=("Arial", 8)).pack(side=tk.LEFT)
-            ec = tk.Canvas(ef, width=15, height=15, highlightthickness=0)
-            ec.pack(side=tk.LEFT, padx=(3, 0))
-            ec.create_oval(2, 2, 13, 13, fill="gray", outline="black", tags="indicator")
-            self.pulser_enabled_canvases.append(ec)
-
-            of = ttk.Frame(pf)
-            of.pack(pady=(2, 0))
-            ttk.Label(of, text="Overcurrent:", font=("Arial", 8)).pack(side=tk.LEFT)
-            sc = tk.Canvas(of, width=15, height=15, highlightthickness=0)
-            sc.pack(side=tk.LEFT, padx=(3, 0))
-            sc.create_oval(2, 2, 13, 13, fill="green", outline="black", tags="indicator")
-            self.pulser_status_canvases.append(sc)
 
         # --- Per-channel control cards (horizontal layout) ---
         cards_frame = ttk.Frame(container)
