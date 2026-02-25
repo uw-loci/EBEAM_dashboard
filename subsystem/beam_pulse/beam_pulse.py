@@ -374,41 +374,82 @@ class BeamPulseSubsystem:
     # ------------------------------------------------------------------ #
 
     def create_external_control_buttons(self, parent_frame):
-        """Create Sync Control and CSV Sequence action buttons in *parent_frame*.
+        """Create tab-aware action buttons in *parent_frame* (Main Control panel).
 
-        Buttons are arranged vertically and expand to fill the available width.
-        Call this once from the dashboard after the subsystem is created.
+        Three sub-frames are built — one per Beam Pulse tab — and the notebook's
+        <<NotebookTabChanged>> event swaps which sub-frame is visible so the
+        buttons always match the currently-selected tab.
+
+        Tab 0 – Manual Control  → per-channel Apply buttons
+        Tab 1 – Sync Control    → Write Params / Start Selected / Stop All
+        Tab 2 – CSV Sequence    → Load / Save Template / Run / Stop
         """
         outer = ttk.Frame(parent_frame)
         outer.pack(fill=tk.X, padx=6, pady=(6, 2))
 
-        # --- Sync Control section ---
-        sync_lbl = ttk.Label(outer, text="Sync Control", font=("Arial", 9, "bold"))
-        sync_lbl.pack(fill=tk.X, pady=(0, 2))
+        # ---- Panel 0: Manual Control buttons --------------------------------
+        self._ext_manual_frame = ttk.Frame(outer)
+        ttk.Label(self._ext_manual_frame, text="Manual Control",
+                  font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
+        for ch in range(3):
+            ttk.Button(
+                self._ext_manual_frame,
+                text=f"Apply CH{ch + 1}",
+                command=lambda c=ch: self._manual_apply(
+                    c,
+                    self.channel_vars[c]['duration'],
+                    self.channel_vars[c]['count'],
+                    self.channel_vars[c]['mode'],
+                ),
+            ).pack(fill=tk.X, pady=1)
 
+        # ---- Panel 1: Sync Control buttons ----------------------------------
+        self._ext_sync_frame = ttk.Frame(outer)
+        ttk.Label(self._ext_sync_frame, text="Sync Control",
+                  font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
         for text, cmd in (
-            ("Write Params",  self._sync_write_params),
+            ("Write Params",   self._sync_write_params),
             ("Start Selected", self._sync_start),
-            ("Stop All",      self._sync_stop_all),
+            ("Stop All",       self._sync_stop_all),
         ):
-            ttk.Button(outer, text=text, command=cmd).pack(fill=tk.X, pady=1)
+            ttk.Button(self._ext_sync_frame, text=text, command=cmd).pack(fill=tk.X, pady=1)
 
-        ttk.Separator(outer, orient="horizontal").pack(fill=tk.X, pady=6)
-
-        # --- CSV Sequence section ---
-        csv_lbl = ttk.Label(outer, text="CSV Sequence", font=("Arial", 9, "bold"))
-        csv_lbl.pack(fill=tk.X, pady=(0, 2))
-
-        ttk.Button(outer, text="Load CSV",       command=self._load_sequence).pack(fill=tk.X, pady=1)
-        ttk.Button(outer, text="Save Template",  command=self._save_sequence_template).pack(fill=tk.X, pady=1)
-
-        self.seq_run_btn = ttk.Button(outer, text="Run Sequence",
+        # ---- Panel 2: CSV Sequence buttons ----------------------------------
+        self._ext_csv_frame = ttk.Frame(outer)
+        ttk.Label(self._ext_csv_frame, text="CSV Sequence",
+                  font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
+        ttk.Button(self._ext_csv_frame, text="Load CSV",
+                   command=self._load_sequence).pack(fill=tk.X, pady=1)
+        ttk.Button(self._ext_csv_frame, text="Save Template",
+                   command=self._save_sequence_template).pack(fill=tk.X, pady=1)
+        self.seq_run_btn = ttk.Button(self._ext_csv_frame, text="Run Sequence",
                                       command=self._run_sequence, state="disabled")
         self.seq_run_btn.pack(fill=tk.X, pady=1)
-
-        self.seq_stop_btn = ttk.Button(outer, text="Stop Sequence",
+        self.seq_stop_btn = ttk.Button(self._ext_csv_frame, text="Stop Sequence",
                                        command=self._stop_sequence, state="disabled")
         self.seq_stop_btn.pack(fill=tk.X, pady=1)
+
+        # ---- Tab-switching logic --------------------------------------------
+        _panels = [self._ext_manual_frame, self._ext_sync_frame, self._ext_csv_frame]
+
+        def _show_panel(idx: int):
+            for i, panel in enumerate(_panels):
+                if i == idx:
+                    panel.pack(fill=tk.X)
+                else:
+                    panel.pack_forget()
+
+        def _on_tab_changed(event=None):
+            try:
+                idx = self.notebook.index(self.notebook.select())
+            except Exception:
+                idx = 0
+            _show_panel(idx)
+
+        self.notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
+
+        # Show panel matching the currently-selected tab (default: tab 0)
+        _show_panel(0)
 
     # ================================================================== #
     #                    Manual Tab Actions                                #
