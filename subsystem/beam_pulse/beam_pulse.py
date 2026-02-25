@@ -205,6 +205,7 @@ class BeamPulseSubsystem:
         sys_frame.pack(fill=tk.X, padx=5, pady=(2, 0))
         ttk.Label(sys_frame, text="Watchdog (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
         self.watchdog_entry = ttk.Entry(sys_frame, width=7)
+        self.watchdog_entry.insert(0, "2000")  # safe default
         self.watchdog_entry.pack(side=tk.LEFT, padx=2)
         ttk.Button(sys_frame, text="Set", width=4, command=self._set_watchdog).pack(side=tk.LEFT, padx=(0, 8))
 
@@ -571,26 +572,44 @@ class BeamPulseSubsystem:
         if not self.bcon_driver:
             self._log("No BCON driver", LogLevel.WARNING)
             return
-        try:
-            duration = int(dur_entry.get())
-            count = int(cnt_entry.get())
-        except (ValueError, tk.TclError):
-            messagebox.showerror("Invalid", "Enter numeric values for duration and count")
-            return
-        if duration <= 0:
-            messagebox.showerror("Invalid", "Duration must be > 0")
-            return
-        if count <= 0:
-            messagebox.showerror("Invalid", "Count must be > 0")
-            return
 
         mode_label = mode_cb.get().strip().upper()
         if mode_label not in MODE_LABEL_TO_CODE:
-            messagebox.showerror("Invalid", f"Unsupported mode: {mode_label}")
+            messagebox.showerror("Invalid Configuration", f"Unsupported mode: {mode_label}")
             return
 
         channel = ch + 1  # 1-based
         base = CH_BASE[ch]
+
+        if mode_label in ("OFF", "DC"):
+            # Duration and count are unused for OFF / DC modes
+            self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
+            self._log_event(f"Applied CH{channel}: mode={mode_label}")
+            return
+
+        # PULSE / PULSE_TRAIN: duration required
+        try:
+            duration = int(dur_entry.get())
+        except (ValueError, tk.TclError):
+            messagebox.showerror("Invalid Configuration", f"CH{channel}: duration must be an integer")
+            return
+        if duration <= 0:
+            messagebox.showerror("Invalid Configuration", f"CH{channel}: duration must be > 0 ms")
+            return
+
+        # PULSE: count is always 1; PULSE_TRAIN: count >= 2
+        count = 1
+        if mode_label == "PULSE_TRAIN":
+            try:
+                count = int(cnt_entry.get())
+            except (ValueError, tk.TclError):
+                messagebox.showerror("Invalid Configuration", f"CH{channel}: count must be an integer")
+                return
+            if count < 2:
+                messagebox.showerror("Invalid Configuration",
+                                     f"CH{channel}: PULSE_TRAIN requires count \u2265 2")
+                return
+
         self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, duration)
         self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, count)
         self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
@@ -623,7 +642,7 @@ class BeamPulseSubsystem:
     # ================================================================== #
 
     def _sync_write_params(self):
-        """Write duration + count for all channels from Manual tab configuration."""
+        """Write duration + count for enabled, non-DC/OFF channels from Manual tab."""
         if not self._require_armed():
             return
         if not self.bcon_driver:
@@ -632,17 +651,36 @@ class BeamPulseSubsystem:
             if ch >= len(self.channel_vars):
                 continue
             cv = self.channel_vars[ch]
+            mode_label = cv['mode'].get().strip().upper()
+            if mode_label in ("OFF", "DC"):
+                continue  # duration/count unused for these modes
             dur_str = cv['duration'].get().strip()
-            cnt_str = cv['count'].get().strip()
             try:
-                dur = int(dur_str) if dur_str else 100
-                cnt = int(cnt_str) if cnt_str else 1
+                dur = int(dur_str) if dur_str else 0
             except ValueError:
-                messagebox.showerror("Invalid", f"CH{ch+1}: duration and count must be integers")
+                messagebox.showerror("Invalid Configuration",
+                                     f"CH{ch+1}: duration must be an integer")
                 return
-            if dur > 0:
-                self.bcon_driver.set_channel_params(ch + 1, dur, cnt if cnt > 0 else 1)
-        self._log_event("Sync wrote params for all channels")
+            if dur <= 0:
+                messagebox.showerror("Invalid Configuration",
+                                     f"CH{ch+1}: duration must be > 0 ms")
+                return
+            # PULSE: count fixed at 1; PULSE_TRAIN: read and validate
+            cnt = 1
+            if mode_label == "PULSE_TRAIN":
+                cnt_str = cv['count'].get().strip()
+                try:
+                    cnt = int(cnt_str) if cnt_str else 0
+                except ValueError:
+                    messagebox.showerror("Invalid Configuration",
+                                         f"CH{ch+1}: count must be an integer")
+                    return
+                if cnt < 2:
+                    messagebox.showerror("Invalid Configuration",
+                                         f"CH{ch+1}: PULSE_TRAIN requires count \u2265 2")
+                    return
+            self.bcon_driver.set_channel_params(ch + 1, dur, cnt)
+        self._log_event("Sync wrote params for channels")
 
     def _sync_start(self):
         """Synchronous start of enabled channels using Manual Control tab configuration.
@@ -674,22 +712,42 @@ class BeamPulseSubsystem:
                 self._log_event(f"Sync Start: CH{ch+1} skipped (not enabled)")
                 continue
             cv = self.channel_vars[ch]
-            dur_str = cv['duration'].get().strip()
-            cnt_str = cv['count'].get().strip()
             mode_label = cv['mode'].get().strip().upper()
-            try:
-                dur = int(dur_str) if dur_str else 100
-                cnt = int(cnt_str) if cnt_str else 1
-            except ValueError:
-                messagebox.showerror("Invalid", f"CH{ch+1}: duration and count must be integers")
-                return
             if mode_label not in MODE_LABEL_TO_CODE:
-                messagebox.showerror("Invalid", f"CH{ch+1}: unknown mode '{mode_label}'")
+                messagebox.showerror("Invalid Configuration",
+                                     f"CH{ch+1}: unknown mode '{mode_label}'")
                 return
-            mode_code = MODE_LABEL_TO_CODE[mode_label]
-            if mode_code == self.MODE_PULSE_TRAIN and cnt < 2:
-                messagebox.showerror("Invalid", f"CH{ch+1}: PULSE_TRAIN requires count >= 2")
+            if mode_label in ("OFF", "DC"):
+                # No duration/count needed; include as-is
+                configs.append({'ch': ch + 1, 'mode': mode_label,
+                                'duration_ms': 0, 'count': 1})
+                continue
+            # PULSE / PULSE_TRAIN: validate duration
+            dur_str = cv['duration'].get().strip()
+            try:
+                dur = int(dur_str) if dur_str else 0
+            except ValueError:
+                messagebox.showerror("Invalid Configuration",
+                                     f"CH{ch+1}: duration must be an integer")
                 return
+            if dur <= 0:
+                messagebox.showerror("Invalid Configuration",
+                                     f"CH{ch+1}: duration must be > 0 ms")
+                return
+            # PULSE: count always 1; PULSE_TRAIN: read and validate
+            cnt = 1
+            if mode_label == "PULSE_TRAIN":
+                cnt_str = cv['count'].get().strip()
+                try:
+                    cnt = int(cnt_str) if cnt_str else 0
+                except ValueError:
+                    messagebox.showerror("Invalid Configuration",
+                                         f"CH{ch+1}: count must be an integer")
+                    return
+                if cnt < 2:
+                    messagebox.showerror("Invalid Configuration",
+                                         f"CH{ch+1}: PULSE_TRAIN requires count \u2265 2")
+                    return
             configs.append({
                 'ch': ch + 1, 'mode': mode_label,
                 'duration_ms': dur, 'count': cnt,
@@ -1110,8 +1168,9 @@ class BeamPulseSubsystem:
         self._ui_queue.put(("seq_status", f"Connecting to BCON on {port}…"))
         ok = self.bcon_driver.connect()
         msg = f"BCON connected on {port}" if ok else f"BCON connect failed on {port} — check port & firmware"
+        # Route via the UI queue so Messages & Errors is updated on the main
+        # thread (direct self._log() from a background thread is not safe).
         self._ui_queue.put(("seq_status", msg))
-        self._log(msg, LogLevel.INFO)
 
     def _manual_connect(self):
         """Button handler: (re)connect to BCON in a background thread."""
@@ -1273,7 +1332,7 @@ class BeamPulseSubsystem:
         if self.bcon_driver:
             success = self.bcon_driver.connect()
             if success:
-                self.bcon_driver.set_watchdog(1000)
+                self.bcon_driver.set_watchdog(2000)
                 self.bcon_driver.set_telemetry(500)
             return success
         return False
@@ -1463,10 +1522,22 @@ class BeamPulseSubsystem:
     # --- internal ---
 
     def _log(self, msg: str, level=LogLevel.INFO) -> None:
-        if self.logger:
-            self.logger.log(msg, level)
-        elif self.debug:
+        """Route a message to the dashboard Messages & Errors logger.
+
+        Always thread-safe: when called from a background thread the write is
+        scheduled on the main thread via parent_frame.after(0, ...).
+        """
+        if self.debug:
             print(f"[{level.name}] {msg}")
+        if self.logger:
+            if self.parent_frame:
+                try:
+                    self.parent_frame.after(
+                        0, lambda m=msg, l=level: self.logger.log(m, l))
+                    return
+                except Exception:
+                    pass
+            self.logger.log(msg, level)
 
 
 if __name__ == "__main__":
