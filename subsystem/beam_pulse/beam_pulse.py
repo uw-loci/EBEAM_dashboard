@@ -705,9 +705,9 @@ class BeamPulseSubsystem:
             self.channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
             self.channel_vars[ch]['pulses'].configure(text=f"Remaining: {remaining}")
 
-            mode_label = MODE_CODE_TO_LABEL.get(mode_code)
-            if mode_label:
-                self.channel_vars[ch]['mode'].set(mode_label)
+            # NOTE: do NOT push hardware mode back into the mode combobox — that
+            # would overwrite the user's intended configuration.  The status label
+            # above already shows the live running mode.
 
             # Auto-fill duration/count from param registers if widget is empty or '0'
             base = CH_BASE[ch]
