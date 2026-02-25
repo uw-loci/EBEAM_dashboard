@@ -7,7 +7,7 @@ class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=1, bytesize=8, logger=None, debug_mode=False, poll_delay=0.02):
         """
         Initialize the E5CNModbus instance with serial communication parameters and optional logging.
         
@@ -31,6 +31,7 @@ class E5CNModbus:
         self.is_initialized = threading.Event()
         self.port = port
         self.connected = False
+        self.poll_delay = poll_delay
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -68,7 +69,7 @@ class E5CNModbus:
             thread.start()
             self.threads.append(thread)
             self.log(f"Started temperature reading thread for unit {unit}", LogLevel.DEBUG)
-            time.sleep(0.1)  # Small delay between thread starts
+            time.sleep(self.poll_delay)  # Small delay between thread starts
             
         return True
 
@@ -87,8 +88,8 @@ class E5CNModbus:
                         self.temperatures[unit - 1] = temperature
                         self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
                 else:
-                    self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
-                time.sleep(0.5)  # small delay between reads
+                    self.log(f"Unit {unit} read failed (no response/invalid response)", LogLevel.ERROR)
+                time.sleep(self.poll_delay)
             except Exception as e:
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
                 time.sleep(1)  # Longer delay on error
@@ -147,6 +148,7 @@ class E5CNModbus:
         try:
             if self.client.is_socket_open():
                 self.client.close()
+                self.connected = False
                 self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
             else:
                 self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
@@ -161,10 +163,7 @@ class E5CNModbus:
                     if not self.client.is_socket_open():
                         try:
                             if self.client.connect():
-                                time.sleep(0.2)
-                                # clear any stale data
-                                if hasattr(self.client, 'socket'):
-                                    self.client.socket.reset_input_buffer()
+                                time.sleep(self.poll_delay)
                             else:
                                 self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
                                 self.connected = False
@@ -184,18 +183,28 @@ class E5CNModbus:
                     
                     if response and not response.isError():
                         self.connected = True
-                        temperature = response.registers[1] / 10.0
+                        if not hasattr(response, 'registers') or len(response.registers) < 2:
+                            self.log(f"Incomplete temperature register response from unit {unit}: {response}", LogLevel.ERROR)
+                            attempts -= 1
+                            time.sleep(self.poll_delay)
+                            continue
+
+                        reg0 = response.registers[0] & 0xFFFF
+                        reg1 = response.registers[1] & 0xFFFF
+                        pv_u32 = (reg0 << 16) | reg1
+                        temperature = pv_u32 * 0.1
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
-                        return "ERROR"
+                        time.sleep(self.poll_delay)
+                        continue
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
                 attempts -= 1
-                time.sleep(0.1)  # Short delay between retries
+                time.sleep(self.poll_delay)
 
         return None
 
