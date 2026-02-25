@@ -387,16 +387,20 @@ class EBEAMSystemDashboard:
         enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
-        ch_names = ["CH1 Enable", "CH2 Enable", "CH3 Enable"]
-        for i, label in enumerate(ch_names):
-            tk.Button(
+        self.enable_toggle_buttons = []
+        self._ch_enable_states = [False, False, False]  # local tracked enable state
+        for i in range(3):
+            btn = tk.Button(
                 enable_toggle_frame,
-                text=label,
-                bg="#4a6fa5",
+                text=f"CH{i+1}: Disabled",
+                bg="#888888",
                 fg="white",
                 font=("Helvetica", 9),
+                state="disabled",  # Initially disabled until armed
                 command=lambda idx=i: self._toggle_channel_enable(idx)
-            ).grid(row=0, column=i, sticky="ew", padx=2)
+            )
+            btn.grid(row=0, column=i, sticky="ew", padx=2)
+            self.enable_toggle_buttons.append(btn)
 
         # Add beams armed toggle
         beams_armed_control_frame = tk.Frame(main_frame)
@@ -574,8 +578,9 @@ class EBEAMSystemDashboard:
                             text="ARM BEAMS",
                             bg="sky blue"
                         )
-                    # Disable beam toggle buttons and reset their states
+                    # Disable beam toggle buttons, enable toggle buttons and reset states
                     self.update_beam_toggle_states(enabled=False, reset=True)
+                    self._update_enable_toggle_states(enabled=False)
                     self.logger.info("Beams disarmed via dashboard button")
                 else:
                     self.logger.error("Failed to disarm beams")
@@ -591,8 +596,9 @@ class EBEAMSystemDashboard:
                             text="BEAMS ARMED",
                             bg="navy"  # Darker shade of blue
                         )
-                    # Enable beam toggle buttons
+                    # Enable beam toggle buttons and enable toggle buttons
                     self.update_beam_toggle_states(enabled=True)
+                    self._update_enable_toggle_states(enabled=True)
                     self.logger.info("Beams armed via dashboard button")
                 else:
                     self.logger.error("Failed to arm beams")
@@ -603,8 +609,16 @@ class EBEAMSystemDashboard:
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
 
     def handle_beams_off(self):
-        """Handle Beams E-stop button press - turn off cathode heating and disarm beams if armed."""
+        """Handle Beams E-stop button press — force stop all BCON channels,
+        turn off cathode heating, and disarm beams."""
         try:
+            # Force stop all BCON channels immediately
+            if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                beam_pulse = self.subsystems['Beam Pulse']
+                if hasattr(beam_pulse, 'stop_all_channels'):
+                    beam_pulse.stop_all_channels()
+                    self.logger.info("All BCON channels force-stopped via E-STOP")
+
             # Turn off cathode heating power supplies
             if 'Cathode Heating' in self.subsystems and self.subsystems['Cathode Heating'] is not None:
                 cathode = self.subsystems['Cathode Heating']
@@ -612,11 +626,10 @@ class EBEAMSystemDashboard:
                     cathode.turn_off_all_beams()
                     self.logger.info("Cathode heating turned off via Beams E-stop button")
             
-            # Check if beams are armed and disarm them
+            # Disarm beams
             if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                 beam_pulse = self.subsystems['Beam Pulse']
                 if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
-                    # Beams are armed, so disarm them
                     if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
                         # Update the ARM BEAMS toggle state to OFF
                         if self.toggle_on_image and self.toggle_off_image:
@@ -626,8 +639,9 @@ class EBEAMSystemDashboard:
                                 text="ARM BEAMS",
                                 bg="sky blue"
                             )
-                        # Disable beam toggle buttons and reset their states
+                        # Disable beam toggle buttons, enable toggle buttons and reset states
                         self.update_beam_toggle_states(enabled=False, reset=True)
+                        self._update_enable_toggle_states(enabled=False)
                         self.logger.info("Beams disarmed via Beams E-stop button")
                     else:
                         self.logger.error("Failed to disarm beams via Beams E-stop")
@@ -635,19 +649,54 @@ class EBEAMSystemDashboard:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
 
     def _toggle_channel_enable(self, ch_index: int):
-        """Toggle the hardware enable for a BCON channel (0-based index)."""
+        """Toggle the hardware enable for a BCON channel (0-based index).
+
+        Only allowed when beams are armed.  When the channel is being
+        disabled (enabled -> disabled), also send OFF to ensure the
+        channel stops outputting.  Button reflects ON (green) / OFF (gray).
+        """
         try:
             beam_pulse = self.subsystems.get('Beam Pulse')
-            if beam_pulse and hasattr(beam_pulse, 'bcon_driver') and beam_pulse.bcon_driver:
+            if not beam_pulse or not hasattr(beam_pulse, 'get_beams_armed_status'):
+                self.logger.warning("Beam Pulse subsystem not available")
+                return
+            if not beam_pulse.get_beams_armed_status():
+                self.logger.warning("Cannot toggle enable — beams not armed")
+                return
+            if beam_pulse.bcon_driver:
+                # Use local tracked state as the primary source of truth so the
+                # toggle is always reliable regardless of hardware query timing.
+                was_enabled = self._ch_enable_states[ch_index]
+                new_enabled = not was_enabled
+                self._ch_enable_states[ch_index] = new_enabled
                 beam_pulse.bcon_driver.toggle_channel_enable(ch_index + 1)
-                self.logger.info(f"Enable toggle sent for CH{ch_index + 1}")
+                self.logger.info(
+                    f"CH{ch_index + 1} enable -> {'Enabled' if new_enabled else 'Disabled'}")
+                # Update enable button appearance
+                if ch_index < len(self.enable_toggle_buttons):
+                    btn = self.enable_toggle_buttons[ch_index]
+                    if new_enabled:
+                        btn.config(bg="#2e7d32", text=f"CH{ch_index+1}: Enabled")   # dark green
+                    else:
+                        btn.config(bg="#888888", text=f"CH{ch_index+1}: Disabled")  # gray
+                # If we just disabled the channel, force it OFF
+                if was_enabled:
+                    beam_pulse.send_channel_off(ch_index)
+                    beam_names = ["A", "B", "C"]
+                    if ch_index < len(self.beam_toggle_buttons):
+                        self.beam_toggle_buttons[ch_index].config(
+                            bg="gray", text=f"Beam {beam_names[ch_index]} OFF")
             else:
                 self.logger.warning("BCON driver not available for enable toggle")
         except Exception as e:
             self.logger.error(f"Error toggling CH{ch_index + 1} enable: {e}")
 
     def toggle_individual_beam_with_status(self, beam_index):
-        """Toggle individual beam on/off with status bar animation."""
+        """Toggle individual beam on/off.
+
+        ON  = read channel config from Beam Pulse panel and send to BCON.
+        OFF = send OFF command for the channel.
+        """
         try:
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
                 self.logger.error("Beam Pulse subsystem not available")
@@ -657,22 +706,22 @@ class EBEAMSystemDashboard:
             beam_names = ["A", "B", "C"]
             
             # Get current beam status
-            if hasattr(beam_pulse, 'get_beam_status'):
-                current_status = beam_pulse.get_beam_status(beam_index)
-                new_status = not current_status
-                
-                # Set new beam status
-                if hasattr(beam_pulse, 'set_beam_status'):
-                    beam_pulse.set_beam_status(beam_index, new_status)
-                    
-                    # Update button appearance and text
-                    btn = self.beam_toggle_buttons[beam_index]
-                    if new_status:
-                        btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-                        self.logger.info(f"Beam {beam_names[beam_index]} turned ON")
-                    else:
-                        btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                        self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
+            current_status = beam_pulse.get_beam_status(beam_index)
+            btn = self.beam_toggle_buttons[beam_index]
+
+            if current_status:
+                # Currently ON -> turn OFF
+                beam_pulse.send_channel_off(beam_index)
+                btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
+                self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
+            else:
+                # Currently OFF -> send channel config to BCON
+                ok = beam_pulse.send_channel_config(beam_index)
+                if ok:
+                    btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
+                    self.logger.info(f"Beam {beam_names[beam_index]} config sent to BCON")
+                else:
+                    self.logger.error(f"Failed to send Beam {beam_names[beam_index]} config")
                     
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
@@ -783,6 +832,25 @@ class EBEAMSystemDashboard:
                                 
         except Exception as e:
             self.logger.error(f"Error updating beam toggle states: {str(e)}")
+
+    def _update_enable_toggle_states(self, enabled=True):
+        """Enable or disable the CH Enable toggle buttons based on armed status.
+        When disabling (disarmed / E-STOP), also resets all buttons to OFF appearance.
+        """
+        try:
+            if not hasattr(self, 'enable_toggle_buttons'):
+                return
+            for i, btn in enumerate(self.enable_toggle_buttons):
+                if enabled:
+                    btn.config(state="normal")
+                    # Keep current Enabled/Disabled appearance; don't forcibly reset visual
+                else:
+                    # Disarmed — force all to Disabled appearance and reset tracking
+                    btn.config(state="disabled", bg="#888888", text=f"CH{i+1}: Disabled")
+                    if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
+                        self._ch_enable_states[i] = False
+        except Exception as e:
+            self.logger.error(f"Error updating enable toggle states: {str(e)}")
 
     def create_subsystems(self):
         """

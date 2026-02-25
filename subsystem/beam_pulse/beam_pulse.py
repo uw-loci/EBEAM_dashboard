@@ -229,24 +229,44 @@ class BeamPulseSubsystem:
             frame = ttk.LabelFrame(cards_frame, text=f"Channel {ch+1}", padding="5")
             frame.grid(row=0, column=ch, sticky="nsew", pady=4, padx=4)
 
-            # Row 1: Duration + Count
+            # Row 1: Mode selector
             r1 = ttk.Frame(frame)
             r1.pack(fill=tk.X, pady=2)
-            ttk.Label(r1, text="Duration (ms):").pack(side=tk.LEFT)
-            dur_entry = ttk.Entry(r1, width=8)
-            dur_entry.pack(side=tk.LEFT, padx=(2, 10))
-            ttk.Label(r1, text="Count:").pack(side=tk.LEFT)
-            cnt_entry = ttk.Entry(r1, width=6)
-            cnt_entry.pack(side=tk.LEFT, padx=2)
-
-            # Row 2: Mode selector
-            r2 = ttk.Frame(frame)
-            r2.pack(fill=tk.X, pady=2)
-            ttk.Label(r2, text="Mode:").pack(side=tk.LEFT)
-            mode_cb = ttk.Combobox(r2, values=["OFF", "DC", "PULSE", "PULSE_TRAIN"],
+            ttk.Label(r1, text="Mode:").pack(side=tk.LEFT)
+            mode_cb = ttk.Combobox(r1, values=["OFF", "DC", "PULSE", "PULSE_TRAIN"],
                                    state="readonly", width=12)
             mode_cb.set("PULSE")
             mode_cb.pack(side=tk.LEFT, padx=4)
+
+            # Row 2: Duration + Count
+            r2 = ttk.Frame(frame)
+            r2.pack(fill=tk.X, pady=2)
+            ttk.Label(r2, text="Duration (ms):").pack(side=tk.LEFT)
+            dur_entry = ttk.Entry(r2, width=8)
+            dur_entry.insert(0, "100")
+            dur_entry.pack(side=tk.LEFT, padx=(2, 10))
+            ttk.Label(r2, text="Count:").pack(side=tk.LEFT)
+            cnt_entry = ttk.Entry(r2, width=6)
+            cnt_entry.insert(0, "1")
+            cnt_entry.pack(side=tk.LEFT, padx=2)
+
+            def _on_mode_change(event, d=dur_entry, c=cnt_entry, m=mode_cb):
+                mode = m.get()
+                if mode in ("OFF", "DC"):
+                    d.config(state="disabled")
+                    c.config(state="disabled")
+                elif mode == "PULSE":
+                    d.config(state="normal")
+                    c.config(state="disabled")
+                    c.delete(0, "end")
+                    c.insert(0, "1")
+                else:  # PULSE_TRAIN
+                    d.config(state="normal")
+                    c.config(state="normal")
+
+            mode_cb.bind("<<ComboboxSelected>>", _on_mode_change)
+            # Apply initial state (PULSE: count grayed out)
+            cnt_entry.config(state="disabled")
 
             # Row 3: Status / pulses remaining
             r3 = ttk.Frame(frame)
@@ -255,22 +275,6 @@ class BeamPulseSubsystem:
             status_lbl.pack(side=tk.LEFT, padx=(0, 15))
             pulses_lbl = ttk.Label(r3, text="Remaining: 0", font=("Arial", 8))
             pulses_lbl.pack(side=tk.LEFT)
-
-            # Row 4: Action buttons
-            r4 = ttk.Frame(frame)
-            r4.pack(fill=tk.X, pady=(4, 2))
-            ttk.Button(r4, text="Apply Params+Mode", width=18,
-                       command=lambda c=ch, d=dur_entry, n=cnt_entry, m=mode_cb:
-                       self._manual_apply(c, d, n, m)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(r4, text="Off",
-                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_OFF)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(r4, text="DC",
-                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_DC)).pack(side=tk.LEFT, padx=2)
-
-            r5 = ttk.Frame(frame)
-            r5.pack(fill=tk.X, pady=2)
-            ttk.Button(r5, text="Pulse",
-                       command=lambda c=ch: self._manual_set_mode(c, self.MODE_PULSE)).pack(side=tk.LEFT, padx=2)
 
             self.channel_vars.append({
                 'duration': dur_entry,
@@ -732,8 +736,10 @@ class BeamPulseSubsystem:
 
     @staticmethod
     def _safe_fill(entry_widget, value):
-        """Overwrite entry only if empty or '0'."""
+        """Overwrite entry only if empty or '0', and only when the widget is not disabled."""
         try:
+            if str(entry_widget.cget("state")) == "disabled":
+                return
             cur = entry_widget.get().strip()
         except Exception:
             return
@@ -1079,6 +1085,75 @@ class BeamPulseSubsystem:
                     self.bcon_driver.set_channel_dc(ch)
             else:
                 self.bcon_driver.set_channel_off(ch)
+
+    # --- Channel config access for dashboard integration ---
+
+    def get_channel_config(self, ch: int) -> Dict:
+        """Return the GUI-configured params for a channel (0-based index).
+
+        Returns dict with keys: mode (str), duration_ms (int), count (int).
+        Falls back to defaults if GUI widgets are not available.
+        """
+        config = {'mode': 'PULSE', 'duration_ms': 100, 'count': 1}
+        if ch < len(self.channel_vars):
+            cv = self.channel_vars[ch]
+            try:
+                config['mode'] = cv['mode'].get().strip().upper()
+            except Exception:
+                pass
+            try:
+                config['duration_ms'] = int(cv['duration'].get())
+            except (ValueError, Exception):
+                pass
+            try:
+                config['count'] = int(cv['count'].get())
+            except (ValueError, Exception):
+                pass
+        return config
+
+    def send_channel_config(self, ch: int) -> bool:
+        """Read GUI params for channel *ch* (0-based) and write them to BCON.
+
+        Returns True on success.
+        """
+        if not self.bcon_driver:
+            self._log("No BCON driver", LogLevel.WARNING)
+            return False
+        config = self.get_channel_config(ch)
+        mode_label = config['mode']
+        duration = config['duration_ms']
+        count = config['count']
+        if mode_label not in MODE_LABEL_TO_CODE:
+            self._log(f"Invalid mode: {mode_label}", LogLevel.ERROR)
+            return False
+        base = CH_BASE[ch]
+        self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, duration)
+        self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, count)
+        self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
+        self.beam_on_status[ch] = True
+        self._log_event(f"Sent CH{ch+1}: mode={mode_label} dur={duration}ms count={count}")
+        if self._dashboard_beam_callback:
+            try:
+                self._dashboard_beam_callback(ch, True)
+            except Exception:
+                pass
+        return True
+
+    def send_channel_off(self, ch: int) -> bool:
+        """Send OFF mode to a single channel (0-based index)."""
+        if not self.bcon_driver:
+            self._log("No BCON driver", LogLevel.WARNING)
+            return False
+        base = CH_BASE[ch]
+        self.bcon_driver.enqueue_write(base + CH_MODE_OFF, int(BCONMode.OFF))
+        self.beam_on_status[ch] = False
+        self._log_event(f"CH{ch+1} -> OFF")
+        if self._dashboard_beam_callback:
+            try:
+                self._dashboard_beam_callback(ch, False)
+            except Exception:
+                pass
+        return True
 
     def safe_shutdown(self, reason: Optional[str] = None) -> bool:
         self._log(f"Safe shutdown: {reason or 'No reason'}", LogLevel.WARNING)
