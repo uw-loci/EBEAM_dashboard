@@ -223,6 +223,9 @@ class BeamPulseSubsystem:
         self.pulser_status_canvases = []
         self.pulser_enabled_canvases = []
 
+        # Validation command: allow only whole numbers (digits only, may be empty)
+        _int_vcmd = (container.register(lambda s: s.isdigit() or s == ""), "%P")
+
         # --- Per-channel control cards (horizontal layout) ---
         cards_frame = ttk.Frame(container)
         cards_frame.pack(fill=tk.BOTH, expand=True)
@@ -244,15 +247,15 @@ class BeamPulseSubsystem:
             mode_cb.set("PULSE")
             mode_cb.pack(side=tk.LEFT, padx=4)
 
-            # Row 2: Duration + Count
+            # Row 2: Duration + Count (digits-only input)
             r2 = ttk.Frame(frame)
             r2.pack(fill=tk.X, pady=2)
             ttk.Label(r2, text="Duration (ms):").pack(side=tk.LEFT)
-            dur_entry = ttk.Entry(r2, width=8)
+            dur_entry = ttk.Entry(r2, width=8, validate="key", validatecommand=_int_vcmd)
             dur_entry.insert(0, "100")
             dur_entry.pack(side=tk.LEFT, padx=(2, 10))
             ttk.Label(r2, text="Count:").pack(side=tk.LEFT)
-            cnt_entry = ttk.Entry(r2, width=6)
+            cnt_entry = ttk.Entry(r2, width=6, validate="key", validatecommand=_int_vcmd)
             cnt_entry.insert(0, "1")
             cnt_entry.pack(side=tk.LEFT, padx=2)
 
