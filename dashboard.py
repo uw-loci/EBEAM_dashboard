@@ -339,6 +339,8 @@ class EBEAMSystemDashboard:
         # TODO: add main control buttons to main tab here
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
+        # Save reference so beam_pulse subsystem can add its buttons here
+        self.main_control_frame = main_frame
 
         # Add safety beams off button (bottom)
         beams_off_button = tk.Button(
@@ -904,7 +906,11 @@ class EBEAMSystemDashboard:
                 
                 # Set up dashboard callback for pulse animations
                 beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
-                
+
+                # Add Sync Control and CSV Sequence action buttons to Main Control panel
+                if hasattr(self, 'main_control_frame'):
+                    beam_pulse_subsystem.create_external_control_buttons(self.main_control_frame)
+
                 self.subsystems['Beam Pulse'] = beam_pulse_subsystem
             else:
                 # placeholder if module not importable

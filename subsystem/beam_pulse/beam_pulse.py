@@ -97,6 +97,7 @@ class BeamPulseSubsystem:
         self.bcon_connection_status = False
         self.beams_armed_status = False
         self.beam_on_status = [False, False, False]
+        self._active_channels: set = set()  # channels currently executing (from registers)
 
         # Dashboard integration callback
         self._dashboard_beam_callback = None
@@ -343,12 +344,7 @@ class BeamPulseSubsystem:
 
             self.sync_configs.append({'duration': dur_e, 'count': cnt_e, 'mode': mode_cb})
 
-        # Action buttons
-        btn_row = ttk.Frame(container)
-        btn_row.pack(fill=tk.X, pady=(8, 4))
-        ttk.Button(btn_row, text="Write Params", command=self._sync_write_params).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="Start Selected", command=self._sync_start).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="Stop All", command=self._sync_stop_all).pack(side=tk.LEFT, padx=4)
+        # (Action buttons for Sync Control are hosted in the Main Control panel)
 
     # ----------------------------- Tab 3: Auto CSV Sequence --------------- #
 
@@ -366,19 +362,53 @@ class BeamPulseSubsystem:
         self.seq_progress_lbl = ttk.Label(container, text="")
         self.seq_progress_lbl.pack(anchor="w", padx=4, pady=(2, 4))
 
-        btn_row = ttk.Frame(container)
-        btn_row.pack(fill=tk.X, pady=(4, 8))
-        ttk.Button(btn_row, text="Load CSV", command=self._load_sequence).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="Save Template", command=self._save_sequence_template).pack(side=tk.LEFT, padx=4)
-        self.seq_run_btn = ttk.Button(btn_row, text="Run Sequence", command=self._run_sequence, state="disabled")
-        self.seq_run_btn.pack(side=tk.LEFT, padx=4)
-        self.seq_stop_btn = ttk.Button(btn_row, text="Stop", command=self._stop_sequence, state="disabled")
-        self.seq_stop_btn.pack(side=tk.LEFT, padx=4)
+        # (Action buttons for CSV Sequence are hosted in the Main Control panel)
 
         # Sequence preview (simple text view)
         ttk.Label(container, text="Loaded Steps:", font=("Arial", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
         self.seq_preview_text = tk.Text(container, height=10, width=60, state="disabled", font=("Courier", 9))
         self.seq_preview_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    # ------------------------------------------------------------------ #
+    #  External control buttons (hosted in the Main Control panel)        #
+    # ------------------------------------------------------------------ #
+
+    def create_external_control_buttons(self, parent_frame):
+        """Create Sync Control and CSV Sequence action buttons in *parent_frame*.
+
+        Buttons are arranged vertically and expand to fill the available width.
+        Call this once from the dashboard after the subsystem is created.
+        """
+        outer = ttk.Frame(parent_frame)
+        outer.pack(fill=tk.X, padx=6, pady=(6, 2))
+
+        # --- Sync Control section ---
+        sync_lbl = ttk.Label(outer, text="Sync Control", font=("Arial", 9, "bold"))
+        sync_lbl.pack(fill=tk.X, pady=(0, 2))
+
+        for text, cmd in (
+            ("Write Params",  self._sync_write_params),
+            ("Start Selected", self._sync_start),
+            ("Stop All",      self._sync_stop_all),
+        ):
+            ttk.Button(outer, text=text, command=cmd).pack(fill=tk.X, pady=1)
+
+        ttk.Separator(outer, orient="horizontal").pack(fill=tk.X, pady=6)
+
+        # --- CSV Sequence section ---
+        csv_lbl = ttk.Label(outer, text="CSV Sequence", font=("Arial", 9, "bold"))
+        csv_lbl.pack(fill=tk.X, pady=(0, 2))
+
+        ttk.Button(outer, text="Load CSV",       command=self._load_sequence).pack(fill=tk.X, pady=1)
+        ttk.Button(outer, text="Save Template",  command=self._save_sequence_template).pack(fill=tk.X, pady=1)
+
+        self.seq_run_btn = ttk.Button(outer, text="Run Sequence",
+                                      command=self._run_sequence, state="disabled")
+        self.seq_run_btn.pack(fill=tk.X, pady=1)
+
+        self.seq_stop_btn = ttk.Button(outer, text="Stop Sequence",
+                                       command=self._stop_sequence, state="disabled")
+        self.seq_stop_btn.pack(fill=tk.X, pady=1)
 
     # ================================================================== #
     #                    Manual Tab Actions                                #
@@ -555,7 +585,8 @@ class BeamPulseSubsystem:
             self.seq_file_lbl.configure(
                 text=f"{os.path.basename(fname)}  ({n} step{'s' if n != 1 else ''})")
             self.seq_progress_lbl.configure(text="Ready")
-            self.seq_run_btn.configure(state="normal")
+            if hasattr(self, 'seq_run_btn'):
+                self.seq_run_btn.configure(state="normal")
 
             # Update preview
             self.seq_preview_text.configure(state="normal")
@@ -618,8 +649,10 @@ class BeamPulseSubsystem:
         if self._seq_thread and self._seq_thread.is_alive():
             return
         self._seq_stop.clear()
-        self.seq_run_btn.configure(state="disabled")
-        self.seq_stop_btn.configure(state="normal")
+        if hasattr(self, 'seq_run_btn'):
+            self.seq_run_btn.configure(state="disabled")
+        if hasattr(self, 'seq_stop_btn'):
+            self.seq_stop_btn.configure(state="normal")
         self._seq_thread = threading.Thread(target=self._sequence_worker, daemon=True)
         self._seq_thread.start()
         self._log_event("Sequence started")
@@ -723,6 +756,15 @@ class BeamPulseSubsystem:
             self.channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
             self.channel_vars[ch]['pulses'].configure(text=f"Remaining: {remaining}")
 
+            # Lock manual controls when channel is actively running
+            is_running = (mode_code != self.MODE_OFF) and (remaining > 0)
+            if is_running:
+                self._active_channels.add(ch)
+                self._set_manual_channel_lock(ch, True)
+            else:
+                self._active_channels.discard(ch)
+                self._set_manual_channel_lock(ch, False)
+
             # NOTE: do NOT push hardware mode back into the mode combobox — that
             # would overwrite the user's intended configuration.  The status label
             # above already shows the live running mode.
@@ -764,6 +806,31 @@ class BeamPulseSubsystem:
         if cur == '' or cur == '0':
             entry_widget.delete(0, 'end')
             entry_widget.insert(0, str(value))
+
+    def _set_manual_channel_lock(self, ch: int, locked: bool):
+        """Gray out (lock=True) or restore (lock=False) editable widgets for a manual-tab channel."""
+        if ch >= len(self.channel_vars):
+            return
+        cv = self.channel_vars[ch]
+        try:
+            if locked:
+                cv['mode'].configure(state='disabled')
+                cv['duration'].configure(state='disabled')
+                cv['count'].configure(state='disabled')
+            else:
+                cv['mode'].configure(state='readonly')
+                mode = cv['mode'].get()
+                if mode in ('OFF', 'DC'):
+                    cv['duration'].configure(state='disabled')
+                    cv['count'].configure(state='disabled')
+                elif mode == 'PULSE':
+                    cv['duration'].configure(state='normal')
+                    cv['count'].configure(state='disabled')
+                else:  # PULSE_TRAIN
+                    cv['duration'].configure(state='normal')
+                    cv['count'].configure(state='normal')
+        except Exception:
+            pass
 
     # ================================================================== #
     #                  Status Monitoring                                    #
