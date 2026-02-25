@@ -356,6 +356,12 @@ class EBEAMSystemDashboard:
         # Script dropdown
         self.create_script_dropdown(main_frame)
 
+        # Placeholder frame for CSV sequence buttons — populated by
+        # BeamPulseSubsystem.create_csv_buttons() in create_subsystems().
+        # Placed here so they always appear below the script dropdown.
+        self.csv_buttons_frame = ttk.Frame(main_frame)
+        self.csv_buttons_frame.pack(side="top", fill="x")
+
         # --- Manual-tab panel: Beam ON/OFF + CH Enable/Disable buttons --
         # Stored as self.bp_manual_panel so the beam_pulse subsystem can swap
         # it in/out when the Beam Pulse notebook tab changes.
@@ -807,6 +813,32 @@ class EBEAMSystemDashboard:
         except Exception as e:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
 
+    def _on_channel_status_update(self, ch: int, mode_code: int, remaining: int):
+        """Mirror live BCON register state onto the Beam A/B/C toggle button.
+
+        Called on every register-poll cycle by BeamPulseSubsystem.
+        mode_code=0 means OFF; remaining=0 means all pulses delivered.
+        """
+        beam_names = ["A", "B", "C"]
+        if not hasattr(self, 'beam_toggle_buttons') or ch >= len(self.beam_toggle_buttons):
+            return
+        btn = self.beam_toggle_buttons[ch]
+        is_running = (mode_code != 0) and (remaining > 0)
+        try:
+            if is_running:
+                btn.config(bg="green", text=f"Beam {beam_names[ch]} ON")
+                if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                    self.subsystems['Beam Pulse'].beam_on_status[ch] = True
+            else:
+                # Only reset to gray when the button is currently green
+                # (avoids overwriting a manually-initiated OFF state)
+                if str(btn.cget('bg')) == 'green':
+                    btn.config(bg="gray", text=f"Beam {beam_names[ch]} OFF")
+                    if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                        self.subsystems['Beam Pulse'].beam_on_status[ch] = False
+        except Exception:
+            pass
+
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
         try:
@@ -913,15 +945,22 @@ class EBEAMSystemDashboard:
                 # Set up dashboard callback for pulse animations
                 beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
 
-                # Add tab-aware action buttons to the Main Control panel.
-                # Pass bp_manual_panel so the Manual tab shows the dashboard's
-                # Beam ON/OFF + CH Enable buttons (instead of Apply buttons).
+                # Add Sync Start/Stop and register channel-status callback.
                 if hasattr(self, 'main_control_frame'):
                     manual_panel = getattr(self, 'bp_manual_panel', None)
                     beam_pulse_subsystem.create_external_control_buttons(
                         self.main_control_frame,
                         manual_panel_override=manual_panel
                     )
+
+                # CSV sequence buttons below the script-selection dropdown
+                if hasattr(self, 'csv_buttons_frame'):
+                    beam_pulse_subsystem.create_csv_buttons(self.csv_buttons_frame)
+
+                # Mirror live BCON register state onto the Beam toggle buttons
+                beam_pulse_subsystem.set_channel_status_callback(
+                    self._on_channel_status_update
+                )
 
                 self.subsystems['Beam Pulse'] = beam_pulse_subsystem
             else:

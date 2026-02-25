@@ -107,6 +107,10 @@ class BeamPulseSubsystem:
         self._seq_thread: Optional[threading.Thread] = None
         self._seq_stop = threading.Event()
 
+        # Channel status callback — set_channel_status_callback(cb) registers
+        # a function cb(ch, mode_code, remaining) called from register polling.
+        self._channel_status_callback = None
+
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
             Path(d).mkdir(exist_ok=True)
@@ -157,12 +161,7 @@ class BeamPulseSubsystem:
         self.notebook.add(self.manual_tab, text="Manual Control")
         self._build_manual_tab()
 
-        # Tab 2: Sync Manual Control
-        self.sync_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.sync_tab, text="Sync Control")
-        self._build_sync_tab()
-
-        # Tab 3: Auto CSV Sequence
+        # Tab 2: Auto CSV Sequence
         self.sequence_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.sequence_tab, text="CSV Sequence")
         self._build_sequence_tab()
@@ -374,43 +373,62 @@ class BeamPulseSubsystem:
     # ------------------------------------------------------------------ #
 
     def create_external_control_buttons(self, parent_frame, manual_panel_override=None):
-        """Create tab-aware action buttons in *parent_frame* (Main Control panel).
+        """Append Sync Start / Sync Stop buttons to the manual control panel.
 
-        Three sub-frames are swapped to match the currently-selected Beam Pulse tab:
+        Sync Start sends all three channels simultaneously using the per-channel
+        configuration from the Manual Control tab.  Sync Stop halts all channels.
 
-        Tab 0 – Manual Control  → dashboard beam ON/OFF + CH Enable buttons
-                                   (manual_panel_override) or built-in Apply buttons
-        Tab 1 – Sync Control    → Write Params / Start Selected / Stop All
-        Tab 2 – CSV Sequence    → Load / Save Template / Run / Stop
+        If *manual_panel_override* is provided the buttons are appended directly
+        into that frame (below the CH Enable/Disable row placed by the dashboard).
+        Otherwise a minimal standalone panel is built inside *parent_frame*.
+
+        CSV sequence buttons are placed separately via :meth:`create_csv_buttons`.
 
         Parameters:
-            parent_frame:          tkinter frame that hosts the tab-switching panels.
-            manual_panel_override: If provided, this existing frame is used as the
-                                   Tab-0 panel instead of building Apply-CH buttons.
-                                   Pass the dashboard's bp_manual_panel here.
+            parent_frame:          Tkinter frame that owns the controls when no
+                                   manual_panel_override is given.
+            manual_panel_override: Existing frame to append the Sync row into.
+                                   Pass the dashboard's ``bp_manual_panel`` here.
         """
-        # Container for Sync and CSV panels (Manual panel may live elsewhere)
-        outer = ttk.Frame(parent_frame)
-        outer.pack(fill=tk.X, padx=6, pady=(6, 2))
-
-        # Buttons that must be disabled while beams are disarmed.
-        # Stop / off / file-only buttons are intentionally excluded.
+        # Collect button refs that must be disabled while beams are disarmed.
+        # Stop buttons are intentionally excluded — they are always accessible.
         self._armed_gated_buttons: list = []
 
-        # ---- Panel 0: Manual Control ----------------------------------------
         if manual_panel_override is not None:
-            # Use the dashboard's existing Beam ON/OFF + CH Enable frame
             self._ext_manual_frame = manual_panel_override
+
+            # --- Sync action row (appended below the CH Enable/Disable row) ---
+            sync_row = tk.Frame(manual_panel_override)
+            sync_row.pack(side="top", fill="x", pady=(4, 0))
+            sync_row.grid_columnconfigure(0, weight=1, uniform="sbtn")
+            sync_row.grid_columnconfigure(1, weight=1, uniform="sbtn")
+
+            self.sync_start_btn = tk.Button(
+                sync_row, text="Sync Start",
+                bg="#1565C0", fg="white", font=("Helvetica", 9, "bold"),
+                state="disabled", command=self._sync_start,
+            )
+            self.sync_start_btn.grid(row=0, column=0, sticky="ew", padx=(2, 1))
+            self._armed_gated_buttons.append(self.sync_start_btn)
+
+            # Sync Stop is always enabled (safety action)
+            self.sync_stop_btn = tk.Button(
+                sync_row, text="Sync Stop",
+                bg="#B71C1C", fg="white", font=("Helvetica", 9, "bold"),
+                state="normal", command=self._sync_stop_all,
+            )
+            self.sync_stop_btn.grid(row=0, column=1, sticky="ew", padx=(1, 2))
+
         else:
-            # Standalone fallback: per-channel Apply buttons
-            self._ext_manual_frame = ttk.Frame(outer)
-            ttk.Label(self._ext_manual_frame, text="Manual Control",
+            # Standalone fallback: per-channel Apply buttons + Sync row
+            outer = ttk.Frame(parent_frame)
+            outer.pack(fill=tk.X, padx=6, pady=(6, 2))
+            self._ext_manual_frame = outer
+            ttk.Label(outer, text="Manual + Sync Control",
                       font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
             for ch in range(3):
                 btn = ttk.Button(
-                    self._ext_manual_frame,
-                    text=f"Apply CH{ch + 1}",
-                    state="disabled",
+                    outer, text=f"Apply CH{ch + 1}", state="disabled",
                     command=lambda c=ch: self._manual_apply(
                         c,
                         self.channel_vars[c]['duration'],
@@ -420,61 +438,46 @@ class BeamPulseSubsystem:
                 )
                 btn.pack(fill=tk.X, pady=1)
                 self._armed_gated_buttons.append(btn)
+            sync_start = ttk.Button(outer, text="Sync Start", state="disabled",
+                                    command=self._sync_start)
+            sync_start.pack(fill=tk.X, pady=1)
+            self._armed_gated_buttons.append(sync_start)
+            ttk.Button(outer, text="Sync Stop",
+                       command=self._sync_stop_all).pack(fill=tk.X, pady=1)
 
-        # ---- Panel 1: Sync Control buttons ----------------------------------
-        self._ext_sync_frame = ttk.Frame(outer)
-        ttk.Label(self._ext_sync_frame, text="Sync Control",
-                  font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
-        for text, cmd in (
-            ("Write Params",   self._sync_write_params),
-            ("Start Selected", self._sync_start),
-        ):
-            btn = ttk.Button(self._ext_sync_frame, text=text, state="disabled", command=cmd)
-            btn.pack(fill=tk.X, pady=1)
-            self._armed_gated_buttons.append(btn)
-        # Stop All is always enabled (safety action)
-        ttk.Button(self._ext_sync_frame, text="Stop All",
-                   command=self._sync_stop_all).pack(fill=tk.X, pady=1)
+    def create_csv_buttons(self, parent_frame):
+        """Build CSV sequence control buttons in *parent_frame* (always visible).
 
-        # ---- Panel 2: CSV Sequence buttons ----------------------------------
-        self._ext_csv_frame = ttk.Frame(outer)
-        ttk.Label(self._ext_csv_frame, text="CSV Sequence",
-                  font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
-        # Load CSV and Save Template are file-only — always enabled
-        ttk.Button(self._ext_csv_frame, text="Load CSV",
-                   command=self._load_sequence).pack(fill=tk.X, pady=1)
-        ttk.Button(self._ext_csv_frame, text="Save Template",
-                   command=self._save_sequence_template).pack(fill=tk.X, pady=1)
-        # Run Sequence: gated by both arm state AND sequence loaded
-        self.seq_run_btn = ttk.Button(self._ext_csv_frame, text="Run Sequence",
-                                      command=self._run_sequence, state="disabled")
-        self.seq_run_btn.pack(fill=tk.X, pady=1)
-        # Stop Sequence is always enabled (safety action)
-        self.seq_stop_btn = ttk.Button(self._ext_csv_frame, text="Stop Sequence",
-                                       command=self._stop_sequence, state="disabled")
-        self.seq_stop_btn.pack(fill=tk.X, pady=1)
+        Designed to be called by the dashboard immediately after the script-
+        selection dropdown, so the buttons appear below it regardless of which
+        Beam Pulse notebook tab is active.
 
-        # ---- Tab-switching logic --------------------------------------------
-        _panels = [self._ext_manual_frame, self._ext_sync_frame, self._ext_csv_frame]
+        Parameters:
+            parent_frame: Tkinter frame that will host the CSV controls.
+        """
+        container = ttk.LabelFrame(parent_frame, text="CSV Sequence", padding="4")
+        container.pack(fill=tk.X, padx=6, pady=(4, 2))
 
-        def _show_panel(idx: int):
-            for i, panel in enumerate(_panels):
-                if i == idx:
-                    panel.pack(fill=tk.X)
-                else:
-                    panel.pack_forget()
+        # Load CSV / Save Template — file operations; always enabled
+        row1 = ttk.Frame(container)
+        row1.pack(fill=tk.X, pady=1)
+        ttk.Button(row1, text="Load CSV",
+                   command=self._load_sequence).pack(
+                   side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        ttk.Button(row1, text="Save Template",
+                   command=self._save_sequence_template).pack(
+                   side=tk.LEFT, fill=tk.X, expand=True)
 
-        def _on_tab_changed(event=None):
-            try:
-                idx = self.notebook.index(self.notebook.select())
-            except Exception:
-                idx = 0
-            _show_panel(idx)
-
-        self.notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
-
-        # Show the panel that matches the currently-active tab (default: tab 0)
-        _show_panel(0)
+        # Run / Stop — Run is gated by armed state AND sequence loaded
+        row2 = ttk.Frame(container)
+        row2.pack(fill=tk.X, pady=1)
+        self.seq_run_btn = ttk.Button(row2, text="Run Sequence",
+                                      state="disabled", command=self._run_sequence)
+        self.seq_run_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+        # Stop Sequence always enabled (safety action)
+        self.seq_stop_btn = ttk.Button(row2, text="Stop Sequence",
+                                       state="disabled", command=self._stop_sequence)
+        self.seq_stop_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     # ================================================================== #
     #                    Manual Tab Actions                                #
@@ -572,46 +575,42 @@ class BeamPulseSubsystem:
     # ================================================================== #
 
     def _sync_write_params(self):
-        """Write duration + count for checked channels (without changing mode)."""
+        """Write duration + count for all channels from Manual tab configuration."""
         if not self._require_armed():
             return
         if not self.bcon_driver:
             return
-        selected = [ch for ch in range(3) if self.sync_ch_vars[ch].get()]
-        if not selected:
-            self._log_event("Sync: no channels checked")
-            return
-        for ch in selected:
-            cfg = self.sync_configs[ch]
-            dur_str = cfg['duration'].get().strip()
-            cnt_str = cfg['count'].get().strip()
+        for ch in range(3):
+            if ch >= len(self.channel_vars):
+                continue
+            cv = self.channel_vars[ch]
+            dur_str = cv['duration'].get().strip()
+            cnt_str = cv['count'].get().strip()
             try:
-                dur = int(dur_str) if dur_str else None
-                cnt = int(cnt_str) if cnt_str else None
+                dur = int(dur_str) if dur_str else 100
+                cnt = int(cnt_str) if cnt_str else 1
             except ValueError:
                 messagebox.showerror("Invalid", f"CH{ch+1}: duration and count must be integers")
                 return
-            if dur is not None and dur > 0:
-                self.bcon_driver.set_channel_params(ch + 1, dur, cnt if cnt and cnt > 0 else 1)
-        self._log_event(f"Sync wrote params for CH{[c+1 for c in selected]}")
+            if dur > 0:
+                self.bcon_driver.set_channel_params(ch + 1, dur, cnt if cnt > 0 else 1)
+        self._log_event("Sync wrote params for all channels")
 
     def _sync_start(self):
-        """Synchronous start of selected channels (params + mode in two phases)."""
+        """Synchronous start of all channels using Manual Control tab configuration."""
         if not self._require_armed():
             return
         if not self.bcon_driver:
             return
-        selected = [ch for ch in range(3) if self.sync_ch_vars[ch].get()]
-        if not selected:
-            self._log_event("Sync Start: no channels checked")
-            return
 
         configs = []
-        for ch in selected:
-            cfg = self.sync_configs[ch]
-            dur_str = cfg['duration'].get().strip()
-            cnt_str = cfg['count'].get().strip()
-            mode_label = cfg['mode'].get().strip().upper()
+        for ch in range(3):
+            if ch >= len(self.channel_vars):
+                continue
+            cv = self.channel_vars[ch]
+            dur_str = cv['duration'].get().strip()
+            cnt_str = cv['count'].get().strip()
+            mode_label = cv['mode'].get().strip().upper()
             try:
                 dur = int(dur_str) if dur_str else 100
                 cnt = int(cnt_str) if cnt_str else 1
@@ -630,11 +629,12 @@ class BeamPulseSubsystem:
                 'duration_ms': dur, 'count': cnt,
             })
 
-        self.bcon_driver.sync_start(configs)
-        self._log_event(
-            "Sync Start: " +
-            ", ".join(f"CH{c['ch']}={c['mode']}({c['duration_ms']}ms x{c['count']})" for c in configs)
-        )
+        if configs:
+            self.bcon_driver.sync_start(configs)
+            self._log_event(
+                "Sync Start: " +
+                ", ".join(f"CH{c['ch']}={c['mode']}({c['duration_ms']}ms x{c['count']})" for c in configs)
+            )
 
     def _sync_stop_all(self):
         """Stop all channels immediately."""
@@ -877,6 +877,13 @@ class BeamPulseSubsystem:
             else:
                 self._active_channels.discard(ch)
                 self._set_manual_channel_lock(ch, False)
+
+            # Notify dashboard so beam toggle button colour tracks hardware state
+            if callable(getattr(self, '_channel_status_callback', None)):
+                try:
+                    self._channel_status_callback(ch, mode_code, remaining)
+                except Exception:
+                    pass
 
             # NOTE: do NOT push hardware mode back into the mode combobox — that
             # would overwrite the user's intended configuration.  The status label
@@ -1163,6 +1170,14 @@ class BeamPulseSubsystem:
             v = vars_list[beam_index]
             return v.get() if hasattr(v, 'get') else float(v)
         return 50.0
+
+    def set_channel_status_callback(self, callback):
+        """Register callback(ch, mode_code, remaining) invoked on every register poll.
+
+        The dashboard uses this to keep the Beam A/B/C toggle buttons in sync
+        with live hardware state without polling from the dashboard side.
+        """
+        self._channel_status_callback = callback
 
     def set_dashboard_beam_callback(self, callback):
         self._dashboard_beam_callback = callback
