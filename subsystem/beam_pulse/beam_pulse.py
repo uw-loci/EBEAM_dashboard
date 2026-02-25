@@ -466,8 +466,21 @@ class BeamPulseSubsystem:
     #                    Manual Tab Actions                                #
     # ================================================================== #
 
+    def _require_armed(self) -> bool:
+        """Return True if beams are armed; log a warning and return False otherwise.
+
+        Call this at the top of every action that sends commands to BCON.
+        Stop / disarm / off actions should NOT call this — they must always work.
+        """
+        if not self.beams_armed_status:
+            self._log_event("Action blocked: beams are not armed")
+            return False
+        return True
+
     def _manual_apply(self, ch, dur_entry, cnt_entry, mode_cb):
         """Apply parameters + mode for a single channel."""
+        if not self._require_armed():
+            return
         if not self.bcon_driver:
             self._log("No BCON driver", LogLevel.WARNING)
             return
@@ -498,6 +511,8 @@ class BeamPulseSubsystem:
 
     def _manual_set_mode(self, ch, mode_code):
         """Quick mode button for a single channel."""
+        if not self._require_armed():
+            return
         if not self.bcon_driver:
             return
         base = CH_BASE[ch]
@@ -509,6 +524,8 @@ class BeamPulseSubsystem:
 
     def _manual_toggle_enable(self, ch):
         """Toggle enable for a single channel."""
+        if not self._require_armed():
+            return
         if not self.bcon_driver:
             return
         self.bcon_driver.toggle_channel_enable(ch + 1)
@@ -520,6 +537,8 @@ class BeamPulseSubsystem:
 
     def _sync_write_params(self):
         """Write duration + count for checked channels (without changing mode)."""
+        if not self._require_armed():
+            return
         if not self.bcon_driver:
             return
         selected = [ch for ch in range(3) if self.sync_ch_vars[ch].get()]
@@ -542,6 +561,8 @@ class BeamPulseSubsystem:
 
     def _sync_start(self):
         """Synchronous start of selected channels (params + mode in two phases)."""
+        if not self._require_armed():
+            return
         if not self.bcon_driver:
             return
         selected = [ch for ch in range(3) if self.sync_ch_vars[ch].get()]
@@ -692,6 +713,8 @@ class BeamPulseSubsystem:
 
     def _run_sequence(self):
         """Start running the loaded CSV sequence."""
+        if not self._require_armed():
+            return
         if not self._seq_steps:
             messagebox.showinfo("Sequence", "No sequence loaded.")
             return
@@ -1149,6 +1172,8 @@ class BeamPulseSubsystem:
         return {'system': {'state': 'UNKNOWN'}, 'channels': []}
 
     def set_channel_mode(self, channel_index: int, mode: str, duration_ms: int = 0) -> bool:
+        if not self._require_armed():
+            return False
         if not self.bcon_driver:
             return False
         channel = channel_index + 1
@@ -1253,6 +1278,8 @@ class BeamPulseSubsystem:
 
         Returns True on success.
         """
+        if not self._require_armed():
+            return False
         if not self.bcon_driver:
             self._log("No BCON driver", LogLevel.WARNING)
             return False
