@@ -111,6 +111,11 @@ class BeamPulseSubsystem:
         # a function cb(ch, mode_code, remaining) called from register polling.
         self._channel_status_callback = None
 
+        # Channel enable getter — set_channel_enable_getter(fn) registers a
+        # zero-argument callable that returns list[bool] (one entry per channel).
+        # _sync_start uses it to skip channels that are not hardware-enabled.
+        self._ch_enable_getter = None
+
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
             Path(d).mkdir(exist_ok=True)
@@ -640,15 +645,33 @@ class BeamPulseSubsystem:
         self._log_event("Sync wrote params for all channels")
 
     def _sync_start(self):
-        """Synchronous start of all channels using Manual Control tab configuration."""
+        """Synchronous start of enabled channels using Manual Control tab configuration.
+
+        Only channels that are currently hardware-enabled (per the dashboard's
+        CH Enable state, provided via set_channel_enable_getter) are included.
+        If no getter is registered all three channels are started.
+        """
         if not self._require_armed():
             return
         if not self.bcon_driver:
             return
 
+        # Resolve which channels are enabled; default to all if no getter registered
+        enable_states: list
+        if callable(self._ch_enable_getter):
+            try:
+                enable_states = list(self._ch_enable_getter())
+            except Exception:
+                enable_states = [True, True, True]
+        else:
+            enable_states = [True, True, True]
+
         configs = []
         for ch in range(3):
             if ch >= len(self.channel_vars):
+                continue
+            if not enable_states[ch] if ch < len(enable_states) else False:
+                self._log_event(f"Sync Start: CH{ch+1} skipped (not enabled)")
                 continue
             cv = self.channel_vars[ch]
             dur_str = cv['duration'].get().strip()
@@ -1225,6 +1248,14 @@ class BeamPulseSubsystem:
         with live hardware state without polling from the dashboard side.
         """
         self._channel_status_callback = callback
+
+    def set_channel_enable_getter(self, getter):
+        """Register a zero-argument callable that returns list[bool] of channel enable states.
+
+        _sync_start calls this to determine which channels to include.
+        Typically: beam_pulse.set_channel_enable_getter(lambda: self._ch_enable_states)
+        """
+        self._ch_enable_getter = getter
 
     def set_dashboard_beam_callback(self, callback):
         self._dashboard_beam_callback = callback

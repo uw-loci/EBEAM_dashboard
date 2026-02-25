@@ -967,6 +967,11 @@ class EBEAMSystemDashboard:
                     self._on_channel_status_update
                 )
 
+                # Let Sync Start know which channels are hardware-enabled
+                beam_pulse_subsystem.set_channel_enable_getter(
+                    lambda: list(getattr(self, '_ch_enable_states', [True, True, True]))
+                )
+
                 self.subsystems['Beam Pulse'] = beam_pulse_subsystem
             else:
                 # placeholder if module not importable
