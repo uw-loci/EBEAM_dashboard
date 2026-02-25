@@ -373,35 +373,46 @@ class BeamPulseSubsystem:
     #  External control buttons (hosted in the Main Control panel)        #
     # ------------------------------------------------------------------ #
 
-    def create_external_control_buttons(self, parent_frame):
+    def create_external_control_buttons(self, parent_frame, manual_panel_override=None):
         """Create tab-aware action buttons in *parent_frame* (Main Control panel).
 
-        Three sub-frames are built — one per Beam Pulse tab — and the notebook's
-        <<NotebookTabChanged>> event swaps which sub-frame is visible so the
-        buttons always match the currently-selected tab.
+        Three sub-frames are swapped to match the currently-selected Beam Pulse tab:
 
-        Tab 0 – Manual Control  → per-channel Apply buttons
+        Tab 0 – Manual Control  → dashboard beam ON/OFF + CH Enable buttons
+                                   (manual_panel_override) or built-in Apply buttons
         Tab 1 – Sync Control    → Write Params / Start Selected / Stop All
         Tab 2 – CSV Sequence    → Load / Save Template / Run / Stop
+
+        Parameters:
+            parent_frame:          tkinter frame that hosts the tab-switching panels.
+            manual_panel_override: If provided, this existing frame is used as the
+                                   Tab-0 panel instead of building Apply-CH buttons.
+                                   Pass the dashboard's bp_manual_panel here.
         """
+        # Container for Sync and CSV panels (Manual panel may live elsewhere)
         outer = ttk.Frame(parent_frame)
         outer.pack(fill=tk.X, padx=6, pady=(6, 2))
 
-        # ---- Panel 0: Manual Control buttons --------------------------------
-        self._ext_manual_frame = ttk.Frame(outer)
-        ttk.Label(self._ext_manual_frame, text="Manual Control",
-                  font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
-        for ch in range(3):
-            ttk.Button(
-                self._ext_manual_frame,
-                text=f"Apply CH{ch + 1}",
-                command=lambda c=ch: self._manual_apply(
-                    c,
-                    self.channel_vars[c]['duration'],
-                    self.channel_vars[c]['count'],
-                    self.channel_vars[c]['mode'],
-                ),
-            ).pack(fill=tk.X, pady=1)
+        # ---- Panel 0: Manual Control ----------------------------------------
+        if manual_panel_override is not None:
+            # Use the dashboard's existing Beam ON/OFF + CH Enable frame
+            self._ext_manual_frame = manual_panel_override
+        else:
+            # Standalone fallback: per-channel Apply buttons
+            self._ext_manual_frame = ttk.Frame(outer)
+            ttk.Label(self._ext_manual_frame, text="Manual Control",
+                      font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
+            for ch in range(3):
+                ttk.Button(
+                    self._ext_manual_frame,
+                    text=f"Apply CH{ch + 1}",
+                    command=lambda c=ch: self._manual_apply(
+                        c,
+                        self.channel_vars[c]['duration'],
+                        self.channel_vars[c]['count'],
+                        self.channel_vars[c]['mode'],
+                    ),
+                ).pack(fill=tk.X, pady=1)
 
         # ---- Panel 1: Sync Control buttons ----------------------------------
         self._ext_sync_frame = ttk.Frame(outer)
@@ -448,7 +459,7 @@ class BeamPulseSubsystem:
 
         self.notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
 
-        # Show panel matching the currently-selected tab (default: tab 0)
+        # Show the panel that matches the currently-active tab (default: tab 0)
         _show_panel(0)
 
     # ================================================================== #

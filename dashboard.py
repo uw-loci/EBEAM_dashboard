@@ -356,21 +356,20 @@ class EBEAMSystemDashboard:
         # Script dropdown
         self.create_script_dropdown(main_frame)
 
-        # Add individual beam toggle buttons (below script dropdown)
-        beam_toggles_frame = tk.Frame(main_frame)
-        beam_toggles_frame.pack(side="top", fill="x", padx=10, pady=(10, 0))
-        
-        # Create toggle buttons for each beam using grid system
-        buttons_frame = tk.Frame(beam_toggles_frame)
+        # --- Manual-tab panel: Beam ON/OFF + CH Enable/Disable buttons --
+        # Stored as self.bp_manual_panel so the beam_pulse subsystem can swap
+        # it in/out when the Beam Pulse notebook tab changes.
+        self.bp_manual_panel = tk.Frame(main_frame)
+        self.bp_manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
+
+        # Beam ON/OFF row
+        buttons_frame = tk.Frame(self.bp_manual_panel)
         buttons_frame.pack(side="top", fill="x")
-        
-        # Configure grid columns to match status bars
         for i in range(3):
             buttons_frame.grid_columnconfigure(i, weight=1, uniform="button")
-        
+
         self.beam_toggle_buttons = []
         beam_names = ["Beam A OFF", "Beam B OFF", "Beam C OFF"]
-        
         for i, beam_name in enumerate(beam_names):
             btn = tk.Button(
                 buttons_frame,
@@ -378,14 +377,14 @@ class EBEAMSystemDashboard:
                 bg="gray",
                 fg="white",
                 font=("Helvetica", 10, "bold"),
-                state="disabled",  # Initially disabled until armed
+                state="disabled",  # disabled until armed AND channel enabled
                 command=lambda idx=i: self.toggle_individual_beam_with_status(idx)
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
 
-        # Enable Toggle buttons for each channel
-        enable_toggle_frame = tk.Frame(beam_toggles_frame)
+        # CH Enable/Disable row
+        enable_toggle_frame = tk.Frame(self.bp_manual_panel)
         enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
@@ -681,6 +680,10 @@ class EBEAMSystemDashboard:
                         btn.config(bg="#2e7d32", text=f"CH{ch_index+1}: Enabled")   # dark green
                     else:
                         btn.config(bg="#888888", text=f"CH{ch_index+1}: Disabled")  # gray
+                # Enable/disable the beam ON/OFF button to match channel enable state
+                if ch_index < len(self.beam_toggle_buttons):
+                    self.beam_toggle_buttons[ch_index].config(
+                        state="normal" if new_enabled else "disabled")
                 # If we just disabled the channel, force it OFF
                 if was_enabled:
                     beam_pulse.send_channel_off(ch_index)
@@ -814,11 +817,15 @@ class EBEAMSystemDashboard:
             
             for i, btn in enumerate(self.beam_toggle_buttons):
                 if enabled:
-                    btn.config(state="normal")
+                    # Only allow beam ON/OFF when the channel hardware enable is also ON
+                    ch_enabled = (
+                        hasattr(self, '_ch_enable_states')
+                        and i < len(self._ch_enable_states)
+                        and self._ch_enable_states[i]
+                    )
+                    btn.config(state="normal" if ch_enabled else "disabled")
                     if reset:
-                        # Reset to OFF state
                         btn.config(bg="gray", text=f"Beam {beam_names[i]} OFF")
-                        # Also reset the beam status in the subsystem
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']
                             if hasattr(beam_pulse, 'set_beam_status'):
@@ -826,7 +833,6 @@ class EBEAMSystemDashboard:
                 else:
                     btn.config(state="disabled", bg="gray", text=f"Beam {beam_names[i]} OFF")
                     if reset:
-                        # Reset beam status in subsystem
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']
                             if hasattr(beam_pulse, 'set_beam_status'):
@@ -907,9 +913,15 @@ class EBEAMSystemDashboard:
                 # Set up dashboard callback for pulse animations
                 beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
 
-                # Add Sync Control and CSV Sequence action buttons to Main Control panel
+                # Add tab-aware action buttons to the Main Control panel.
+                # Pass bp_manual_panel so the Manual tab shows the dashboard's
+                # Beam ON/OFF + CH Enable buttons (instead of Apply buttons).
                 if hasattr(self, 'main_control_frame'):
-                    beam_pulse_subsystem.create_external_control_buttons(self.main_control_frame)
+                    manual_panel = getattr(self, 'bp_manual_panel', None)
+                    beam_pulse_subsystem.create_external_control_buttons(
+                        self.main_control_frame,
+                        manual_panel_override=manual_panel
+                    )
 
                 self.subsystems['Beam Pulse'] = beam_pulse_subsystem
             else:
