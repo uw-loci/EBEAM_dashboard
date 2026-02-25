@@ -358,9 +358,8 @@ class EBEAMSystemDashboard:
 
         # Placeholder frame for CSV sequence buttons — populated by
         # BeamPulseSubsystem.create_csv_buttons() in create_subsystems().
-        # Placed here so they always appear below the script dropdown.
+        # Not packed here; shown only when the CSV Sequence tab is active.
         self.csv_buttons_frame = ttk.Frame(main_frame)
-        self.csv_buttons_frame.pack(side="top", fill="x")
 
         # --- Manual-tab panel: Beam ON/OFF + CH Enable/Disable buttons --
         # Stored as self.bp_manual_panel so the beam_pulse subsystem can swap
@@ -368,9 +367,10 @@ class EBEAMSystemDashboard:
         self.bp_manual_panel = tk.Frame(main_frame)
         self.bp_manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
 
-        # Beam ON/OFF row
-        buttons_frame = tk.Frame(self.bp_manual_panel)
-        buttons_frame.pack(side="top", fill="x")
+        # Beam ON/OFF row — saved so the tab-change handler can show/hide it
+        self.beam_on_off_frame = tk.Frame(self.bp_manual_panel)
+        self.beam_on_off_frame.pack(side="top", fill="x")
+        buttons_frame = self.beam_on_off_frame
         for i in range(3):
             buttons_frame.grid_columnconfigure(i, weight=1, uniform="button")
 
@@ -823,7 +823,10 @@ class EBEAMSystemDashboard:
         if not hasattr(self, 'beam_toggle_buttons') or ch >= len(self.beam_toggle_buttons):
             return
         btn = self.beam_toggle_buttons[ch]
-        is_running = (mode_code != 0) and (remaining > 0)
+        # DC mode never counts down, so remaining is always 0 in hardware.
+        # Treat DC as running whenever mode != OFF to prevent button glitching.
+        MODE_DC = 1
+        is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
         try:
             if is_running:
                 btn.config(bg="green", text=f"Beam {beam_names[ch]} ON")
@@ -945,12 +948,14 @@ class EBEAMSystemDashboard:
                 # Set up dashboard callback for pulse animations
                 beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
 
-                # Add Sync Start/Stop and register channel-status callback.
+                # Add Sync Start/Stop and wire tab-aware panel visibility.
                 if hasattr(self, 'main_control_frame'):
                     manual_panel = getattr(self, 'bp_manual_panel', None)
                     beam_pulse_subsystem.create_external_control_buttons(
                         self.main_control_frame,
-                        manual_panel_override=manual_panel
+                        manual_panel_override=manual_panel,
+                        beam_on_off_frame=getattr(self, 'beam_on_off_frame', None),
+                        csv_frame=getattr(self, 'csv_buttons_frame', None),
                     )
 
                 # CSV sequence buttons below the script-selection dropdown

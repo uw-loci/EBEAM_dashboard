@@ -372,48 +372,46 @@ class BeamPulseSubsystem:
     #  External control buttons (hosted in the Main Control panel)        #
     # ------------------------------------------------------------------ #
 
-    def create_external_control_buttons(self, parent_frame, manual_panel_override=None):
-        """Append Sync Start / Sync Stop buttons to the manual control panel.
+    def create_external_control_buttons(self, parent_frame, manual_panel_override=None,
+                                         beam_on_off_frame=None, csv_frame=None):
+        """Append Sync Start / Sync Stop buttons and wire tab-aware panel visibility.
 
-        Sync Start sends all three channels simultaneously using the per-channel
-        configuration from the Manual Control tab.  Sync Stop halts all channels.
-
-        If *manual_panel_override* is provided the buttons are appended directly
-        into that frame (below the CH Enable/Disable row placed by the dashboard).
-        Otherwise a minimal standalone panel is built inside *parent_frame*.
-
-        CSV sequence buttons are placed separately via :meth:`create_csv_buttons`.
+        Tabs in the Beam Pulse notebook:
+          Tab 0 – Manual Control  → show beam_on_off_frame + Sync row;  hide csv_frame
+          Tab 1 – CSV Sequence    → hide beam_on_off_frame + Sync row;  show csv_frame
+          CH Enable/Disable row is always visible.
 
         Parameters:
-            parent_frame:          Tkinter frame that owns the controls when no
-                                   manual_panel_override is given.
-            manual_panel_override: Existing frame to append the Sync row into.
-                                   Pass the dashboard's ``bp_manual_panel`` here.
+            parent_frame:          Tkinter frame used when no manual_panel_override.
+            manual_panel_override: Dashboard's bp_manual_panel — Sync row is appended here.
+            beam_on_off_frame:     Dashboard's Beam A/B/C ON/OFF row frame to show/hide.
+            csv_frame:             Dashboard's csv_buttons_frame to show/hide.
         """
-        # Collect button refs that must be disabled while beams are disarmed.
-        # Stop buttons are intentionally excluded — they are always accessible.
         self._armed_gated_buttons: list = []
+        # References used by the tab-change handler
+        self._beam_on_off_frame = beam_on_off_frame
+        self._csv_frame = csv_frame
+        self._sync_row = None
 
         if manual_panel_override is not None:
             self._ext_manual_frame = manual_panel_override
 
             # --- Sync action row (appended below the CH Enable/Disable row) ---
-            sync_row = tk.Frame(manual_panel_override)
-            sync_row.pack(side="top", fill="x", pady=(4, 0))
-            sync_row.grid_columnconfigure(0, weight=1, uniform="sbtn")
-            sync_row.grid_columnconfigure(1, weight=1, uniform="sbtn")
+            self._sync_row = tk.Frame(manual_panel_override)
+            self._sync_row.pack(side="top", fill="x", pady=(4, 0))
+            self._sync_row.grid_columnconfigure(0, weight=1, uniform="sbtn")
+            self._sync_row.grid_columnconfigure(1, weight=1, uniform="sbtn")
 
             self.sync_start_btn = tk.Button(
-                sync_row, text="Sync Start",
+                self._sync_row, text="Sync Start",
                 bg="#1565C0", fg="white", font=("Helvetica", 9, "bold"),
                 state="disabled", command=self._sync_start,
             )
             self.sync_start_btn.grid(row=0, column=0, sticky="ew", padx=(2, 1))
             self._armed_gated_buttons.append(self.sync_start_btn)
 
-            # Sync Stop is always enabled (safety action)
             self.sync_stop_btn = tk.Button(
-                sync_row, text="Sync Stop",
+                self._sync_row, text="Sync Stop",
                 bg="#B71C1C", fg="white", font=("Helvetica", 9, "bold"),
                 state="normal", command=self._sync_stop_all,
             )
@@ -438,12 +436,57 @@ class BeamPulseSubsystem:
                 )
                 btn.pack(fill=tk.X, pady=1)
                 self._armed_gated_buttons.append(btn)
-            sync_start = ttk.Button(outer, text="Sync Start", state="disabled",
+            self._sync_row = ttk.Frame(outer)
+            self._sync_row.pack(fill=tk.X)
+            sync_start = ttk.Button(self._sync_row, text="Sync Start", state="disabled",
                                     command=self._sync_start)
             sync_start.pack(fill=tk.X, pady=1)
             self._armed_gated_buttons.append(sync_start)
-            ttk.Button(outer, text="Sync Stop",
+            ttk.Button(self._sync_row, text="Sync Stop",
                        command=self._sync_stop_all).pack(fill=tk.X, pady=1)
+
+        # ---- Tab-switching logic -----------------------------------------
+        def _apply_tab(idx: int):
+            """Show/hide frames to match the selected Beam Pulse notebook tab."""
+            is_manual = (idx == 0)
+            # Beam ON/OFF row
+            if self._beam_on_off_frame is not None:
+                try:
+                    if is_manual:
+                        self._beam_on_off_frame.pack(side="top", fill="x")
+                    else:
+                        self._beam_on_off_frame.pack_forget()
+                except Exception:
+                    pass
+            # Sync Start/Stop row
+            if self._sync_row is not None:
+                try:
+                    if is_manual:
+                        self._sync_row.pack(side="top", fill="x", pady=(4, 0))
+                    else:
+                        self._sync_row.pack_forget()
+                except Exception:
+                    pass
+            # CSV buttons frame
+            if self._csv_frame is not None:
+                try:
+                    if is_manual:
+                        self._csv_frame.pack_forget()
+                    else:
+                        self._csv_frame.pack(side="top", fill="x")
+                except Exception:
+                    pass
+
+        def _on_tab_changed(event=None):
+            try:
+                idx = self.notebook.index(self.notebook.select())
+            except Exception:
+                idx = 0
+            _apply_tab(idx)
+
+        self.notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
+        # Apply initial state (Tab 0 = Manual is selected at startup)
+        _apply_tab(0)
 
     def create_csv_buttons(self, parent_frame):
         """Build CSV sequence control buttons in *parent_frame* (always visible).
@@ -869,8 +912,12 @@ class BeamPulseSubsystem:
             self.channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
             self.channel_vars[ch]['pulses'].configure(text=f"Remaining: {remaining}")
 
-            # Lock manual controls when channel is actively running
-            is_running = (mode_code != self.MODE_OFF) and (remaining > 0)
+            # DC mode never counts down (remaining stays 0) — treat it as
+            # running whenever mode != OFF so the manual controls stay locked
+            # and the dashboard Beam button stays green.
+            is_running = (mode_code != self.MODE_OFF) and (
+                remaining > 0 or mode_code == self.MODE_DC
+            )
             if is_running:
                 self._active_channels.add(ch)
                 self._set_manual_channel_lock(ch, True)
