@@ -393,6 +393,10 @@ class BeamPulseSubsystem:
         outer = ttk.Frame(parent_frame)
         outer.pack(fill=tk.X, padx=6, pady=(6, 2))
 
+        # Buttons that must be disabled while beams are disarmed.
+        # Stop / off / file-only buttons are intentionally excluded.
+        self._armed_gated_buttons: list = []
+
         # ---- Panel 0: Manual Control ----------------------------------------
         if manual_panel_override is not None:
             # Use the dashboard's existing Beam ON/OFF + CH Enable frame
@@ -403,16 +407,19 @@ class BeamPulseSubsystem:
             ttk.Label(self._ext_manual_frame, text="Manual Control",
                       font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
             for ch in range(3):
-                ttk.Button(
+                btn = ttk.Button(
                     self._ext_manual_frame,
                     text=f"Apply CH{ch + 1}",
+                    state="disabled",
                     command=lambda c=ch: self._manual_apply(
                         c,
                         self.channel_vars[c]['duration'],
                         self.channel_vars[c]['count'],
                         self.channel_vars[c]['mode'],
                     ),
-                ).pack(fill=tk.X, pady=1)
+                )
+                btn.pack(fill=tk.X, pady=1)
+                self._armed_gated_buttons.append(btn)
 
         # ---- Panel 1: Sync Control buttons ----------------------------------
         self._ext_sync_frame = ttk.Frame(outer)
@@ -421,21 +428,28 @@ class BeamPulseSubsystem:
         for text, cmd in (
             ("Write Params",   self._sync_write_params),
             ("Start Selected", self._sync_start),
-            ("Stop All",       self._sync_stop_all),
         ):
-            ttk.Button(self._ext_sync_frame, text=text, command=cmd).pack(fill=tk.X, pady=1)
+            btn = ttk.Button(self._ext_sync_frame, text=text, state="disabled", command=cmd)
+            btn.pack(fill=tk.X, pady=1)
+            self._armed_gated_buttons.append(btn)
+        # Stop All is always enabled (safety action)
+        ttk.Button(self._ext_sync_frame, text="Stop All",
+                   command=self._sync_stop_all).pack(fill=tk.X, pady=1)
 
         # ---- Panel 2: CSV Sequence buttons ----------------------------------
         self._ext_csv_frame = ttk.Frame(outer)
         ttk.Label(self._ext_csv_frame, text="CSV Sequence",
                   font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
+        # Load CSV and Save Template are file-only — always enabled
         ttk.Button(self._ext_csv_frame, text="Load CSV",
                    command=self._load_sequence).pack(fill=tk.X, pady=1)
         ttk.Button(self._ext_csv_frame, text="Save Template",
                    command=self._save_sequence_template).pack(fill=tk.X, pady=1)
+        # Run Sequence: gated by both arm state AND sequence loaded
         self.seq_run_btn = ttk.Button(self._ext_csv_frame, text="Run Sequence",
                                       command=self._run_sequence, state="disabled")
         self.seq_run_btn.pack(fill=tk.X, pady=1)
+        # Stop Sequence is always enabled (safety action)
         self.seq_stop_btn = ttk.Button(self._ext_csv_frame, text="Stop Sequence",
                                        command=self._stop_sequence, state="disabled")
         self.seq_stop_btn.pack(fill=tk.X, pady=1)
@@ -476,6 +490,28 @@ class BeamPulseSubsystem:
             self._log_event("Action blocked: beams are not armed")
             return False
         return True
+
+    def _update_armed_button_states(self, armed: bool) -> None:
+        """Enable or disable all BCON-action buttons to match the armed state.
+
+        seq_run_btn is only re-enabled when armed AND a sequence is loaded.
+        Stop buttons are never touched here (they must always be accessible).
+        """
+        new_state = "normal" if armed else "disabled"
+        for btn in getattr(self, '_armed_gated_buttons', []):
+            try:
+                btn.configure(state=new_state)
+            except Exception:
+                pass
+        # seq_run_btn: enable only when armed AND sequence already loaded
+        if hasattr(self, 'seq_run_btn'):
+            try:
+                if armed and self._seq_steps:
+                    self.seq_run_btn.configure(state="normal")
+                else:
+                    self.seq_run_btn.configure(state="disabled")
+            except Exception:
+                pass
 
     def _manual_apply(self, ch, dur_entry, cnt_entry, mode_cb):
         """Apply parameters + mode for a single channel."""
@@ -658,8 +694,10 @@ class BeamPulseSubsystem:
             self.seq_file_lbl.configure(
                 text=f"{os.path.basename(fname)}  ({n} step{'s' if n != 1 else ''})")
             self.seq_progress_lbl.configure(text="Ready")
+            # Only enable Run Sequence if beams are currently armed
             if hasattr(self, 'seq_run_btn'):
-                self.seq_run_btn.configure(state="normal")
+                self.seq_run_btn.configure(
+                    state="normal" if self.beams_armed_status else "disabled")
 
             # Update preview
             self.seq_preview_text.configure(state="normal")
@@ -1203,8 +1241,10 @@ class BeamPulseSubsystem:
             self.bcon_driver.arm()
             self.beams_armed_status = True
             self._log("Beams ARMED", LogLevel.INFO)
+            self._update_armed_button_states(True)
             return True
         self.beams_armed_status = True
+        self._update_armed_button_states(True)
         return True
 
     def disarm_beams(self) -> bool:
@@ -1213,6 +1253,7 @@ class BeamPulseSubsystem:
         if self.bcon_driver:
             self.bcon_driver.stop_all()
         self._log("Beams DISARMED", LogLevel.INFO)
+        self._update_armed_button_states(False)
         return True
 
     def get_beams_armed_status(self) -> bool:
