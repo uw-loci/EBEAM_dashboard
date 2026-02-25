@@ -321,6 +321,24 @@ class BeamPulseSubsystem:
             mode_cb.set("PULSE")
             mode_cb.grid(row=r, column=3, padx=4, pady=3)
 
+            def _on_sync_mode_change(event, d=dur_e, c=cnt_e, m=mode_cb):
+                mode = m.get()
+                if mode in ("OFF", "DC"):
+                    d.config(state="disabled")
+                    c.config(state="disabled")
+                elif mode == "PULSE":
+                    d.config(state="normal")
+                    c.config(state="disabled")
+                    c.delete(0, "end")
+                    c.insert(0, "1")
+                else:  # PULSE_TRAIN
+                    d.config(state="normal")
+                    c.config(state="normal")
+
+            mode_cb.bind("<<ComboboxSelected>>", _on_sync_mode_change)
+            # Apply initial state (default PULSE: count grayed out)
+            cnt_e.config(state="disabled")
+
             ttk.Checkbutton(table, variable=self.sync_ch_vars[ch]).grid(row=r, column=4, padx=8, pady=3)
 
             self.sync_configs.append({'duration': dur_e, 'count': cnt_e, 'mode': mode_cb})
