@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>beam_pulse_user_test_plan.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="beam-pulse-panel--user-test-plan">Beam Pulse Panel — User Test Plan</h1>
+<p><strong>Panel location:</strong> Dashboard → Row 2 → &quot;Beam Pulse&quot; frame<br>
+<strong>Version under test:</strong> <em>(fill in git commit or release tag)</em><br>
+<strong>Tester:</strong> ___________________________<br>
+<strong>Date:</strong> ___________________________<br>
+<strong>Hardware required:</strong> BCON controller (Arduino Mega + firmware) connected via USB serial<br>
+<strong>Interlock state required:</strong> Permissive (interlock OK) unless otherwise stated</p>
+<hr>
+<h2 id="how-to-use-this-document">How to Use This Document</h2>
+<p>Each test case follows this structure:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ID</strong></td>
+<td>Unique identifier — reference this in defect reports</td>
+</tr>
+<tr>
+<td><strong>Objective</strong></td>
+<td>What behaviour is being verified</td>
+</tr>
+<tr>
+<td><strong>Preconditions</strong></td>
+<td>State the dashboard and hardware must be in before starting</td>
+</tr>
+<tr>
+<td><strong>Steps</strong></td>
+<td>Numbered actions the tester performs</td>
+</tr>
+<tr>
+<td><strong>Expected result</strong></td>
+<td>What should be observed if the software is working correctly</td>
+</tr>
+<tr>
+<td><strong>Pass / Fail</strong></td>
+<td>Check one box after running the test</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Status legend</strong></p>
+<ul>
+<li><input type="checkbox" id="checkbox0"><label for="checkbox0">Not yet run</label></li>
+<li><input type="checkbox" id="checkbox1" checked="true"><label for="checkbox1">Passed</label></li>
+<li>[~] Failed — record notes below the test case</li>
+</ul>
+<hr>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol>
+<li><a href="#1-test-setup-checklist">Test Setup Checklist</a></li>
+<li><a href="#2-connection--status-indicator-tests">Connection &amp; Status Indicator Tests</a></li>
+<li><a href="#3-arm--disarm-workflow-tests">Arm / Disarm Workflow Tests</a></li>
+<li><a href="#4-manual-control-tab--mode-selection">Manual Control Tab — Mode Selection</a></li>
+<li><a href="#5-manual-control-tab--input-field-validation">Manual Control Tab — Input Field Validation</a></li>
+<li><a href="#6-manual-control-tab--channel-apply--status-feedback">Manual Control Tab — Channel Apply &amp; Status Feedback</a></li>
+<li><a href="#7-sync-start--sync-stop-tests">Sync Start / Sync Stop Tests</a></li>
+<li><a href="#8-csv-sequence-tab--load--preview">CSV Sequence Tab — Load &amp; Preview</a></li>
+<li><a href="#9-csv-sequence-tab--run--stop">CSV Sequence Tab — Run &amp; Stop</a></li>
+<li><a href="#10-tab-switching--panel-visibility-tests">Tab Switching &amp; Panel Visibility Tests</a></li>
+<li><a href="#11-safety--blocked-actions-when-not-armed">Safety — Blocked Actions When Not Armed</a></li>
+<li><a href="#12-watchdog-configuration-tests">Watchdog Configuration Tests</a></li>
+<li><a href="#13-channel-enable--disable-tests">Channel Enable / Disable Tests</a></li>
+<li><a href="#14-error-handling--edge-case-tests">Error Handling &amp; Edge Case Tests</a></li>
+<li><a href="#15-sign-off">Sign-off</a></li>
+</ol>
+<hr>
+<h2 id="1-test-setup-checklist">1. Test Setup Checklist</h2>
+<p>Complete all items before running any test case.</p>
+<ul>
+<li><input type="checkbox" id="checkbox2"><label for="checkbox2">Dashboard application launched (</label><code>python main.py</code>)</li>
+<li><input type="checkbox" id="checkbox3"><label for="checkbox3">BCON controller powered on and USB cable plugged in</label></li>
+<li><input type="checkbox" id="checkbox4"><label for="checkbox4">Correct serial port selected for BCON in the dashboard COM port configuration</label></li>
+<li><input type="checkbox" id="checkbox5"><label for="checkbox5">Hardware interlock line is in the </label><strong>permissive</strong> (OK) state</li>
+<li><input type="checkbox" id="checkbox6"><label for="checkbox6"></label><code>sequences/</code> folder contains at least one test CSV file (see Appendix A for a sample)</li>
+<li><input type="checkbox" id="checkbox7"><label for="checkbox7">No active pulses running from a previous test session</label></li>
+<li><input type="checkbox" id="checkbox8"><label for="checkbox8">&quot;Messages &amp; Errors&quot; panel at the bottom of the dashboard is visible and scrolled to the bottom</label></li>
+<li><input type="checkbox" id="checkbox9"><label for="checkbox9">Screen resolution allows the full &quot;Beam Pulse&quot; panel to be visible without scrolling</label></li>
+</ul>
+<hr>
+<h2 id="2-connection--status-indicator-tests">2. Connection &amp; Status Indicator Tests</h2>
+<hr>
+<h3 id="bp-con-001--initial-state-bcon-indicator-is-red">BP-CON-001 — Initial state: BCON indicator is red</h3>
+<p><strong>Objective:</strong> Confirm the BCON connection indicator shows disconnected on startup.</p>
+<p><strong>Preconditions:</strong> Dashboard just launched; no connection attempt has been made yet.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Locate the &quot;Beam Pulse&quot; panel in the dashboard.</li>
+<li>Look at the small circular indicator next to the &quot;BCON&quot; label in the top status bar of the panel.</li>
+</ol>
+<p><strong>Expected result:</strong> The indicator is <strong>red</strong>. The button to the right is labelled &quot;Connect&quot;.</p>
+<ul>
+<li><input type="checkbox" id="checkbox10"><label for="checkbox10">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-con-002--clicking-connect-establishes-connection">BP-CON-002 — Clicking Connect establishes connection</h3>
+<p><strong>Objective:</strong> Verify that the Connect button successfully opens the serial port and changes the indicator.</p>
+<p><strong>Preconditions:</strong> BCON controller is plugged in and powered. BP-CON-001 passed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the <strong>Connect</strong> button in the Beam Pulse status bar.</li>
+<li>Wait up to 5 seconds (firmware boot settle time applies).</li>
+<li>Observe the circular indicator and the button label.</li>
+<li>Observe the &quot;Log&quot; text at the right side of the status bar.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Indicator turns <strong>green</strong>.</p>
+</li>
+<li>
+<p>Button relabels to <strong>&quot;Disconnect&quot;</strong>.</p>
+</li>
+<li>
+<p>Log line shows a message similar to <code>BCON connected on /dev/ttyUSBx</code>.</p>
+</li>
+<li>
+<p>&quot;Messages &amp; Errors&quot; panel shows the same connection message.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox11"><label for="checkbox11">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-con-003--interlock-and-watchdog-status-appear-in-the-status-bar">BP-CON-003 — Interlock and watchdog status appear in the status bar</h3>
+<p><strong>Objective:</strong> Verify that safety status labels update once connected.</p>
+<p><strong>Preconditions:</strong> BP-CON-002 passed (BCON connected, interlock permissive).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Read the safety label in the Beam Pulse status bar (between the BCON indicator and the Connect/Disconnect button).</li>
+</ol>
+<p><strong>Expected result:</strong> Label shows <code>Interlock: ok | Watchdog: ok</code> (no FAULT suffix).</p>
+<ul>
+<li><input type="checkbox" id="checkbox12"><label for="checkbox12">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-con-004--clicking-disconnect-closes-the-connection">BP-CON-004 — Clicking Disconnect closes the connection</h3>
+<p><strong>Objective:</strong> Verify that the Disconnect button closes the serial port.</p>
+<p><strong>Preconditions:</strong> BP-CON-002 passed (BCON connected).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Disconnect</strong>.</li>
+<li>Observe the indicator and button label.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Indicator returns to <strong>red</strong>.</p>
+</li>
+<li>
+<p>Button relabels to <strong>&quot;Reconnect&quot;</strong>.</p>
+</li>
+<li>
+<p>Log line shows a disconnection or &quot;connect failed&quot; message.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox13"><label for="checkbox13">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-con-005--reconnect-after-disconnect-restores-full-operation">BP-CON-005 — Reconnect after disconnect restores full operation</h3>
+<p><strong>Objective:</strong> Verify that re-opening the connection after a manual disconnect works correctly.</p>
+<p><strong>Preconditions:</strong> BP-CON-004 completed (indicator red, button says &quot;Reconnect&quot;).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Reconnect</strong>.</li>
+<li>Wait up to 5 seconds.</li>
+</ol>
+<p><strong>Expected result:</strong> Indicator turns green, button returns to &quot;Disconnect&quot;, safety label shows ok.</p>
+<ul>
+<li><input type="checkbox" id="checkbox14"><label for="checkbox14">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-con-006--interlock-failure-reflected-in-status-bar">BP-CON-006 — Interlock failure reflected in status bar</h3>
+<p><strong>Objective:</strong> Confirm the status bar shows a locked interlock state.</p>
+<p><strong>Preconditions:</strong> BCON connected. Test hardware allows de-asserting the interlock line.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>With a test lead or interlock simulator, de-assert the hardware interlock.</li>
+<li>Wait up to 2 seconds.</li>
+<li>Read the safety label.</li>
+</ol>
+<p><strong>Expected result:</strong> Safety label shows <code>Interlock: locked</code>.</p>
+<ol start="4">
+<li>Restore the interlock to permissive state.</li>
+</ol>
+<p><strong>Expected result after restore:</strong> Safety label returns to <code>Interlock: ok</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox15"><label for="checkbox15">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="3-arm--disarm-workflow-tests">3. Arm / Disarm Workflow Tests</h2>
+<blockquote>
+<p><strong>Note:</strong> In the dashboard the ARM action is initiated from the main control panel (not inside the Beam Pulse panel itself). The Beam Pulse panel reflects the armed state through button enable/disable states.</p>
+</blockquote>
+<hr>
+<h3 id="bp-arm-001--action-buttons-are-disabled-before-arming">BP-ARM-001 — Action buttons are disabled before arming</h3>
+<p><strong>Objective:</strong> Confirm that all beam-firing buttons are inaccessible when beams are not armed.</p>
+<p><strong>Preconditions:</strong> BCON connected. Beams have <strong>not</strong> been armed in this session.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>In the Beam Pulse panel → Manual Control tab, observe:
+<ul>
+<li>Any &quot;Apply CH1/2/3&quot; buttons (if present in standalone mode)</li>
+<li>The <strong>Sync Start</strong> button</li>
+</ul>
+</li>
+<li>In the CSV Sequence area, observe the <strong>Run Sequence</strong> button.</li>
+</ol>
+<p><strong>Expected result:</strong> All listed buttons appear greyed-out and cannot be clicked.</p>
+<ul>
+<li><input type="checkbox" id="checkbox16"><label for="checkbox16">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-arm-002--arming-enables-action-buttons">BP-ARM-002 — Arming enables action buttons</h3>
+<p><strong>Objective:</strong> Confirm that arming unlocks the beam-firing buttons.</p>
+<p><strong>Preconditions:</strong> BP-ARM-001 passed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>From the dashboard main control or the ARM command (as per your system procedure), arm the beams.</li>
+<li>Return to the Beam Pulse panel.</li>
+<li>Observe the <strong>Sync Start</strong> button state.</li>
+<li>Observe the <strong>Run Sequence</strong> button (only if a sequence is loaded; otherwise it stays disabled until a sequence is loaded).</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p><strong>Sync Start</strong> becomes enabled (normal appearance, clickable).</p>
+</li>
+<li>
+<p>Log line in Beam Pulse status bar reads something like <code>ARM command sent</code>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox17"><label for="checkbox17">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-arm-003--disarming-disables-action-buttons-and-stops-channels">BP-ARM-003 — Disarming disables action buttons and stops channels</h3>
+<p><strong>Objective:</strong> Confirm that disarming immediately stops all activity and re-disables buttons.</p>
+<p><strong>Preconditions:</strong> Beams are armed (BP-ARM-002 passed). At least one channel is active (pulsing or DC).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Start a channel (e.g., set CH1 to DC and apply).</li>
+<li>Disarm the beams using the dashboard main control.</li>
+<li>Observe all three channel status labels in the Manual Control tab.</li>
+<li>Observe the <strong>Sync Start</strong> button.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>All channels show <code>Status: OFF</code>.</p>
+</li>
+<li>
+<p><strong>Sync Start</strong> returns to greyed-out state.</p>
+</li>
+<li>
+<p>&quot;Messages &amp; Errors&quot; shows <code>Beams DISARMED</code>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox18"><label for="checkbox18">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-arm-004--stop-buttons-always-remain-accessible">BP-ARM-004 — Stop buttons always remain accessible</h3>
+<p><strong>Objective:</strong> Confirm that stop/safety actions are not gated by the armed state.</p>
+<p><strong>Preconditions:</strong> Beams are <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe the <strong>Sync Stop</strong> button in the Beam Pulse panel.</li>
+<li>Click <strong>Sync Stop</strong>.</li>
+<li>Observe the <strong>Stop Sequence</strong> button in the CSV area.</li>
+<li>Click <strong>Stop Sequence</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Both buttons are <strong>not</strong> greyed out and can be clicked at any time.</p>
+</li>
+<li>
+<p>Clicking them does not produce an error dialog; the log may show a stop message.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox19"><label for="checkbox19">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h2 id="4-manual-control-tab--mode-selection">4. Manual Control Tab — Mode Selection</h2>
+<hr>
+<h3 id="bp-man-001--default-mode-is-pulse-with-count-field-disabled">BP-MAN-001 — Default mode is PULSE with count field disabled</h3>
+<p><strong>Objective:</strong> Verify the initial widget state on the Manual Control tab.</p>
+<p><strong>Preconditions:</strong> Dashboard freshly launched or panel freshly initialized.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the <strong>Manual Control</strong> tab in the Beam Pulse panel.</li>
+<li>For each of the three channel cards (Channel 1, 2, 3), read the Mode drop-down.</li>
+<li>Observe whether the &quot;Count&quot; entry field is enabled or disabled.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Mode drop-down defaults to <strong>PULSE</strong>.</p>
+</li>
+<li>
+<p>The &quot;Count&quot; entry field is <strong>greyed out</strong> (disabled) for all channels.</p>
+</li>
+<li>
+<p>The &quot;Duration (ms)&quot; entry shows <strong>100</strong>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox20"><label for="checkbox20">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-man-002--selecting-off-disables-both-duration-and-count-fields">BP-MAN-002 — Selecting OFF disables both Duration and Count fields</h3>
+<p><strong>Objective:</strong> Verify widget state when OFF mode is selected.</p>
+<p><strong>Preconditions:</strong> Manual Control tab visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the Mode drop-down for Channel 1.</li>
+<li>Select <strong>OFF</strong>.</li>
+<li>Observe both &quot;Duration (ms)&quot; and &quot;Count&quot; fields.</li>
+</ol>
+<p><strong>Expected result:</strong> Both fields are <strong>greyed out</strong> (disabled).</p>
+<ul>
+<li><input type="checkbox" id="checkbox21"><label for="checkbox21">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-man-003--selecting-dc-disables-both-duration-and-count-fields">BP-MAN-003 — Selecting DC disables both Duration and Count fields</h3>
+<p><strong>Objective:</strong> Verify widget state when DC mode is selected.</p>
+<p><strong>Preconditions:</strong> Manual Control tab visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the Mode drop-down for Channel 2.</li>
+<li>Select <strong>DC</strong>.</li>
+<li>Observe both &quot;Duration (ms)&quot; and &quot;Count&quot; fields.</li>
+</ol>
+<p><strong>Expected result:</strong> Both fields are <strong>greyed out</strong> (disabled).</p>
+<ul>
+<li><input type="checkbox" id="checkbox22"><label for="checkbox22">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-man-004--selecting-pulse-enables-duration-keeps-count-disabled">BP-MAN-004 — Selecting PULSE enables Duration, keeps Count disabled</h3>
+<p><strong>Objective:</strong> Verify widget state when PULSE mode is selected.</p>
+<p><strong>Preconditions:</strong> Channel was in a different mode (e.g., OFF or DC) from a previous test.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the Mode drop-down for Channel 3.</li>
+<li>Select <strong>PULSE</strong>.</li>
+<li>Observe the &quot;Duration (ms)&quot; and &quot;Count&quot; fields.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>&quot;Duration (ms)&quot; becomes <strong>enabled</strong> (white background, editable).</p>
+</li>
+<li>
+<p>&quot;Count&quot; remains <strong>greyed out</strong> and its value is reset to <code>1</code>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox23"><label for="checkbox23">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-man-005--selecting-pulsetrain-enables-both-duration-and-count">BP-MAN-005 — Selecting PULSE_TRAIN enables both Duration and Count</h3>
+<p><strong>Objective:</strong> Verify widget state when PULSE_TRAIN mode is selected.</p>
+<p><strong>Preconditions:</strong> Manual Control tab visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the Mode drop-down for Channel 1.</li>
+<li>Select <strong>PULSE_TRAIN</strong>.</li>
+<li>Observe the &quot;Duration (ms)&quot; and &quot;Count&quot; fields.</li>
+</ol>
+<p><strong>Expected result:</strong> Both &quot;Duration (ms)&quot; and &quot;Count&quot; become <strong>enabled</strong> (editable).</p>
+<ul>
+<li><input type="checkbox" id="checkbox24"><label for="checkbox24">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="5-manual-control-tab--input-field-validation">5. Manual Control Tab — Input Field Validation</h2>
+<blockquote>
+<p>For all tests in this section: beams must be <strong>armed</strong> (BP-ARM-002) before clicking Apply / Sync Start; otherwise the action is blocked. The validation tests below confirm the error dialogs, so arm first.</p>
+</blockquote>
+<hr>
+<h3 id="bp-val-001--pulse-with-valid-duration-is-accepted">BP-VAL-001 — PULSE with valid duration is accepted</h3>
+<p><strong>Objective:</strong> Confirm valid PULSE configuration sends to hardware without error.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH1 mode set to PULSE.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 mode to <strong>PULSE</strong>.</li>
+<li>Enter <code>150</code> in the &quot;Duration (ms)&quot; field.</li>
+<li>Click <strong>Apply CH1</strong> (or trigger Sync Start for CH1 only).</li>
+</ol>
+<p><strong>Expected result:</strong> No error dialog appears. Log shows <code>Applied CH1: mode=PULSE dur=150ms count=1</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox25"><label for="checkbox25">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-002--pulse-with-zero-duration-shows-an-error">BP-VAL-002 — PULSE with zero duration shows an error</h3>
+<p><strong>Objective:</strong> Confirm that a zero-duration value is rejected.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH1 mode set to PULSE.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 mode to <strong>PULSE</strong>.</li>
+<li>Clear the &quot;Duration (ms)&quot; field and type <code>0</code>.</li>
+<li>Click <strong>Apply CH1</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> An &quot;Invalid Configuration&quot; error dialog appears stating duration must be &gt; 0 ms. No Modbus write is sent.</p>
+<ul>
+<li><input type="checkbox" id="checkbox26"><label for="checkbox26">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-003--pulse-with-empty-duration-shows-an-error">BP-VAL-003 — PULSE with empty duration shows an error</h3>
+<p><strong>Objective:</strong> Confirm a blank duration field is rejected.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH1 mode set to PULSE.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 mode to <strong>PULSE</strong>.</li>
+<li>Clear the &quot;Duration (ms)&quot; field completely (leave it blank).</li>
+<li>Click <strong>Apply CH1</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> An &quot;Invalid Configuration&quot; error dialog appears.</p>
+<ul>
+<li><input type="checkbox" id="checkbox27"><label for="checkbox27">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-004--duration-field-rejects-non-numeric-characters">BP-VAL-004 — Duration field rejects non-numeric characters</h3>
+<p><strong>Objective:</strong> Confirm the duration field only accepts whole numbers.</p>
+<p><strong>Preconditions:</strong> Manual Control tab visible. CH1 mode set to PULSE.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click into the &quot;Duration (ms)&quot; field for Channel 1.</li>
+<li>Try to type the letter <code>a</code>.</li>
+<li>Try to type a decimal point <code>.</code>.</li>
+<li>Try to type a negative sign <code>-</code>.</li>
+</ol>
+<p><strong>Expected result:</strong> None of those characters appear in the field — the field remains unchanged or empty after each rejected keystroke.</p>
+<ul>
+<li><input type="checkbox" id="checkbox28"><label for="checkbox28">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-005--pulsetrain-with-count-below-2-shows-an-error">BP-VAL-005 — PULSE_TRAIN with count below 2 shows an error</h3>
+<p><strong>Objective:</strong> Confirm that PULSE_TRAIN requires a count of at least 2.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH2 mode set to PULSE_TRAIN.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 2 mode to <strong>PULSE_TRAIN</strong>.</li>
+<li>Enter <code>100</code> in &quot;Duration (ms)&quot; and <code>1</code> in &quot;Count&quot;.</li>
+<li>Click <strong>Apply CH2</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> An &quot;Invalid Configuration&quot; error dialog appears stating PULSE_TRAIN requires count ≥ 2.</p>
+<ul>
+<li><input type="checkbox" id="checkbox29"><label for="checkbox29">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-006--pulsetrain-with-count--2-is-accepted">BP-VAL-006 — PULSE_TRAIN with count = 2 is accepted</h3>
+<p><strong>Objective:</strong> Confirm count = 2 is the valid minimum for PULSE_TRAIN.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH2 mode set to PULSE_TRAIN.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 2 mode to <strong>PULSE_TRAIN</strong>.</li>
+<li>Enter <code>100</code> in &quot;Duration (ms)&quot; and <code>2</code> in &quot;Count&quot;.</li>
+<li>Click <strong>Apply CH2</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> No error dialog. Log shows <code>Applied CH2: mode=PULSE_TRAIN dur=100ms count=2</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox30"><label for="checkbox30">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-007--off-mode-bypasses-durationcount-validation">BP-VAL-007 — OFF mode bypasses duration/count validation</h3>
+<p><strong>Objective:</strong> Confirm OFF mode does not require valid duration or count values.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 3 mode to <strong>OFF</strong>.</li>
+<li>(Duration and count fields should already be disabled — do not change them.)</li>
+<li>Click <strong>Apply CH3</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> No error dialog. Log shows <code>Applied CH3: mode=OFF dur=0ms count=1</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox31"><label for="checkbox31">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-val-008--dc-mode-bypasses-durationcount-validation">BP-VAL-008 — DC mode bypasses duration/count validation</h3>
+<p><strong>Objective:</strong> Confirm DC mode does not require valid duration or count values.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 mode to <strong>DC</strong>.</li>
+<li>Click <strong>Apply CH1</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> No error dialog. Log shows <code>Applied CH1: mode=DC</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox32"><label for="checkbox32">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="6-manual-control-tab--channel-apply--status-feedback">6. Manual Control Tab — Channel Apply &amp; Status Feedback</h2>
+<hr>
+<h3 id="bp-stat-001--status-label-updates-to-show-running-mode">BP-STAT-001 — Status label updates to show running mode</h3>
+<p><strong>Objective:</strong> Confirm the channel status label reflects real-time hardware state.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH1 set to DC mode.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 mode to <strong>DC</strong>.</li>
+<li>Click <strong>Apply CH1</strong>.</li>
+<li>Wait up to 1 second (one poll cycle = 300 ms).</li>
+<li>Read the &quot;Status:&quot; label on the Channel 1 card.</li>
+</ol>
+<p><strong>Expected result:</strong> Status label shows <code>Status: DC | O:1</code> (output level = 1 in DC mode).</p>
+<ul>
+<li><input type="checkbox" id="checkbox33"><label for="checkbox33">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-stat-002--remaining-count-decrements-during-pulsetrain">BP-STAT-002 — Remaining count decrements during PULSE_TRAIN</h3>
+<p><strong>Objective:</strong> Confirm the &quot;Remaining&quot; label counts down live during a pulse train.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. CH2 set to PULSE_TRAIN, duration=200ms, count=5.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 2 mode to <strong>PULSE_TRAIN</strong>, duration <code>200</code>, count <code>5</code>.</li>
+<li>Click <strong>Apply CH2</strong>.</li>
+<li>Observe the &quot;Remaining:&quot; label on the Channel 2 card over the next ~2 seconds.</li>
+</ol>
+<p><strong>Expected result:</strong> &quot;Remaining&quot; starts at <code>5</code> and counts down to <code>0</code> as pulses complete.</p>
+<ul>
+<li><input type="checkbox" id="checkbox34"><label for="checkbox34">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-stat-003--channel-widgets-lock-during-active-pulse">BP-STAT-003 — Channel widgets lock during active pulse</h3>
+<p><strong>Objective:</strong> Confirm mode/duration/count fields are not editable while a channel is running.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 3 to <strong>DC</strong> and click <strong>Apply CH3</strong>.</li>
+<li>Immediately try to change the Channel 3 Mode drop-down while it is running.</li>
+<li>Try clicking into the &quot;Duration (ms)&quot; field.</li>
+</ol>
+<p><strong>Expected result:</strong> Mode drop-down and duration/count fields are <strong>greyed out</strong> and cannot be changed while the channel is active.</p>
+<ul>
+<li><input type="checkbox" id="checkbox35"><label for="checkbox35">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-stat-004--channel-widgets-unlock-after-channel-stops">BP-STAT-004 — Channel widgets unlock after channel stops</h3>
+<p><strong>Objective:</strong> Confirm widgets become editable again after a pulse completes.</p>
+<p><strong>Preconditions:</strong> BP-STAT-003 environment — CH3 is currently in DC and locked.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Sync Stop</strong> (or apply OFF mode to CH3 if a per-channel stop is available).</li>
+<li>Wait up to 1 second for the status poll to update.</li>
+<li>Try to change the Channel 3 Mode drop-down.</li>
+</ol>
+<p><strong>Expected result:</strong> Mode drop-down becomes <strong>interactive</strong> again. Status label shows <code>Status: OFF</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox36"><label for="checkbox36">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-stat-005--duration-and-count-auto-fill-from-hardware-when-field-is-blank">BP-STAT-005 — Duration and count auto-fill from hardware when field is blank</h3>
+<p><strong>Objective:</strong> Verify that leaving the duration field blank causes it to auto-populate from the hardware register.</p>
+<p><strong>Preconditions:</strong> BCON connected, at least one prior configuration has been applied to CH1.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Clear the &quot;Duration (ms)&quot; field for Channel 1 completely.</li>
+<li>Wait up to 1 second (one poll cycle).</li>
+<li>Read the field again.</li>
+</ol>
+<p><strong>Expected result:</strong> Field auto-fills with the duration value last written to hardware (non-zero).</p>
+<ul>
+<li><input type="checkbox" id="checkbox37"><label for="checkbox37">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="7-sync-start--sync-stop-tests">7. Sync Start / Sync Stop Tests</h2>
+<hr>
+<h3 id="bp-sync-001--sync-start-fires-all-enabled-channels-simultaneously">BP-SYNC-001 — Sync Start fires all enabled channels simultaneously</h3>
+<p><strong>Objective:</strong> Confirm that Sync Start writes parameters and modes for all enabled channels with minimal delay between channels.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. All three channels enabled (green enable indicator). Channels set up differently:</p>
+<ul>
+<li>CH1: PULSE, 100 ms</li>
+<li>CH2: PULSE_TRAIN, 50 ms, count 3</li>
+<li>CH3: DC</li>
+</ul>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Configure channels as above in the Manual Control tab.</li>
+<li>Click <strong>Sync Start</strong>.</li>
+<li>Observe all three channel status labels within the next poll cycle.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>CH1 shows <code>Status: PULSE</code>, Remaining: 1</p>
+</li>
+<li>
+<p>CH2 shows <code>Status: PULSE_TRAIN</code>, Remaining: 3 (counting down)</p>
+</li>
+<li>
+<p>CH3 shows <code>Status: DC</code>, O:1</p>
+</li>
+<li>
+<p>Log shows <code>Sync Start: CH1=PULSE(100ms x1), CH2=PULSE_TRAIN(50ms x3), CH3=DC(0ms x1)</code></p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox38"><label for="checkbox38">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-sync-002--sync-stop-turns-all-channels-off">BP-SYNC-002 — Sync Stop turns all channels OFF</h3>
+<p><strong>Objective:</strong> Confirm Sync Stop halts all active channels.</p>
+<p><strong>Preconditions:</strong> BP-SYNC-001 completed with channels running (especially DC on CH3 which doesn't stop by itself).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Sync Stop</strong>.</li>
+<li>Wait up to 1 second.</li>
+<li>Read all three channel status labels.</li>
+</ol>
+<p><strong>Expected result:</strong> All three channels show <code>Status: OFF</code>. Log shows <code>Sync Stop: all channels -&gt; OFF</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox39"><label for="checkbox39">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-sync-003--sync-start-skips-channels-that-are-hardware-disabled">BP-SYNC-003 — Sync Start skips channels that are hardware-disabled</h3>
+<p><strong>Objective:</strong> Confirm that channels with disabled hardware enable are excluded from Sync Start.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. Channel 2 hardware enable has been toggled off (grey indicator).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Disable Channel 2 using the CH Enable toggle for CH2.</li>
+<li>Confirm the CH2 enable indicator is <strong>grey</strong>.</li>
+<li>Click <strong>Sync Start</strong>.</li>
+<li>Read the log message.</li>
+</ol>
+<p><strong>Expected result:</strong> Log shows <code>Sync Start: CH2 skipped (not enabled)</code>, and only CH1 and CH3 are started.</p>
+<ul>
+<li><input type="checkbox" id="checkbox40"><label for="checkbox40">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-sync-004--sync-start-is-blocked-when-not-armed">BP-SYNC-004 — Sync Start is blocked when not armed</h3>
+<p><strong>Objective:</strong> Confirm Sync Start button is non-functional when beams are not armed.</p>
+<p><strong>Preconditions:</strong> Beams are <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe the <strong>Sync Start</strong> button — it should be greyed out.</li>
+<li>Attempt to click it (may not be possible if disabled).</li>
+</ol>
+<p><strong>Expected result:</strong> Button does not respond. If somehow clickable, log shows <code>Action blocked: beams are not armed</code>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox41"><label for="checkbox41">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-sync-005--sync-start-with-an-invalid-channel-configuration-shows-error-and-aborts">BP-SYNC-005 — Sync Start with an invalid channel configuration shows error and aborts</h3>
+<p><strong>Objective:</strong> Confirm that a validation error for one channel aborts the entire Sync Start operation.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 to <strong>PULSE_TRAIN</strong>, duration <code>100</code>, count <code>1</code> (invalid — count must be ≥ 2).</li>
+<li>Set Channel 2 to <strong>PULSE</strong>, duration <code>200</code>.</li>
+<li>Click <strong>Sync Start</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> An &quot;Invalid Configuration&quot; dialog appears for Channel 1. Neither channel starts pulsing.</p>
+<ul>
+<li><input type="checkbox" id="checkbox42"><label for="checkbox42">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="8-csv-sequence-tab--load--preview">8. CSV Sequence Tab — Load &amp; Preview</h2>
+<hr>
+<h3 id="bp-csv-001--csv-sequence-tab-shows-placeholder-before-loading">BP-CSV-001 — CSV Sequence tab shows placeholder before loading</h3>
+<p><strong>Objective:</strong> Confirm initial state of the CSV Sequence tab.</p>
+<p><strong>Preconditions:</strong> Dashboard freshly initialized. No sequence has been loaded.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the <strong>CSV Sequence</strong> tab in the Beam Pulse panel.</li>
+<li>Observe the file label and the preview text area.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>File label reads <code>No sequence loaded</code> in grey text.</p>
+</li>
+<li>
+<p>Progress label is blank.</p>
+</li>
+<li>
+<p>Preview text area is empty and read-only.</p>
+</li>
+<li>
+<p>&quot;Run Sequence&quot; button is greyed out.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox43"><label for="checkbox43">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-csv-002--loading-a-valid-csv-populates-the-preview">BP-CSV-002 — Loading a valid CSV populates the preview</h3>
+<p><strong>Objective:</strong> Confirm a well-formed CSV file is parsed and displayed.</p>
+<p><strong>Preconditions:</strong> A valid test CSV exists (see Appendix A). CSV Sequence tab visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Load CSV</strong>.</li>
+<li>Navigate to the test CSV file and click Open.</li>
+<li>Observe the file label, progress label, and preview text area.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>File label shows the filename and step count, e.g., <code>test_sequence.csv  (3 steps)</code>.</p>
+</li>
+<li>
+<p>Progress label shows <code>Ready</code>.</p>
+</li>
+<li>
+<p>Preview area lists one line per channel-row, e.g., <code>Step 1: CH1 PULSE dur=100ms cnt=1  dwell=500ms</code>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox44"><label for="checkbox44">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-csv-003--preview-text-is-read-only">BP-CSV-003 — Preview text is read-only</h3>
+<p><strong>Objective:</strong> Confirm the user cannot edit the sequence preview.</p>
+<p><strong>Preconditions:</strong> BP-CSV-002 completed (sequence loaded).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click inside the sequence preview text area.</li>
+<li>Attempt to type any character.</li>
+</ol>
+<p><strong>Expected result:</strong> No characters appear. The text area is read-only.</p>
+<ul>
+<li><input type="checkbox" id="checkbox45"><label for="checkbox45">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-csv-004--run-sequence-remains-disabled-after-loading-when-not-armed">BP-CSV-004 — Run Sequence remains disabled after loading when not armed</h3>
+<p><strong>Objective:</strong> Confirm that loading a sequence alone does not enable Run Sequence.</p>
+<p><strong>Preconditions:</strong> BP-CSV-002 completed. Beams are <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe the <strong>Run Sequence</strong> button after loading the CSV.</li>
+</ol>
+<p><strong>Expected result:</strong> Button remains <strong>greyed out</strong>.</p>
+<ul>
+<li><input type="checkbox" id="checkbox46"><label for="checkbox46">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-csv-005--run-sequence-becomes-enabled-after-loading-and-arming">BP-CSV-005 — Run Sequence becomes enabled after loading and arming</h3>
+<p><strong>Objective:</strong> Confirm Run Sequence is only enabled when both a sequence is loaded AND beams are armed.</p>
+<p><strong>Preconditions:</strong> BP-CSV-002 completed. Beams are <strong>not</strong> yet armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe <strong>Run Sequence</strong> is greyed out.</li>
+<li>Arm the beams.</li>
+<li>Observe <strong>Run Sequence</strong> again.</li>
+</ol>
+<p><strong>Expected result:</strong> <strong>Run Sequence</strong> becomes enabled (normal appearance, clickable).</p>
+<ul>
+<li><input type="checkbox" id="checkbox47"><label for="checkbox47">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-csv-006--loading-an-invalid-csv-shows-an-error-dialog">BP-CSV-006 — Loading an invalid CSV shows an error dialog</h3>
+<p><strong>Objective:</strong> Confirm that a malformed CSV produces a user-friendly error.</p>
+<p><strong>Preconditions:</strong> A CSV file with a bad mode name (e.g., <code>BADMODE</code>) available for testing.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Load CSV</strong>.</li>
+<li>Select the malformed CSV file.</li>
+<li>Observe what happens.</li>
+</ol>
+<p><strong>Expected result:</strong> A &quot;Sequence Load Error&quot; dialog appears describing the problem (e.g., <code>Unknown mode 'BADMODE' at step 1</code>). The previously loaded sequence (if any) is not replaced.</p>
+<ul>
+<li><input type="checkbox" id="checkbox48"><label for="checkbox48">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-csv-007--save-template-writes-a-usable-template-file">BP-CSV-007 — Save Template writes a usable template file</h3>
+<p><strong>Objective:</strong> Confirm the Save Template button produces a file that can be loaded without errors.</p>
+<p><strong>Preconditions:</strong> CSV Sequence tab visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Save Template</strong>.</li>
+<li>Choose a save location and filename (e.g., <code>test_template.csv</code>).</li>
+<li>Click <strong>Load CSV</strong> and open the file just saved.</li>
+<li>Observe the preview.</li>
+</ol>
+<p><strong>Expected result:</strong> Template loads without error. Preview shows the example steps from the template (6 steps across 3 channels including <code>ALL</code>).</p>
+<ul>
+<li><input type="checkbox" id="checkbox49"><label for="checkbox49">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="9-csv-sequence-tab--run--stop">9. CSV Sequence Tab — Run &amp; Stop</h2>
+<hr>
+<h3 id="bp-seq-001--running-a-sequence-steps-through-each-entry-in-order">BP-SEQ-001 — Running a sequence steps through each entry in order</h3>
+<p><strong>Objective:</strong> Confirm the sequence player executes steps sequentially.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed, a 3-step test sequence loaded (see Appendix A).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Run Sequence</strong>.</li>
+<li>Observe the progress label.</li>
+<li>Wait for the sequence to complete.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Progress label updates: <code>Step 1/3 (#1)</code> → <code>Step 2/3 (#2)</code> → <code>Step 3/3 (#3)</code> → <code>Sequence complete</code>.</p>
+</li>
+<li>
+<p>Hardware channels match each step's configuration during dwell time.</p>
+</li>
+<li>
+<p>&quot;Run Sequence&quot; re-enables and &quot;Stop Sequence&quot; disables after completion.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox50"><label for="checkbox50">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-seq-002--stop-sequence-halts-playback-mid-run">BP-SEQ-002 — Stop Sequence halts playback mid-run</h3>
+<p><strong>Objective:</strong> Confirm that clicking Stop Sequence interrupts playback.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. A multi-step sequence with long dwell times loaded (e.g., dwell = 3000 ms per step).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Run Sequence</strong>.</li>
+<li>While <code>Step 1/N</code> is displayed, click <strong>Stop Sequence</strong>.</li>
+<li>Observe the progress label and channel status labels.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Progress label shows <code>Sequence stopped</code>.</p>
+</li>
+<li>
+<p>Playback does not continue to step 2.</p>
+</li>
+<li>
+<p>&quot;Run Sequence&quot; re-enables.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox51"><label for="checkbox51">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-seq-003--run-sequence-cannot-be-started-twice-simultaneously">BP-SEQ-003 — Run Sequence cannot be started twice simultaneously</h3>
+<p><strong>Objective:</strong> Confirm that clicking Run Sequence while already running has no effect.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. Long-dwell sequence loaded and running.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Run Sequence</strong> to start.</li>
+<li>Immediately click <strong>Run Sequence</strong> again (button should still be visible).</li>
+</ol>
+<p><strong>Expected result:</strong> The second click is ignored. Only one sequence worker thread runs. Progress increments normally without doubling.</p>
+<ul>
+<li><input type="checkbox" id="checkbox52"><label for="checkbox52">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-seq-004--dwell-time-is-respected-between-steps">BP-SEQ-004 — Dwell time is respected between steps</h3>
+<p><strong>Objective:</strong> Confirm the sequence pauses between steps for the configured dwell time.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. Test sequence with step 1 dwell = 2000 ms.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Run Sequence</strong>.</li>
+<li>Note the time when progress label changes from <code>Step 1/N</code> to <code>Step 2/N</code> (use a stopwatch or clock).</li>
+</ol>
+<p><strong>Expected result:</strong> Transition from step 1 to step 2 takes approximately 2 seconds (±0.2 s).</p>
+<ul>
+<li><input type="checkbox" id="checkbox53"><label for="checkbox53">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-seq-005--sequence-is-blocked-when-not-connected-to-bcon">BP-SEQ-005 — Sequence is blocked when not connected to BCON</h3>
+<p><strong>Objective:</strong> Confirm sequence cannot start without an active BCON connection.</p>
+<p><strong>Preconditions:</strong> BCON disconnected. Sequence loaded, beams armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Disconnect from BCON (BP-CON-004).</li>
+<li>Click <strong>Run Sequence</strong>.</li>
+<li>Observe what happens.</li>
+</ol>
+<p><strong>Expected result:</strong> A warning dialog appears: &quot;Not connected to BCON device.&quot;</p>
+<ul>
+<li><input type="checkbox" id="checkbox54"><label for="checkbox54">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="10-tab-switching--panel-visibility-tests">10. Tab Switching &amp; Panel Visibility Tests</h2>
+<hr>
+<h3 id="bp-tab-001--manual-control-tab-shows-beam-onoff-row-and-sync-row">BP-TAB-001 — Manual Control tab shows beam ON/OFF row and Sync row</h3>
+<p><strong>Objective:</strong> Confirm correct panel layout when &quot;Manual Control&quot; tab is active.</p>
+<p><strong>Preconditions:</strong> Dashboard loaded, Beam Pulse panel visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the <strong>Manual Control</strong> tab.</li>
+<li>Observe the external control area below/beside the Beam Pulse panel.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Beam A, B, C ON/OFF toggle buttons are <strong>visible</strong>.</p>
+</li>
+<li>
+<p>Sync Start / Sync Stop row is <strong>visible</strong>.</p>
+</li>
+<li>
+<p>CSV buttons frame (Load CSV / Save Template / Run Sequence / Stop Sequence) is <strong>hidden</strong>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox55"><label for="checkbox55">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-tab-002--csv-sequence-tab-hides-beam-onoff-and-sync-row-shows-csv-buttons">BP-TAB-002 — CSV Sequence tab hides beam ON/OFF and Sync row; shows CSV buttons</h3>
+<p><strong>Objective:</strong> Confirm correct panel layout when &quot;CSV Sequence&quot; tab is active.</p>
+<p><strong>Preconditions:</strong> BP-TAB-001 passed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the <strong>CSV Sequence</strong> tab.</li>
+<li>Observe the same external control area.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Beam A, B, C ON/OFF buttons are <strong>hidden</strong>.</p>
+</li>
+<li>
+<p>Sync Start / Sync Stop row is <strong>hidden</strong>.</p>
+</li>
+<li>
+<p>CSV buttons (Load CSV, Save Template, Run Sequence, Stop Sequence) are now <strong>visible</strong>.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox56"><label for="checkbox56">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-tab-003--switching-back-to-manual-tab-restores-original-layout">BP-TAB-003 — Switching back to Manual tab restores original layout</h3>
+<p><strong>Objective:</strong> Confirm the tab switch is reversible without needing a restart.</p>
+<p><strong>Preconditions:</strong> BP-TAB-002 completed (CSV Sequence tab active).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the <strong>Manual Control</strong> tab.</li>
+<li>Observe the external control area.</li>
+</ol>
+<p><strong>Expected result:</strong> Layout matches BP-TAB-001 — Beam ON/OFF and Sync row are visible again; CSV buttons are hidden.</p>
+<ul>
+<li><input type="checkbox" id="checkbox57"><label for="checkbox57">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-tab-004--ch-enabledisable-controls-are-always-visible-regardless-of-tab">BP-TAB-004 — CH Enable/Disable controls are always visible regardless of tab</h3>
+<p><strong>Objective:</strong> Confirm channel enable toggles are accessible from either tab.</p>
+<p><strong>Preconditions:</strong> Dashboard loaded, Beam Pulse panel visible. Test from both tabs.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Note the position of channel enable toggle buttons/indicators.</li>
+<li>Switch between Manual Control and CSV Sequence tabs.</li>
+<li>Observe whether the enable controls are present after each switch.</li>
+</ol>
+<p><strong>Expected result:</strong> CH1/2/3 enable buttons remain visible and accessible on both tabs.</p>
+<ul>
+<li><input type="checkbox" id="checkbox58"><label for="checkbox58">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="11-safety--blocked-actions-when-not-armed">11. Safety — Blocked Actions When Not Armed</h2>
+<blockquote>
+<p>All tests in this section use the dashboard with beams <strong>not armed</strong>.</p>
+</blockquote>
+<hr>
+<h3 id="bp-safe-001--applying-channel-config-is-blocked-when-not-armed">BP-SAFE-001 — Applying channel config is blocked when not armed</h3>
+<p><strong>Preconditions:</strong> BCON connected. Beams <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Set Channel 1 mode to PULSE, duration 100.</li>
+<li>Attempt to apply (click Apply CH1 or equivalent).</li>
+</ol>
+<p><strong>Expected result:</strong> Log shows <code>Action blocked: beams are not armed</code>. No Modbus write is sent. No channels activate.</p>
+<ul>
+<li><input type="checkbox" id="checkbox59"><label for="checkbox59">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-safe-002--sync-start-is-blocked-when-not-armed">BP-SAFE-002 — Sync Start is blocked when not armed</h3>
+<p><strong>Preconditions:</strong> BCON connected. Beams <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Sync Start</strong> (button should be greyed out — if not, this is itself a failure).</li>
+<li>Observe the log.</li>
+</ol>
+<p><strong>Expected result:</strong> Button is non-interactive (greyed out). If somehow activated, log shows blocked message.</p>
+<ul>
+<li><input type="checkbox" id="checkbox60"><label for="checkbox60">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-safe-003--run-sequence-is-blocked-when-not-armed">BP-SAFE-003 — Run Sequence is blocked when not armed</h3>
+<p><strong>Preconditions:</strong> Sequence loaded. Beams <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe <strong>Run Sequence</strong> button.</li>
+<li>Note it is greyed out.</li>
+</ol>
+<p><strong>Expected result:</strong> Button is disabled. Sequence cannot be started.</p>
+<ul>
+<li><input type="checkbox" id="checkbox61"><label for="checkbox61">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-safe-004--sync-stop-works-when-not-armed-safety-action">BP-SAFE-004 — Sync Stop works when not armed (safety action)</h3>
+<p><strong>Preconditions:</strong> Beams <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Sync Stop</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> Button is enabled and clickable. Log shows <code>Sync Stop: all channels -&gt; OFF</code>. No error or dialog.</p>
+<ul>
+<li><input type="checkbox" id="checkbox62"><label for="checkbox62">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-safe-005--stop-sequence-works-when-not-armed-safety-action">BP-SAFE-005 — Stop Sequence works when not armed (safety action)</h3>
+<p><strong>Preconditions:</strong> Beams <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Stop Sequence</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> Button is enabled. If sequence is running, it halts. If idle, the click is acknowledged without error.</p>
+<ul>
+<li><input type="checkbox" id="checkbox63"><label for="checkbox63">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="12-watchdog-configuration-tests">12. Watchdog Configuration Tests</h2>
+<hr>
+<h3 id="bp-wdg-001--setting-a-valid-watchdog-value-is-accepted">BP-WDG-001 — Setting a valid watchdog value is accepted</h3>
+<p><strong>Objective:</strong> Confirm the watchdog entry and Set button work correctly.</p>
+<p><strong>Preconditions:</strong> BCON connected.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Locate the &quot;Watchdog (ms):&quot; entry in the status bar of the Beam Pulse panel.</li>
+<li>Clear the field and type <code>3000</code>.</li>
+<li>Click <strong>Set</strong>.</li>
+<li>Observe the log.</li>
+</ol>
+<p><strong>Expected result:</strong> Log shows <code>Set watchdog = 3000 ms</code>. No error dialog.</p>
+<ul>
+<li><input type="checkbox" id="checkbox64"><label for="checkbox64">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-wdg-002--watchdog-field-auto-fills-from-hardware-after-connect">BP-WDG-002 — Watchdog field auto-fills from hardware after connect</h3>
+<p><strong>Objective:</strong> Confirm the watchdog entry reflects the value stored in hardware registers.</p>
+<p><strong>Preconditions:</strong> BCON connected. Watchdog was previously set to a known value (e.g., 2000 ms default).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Clear the watchdog entry field.</li>
+<li>Wait up to 1 second (one poll cycle).</li>
+<li>Read the entry field.</li>
+</ol>
+<p><strong>Expected result:</strong> Field auto-fills with the hardware watchdog value (e.g., <code>2000</code>).</p>
+<ul>
+<li><input type="checkbox" id="checkbox65"><label for="checkbox65">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-wdg-003--non-numeric-watchdog-value-shows-an-error">BP-WDG-003 — Non-numeric watchdog value shows an error</h3>
+<p><strong>Objective:</strong> Confirm the watchdog entry rejects non-integer values.</p>
+<p><strong>Preconditions:</strong> BCON connected.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Clear the watchdog entry field.</li>
+<li>Type <code>abc</code>.</li>
+<li>Click <strong>Set</strong>.</li>
+</ol>
+<p><strong>Expected result:</strong> An &quot;Invalid&quot; error dialog appears stating the value must be an integer. No write is sent to hardware.</p>
+<ul>
+<li><input type="checkbox" id="checkbox66"><label for="checkbox66">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="13-channel-enable--disable-tests">13. Channel Enable / Disable Tests</h2>
+<hr>
+<h3 id="bp-en-001--enable-indicator-reflects-hardware-enable-state">BP-EN-001 — Enable indicator reflects hardware enable state</h3>
+<p><strong>Objective:</strong> Confirm the per-channel enable indicator (green/grey dot) matches true hardware state.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe the enable indicator for Channel 1 (small circle near the channel card or in the enable row).</li>
+<li>Toggle Channel 1 enable using the dashboard enable button.</li>
+<li>Wait up to 1 second.</li>
+<li>Observe the indicator.</li>
+</ol>
+<p><strong>Expected result:</strong> Indicator changes from <strong>grey</strong> (disabled) to <strong>green</strong> (enabled), or vice versa, matching the command sent.</p>
+<ul>
+<li><input type="checkbox" id="checkbox67"><label for="checkbox67">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-en-002--overcurrent-indicator-turns-red-on-an-overcurrent-event">BP-EN-002 — Overcurrent indicator turns red on an overcurrent event</h3>
+<p><strong>Objective:</strong> Confirm the overcurrent status indicator responds to a hardware overcurrent condition.</p>
+<p><strong>Preconditions:</strong> BCON connected. Ability to trigger or simulate an overcurrent condition on the test hardware.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Observe the overcurrent indicator for a channel (small circle — green = OK, red = fault).</li>
+<li>Trigger the overcurrent condition on the hardware.</li>
+<li>Wait up to 1 second.</li>
+<li>Observe the indicator.</li>
+</ol>
+<p><strong>Expected result:</strong> Indicator turns <strong>red</strong> when overcurrent is active, returns to <strong>green</strong> when cleared.</p>
+<ul>
+<li><input type="checkbox" id="checkbox68"><label for="checkbox68">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-en-003--enable-toggle-is-blocked-when-not-armed">BP-EN-003 — Enable toggle is blocked when not armed</h3>
+<p><strong>Objective:</strong> Confirm channel enable cannot be toggled without arming.</p>
+<p><strong>Preconditions:</strong> Beams <strong>not</strong> armed.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click the enable toggle for Channel 2.</li>
+</ol>
+<p><strong>Expected result:</strong> Log shows <code>Action blocked: beams are not armed</code>. Enable state does not change.</p>
+<ul>
+<li><input type="checkbox" id="checkbox69"><label for="checkbox69">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="14-error-handling--edge-case-tests">14. Error Handling &amp; Edge Case Tests</h2>
+<hr>
+<h3 id="bp-err-001--losing-usb-connection-auto-disconnects-bcon">BP-ERR-001 — Losing USB connection auto-disconnects BCON</h3>
+<p><strong>Objective:</strong> Confirm the panel recovers gracefully when the serial cable is unplugged.</p>
+<p><strong>Preconditions:</strong> BCON connected (indicator green).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Physically unplug the USB cable from the BCON controller.</li>
+<li>Wait up to 5 seconds (4 consecutive poll failures × 0.3 s each = ~1.2 s plus margin).</li>
+<li>Observe the indicator and log.</li>
+</ol>
+<p><strong>Expected result:</strong></p>
+<ul>
+<li>
+<p>Indicator turns <strong>red</strong> automatically.</p>
+</li>
+<li>
+<p>Button relabels to &quot;Reconnect&quot;.</p>
+</li>
+<li>
+<p>Log shows a Modbus read failure and then a disconnection message.</p>
+</li>
+<li>
+<p><input type="checkbox" id="checkbox70"><label for="checkbox70">Pass     [ ] Fail</label></p>
+</li>
+</ul>
+<hr>
+<h3 id="bp-err-002--reconnecting-after-cable-unplug-restores-operation">BP-ERR-002 — Reconnecting after cable unplug restores operation</h3>
+<p><strong>Objective:</strong> Confirm a clean reconnect cycle after physical disconnection.</p>
+<p><strong>Preconditions:</strong> BP-ERR-001 completed (cable re-plugged in).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Plug the USB cable back in.</li>
+<li>Click <strong>Reconnect</strong>.</li>
+<li>Wait up to 5 seconds.</li>
+</ol>
+<p><strong>Expected result:</strong> Indicator turns green, safety status shows ok, normal operation resumes.</p>
+<ul>
+<li><input type="checkbox" id="checkbox71"><label for="checkbox71">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-err-003--loading-a-csv-when-no-file-is-selected-does-not-crash">BP-ERR-003 — Loading a CSV when no file is selected does not crash</h3>
+<p><strong>Objective:</strong> Confirm the Cancel action in the file dialog is handled gracefully.</p>
+<p><strong>Preconditions:</strong> CSV Sequence tab visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Click <strong>Load CSV</strong>.</li>
+<li>When the file dialog opens, click <strong>Cancel</strong> (do not select a file).</li>
+<li>Observe the Beam Pulse panel.</li>
+</ol>
+<p><strong>Expected result:</strong> Panel returns to its previous state. No error dialog. No crash.</p>
+<ul>
+<li><input type="checkbox" id="checkbox72"><label for="checkbox72">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-err-004--attempting-to-run-a-sequence-when-no-sequence-is-loaded-shows-a-message">BP-ERR-004 — Attempting to run a sequence when no sequence is loaded shows a message</h3>
+<p><strong>Objective:</strong> Confirm the run action is graceful when <code>_seq_steps</code> is empty.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed. No CSV loaded (or previously cleared by restart).</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Confirm the file label shows &quot;No sequence loaded&quot;.</li>
+<li>If Run Sequence button is somehow enabled, click it.</li>
+</ol>
+<p><strong>Expected result:</strong> Either the button is greyed out (preferred), or an informational dialog appears: &quot;No sequence loaded.&quot; No crash occurs.</p>
+<ul>
+<li><input type="checkbox" id="checkbox73"><label for="checkbox73">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h3 id="bp-err-005--messages--errors-panel-receives-all-beam-pulse-log-events">BP-ERR-005 — Messages &amp; Errors panel receives all Beam Pulse log events</h3>
+<p><strong>Objective:</strong> Confirm that events logged in the Beam Pulse panel also appear in the global Messages &amp; Errors frame.</p>
+<p><strong>Preconditions:</strong> BCON connected, beams armed, Messages &amp; Errors panel visible.</p>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Apply any channel configuration (e.g., CH1 DC).</li>
+<li>Look at the &quot;Messages &amp; Errors&quot; frame at the bottom of the dashboard.</li>
+</ol>
+<p><strong>Expected result:</strong> The apply action log entry (e.g., <code>Applied CH1: mode=DC</code>) appears in the Messages &amp; Errors panel.</p>
+<ul>
+<li><input type="checkbox" id="checkbox74"><label for="checkbox74">Pass     [ ] Fail</label></li>
+</ul>
+<hr>
+<h2 id="15-sign-off">15. Sign-off</h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Name</th>
+<th>Signature</th>
+<th>Date</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tester</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Reviewer</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Approver</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p><strong>Overall result</strong></p>
+<ul>
+<li><input type="checkbox" id="checkbox75"><label for="checkbox75">All tests passed — panel ready for use</label></li>
+<li><input type="checkbox" id="checkbox76"><label for="checkbox76">Some tests failed — see defect notes below</label></li>
+</ul>
+<p><strong>Defect notes / observations:</strong></p>
+<p><em>(Use this space to record any failures, unexpected behaviour, or open questions)</em></p>
+<pre class="hljs"><code><div>Test ID:
+Description:
+Steps to reproduce:
+Expected:
+Actual:
+Severity (Low / Medium / High / Critical):
+
+---
+</div></code></pre>
+<hr>
+<h2 id="appendix-a--sample-test-csv-file">Appendix A — Sample Test CSV File</h2>
+<p>Save the following content as <code>sequences/test_sequence.csv</code>:</p>
+<pre class="hljs"><code><div># Test Sequence — 3 steps
+step,ch,mode,duration_ms,count,dwell_ms
+1,1,PULSE,100,1,1000
+1,2,DC,,,1000
+1,3,OFF,,,1000
+2,1,PULSE_TRAIN,50,4,2000
+2,2,PULSE_TRAIN,50,4,2000
+2,3,OFF,,,2000
+3,ALL,OFF,,,500
+</div></code></pre>
+<p><strong>What to expect when this runs:</strong></p>
+<ul>
+<li><strong>Step 1</strong> (dwell 1 s): CH1 fires one 100 ms pulse; CH2 goes DC; CH3 stays OFF</li>
+<li><strong>Step 2</strong> (dwell 2 s): CH1 and CH2 each fire 4 × 50 ms pulses; CH3 stays OFF</li>
+<li><strong>Step 3</strong> (dwell 0.5 s): All channels set to OFF</li>
+</ul>
+<hr>
+<h2 id="appendix-b--quick-dashboard-reference">Appendix B — Quick Dashboard Reference</h2>
+<table>
+<thead>
+<tr>
+<th>UI Element</th>
+<th>Location</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BCON indicator (circle)</td>
+<td>Beam Pulse status bar — left</td>
+<td>Red = disconnected, Green = connected</td>
+</tr>
+<tr>
+<td>&quot;Interlock: / Watchdog:&quot; label</td>
+<td>Beam Pulse status bar — centre</td>
+<td>Live safety status text</td>
+</tr>
+<tr>
+<td>Connect / Disconnect / Reconnect</td>
+<td>Beam Pulse status bar — right</td>
+<td>Open or close serial port</td>
+</tr>
+<tr>
+<td>Log: label</td>
+<td>Beam Pulse status bar — far right</td>
+<td>Most recent event summary</td>
+</tr>
+<tr>
+<td>Watchdog (ms) entry + Set</td>
+<td>Beam Pulse status bar — second row</td>
+<td>Configure firmware watchdog timeout</td>
+</tr>
+<tr>
+<td>Mode drop-down</td>
+<td>Each channel card</td>
+<td>Select OFF / DC / PULSE / PULSE_TRAIN</td>
+</tr>
+<tr>
+<td>Duration (ms) entry</td>
+<td>Each channel card</td>
+<td>Pulse width for PULSE and PULSE_TRAIN</td>
+</tr>
+<tr>
+<td>Count entry</td>
+<td>Each channel card</td>
+<td>Repeat count for PULSE_TRAIN (≥ 2)</td>
+</tr>
+<tr>
+<td>Status / Remaining labels</td>
+<td>Each channel card</td>
+<td>Live hardware register readback</td>
+</tr>
+<tr>
+<td>Sync Start</td>
+<td>External control panel</td>
+<td>Start all enabled channels together</td>
+</tr>
+<tr>
+<td>Sync Stop</td>
+<td>External control panel</td>
+<td>Immediately stop all channels</td>
+</tr>
+<tr>
+<td>Load CSV</td>
+<td>CSV buttons area</td>
+<td>Open a <code>.csv</code> sequence file</td>
+</tr>
+<tr>
+<td>Save Template</td>
+<td>CSV buttons area</td>
+<td>Write a reference template CSV</td>
+</tr>
+<tr>
+<td>Run Sequence</td>
+<td>CSV buttons area</td>
+<td>Start the loaded sequence (armed + loaded)</td>
+</tr>
+<tr>
+<td>Stop Sequence</td>
+<td>CSV buttons area</td>
+<td>Halt a running sequence (always enabled)</td>
+</tr>
+</tbody>
+</table>
+
+</body>
+</html>
