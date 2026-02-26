@@ -352,6 +352,17 @@ class G9DriverSim(BaseSimulator):
         self.state = {name: True for name in self.INTERLOCK_NAMES}
         self._buf = b""
 
+    def interlock_chain_ok(self) -> bool:
+        with self.lock:
+            return all(self.state.get(name, True) for name in self.INTERLOCK_NAMES[:11])
+
+    def _pack_flags(self, bits: list[bool], total_bytes: int = 6) -> bytes:
+        packed = bytearray(total_bytes)
+        for i, bit in enumerate(bits):
+            if bit:
+                packed[i // 8] |= (1 << (i % 8))
+        return bytes(packed)
+
     def run(self):
         while not self._stop.is_set():
             chunk = self.pair.read(256, timeout=0.05)
@@ -377,35 +388,37 @@ class G9DriverSim(BaseSimulator):
     def _send_response(self):
         """Build a 199-byte G9SP response packet."""
         resp = bytearray(199)
-        resp[0] = 0x40  # header
-        resp[1] = 0xC3  # length indicator
+        resp[0] = 0x40
+        resp[1] = 0x00
+        resp[2] = 0x00
+        resp[3] = 0xC3
         # OCTD at byte 7
         resp[7] = 0x00
-        # Build SITSF (safety input terminal status flags) — 6 bytes at offset 21
-        # and SITDF (safety input terminal data flags) — 6 bytes at offset 11.
-        # For the simulator: SITSF bit=1 means OK (same as SITDF).
+
         with self.lock:
-            bits = 0
-            for i, name in enumerate(self.INTERLOCK_NAMES):
-                if self.state.get(name, False):
-                    bits |= (1 << i)
-        # Pack 13 bits into the first 2 bytes of each 6-byte field
-        sitsf_bytes = bits.to_bytes(2, 'big')
-        sitdf_bytes = bits.to_bytes(2, 'big')
+            input_bits = [bool(self.state.get(name, False)) for name in self.INTERLOCK_NAMES]
+            chain_ok = all(input_bits[:11])
+            g9_active = bool(self.state.get("g9sp_active", True))
+
+        sitsf_bytes = self._pack_flags(input_bits, total_bytes=6)
+        sitdf_bytes = self._pack_flags(input_bits, total_bytes=6)
+
+        # Output flags: bit 4 is consumed by driver as g9_active signal
+        out_bits = [False] * 7
+        out_bits[4] = bool(chain_ok and g9_active)
+        sotsf_bytes = self._pack_flags(out_bits, total_bytes=4)
+        sotdf_bytes = self._pack_flags(out_bits, total_bytes=4)
+
         # SITDF at offset 11, 6 bytes
-        resp[11] = sitdf_bytes[0]
-        resp[12] = sitdf_bytes[1]
-        # SOTDF at offset 17, 4 bytes — outputs all ON
-        resp[17] = 0xFF
-        resp[18] = 0xFF
+        resp[11:17] = sitdf_bytes
+        # SOTDF at offset 17, 4 bytes
+        resp[17:21] = sotdf_bytes
         # SITSF at offset 21, 6 bytes
-        resp[21] = sitsf_bytes[0]
-        resp[22] = sitsf_bytes[1]
+        resp[21:27] = sitsf_bytes
         # SOTSF at offset 27, 4 bytes
-        resp[27] = 0xFF
-        resp[28] = 0xFF
-        # US (unit status) at offset 73, 2 bytes — 0=OK
-        resp[73] = 0x00
+        resp[27:31] = sotsf_bytes
+        # US (unit status) at offset 73, 2 bytes — 0x0100 = normal
+        resp[73] = 0x01
         resp[74] = 0x00
         # Checksum at bytes 195–196: sum of 0..194 & 0xFFFF big-endian
         cksum = sum(resp[:195]) & 0xFFFF
@@ -544,6 +557,7 @@ class BCONDriverSim(BaseSimulator):
 
         self.watchdog_timeout_ms = self.DEFAULT_WATCHDOG_MS
         self.telemetry_period_ms = self.DEFAULT_TELEMETRY_MS
+        self._interlock_input_ok = True
         self.last_command_ms = self._now_ms()
         self.watchdog_grace_deadline_ms = self.last_command_ms + self.WATCHDOG_BOOT_GRACE_MS
         self.last_modbus_error = self.ERR_NONE
@@ -564,6 +578,7 @@ class BCONDriverSim(BaseSimulator):
             "sys_state": 0,       # 0=READY
             "armed": False,
             "interlock_ok": True,
+            "interlock_forced_off": False,
             "fault_latched": False,
             "watchdog_ok": True,
             "last_error": 0,
@@ -584,6 +599,20 @@ class BCONDriverSim(BaseSimulator):
             self._sync_public_state()
             self._stop.wait(0.02)
 
+    def set_interlock_ok(self, ok: bool):
+        with self.lock:
+            self._interlock_input_ok = bool(ok)
+
+    def force_interlock_off(self):
+        with self.lock:
+            self.state["interlock_forced_off"] = True
+            self.state["interlock_ok"] = False
+
+    def reset_interlock(self):
+        with self.lock:
+            self.state["interlock_forced_off"] = False
+            self.state["interlock_ok"] = bool(self._interlock_input_ok)
+
     def _now_ms(self) -> int:
         return int(time.monotonic() * 1000)
 
@@ -594,7 +623,9 @@ class BCONDriverSim(BaseSimulator):
         return (now - self.last_command_ms) <= self.watchdog_timeout_ms
 
     def _is_interlock_satisfied(self) -> bool:
-        return bool(self.state.get("interlock_ok", True))
+        if bool(self.state.get("interlock_forced_off", False)):
+            return False
+        return bool(self._interlock_input_ok)
 
     def _is_any_overcurrent_asserted(self) -> bool:
         return any(self._channels[ch]["overcurrent"] for ch in (1, 2, 3))
@@ -704,7 +735,7 @@ class BCONDriverSim(BaseSimulator):
     def _sync_public_state(self):
         with self.lock:
             self.state["sys_state"] = self._evaluate_top_level_state()
-            self.state["interlock_ok"] = bool(self.state.get("interlock_ok", True))
+            self.state["interlock_ok"] = self._is_interlock_satisfied()
             self.state["watchdog_ok"] = self._is_watchdog_healthy()
             self.state["fault_latched"] = bool(self.state.get("fault_latched", False))
             self.state["last_error"] = self.last_modbus_error

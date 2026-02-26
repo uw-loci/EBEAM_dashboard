@@ -52,3 +52,28 @@ All notable changes to the EBEAM Dashboard project are documented here.
     - `python -m simulator.run_simulator --dashboard` — writes virtual port mapping to `usr/usr_data/com_ports.json` and auto-launches the dashboard as a child process  
     - `--print-ports` — prints the JSON port map and exits  
     - On exit: stops all simulator threads, closes PTY pairs, terminates the dashboard child.
+
+  ### Updated
+
+  - **Interlocks simulator protocol fidelity** (`simulator/instruments.py`)  
+    Refined `G9DriverSim` to match the real G9 driver parsing rules:
+    - Response header bytes now follow expected format (`0x40 0x00 0x00 0xC3`).
+    - Unit status at offset 73 is set to `0x0100` for normal operation.
+    - `SITDF` / `SITSF` bits are packed in the same bit order used by `G9Driver._extract_flags(...)`.
+    - `SOTDF` / `SOTSF` bit-4 now drives the `g9_active` signal consumed by the interlocks subsystem.
+
+  - **Cross-subsystem safety linkage (G9SP → BCON)** (`simulator/run_simulator.py`)  
+    Added a live callback link so BCON interlock health follows the simulated G9 interlock chain state. Interlock faults injected in the G9 simulator now propagate immediately into BCON safety state.
+
+  - **BCON interlock force-off behavior (one-way fault injection)** (`simulator/instruments.py`, `simulator/sim_gui.py`)  
+    The BCON GUI control is now one-way:
+    - Replaced interlock toggle with `Force OFF`.
+    - Once pressed, interlock is latched forced-off (`interlock_forced_off=True`) and cannot be restored via the UI toggle path.
+    - BCON interlock evaluation now respects forced-off latch first, then upstream interlock input.
+    - UI reflects latched state by disabling the button and showing `FORCED OFF`.
+
+  - **BCON interlock reset control** (`simulator/instruments.py`, `simulator/sim_gui.py`)  
+    Added an explicit reset path for simulator operations:
+    - New `reset_interlock()` API clears the forced-off latch and re-evaluates interlock state from upstream input.
+    - Added `Reset` button in the BCON simulator card.
+    - `Reset` is enabled only while interlock is latched forced-off; normal state keeps it disabled.

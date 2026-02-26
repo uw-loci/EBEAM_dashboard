@@ -348,12 +348,17 @@ class BCONCard(Card):
         ttk.Label(row3, text="Interlock:", style="Card.TLabel").pack(side="left")
         self.il_dot = IndicatorDot(row3)
         self.il_dot.pack(side="right", padx=4)
-        # Toggle interlock
-        btn = tk.Button(row3, text="Toggle", bg=MD_CHIP_BG, fg=MD_TEXT,
+        # One-way fault injection: force BCON interlock OFF
+        self.force_off_btn = tk.Button(row3, text="Force OFF", bg=MD_CHIP_BG, fg=MD_TEXT,
                         activebackground="#4A4A5C", activeforeground=MD_TEXT,
                         relief="flat", font=("Segoe UI", 9), bd=0, padx=6, pady=2,
-                        command=self._toggle_interlock)
-        btn.pack(side="right", padx=4)
+                command=self._force_interlock_off)
+        self.force_off_btn.pack(side="right", padx=4)
+        self.reset_btn = tk.Button(row3, text="Reset", bg=MD_CHIP_BG, fg=MD_TEXT,
+                activebackground="#4A4A5C", activeforeground=MD_TEXT,
+                relief="flat", font=("Segoe UI", 9), bd=0, padx=6, pady=2,
+                command=self._reset_interlock)
+        self.reset_btn.pack(side="right", padx=4)
 
         # Per-channel
         self.ch_lbls = {}
@@ -372,9 +377,21 @@ class BCONCard(Card):
             ttk.Label(f, text="OUT:", style="CardSubtitle.TLabel").pack(side="right")
             self.ch_lbls[ch] = {"mode": mode_lbl, "en": en_dot, "out": out_dot}
 
-    def _toggle_interlock(self):
-        with self.sim.lock:
-            self.sim.state["interlock_ok"] = not self.sim.state.get("interlock_ok", True)
+    def _force_interlock_off(self):
+        if hasattr(self.sim, "force_interlock_off"):
+            self.sim.force_interlock_off()
+        else:
+            with self.sim.lock:
+                self.sim.state["interlock_ok"] = False
+                self.sim.state["interlock_forced_off"] = True
+
+    def _reset_interlock(self):
+        if hasattr(self.sim, "reset_interlock"):
+            self.sim.reset_interlock()
+        else:
+            with self.sim.lock:
+                self.sim.state["interlock_forced_off"] = False
+                self.sim.state["interlock_ok"] = True
 
     def refresh(self):
         modes = {0: "OFF", 1: "DC", 2: "PULSE", 3: "TRAIN"}
@@ -387,6 +404,12 @@ class BCONCard(Card):
         self.state_lbl.config(text=txt, style=sty)
         self.armed_dot.set_color(MD_GREEN if s.get("armed") else MD_TEXT_DARK)
         self.il_dot.set_color(MD_GREEN if s.get("interlock_ok") else MD_RED)
+        if s.get("interlock_forced_off", False):
+            self.force_off_btn.config(text="FORCED OFF", state="disabled")
+            self.reset_btn.config(state="normal")
+        else:
+            self.force_off_btn.config(text="Force OFF", state="normal")
+            self.reset_btn.config(state="disabled")
         for ch in (1, 2, 3):
             m = s.get(f"ch{ch}_mode", 0)
             self.ch_lbls[ch]["mode"].config(text=modes.get(m, "?"))

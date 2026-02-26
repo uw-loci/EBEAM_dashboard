@@ -62,6 +62,16 @@ def main():
         "BCON":      BCONDriverSim(pm.get("BeamPulse")),
     }
 
+    # Cross-link interlocks: BCON interlock follows G9 chain health.
+    g9 = simulators["G9SP"]
+    bcon = simulators["BCON"]
+
+    def _sync_interlocks():
+        bcon.set_interlock_ok(g9.interlock_chain_ok())
+
+    g9.set_state_callback(_sync_interlocks)
+    _sync_interlocks()
+
     # ── 3. Start all simulator threads ────────────────────────────────────
     for name, sim in simulators.items():
         sim.start()
