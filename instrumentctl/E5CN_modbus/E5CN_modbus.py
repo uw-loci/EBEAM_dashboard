@@ -7,7 +7,7 @@ class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=1, bytesize=8, logger=None, debug_mode=False, poll_delay=0.02):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=1, bytesize=8, logger=None, debug_mode=False, poll_interval=0.5, retry_delay=0.02):
         """
         Initialize the E5CNModbus instance with serial communication parameters and optional logging.
         
@@ -16,10 +16,12 @@ class E5CNModbus:
             baudrate (int): Communication baud rate (default: 9600).
             timeout (int): Timeout duration for Modbus communication (default: 1 second).
             parity (str): Parity setting for serial communication (default: 'E' for Even).
-            stopbits (int): Number of stop bits (default: 2).
+            stopbits (int): Number of stop bits (default: 1).
             bytesize (int): Data bits size (default: 8).
             logger (optional): Logger instance for output messages.
             debug_mode (bool): If True, enables debug logging.
+            poll_interval (float): Delay between successful steady-state reads (default: 0.5 seconds).
+            retry_delay (float): Delay between retries/reconnect attempts (default: 0.02 seconds).
         """
         self.logger = logger
         self.debug_mode = debug_mode
@@ -31,7 +33,8 @@ class E5CNModbus:
         self.is_initialized = threading.Event()
         self.port = port
         self.connected = False
-        self.poll_delay = poll_delay
+        self.poll_interval = max(0.05, float(poll_interval))
+        self.retry_delay = max(0.0, float(retry_delay))
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -69,7 +72,7 @@ class E5CNModbus:
             thread.start()
             self.threads.append(thread)
             self.log(f"Started temperature reading thread for unit {unit}", LogLevel.DEBUG)
-            time.sleep(self.poll_delay)  # Small delay between thread starts
+            time.sleep(self.retry_delay)  # Small delay between thread starts
             
         return True
 
@@ -87,9 +90,10 @@ class E5CNModbus:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
                         self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                    time.sleep(self.poll_interval)
                 else:
                     self.log(f"Unit {unit} read failed (no response/invalid response)", LogLevel.ERROR)
-                time.sleep(self.poll_delay)
+                    time.sleep(self.retry_delay)
             except Exception as e:
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
                 time.sleep(1)  # Longer delay on error
@@ -163,7 +167,7 @@ class E5CNModbus:
                     if not self.client.is_socket_open():
                         try:
                             if self.client.connect():
-                                time.sleep(self.poll_delay)
+                                time.sleep(self.retry_delay)
                             else:
                                 self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
                                 self.connected = False
@@ -186,7 +190,7 @@ class E5CNModbus:
                         if not hasattr(response, 'registers') or len(response.registers) < 2:
                             self.log(f"Incomplete temperature register response from unit {unit}: {response}", LogLevel.ERROR)
                             attempts -= 1
-                            time.sleep(self.poll_delay)
+                            time.sleep(self.retry_delay)
                             continue
 
                         reg0 = response.registers[0] & 0xFFFF
@@ -198,13 +202,13 @@ class E5CNModbus:
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
-                        time.sleep(self.poll_delay)
+                        time.sleep(self.retry_delay)
                         continue
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
                 attempts -= 1
-                time.sleep(self.poll_delay)
+                time.sleep(self.retry_delay)
 
         return None
 
