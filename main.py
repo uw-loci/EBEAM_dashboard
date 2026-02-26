@@ -45,7 +45,7 @@ def start_main_app(com_ports):
     """
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
-    root.state('zoomed')
+    root.attributes('-zoomed', True)
 
     # Track fullscreen state
     fullscreen = False
@@ -70,10 +70,8 @@ def start_main_app(com_ports):
         return "break"
     
     def toggle_maximize(event=None):
-        if root.state() == 'zoomed':
-            root.state('normal')
-        else:
-            root.state('zoomed')
+        current = bool(root.attributes('-zoomed'))
+        root.attributes('-zoomed', not current)
         return "break"
 
     def save_logs(event=None):

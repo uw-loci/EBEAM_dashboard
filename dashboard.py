@@ -123,6 +123,10 @@ class EBEAMSystemDashboard:
 
         self._check_ports()
 
+        # Bind adaptive resize AFTER all frames are created so that
+        # Configure events fired during construction are ignored.
+        self.root.bind('<Configure>', self._on_window_resize)
+
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
 
@@ -143,6 +147,21 @@ class EBEAMSystemDashboard:
         self._sashes = []  # list of dicts with widgets and placement meta
         self._grips = []   # bottom resize grips per frame
 
+        # Adaptive layout: compute design reference dimensions from frames_config.
+        # _last_w/_last_h start at 0 (sentinel = "not yet seen a real window size").
+        # On the first <Configure> event with a real size we scale from the design
+        # reference to the actual window; subsequent events scale incrementally.
+        _row_heights = {}
+        _row_widths = {}
+        for _, row, w, h in frames_config:
+            _row_heights[row] = max(_row_heights.get(row, 0), h or 0)
+            _row_widths[row] = _row_widths.get(row, 0) + (w or 0)
+        self._design_w = max(_row_widths.values()) if _row_widths else 1920
+        self._design_h = sum(_row_heights.values()) if _row_heights else 1060
+        self._last_w = 0   # 0 = not yet initialised
+        self._last_h = 0
+        self._resize_pending = None  # after() id for debounced reflow
+
     def _compute_row_layout(self):
         """Return structures for layout: row_max_heights, sorted_rows, row_to_y, row_x_offsets."""
         row_max_heights = {}
@@ -157,6 +176,43 @@ class EBEAMSystemDashboard:
         # initial x offsets per row
         row_x_offsets = {r: 0 for r in sorted_rows}
         return row_max_heights, sorted_rows, row_to_y, row_x_offsets
+
+    def _on_window_resize(self, event):
+        """Handle window <Configure> events and scale frames proportionally."""
+        if event.widget is not self.root:
+            return
+        new_w = self.root.winfo_width()
+        new_h = self.root.winfo_height()
+        # Skip spurious pre-render events where Tk reports the window as tiny.
+        if new_w < 50 or new_h < 50:
+            return
+        if new_w == self._last_w and new_h == self._last_h:
+            return
+        # Determine the reference to scale FROM:
+        # - First real event  → scale from original design reference
+        # - Subsequent events → scale incrementally from previous size
+        ref_w = self._design_w if self._last_w == 0 else self._last_w
+        ref_h = self._design_h if self._last_h == 0 else self._last_h
+        if ref_w > 0 and ref_h > 0:
+            scale_x = new_w / ref_w
+            scale_y = new_h / ref_h
+            for i, (title, row, w, h) in enumerate(frames_config):
+                frames_config[i] = (
+                    title, row,
+                    max(80, int(w * scale_x)),
+                    max(10, int(h * scale_y)),
+                )
+        self._last_w = new_w
+        self._last_h = new_h
+        # Debounce: wait 50 ms after the last resize event before reflowing.
+        if self._resize_pending is not None:
+            self.root.after_cancel(self._resize_pending)
+        self._resize_pending = self.root.after(50, self._do_resize_reflow)
+
+    def _do_resize_reflow(self):
+        """Perform the actual reflow after the debounce period."""
+        self._resize_pending = None
+        self._reflow_all()
 
     def _reflow_all(self):
         """Re-place frames, sashes and grips after a resize change."""
@@ -182,7 +238,7 @@ class EBEAMSystemDashboard:
             frame = self.frames.get(title)
             x = row_x_offsets.get(row, 0)
             y = row_to_y.get(row, 0)
-            if frame:
+            if frame and width > 0 and height > 0:
                 frame.place(x=x, y=y, width=width, height=height)
             # Always advance offset, even for spacer/non-rendered entries
             row_x_offsets[row] = x + (width or 0)
@@ -192,13 +248,16 @@ class EBEAMSystemDashboard:
             # Recalculate X running sum for sash positions
             x = 0
             y = row_to_y[row]
+            sash_h = row_max_heights.get(row, 0)
             for idx in range(len(members) - 1):
                 left_title, left_w, left_h = members[idx]
                 right_title, right_w, right_h = members[idx + 1]
                 x += left_w
+                if sash_h <= 0:
+                    continue  # skip zero-height sashes (would crash X11)
                 sash = tk.Frame(self.main_pane, cursor='sb_h_double_arrow', bg='#CCCCCC')
                 sash_w = 5
-                sash.place(x=x - sash_w // 2, y=y, width=sash_w, height=row_max_heights[row])
+                sash.place(x=x - sash_w // 2, y=y, width=sash_w, height=sash_h)
                 self._attach_sash_handlers(sash, row, idx)
                 self._sashes.append({'widget': sash, 'row': row, 'index': idx})
 
@@ -221,6 +280,8 @@ class EBEAMSystemDashboard:
                 x += w2
             grip = tk.Frame(self.main_pane, cursor='sb_v_double_arrow', bg='#CCCCCC')
             grip_h = 5
+            if width <= 0 or height <= 0:
+                continue  # skip zero-dimension grips (would crash X11)
             grip.place(x=x, y=y + height - grip_h // 2, width=width, height=grip_h)
             self._attach_grip_handlers(grip, row, title)
             self._grips.append({'widget': grip, 'row': row, 'title': title})

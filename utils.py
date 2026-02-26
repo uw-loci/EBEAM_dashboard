@@ -55,10 +55,14 @@ class Logger:
             timestamp = datetime.datetime.now().strftime("%H:%M:%S")
             formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
             
-            # Write to text widget
-            self.text_widget.insert(tk.END, formatted_message, ("log",))
-            self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
-            self.text_widget.see(tk.END)
+            # Write to text widget (guard against widget already being destroyed)
+            try:
+                self.text_widget.insert(tk.END, formatted_message, ("log",))
+                self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
+                self.text_widget.see(tk.END)
+            except tk.TclError:
+                # Widget destroyed (e.g. app is shutting down) — log to stdout only
+                print(formatted_message, end="")
 
             # write to log flie if enabled
             if self.log_to_file:
