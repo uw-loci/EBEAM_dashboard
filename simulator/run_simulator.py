@@ -46,7 +46,12 @@ def main():
     args = parser.parse_args()
 
     # ── 1. Create virtual serial port pairs ───────────────────────────────
-    pm = PortManager()
+    try:
+        pm = PortManager()
+    except Exception as exc:
+        print(f"Failed to create virtual serial ports: {exc}")
+        print("Hint: On Windows, install/create com0com pairs or set EBEAM_SIM_PORT_MAP(_FILE).")
+        return 1
     print("Virtual serial port pairs created:")
     print(pm)
 
@@ -118,4 +123,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

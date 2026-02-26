@@ -77,3 +77,10 @@ All notable changes to the EBEAM Dashboard project are documented here.
     - New `reset_interlock()` API clears the forced-off latch and re-evaluates interlock state from upstream input.
     - Added `Reset` button in the BCON simulator card.
     - `Reset` is enabled only while interlock is latched forced-off; normal state keeps it disabled.
+
+  - **Cross-platform simulator serial backend (Linux + Windows)** (`simulator/virtual_serial.py`, `simulator/run_simulator.py`)  
+    Refactored virtual serial layer to support Windows in addition to Linux:
+    - Linux/macOS: existing PTY master/slave backend retained.
+    - Windows: COM null-modem backend using paired ports (e.g. com0com `CNCAx`/`CNCBx`).
+    - Windows mapping sources: `EBEAM_SIM_PORT_MAP_FILE`, `EBEAM_SIM_PORT_MAP`, or automatic com0com pair detection.
+    - Added friendly startup error messaging in launcher when Windows COM mapping is missing/misconfigured.
