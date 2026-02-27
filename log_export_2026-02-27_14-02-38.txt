@@ -1,0 +1,703 @@
+[14:02:31] - INFO: Serial connection established on /dev/pts/25
+[14:02:31] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:31] - INFO: Serial connection established on /dev/pts/30
+[14:02:31] - INFO: G9 driver initialized
+[14:02:31] - DEBUG: Initializing E5CNModbus with port: /dev/pts/29
+[14:02:31] - ERROR: Failed to connect to the E5CN Modbus device.
+[14:02:31] - ERROR: Cannot start reading temperatures - connection failed
+[14:02:31] - ERROR: Failed to start temperature controllers at /dev/pts/29
+[14:02:31] - INFO: Serial connection established on /dev/pts/26
+[14:02:31] - DEBUG: Raw command sent: SABC3
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: SABC3
+[14:02:31] - DEBUG: Response: OK
+[14:02:31] - DEBUG: Raw response received: OK
+[14:02:31] - INFO: Set preset mode for CathodeA PS to 3 (normal mode).
+[14:02:31] - DEBUG: Raw command sent: GABC
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: GABC
+[14:02:31] - DEBUG: Response: 3OK
+[14:02:31] - DEBUG: Raw response received: 3OK
+[14:02:31] - INFO: Current preset selection: 3
+[14:02:31] - INFO: Asserted preset mode 3 (normal mode) for cathode CathodeA PS. Response: 3
+[14:02:31] - DEBUG: Setting OVP for cathode CathodeA PS to: 1.00
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: SOVP0100
+[14:02:31] - DEBUG: Response: OK
+[14:02:31] - INFO: Set OVP for cathode CathodeA PS to 1.00V
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: GOVP
+[14:02:31] - DEBUG: Response: 0100OK
+[14:02:31] - INFO: OVP value: 1.00
+[14:02:31] - INFO: OVP setting confirmed for cathode CathodeA PS: 1.00V
+[14:02:31] - DEBUG: Setting OCP for cathode CathodeA PS to: 9.00A
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: SOCP0900
+[14:02:31] - DEBUG: Response: OK
+[14:02:31] - INFO: Set OCP for cathode CathodeA PS to 9.00A
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: GOCP
+[14:02:31] - DEBUG: Response: 0900OK
+[14:02:31] - DEBUG: OCP value: 9.00A
+[14:02:31] - INFO: OCP setting confirmed for cathode CathodeA PS: 9.00A
+[14:02:31] - INFO: Initialized CathodeA PS on port /dev/pts/26
+[14:02:31] - INFO: Serial connection established on /dev/pts/27
+[14:02:31] - DEBUG: Raw command sent: SABC3
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: SABC3
+[14:02:31] - DEBUG: Response: OK
+[14:02:31] - DEBUG: Raw response received: OK
+[14:02:31] - INFO: Set preset mode for CathodeB PS to 3 (normal mode).
+[14:02:31] - DEBUG: Raw command sent: GABC
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: GABC
+[14:02:31] - DEBUG: Response: 3OK
+[14:02:31] - DEBUG: Raw response received: 3OK
+[14:02:31] - INFO: Current preset selection: 3
+[14:02:31] - INFO: Asserted preset mode 3 (normal mode) for cathode CathodeB PS. Response: 3
+[14:02:31] - DEBUG: Setting OVP for cathode CathodeB PS to: 1.00
+[14:02:31] - DEBUG: Flushing serial input buffer
+[14:02:31] - DEBUG: Sending command: SOVP0100
+[14:02:32] - DEBUG: Response: OK
+[14:02:32] - INFO: Set OVP for cathode CathodeB PS to 1.00V
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GOVP
+[14:02:32] - DEBUG: Response: 0100OK
+[14:02:32] - INFO: OVP value: 1.00
+[14:02:32] - INFO: OVP setting confirmed for cathode CathodeB PS: 1.00V
+[14:02:32] - DEBUG: Setting OCP for cathode CathodeB PS to: 9.00A
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: SOCP0900
+[14:02:32] - DEBUG: Response: OK
+[14:02:32] - INFO: Set OCP for cathode CathodeB PS to 9.00A
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GOCP
+[14:02:32] - DEBUG: Response: 0900OK
+[14:02:32] - DEBUG: OCP value: 9.00A
+[14:02:32] - INFO: OCP setting confirmed for cathode CathodeB PS: 9.00A
+[14:02:32] - INFO: Initialized CathodeB PS on port /dev/pts/27
+[14:02:32] - INFO: Serial connection established on /dev/pts/28
+[14:02:32] - DEBUG: Raw command sent: SABC3
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: SABC3
+[14:02:32] - DEBUG: Response: OK
+[14:02:32] - DEBUG: Raw response received: OK
+[14:02:32] - INFO: Set preset mode for CathodeC PS to 3 (normal mode).
+[14:02:32] - DEBUG: Raw command sent: GABC
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GABC
+[14:02:32] - DEBUG: Response: 3OK
+[14:02:32] - DEBUG: Raw response received: 3OK
+[14:02:32] - INFO: Current preset selection: 3
+[14:02:32] - INFO: Asserted preset mode 3 (normal mode) for cathode CathodeC PS. Response: 3
+[14:02:32] - DEBUG: Setting OVP for cathode CathodeC PS to: 1.00
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: SOVP0100
+[14:02:32] - DEBUG: Response: OK
+[14:02:32] - INFO: Set OVP for cathode CathodeC PS to 1.00V
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GOVP
+[14:02:32] - DEBUG: Response: 0100OK
+[14:02:32] - INFO: OVP value: 1.00
+[14:02:32] - INFO: OVP setting confirmed for cathode CathodeC PS: 1.00V
+[14:02:32] - DEBUG: Setting OCP for cathode CathodeC PS to: 9.00A
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: SOCP0900
+[14:02:32] - DEBUG: Response: OK
+[14:02:32] - INFO: Set OCP for cathode CathodeC PS to 9.00A
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GOCP
+[14:02:32] - DEBUG: Response: 0900OK
+[14:02:32] - DEBUG: OCP value: 9.00A
+[14:02:32] - INFO: OCP setting confirmed for cathode CathodeC PS: 9.00A
+[14:02:32] - INFO: Initialized CathodeC PS on port /dev/pts/28
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:32] - DEBUG: No connection to CCS temperature controller 1
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:32] - DEBUG: No connection to CCS temperature controller 2
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:32] - DEBUG: No connection to CCS temperature controller 3
+[14:02:32] - INFO: checking com ports
+[14:02:32] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:32] - WARNING: No interlock information is here; Queue is Empty
+[14:02:32] - CRITICAL: No data available from G9
+[14:02:32] - DEBUG: Dashboard beam callback registered
+[14:02:31] - DEBUG: Attempting PMON connect on /dev/ttyUSB0 @ 9600,8N1
+[14:02:32] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:32] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:32] - INFO: Connecting to BCON on /dev/pts/32…
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:32] - DEBUG: No connection to CCS temperature controller 1
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:32] - DEBUG: No connection to CCS temperature controller 2
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Sent command:GETD
+[14:02:32] - DEBUG: Flushing serial input buffer
+[14:02:32] - DEBUG: Sending command: GETD
+[14:02:32] - DEBUG: Response: 000000000OK
+[14:02:32] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:32] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:32] - DEBUG: No connection to CCS temperature controller 3
+[14:02:32] - INFO: checking com ports
+[14:02:32] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:33] - DEBUG: VTRX States: 11010101
+[14:02:33] - DEBUG: GUI updated with pressure: 4.88E-06 mbar
+[14:02:33] - DEBUG: VTRX States: 11010101
+[14:02:33] - DEBUG: GUI updated with pressure: 4.73E-06 mbar
+[14:02:33] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:33] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:33] - INFO: Interlock E-STOP Int: red -> green
+[14:02:33] - INFO: Interlock E-STOP Ext: red -> green
+[14:02:33] - INFO: Interlock Door: red -> green
+[14:02:33] - INFO: Interlock Vacuum Power: red -> green
+[14:02:33] - INFO: Interlock Vacuum Pressure: red -> green
+[14:02:33] - INFO: Interlock High Oil: red -> green
+[14:02:33] - INFO: Interlock Low Oil: red -> green
+[14:02:33] - INFO: Interlock Water: red -> green
+[14:02:33] - INFO: Interlock All Interlocks: red -> green
+[14:02:33] - INFO: Interlock G9SP Active: red -> green
+[14:02:33] - DEBUG: Sent command:GETD
+[14:02:33] - DEBUG: Flushing serial input buffer
+[14:02:33] - DEBUG: Sending command: GETD
+[14:02:33] - DEBUG: Response: 000000000OK
+[14:02:33] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:33] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:33] - DEBUG: Sent command:GETD
+[14:02:33] - DEBUG: Flushing serial input buffer
+[14:02:33] - DEBUG: Sending command: GETD
+[14:02:33] - DEBUG: Response: 000000000OK
+[14:02:33] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:33] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:33] - DEBUG: No connection to CCS temperature controller 1
+[14:02:33] - DEBUG: Sent command:GETD
+[14:02:33] - DEBUG: Flushing serial input buffer
+[14:02:33] - DEBUG: Sending command: GETD
+[14:02:33] - DEBUG: Response: 000000000OK
+[14:02:33] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:33] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:33] - DEBUG: Sent command:GETD
+[14:02:33] - DEBUG: Flushing serial input buffer
+[14:02:33] - DEBUG: Sending command: GETD
+[14:02:33] - DEBUG: Response: 000000000OK
+[14:02:33] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:33] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:33] - DEBUG: No connection to CCS temperature controller 2
+[14:02:33] - DEBUG: Sent command:GETD
+[14:02:33] - DEBUG: Flushing serial input buffer
+[14:02:33] - DEBUG: Sending command: GETD
+[14:02:33] - DEBUG: Response: 000000000OK
+[14:02:33] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:33] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:33] - DEBUG: Sent command:GETD
+[14:02:33] - DEBUG: Flushing serial input buffer
+[14:02:33] - DEBUG: Sending command: GETD
+[14:02:33] - DEBUG: Response: 000000000OK
+[14:02:33] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:33] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:33] - DEBUG: No connection to CCS temperature controller 3
+[14:02:33] - INFO: checking com ports
+[14:02:33] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:33] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:33] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:34] - DEBUG: No connection to CCS temperature controller 1
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:34] - DEBUG: No connection to CCS temperature controller 2
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:34] - DEBUG: No connection to CCS temperature controller 3
+[14:02:34] - INFO: checking com ports
+[14:02:34] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:34] - DEBUG: VTRX States: 11010101
+[14:02:34] - DEBUG: GUI updated with pressure: 4.74E-06 mbar
+[14:02:34] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:34] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:34] - DEBUG: No connection to CCS temperature controller 1
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:34] - DEBUG: No connection to CCS temperature controller 2
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Sent command:GETD
+[14:02:34] - DEBUG: Flushing serial input buffer
+[14:02:34] - DEBUG: Sending command: GETD
+[14:02:34] - DEBUG: Response: 000000000OK
+[14:02:34] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:34] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:34] - DEBUG: No connection to CCS temperature controller 3
+[14:02:34] - INFO: checking com ports
+[14:02:34] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:35] - INFO: BCON connected on /dev/pts/32
+[14:02:35] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:35] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:35] - DEBUG: No connection to CCS temperature controller 1
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:35] - DEBUG: No connection to CCS temperature controller 2
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:35] - DEBUG: No connection to CCS temperature controller 3
+[14:02:35] - INFO: checking com ports
+[14:02:35] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:35] - DEBUG: VTRX States: 11010101
+[14:02:35] - DEBUG: GUI updated with pressure: 4.62E-06 mbar
+[14:02:35] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:35] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:35] - DEBUG: No connection to CCS temperature controller 1
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:35] - DEBUG: No connection to CCS temperature controller 2
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Sent command:GETD
+[14:02:35] - DEBUG: Flushing serial input buffer
+[14:02:35] - DEBUG: Sending command: GETD
+[14:02:35] - DEBUG: Response: 000000000OK
+[14:02:35] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:35] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:35] - DEBUG: No connection to CCS temperature controller 3
+[14:02:35] - INFO: checking com ports
+[14:02:36] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:36] - DEBUG: VTRX States: 11010101
+[14:02:36] - DEBUG: GUI updated with pressure: 4.51E-06 mbar
+[14:02:36] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:36] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:36] - DEBUG: Sent command:GETD
+[14:02:36] - DEBUG: Flushing serial input buffer
+[14:02:36] - DEBUG: Sending command: GETD
+[14:02:36] - DEBUG: Response: 000000000OK
+[14:02:36] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:36] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:36] - DEBUG: Sent command:GETD
+[14:02:36] - DEBUG: Flushing serial input buffer
+[14:02:36] - DEBUG: Sending command: GETD
+[14:02:36] - DEBUG: Response: 000000000OK
+[14:02:36] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:36] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:36] - DEBUG: No connection to CCS temperature controller 1
+[14:02:36] - DEBUG: Sent command:GETD
+[14:02:36] - DEBUG: Flushing serial input buffer
+[14:02:36] - DEBUG: Sending command: GETD
+[14:02:36] - DEBUG: Response: 000000000OK
+[14:02:36] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:36] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:36] - DEBUG: Sent command:GETD
+[14:02:36] - DEBUG: Flushing serial input buffer
+[14:02:36] - DEBUG: Sending command: GETD
+[14:02:36] - DEBUG: Response: 000000000OK
+[14:02:36] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:36] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:36] - DEBUG: No connection to CCS temperature controller 2
+[14:02:36] - DEBUG: Sent command:GETD
+[14:02:36] - DEBUG: Flushing serial input buffer
+[14:02:36] - DEBUG: Sending command: GETD
+[14:02:36] - DEBUG: Response: 000000000OK
+[14:02:36] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:36] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:36] - DEBUG: Sent command:GETD
+[14:02:36] - DEBUG: Flushing serial input buffer
+[14:02:36] - DEBUG: Sending command: GETD
+[14:02:36] - DEBUG: Response: 000000000OK
+[14:02:36] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:36] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:36] - DEBUG: No connection to CCS temperature controller 3
+[14:02:36] - INFO: checking com ports
+[14:02:36] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:36] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:36] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:37] - DEBUG: No connection to CCS temperature controller 1
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:37] - DEBUG: No connection to CCS temperature controller 2
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:37] - DEBUG: No connection to CCS temperature controller 3
+[14:02:37] - INFO: checking com ports
+[14:02:37] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:37] - DEBUG: VTRX States: 11010101
+[14:02:37] - DEBUG: GUI updated with pressure: 4.69E-06 mbar
+[14:02:37] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:37] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:37] - DEBUG: No connection to CCS temperature controller 1
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:37] - DEBUG: No connection to CCS temperature controller 2
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Sent command:GETD
+[14:02:37] - DEBUG: Flushing serial input buffer
+[14:02:37] - DEBUG: Sending command: GETD
+[14:02:37] - DEBUG: Response: 000000000OK
+[14:02:37] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:37] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:37] - DEBUG: No connection to CCS temperature controller 3
+[14:02:37] - INFO: checking com ports
+[14:02:37] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:38] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:38] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:38] - DEBUG: No connection to CCS temperature controller 1
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:38] - DEBUG: No connection to CCS temperature controller 2
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:38] - DEBUG: No connection to CCS temperature controller 3
+[14:02:38] - INFO: checking com ports
+[14:02:38] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:38] - DEBUG: VTRX States: 11010101
+[14:02:38] - DEBUG: GUI updated with pressure: 4.78E-06 mbar
+[14:02:38] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:38] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Sent command:GETD
+[14:02:38] - DEBUG: Flushing serial input buffer
+[14:02:38] - DEBUG: Sending command: GETD
+[14:02:38] - DEBUG: Response: 000000000OK
+[14:02:38] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:38] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:38] - DEBUG: No connection to CCS temperature controller 1
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:39] - DEBUG: No connection to CCS temperature controller 2
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:39] - DEBUG: No connection to CCS temperature controller 3
+[14:02:39] - INFO: checking com ports
+[14:02:39] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+[14:02:39] - DEBUG: VTRX States: 11010101
+[14:02:39] - DEBUG: GUI updated with pressure: 4.99E-06 mbar
+[14:02:39] - DEBUG: Safety Output Terminal Data Flags: [0, 0, 0, 0, 1, 0, 0]
+[14:02:39] - DEBUG: Safety Input Terminal Data Flags: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Power supply 1 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:39] - DEBUG: No connection to CCS temperature controller 1
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Power supply 2 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:39] - DEBUG: No connection to CCS temperature controller 2
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Raw GETD response (attempt 1): 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Sent command:GETD
+[14:02:39] - DEBUG: Flushing serial input buffer
+[14:02:39] - DEBUG: Sending command: GETD
+[14:02:39] - DEBUG: Response: 000000000OK
+[14:02:39] - DEBUG: Parsed GETD response: 0.00V, 0.00A, CV Mode
+[14:02:39] - DEBUG: Power supply 3 readings - Voltage: 0.00V, Current: 0.00A, Mode: CV Mode
+[14:02:39] - DEBUG: No connection to CCS temperature controller 3
+[14:02:39] - INFO: checking com ports
+[14:02:39] - DEBUG: PMON temps: {1: 'None', 2: 'None', 3: 'None', 4: 'None', 5: 'None', 6: 'None'}
+

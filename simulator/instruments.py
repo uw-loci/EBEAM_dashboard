@@ -672,7 +672,7 @@ class G9DriverSim(BaseSimulator):
 # ---------------------------------------------------------------------------
 
 class DP16ProcessMonitorSim(BaseSimulator):
-    """Simulates 5 × DP16PT RTD temperature monitors (Modbus slaves 1–5)."""
+    """Simulates 6 × DP16PT RTD temperature monitors (Modbus slaves 1–6)."""
 
     def __init__(self, pair: VirtualSerialPair):
         super().__init__(pair, "DP16")
@@ -682,7 +682,11 @@ class DP16ProcessMonitorSim(BaseSimulator):
             "temp_3": 29.0,    # Chamber Top
             "temp_4": 30.0,    # Chamber Bot
             "temp_5": 22.0,    # Air temp
+            "temp_6": 25.0,    # Unassigned
         }
+        self._status_by_unit = {unit: 0x0006 for unit in range(1, 7)}
+        # Manual default: 0x4A (Decimal point 2, °C, filter constant 4)
+        self._rdgcnf_by_unit = {unit: 0x004A for unit in range(1, 7)}
         self._buf = b""
 
     def run(self):
@@ -703,7 +707,7 @@ class DP16ProcessMonitorSim(BaseSimulator):
         while len(self._buf) >= 8:
             slave = self._buf[0]
             func = self._buf[1]
-            if func == 0x03:
+            if func in (0x03, 0x04):
                 if len(self._buf) < 8:
                     break
                 frame = self._buf[:8]
@@ -715,30 +719,119 @@ class DP16ProcessMonitorSim(BaseSimulator):
                 self._buf = self._buf[8:]
                 addr = struct.unpack(">H", frame[2:4])[0]
                 count = struct.unpack(">H", frame[4:6])[0]
-                self._respond_read(slave, addr, count)
+                self._respond_read(slave, func, addr, count)
+            elif func == 0x06:
+                if len(self._buf) < 8:
+                    break
+                frame = self._buf[:8]
+                crc_recv = struct.unpack("<H", frame[6:8])[0]
+                crc_calc = _modbus_crc(frame[:6])
+                if crc_recv != crc_calc:
+                    self._buf = self._buf[1:]
+                    continue
+                self._buf = self._buf[8:]
+                addr = struct.unpack(">H", frame[2:4])[0]
+                value = struct.unpack(">H", frame[4:6])[0]
+                self._respond_write_single(slave, addr, value)
             else:
+                # Unknown function code for a valid slave -> Modbus exception 01
                 self._buf = self._buf[1:]
+                if 1 <= slave <= 6:
+                    self.pair.write(_modbus_exception(slave, func, 0x01))
 
-    def _respond_read(self, slave: int, addr: int, count: int):
-        if slave < 1 or slave > 5:
+    @staticmethod
+    def _rdgcnf_decimal_multiplier(rdgcnf: int) -> int:
+        decimal_code = (rdgcnf >> 5) & 0x07
+        if decimal_code == 1:
+            return 1
+        if decimal_code == 2:
+            return 10
+        if decimal_code == 3:
+            return 100
+        if decimal_code == 4:
+            return 1000
+        return 1
+
+    def _respond_read(self, slave: int, func: int, addr: int, count: int):
+        if slave < 1 or slave > 6:
             return
+
+        if count <= 0:
+            self.pair.write(_modbus_exception(slave, func, 0x03))
+            return
+
         with self.lock:
             temp = self.state.get(f"temp_{slave}", 25.0)
-        if addr == 0x0240 and count >= 1:
-            # Status register → 0x0006 = running
-            payload = bytes([count * 2]) + struct.pack(">H", 0x0006)
-            if count > 1:
-                payload += b'\x00\x00' * (count - 1)
-        elif addr == 0x0210 and count >= 2:
+
+        if addr == 0x0210:
+            # Driver map: process value as IEEE 754 float in two registers
+            if count != 2:
+                self.pair.write(_modbus_exception(slave, func, 0x03))
+                return
             # Process value as IEEE 754 big-endian float
             raw = struct.pack(">f", temp)
             hi, lo = struct.unpack(">HH", raw)
-            payload = bytes([count * 2]) + struct.pack(">H", hi) + struct.pack(">H", lo)
-            if count > 2:
-                payload += b'\x00\x00' * (count - 2)
+            payload = bytes([4]) + struct.pack(">H", hi) + struct.pack(">H", lo)
+        elif addr == 0x0240:
+            # Driver map: status register
+            if count != 1:
+                self.pair.write(_modbus_exception(slave, func, 0x03))
+                return
+            with self.lock:
+                status = self._status_by_unit.get(slave, 0x0006)
+            payload = bytes([2]) + struct.pack(">H", status)
+        elif addr == 0x0248:
+            # Driver map: reading config register
+            if count != 1:
+                self.pair.write(_modbus_exception(slave, func, 0x03))
+                return
+            with self.lock:
+                rdgcnf = self._rdgcnf_by_unit.get(slave, 0x004A)
+            payload = bytes([2]) + struct.pack(">H", rdgcnf)
+        elif addr == 8:
+            # Manual table 6.2: RDGCNF register
+            if count != 1:
+                self.pair.write(_modbus_exception(slave, func, 0x03))
+                return
+            with self.lock:
+                rdgcnf = self._rdgcnf_by_unit.get(slave, 0x004A)
+            payload = bytes([2]) + struct.pack(">H", rdgcnf)
+        elif addr == 39:
+            # Manual table 6.2: Process value as signed integer counts
+            if count != 1:
+                self.pair.write(_modbus_exception(slave, func, 0x03))
+                return
+            with self.lock:
+                rdgcnf = self._rdgcnf_by_unit.get(slave, 0x004A)
+            multiplier = self._rdgcnf_decimal_multiplier(rdgcnf)
+            raw_counts = int(round(temp * multiplier))
+            raw_counts = max(-32768, min(32767, raw_counts))
+            payload = bytes([2]) + struct.pack(">H", raw_counts & 0xFFFF)
         else:
-            payload = bytes([count * 2]) + b'\x00\x00' * count
-        resp = _modbus_response(slave, 0x03, payload)
+            self.pair.write(_modbus_exception(slave, func, 0x02))
+            return
+
+        resp = _modbus_response(slave, func, payload)
+        time.sleep(0.005)
+        self.pair.write(resp)
+
+    def _respond_write_single(self, slave: int, addr: int, value: int):
+        if slave < 1 or slave > 6:
+            return
+
+        with self.lock:
+            if addr in (8, 0x0248):
+                # RDGCNF is 8-bit in manual; keep upper byte zeroed
+                self._rdgcnf_by_unit[slave] = value & 0x00FF
+            elif addr == 0x0240:
+                self._status_by_unit[slave] = value & 0xFFFF
+            else:
+                self.pair.write(_modbus_exception(slave, 0x06, 0x02))
+                return
+
+        # Per Modbus spec for FC06: echo request fields
+        payload = struct.pack(">H", addr) + struct.pack(">H", value & 0xFFFF)
+        resp = _modbus_response(slave, 0x06, payload)
         time.sleep(0.005)
         self.pair.write(resp)
 
