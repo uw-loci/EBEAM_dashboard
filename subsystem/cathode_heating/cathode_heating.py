@@ -203,7 +203,8 @@ class CathodeHeatingSubsystem:
         self.main_frame.pack(fill='both', expand=True)
 
         # Create a canvas and scrollbar for scrolling
-        self.canvas = tk.Canvas(self.main_frame)
+        MD_BG = "#1E1E2E"
+        self.canvas = tk.Canvas(self.main_frame, bg=MD_BG, highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
@@ -355,15 +356,22 @@ class CathodeHeatingSubsystem:
             self.clamp_temp_labels.append(clamp_temp_label)
 
             # Create plot for each cathode
+            MD_CARD = "#2A2A3C"
+            MD_TEXT = "#E0E0E0"
+            MD_PRIMARY = "#7C4DFF"
             fig, ax = plt.subplots(figsize=(2.8, 1.3))
-            line, = ax.plot([], [])
+            fig.patch.set_facecolor(MD_CARD)
+            ax.set_facecolor(MD_CARD)
+            line, = ax.plot([], [], color=MD_PRIMARY)
             self.temperature_data[i].append(line)
-            ax.set_xlabel('Time', fontsize=8)
+            ax.set_xlabel('Time', fontsize=8, color=MD_TEXT)
             ax.set_ylim(15, 80)
             ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
             ax.xaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(axis='x', labelsize=6)
-            ax.tick_params(axis='y', labelsize=6)
+            ax.tick_params(axis='x', labelsize=6, colors=MD_TEXT)
+            ax.tick_params(axis='y', labelsize=6, colors=MD_TEXT)
+            for spine in ax.spines.values():
+                spine.set_color(MD_TEXT)
             fig.tight_layout(pad=0.01)
             fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
             canvas = FigureCanvasTkAgg(fig, master=main_tab)

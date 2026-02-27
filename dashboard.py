@@ -29,27 +29,45 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+# Material Design Dark Theme Palette
+MD_BG           = "#1E1E2E"    # surface
+MD_CARD         = "#2A2A3C"    # card
+MD_CARD_BORDER  = "#3A3A4C"
+MD_PRIMARY      = "#7C4DFF"    # deep purple accent
+MD_PRIMARY_HOVER= "#6A3FE0"
+MD_TEXT         = "#E0E0E0"
+MD_TEXT_DIM     = "#9E9E9E"
+MD_SUCCESS      = "#00C853"
+MD_SUCCESS_HOVER= "#00B248"
+MD_DANGER       = "#B71C1C"
+MD_DANGER_HOVER = "#9A1717"
+
 frames_config = [
     # Row 0
-    ("Interlocks", 0, 1920, 30),
+    ("Interlocks", 0, 1920.0, 30.0),
     
     # Row 1
-    ("Oil System", 1, 520, 120),
-    ("Beam Energy", 1, 1400, 120),
+    ("Oil System", 1, 520.0, 120.0),
+    ("Beam Energy", 1, 1400.0, 120.0),
     
     # Row 2
-    ("Vacuum System", 2, 550, 410),
-    ("Beam Pulse", 2, 1020, 410),
-    ("Main Control", 2, 350, 410),
+    ("Vacuum System", 2, 550.0, 410.0),
+    ("Beam Pulse", 2, 1020.0, 410.0),
+    ("Main Control", 2, 350.0, 410.0),
     
     # Row 4
-    ("Process Monitor", 3, 280, 465),
-    ("Cathode Heating", 3, 1200, 465),
-    ("Messages Frame", 3, 440, 465),
+    ("Process Monitor", 3, 280.0, 465.0),
+    ("Cathode Heating", 3, 1200.0, 465.0),
+    ("Messages Frame", 3, 440.0, 465.0),
 
     # Row 5
-    ("Machine Status", 4, 1920, 35)
+    ("Machine Status", 4, 1920.0, 35.0)
 ]
+
+DEFAULT_WINDOW_WIDTH = 1920.0
+DEFAULT_WINDOW_HEIGHT = 1080.0
+MIN_LAYOUT_WIDTH = 1200
+MIN_LAYOUT_HEIGHT = 675
 
 class EBEAMSystemDashboard:
     """
@@ -77,6 +95,68 @@ class EBEAMSystemDashboard:
         self.root = root
         self.com_ports = com_ports
         self.root.title("EBEAM Control System Dashboard")
+        self.root.configure(bg=MD_BG)
+
+        # Configure Material Dark Style
+        style = ttk.Style()
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        
+        style.configure(".", background=MD_BG, foreground=MD_TEXT)
+        style.configure("TFrame", background=MD_BG)
+        style.configure("Card.TFrame", background=MD_CARD)
+        style.configure("TLabel", background=MD_BG, foreground=MD_TEXT)
+        style.configure("Card.TLabel", background=MD_CARD, foreground=MD_TEXT)
+        style.configure("TButton", background=MD_CARD_BORDER, foreground=MD_TEXT, borderwidth=0, focusthickness=0, padding=(10, 6))
+        style.map(
+            "TButton",
+            background=[("active", MD_PRIMARY_HOVER), ("pressed", MD_PRIMARY)],
+            foreground=[("disabled", MD_TEXT_DIM)],
+        )
+        style.configure("Primary.TButton", background=MD_PRIMARY, foreground="#FFFFFF", borderwidth=0, focusthickness=0, padding=(10, 6))
+        style.map(
+            "Primary.TButton",
+            background=[("active", MD_PRIMARY_HOVER), ("pressed", MD_PRIMARY)],
+            foreground=[("disabled", MD_TEXT_DIM)],
+        )
+        style.configure("Danger.TButton", background=MD_DANGER, foreground="#FFFFFF", borderwidth=0, focusthickness=0, padding=(10, 6))
+        style.map(
+            "Danger.TButton",
+            background=[("active", MD_DANGER_HOVER), ("pressed", MD_DANGER)],
+            foreground=[("disabled", MD_TEXT_DIM)],
+        )
+        style.configure(
+            "MD.TCombobox",
+            fieldbackground=MD_CARD,
+            background=MD_CARD_BORDER,
+            foreground=MD_TEXT,
+            arrowcolor=MD_TEXT,
+            bordercolor=MD_CARD_BORDER,
+            lightcolor=MD_CARD_BORDER,
+            darkcolor=MD_CARD_BORDER,
+            insertcolor=MD_TEXT,
+            padding=(6, 4),
+        )
+        style.map(
+            "MD.TCombobox",
+            fieldbackground=[("readonly", MD_CARD), ("focus", MD_CARD)],
+            background=[("readonly", MD_CARD_BORDER), ("active", MD_PRIMARY_HOVER)],
+            foreground=[("readonly", MD_TEXT), ("disabled", MD_TEXT_DIM)],
+            arrowcolor=[("active", "#FFFFFF"), ("readonly", MD_TEXT)],
+        )
+        style.configure("Switch.TCheckbutton", background=MD_BG, foreground=MD_TEXT, padding=(8, 4))
+        style.map(
+            "Switch.TCheckbutton",
+            background=[("selected", MD_SUCCESS), ("active", MD_PRIMARY_HOVER)],
+            foreground=[("selected", "#FFFFFF"), ("disabled", MD_TEXT_DIM)],
+        )
+        style.configure("TNotebook", background=MD_BG, borderwidth=0)
+        style.configure("TNotebook.Tab", background=MD_CARD, foreground=MD_TEXT_DIM, padding=(10, 5))
+        style.map("TNotebook.Tab", background=[("selected", MD_PRIMARY)], foreground=[("selected", "#FFFFFF")])
+        self.root.option_add('*TCombobox*Listbox*Background', MD_CARD)
+        self.root.option_add('*TCombobox*Listbox*Foreground', MD_TEXT)
+        self.root.option_add('*TCombobox*Listbox*selectBackground', MD_PRIMARY)
+        self.root.option_add('*TCombobox*Listbox*selectForeground', '#FFFFFF')
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
         
@@ -125,7 +205,7 @@ class EBEAMSystemDashboard:
 
         # Bind adaptive resize AFTER all frames are created so that
         # Configure events fired during construction are ignored.
-        self.root.bind('<Configure>', self._on_window_resize)
+        self.root.bind('<Configure>', self._on_window_resize, add='+')
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -138,7 +218,7 @@ class EBEAMSystemDashboard:
 
     def setup_main_pane(self):
         """Initialize the main container for absolute layout using place()."""
-        self.main_pane = tk.Frame(self.root)
+        self.main_pane = tk.Frame(self.root, bg=MD_BG)
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
@@ -147,20 +227,26 @@ class EBEAMSystemDashboard:
         self._sashes = []  # list of dicts with widgets and placement meta
         self._grips = []   # bottom resize grips per frame
 
-        # Adaptive layout: compute design reference dimensions from frames_config.
-        # _last_w/_last_h start at 0 (sentinel = "not yet seen a real window size").
-        # On the first <Configure> event with a real size we scale from the design
-        # reference to the actual window; subsequent events scale incrementally.
-        _row_heights = {}
-        _row_widths = {}
-        for _, row, w, h in frames_config:
-            _row_heights[row] = max(_row_heights.get(row, 0), h or 0)
-            _row_widths[row] = _row_widths.get(row, 0) + (w or 0)
-        self._design_w = max(_row_widths.values()) if _row_widths else 1920
-        self._design_h = sum(_row_heights.values()) if _row_heights else 1060
+        # Adaptive layout baseline:
+        # - _base_frames_config keeps the proportions to scale from.
+        # - _design_w/_design_h defines the baseline window size.
+        # Scaling always uses this baseline (non-cumulative) to avoid drift.
+        self._base_frames_config = [
+            (title, row, float(w), float(h)) for title, row, w, h in frames_config
+        ]
+        self._design_w = DEFAULT_WINDOW_WIDTH
+        self._design_h = DEFAULT_WINDOW_HEIGHT
         self._last_w = 0   # 0 = not yet initialised
         self._last_h = 0
         self._resize_pending = None  # after() id for debounced reflow
+
+    def _refresh_resize_baseline(self):
+        """Use current frame dimensions and current window size as the new resize baseline."""
+        self._base_frames_config = [
+            (title, row, float(w), float(h)) for title, row, w, h in frames_config
+        ]
+        self._design_w = max(1.0, float(self.root.winfo_width()))
+        self._design_h = max(1.0, float(self.root.winfo_height()))
 
     def _compute_row_layout(self):
         """Return structures for layout: row_max_heights, sorted_rows, row_to_y, row_x_offsets."""
@@ -178,29 +264,30 @@ class EBEAMSystemDashboard:
         return row_max_heights, sorted_rows, row_to_y, row_x_offsets
 
     def _on_window_resize(self, event):
-        """Handle window <Configure> events and scale frames proportionally."""
+        """Handle window <Configure> events and scale frames proportionally from a fixed baseline."""
         if event.widget is not self.root:
             return
-        new_w = self.root.winfo_width()
-        new_h = self.root.winfo_height()
+        new_w = event.width
+        new_h = event.height
         # Skip spurious pre-render events where Tk reports the window as tiny.
         if new_w < 50 or new_h < 50:
             return
+        # Ignore transient tiny geometries during drag/restore; prevents sudden collapse
+        # of all panels to their minimum clamp sizes.
+        if new_w < MIN_LAYOUT_WIDTH or new_h < MIN_LAYOUT_HEIGHT:
+            return
         if new_w == self._last_w and new_h == self._last_h:
             return
-        # Determine the reference to scale FROM:
-        # - First real event  → scale from original design reference
-        # - Subsequent events → scale incrementally from previous size
-        ref_w = self._design_w if self._last_w == 0 else self._last_w
-        ref_h = self._design_h if self._last_h == 0 else self._last_h
-        if ref_w > 0 and ref_h > 0:
-            scale_x = new_w / ref_w
-            scale_y = new_h / ref_h
-            for i, (title, row, w, h) in enumerate(frames_config):
+        if self._design_w > 0 and self._design_h > 0:
+            scale_x = new_w / self._design_w
+            scale_y = new_h / self._design_h
+            for i, (title, row, _w, _h) in enumerate(frames_config):
+                _, _, base_w, base_h = self._base_frames_config[i]
                 frames_config[i] = (
-                    title, row,
-                    max(80, int(w * scale_x)),
-                    max(10, int(h * scale_y)),
+                    title,
+                    row,
+                    max(80.0, base_w * scale_x),
+                    max(10.0, base_h * scale_y),
                 )
         self._last_w = new_w
         self._last_h = new_h
@@ -239,7 +326,7 @@ class EBEAMSystemDashboard:
             x = row_x_offsets.get(row, 0)
             y = row_to_y.get(row, 0)
             if frame and width > 0 and height > 0:
-                frame.place(x=x, y=y, width=width, height=height)
+                frame.place(x=int(x), y=int(y), width=int(width), height=int(height))
             # Always advance offset, even for spacer/non-rendered entries
             row_x_offsets[row] = x + (width or 0)
 
@@ -255,9 +342,9 @@ class EBEAMSystemDashboard:
                 x += left_w
                 if sash_h <= 0:
                     continue  # skip zero-height sashes (would crash X11)
-                sash = tk.Frame(self.main_pane, cursor='sb_h_double_arrow', bg='#CCCCCC')
+                sash = tk.Frame(self.main_pane, cursor='sb_h_double_arrow', bg=MD_BG)
                 sash_w = 5
-                sash.place(x=x - sash_w // 2, y=y, width=sash_w, height=sash_h)
+                sash.place(x=int(x - sash_w // 2), y=int(y), width=sash_w, height=int(sash_h))
                 self._attach_sash_handlers(sash, row, idx)
                 self._sashes.append({'widget': sash, 'row': row, 'index': idx})
 
@@ -278,11 +365,11 @@ class EBEAMSystemDashboard:
                 if t2 == title:
                     break
                 x += w2
-            grip = tk.Frame(self.main_pane, cursor='sb_v_double_arrow', bg='#CCCCCC')
+            grip = tk.Frame(self.main_pane, cursor='sb_v_double_arrow', bg=MD_BG)
             grip_h = 5
             if width <= 0 or height <= 0:
                 continue  # skip zero-dimension grips (would crash X11)
-            grip.place(x=x, y=y + height - grip_h // 2, width=width, height=grip_h)
+            grip.place(x=int(x), y=int(y + height - grip_h // 2), width=int(width), height=grip_h)
             self._attach_grip_handlers(grip, row, title)
             self._grips.append({'widget': grip, 'row': row, 'title': title})
 
@@ -319,7 +406,7 @@ class EBEAMSystemDashboard:
         left_title, _r, left_w, left_h = frames_config[left_i]
         right_title, _r2, right_w, right_h = frames_config[right_i]
         # Apply delta with clamps
-        min_w = 80
+        min_w = 80.0
         new_left = max(min_w, left_w + dx)
         delta = new_left - left_w
         new_right = max(min_w, right_w - delta)
@@ -328,8 +415,8 @@ class EBEAMSystemDashboard:
             delta = right_w - min_w
             new_left = left_w + delta
             new_right = min_w
-        frames_config[left_i] = (left_title, row, new_left, left_h)
-        frames_config[right_i] = (right_title, row, new_right, right_h)
+        frames_config[left_i] = (left_title, row, float(new_left), left_h)
+        frames_config[right_i] = (right_title, row, float(new_right), right_h)
 
         # Keep merged column width in sync across rows
         if left_title in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
@@ -337,23 +424,25 @@ class EBEAMSystemDashboard:
         if right_title in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
             self._sync_merged_column_width(new_right)
 
+        self._refresh_resize_baseline()
         self._reflow_all()
 
     def _sync_merged_column_width(self, new_width):
         """Ensure the merged middle column keeps the same width in all rows."""
         for i, (t, r, w, h) in enumerate(frames_config):
             if t in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
-                frames_config[i] = (t, r, int(new_width), h)
+                frames_config[i] = (t, r, float(new_width), h)
 
     def _resize_vertical(self, row, title, dy):
         # Change height of a single frame in the row, row stack height follows max of row
-        min_h = 10
+        min_h = 10.0
         # Find the target frame index
         for i, (t, r, w, h) in enumerate(frames_config):
             if r == row and t == title:
                 new_h = max(min_h, h + dy)
-                frames_config[i] = (t, r, w, int(new_h))
+                frames_config[i] = (t, r, w, float(new_h))
                 break
+        self._refresh_resize_baseline()
         self._reflow_all()
 
     def create_frames(self):
@@ -366,10 +455,10 @@ class EBEAMSystemDashboard:
                 continue
 
             if width and height and title:
-                frame = tk.Frame(self.main_pane, borderwidth=1, relief="solid", width=width, height=height)
+                frame = tk.Frame(self.main_pane, bg=MD_CARD, highlightbackground=MD_CARD_BORDER, highlightthickness=1, width=int(width), height=int(height))
                 frame.pack_propagate(False)
             else:
-                frame = tk.Frame(self.main_pane, borderwidth=1, relief="solid")
+                frame = tk.Frame(self.main_pane, bg=MD_CARD, highlightbackground=MD_CARD_BORDER, highlightthickness=1)
 
             # Skip adding title for certain frames
             if title not in ["Interlocks", "Machine Status", "Messages Frame"]:
@@ -407,10 +496,16 @@ class EBEAMSystemDashboard:
         beams_off_button = tk.Button(
             main_frame,
             text="BEAMS E-STOP",
-            bg="red",
+            bg=MD_DANGER,
             fg="white",
-            font=("Helvetica",14,"bold"),
-            command=self.handle_beams_off
+            font=("Segoe UI",14,"bold"),
+            command=self.handle_beams_off,
+            relief="flat",
+            activebackground=MD_DANGER_HOVER,
+            activeforeground="#FFFFFF",
+            disabledforeground=MD_TEXT_DIM,
+            bd=0,
+            cursor="hand2"
         )
         beams_off_button.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
 
@@ -425,11 +520,11 @@ class EBEAMSystemDashboard:
         # --- Manual-tab panel: Beam ON/OFF + CH Enable/Disable buttons --
         # Stored as self.bp_manual_panel so the beam_pulse subsystem can swap
         # it in/out when the Beam Pulse notebook tab changes.
-        self.bp_manual_panel = tk.Frame(main_frame)
+        self.bp_manual_panel = tk.Frame(main_frame, bg=MD_BG)
         self.bp_manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
 
         # Beam ON/OFF row — saved so the tab-change handler can show/hide it
-        self.beam_on_off_frame = tk.Frame(self.bp_manual_panel)
+        self.beam_on_off_frame = tk.Frame(self.bp_manual_panel, bg=MD_BG)
         self.beam_on_off_frame.pack(side="top", fill="x")
         buttons_frame = self.beam_on_off_frame
         for i in range(3):
@@ -441,17 +536,23 @@ class EBEAMSystemDashboard:
             btn = tk.Button(
                 buttons_frame,
                 text=beam_name,
-                bg="gray",
-                fg="white",
-                font=("Helvetica", 10, "bold"),
+                bg=MD_CARD_BORDER,
+                fg=MD_TEXT,
+                font=("Segoe UI", 10, "bold"),
                 state="disabled",  # disabled until armed AND channel enabled
-                command=lambda idx=i: self.toggle_individual_beam_with_status(idx)
+                command=lambda idx=i: self.toggle_individual_beam_with_status(idx),
+                relief="flat",
+                activebackground=MD_PRIMARY_HOVER,
+                activeforeground="#FFFFFF",
+                disabledforeground=MD_TEXT_DIM,
+                bd=0,
+                cursor="hand2"
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
 
         # CH Enable/Disable row
-        enable_toggle_frame = tk.Frame(self.bp_manual_panel)
+        enable_toggle_frame = tk.Frame(self.bp_manual_panel, bg=MD_BG)
         enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
@@ -461,17 +562,23 @@ class EBEAMSystemDashboard:
             btn = tk.Button(
                 enable_toggle_frame,
                 text=f"CH{i+1}: Disabled",
-                bg="#888888",
-                fg="white",
-                font=("Helvetica", 9),
+                bg=MD_CARD_BORDER,
+                fg=MD_TEXT,
+                font=("Segoe UI", 9),
                 state="disabled",  # Initially disabled until armed
-                command=lambda idx=i: self._toggle_channel_enable(idx)
+                command=lambda idx=i: self._toggle_channel_enable(idx),
+                relief="flat",
+                activebackground=MD_PRIMARY_HOVER,
+                activeforeground="#FFFFFF",
+                disabledforeground=MD_TEXT_DIM,
+                bd=0,
+                cursor="hand2"
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.enable_toggle_buttons.append(btn)
 
         # Add beams armed toggle
-        beams_armed_control_frame = tk.Frame(main_frame)
+        beams_armed_control_frame = tk.Frame(main_frame, bg=MD_BG)
         beams_armed_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
         
         beams_armed_label_frame = ttk.Frame(beams_armed_control_frame)
@@ -485,16 +592,23 @@ class EBEAMSystemDashboard:
                 command=self.handle_arm_beams,
                 relief=tk.FLAT,
                 bd=0,
-                bg="white"
+                bg=MD_BG,
+                activebackground=MD_BG
             )
         else:
             self.beams_ready_button = tk.Button(
                 beams_armed_control_frame,
                 text="ARM BEAMS",
-                bg="sky blue",
+                bg=MD_PRIMARY,
                 fg="white",
-                font=("Helvetica",16,"bold"),
-                command=self.handle_arm_beams
+                font=("Segoe UI",16,"bold"),
+                command=self.handle_arm_beams,
+                relief="flat",
+                activebackground=MD_PRIMARY_HOVER,
+                activeforeground="#FFFFFF",
+                disabledforeground=MD_TEXT_DIM,
+                bd=0,
+                cursor="hand2"
             )
         self.beams_ready_button.pack()
 
@@ -510,7 +624,8 @@ class EBEAMSystemDashboard:
         ttk.Button(
             save_layout_frame,
             text="Save Layout",
-            command=self.save_current_pane_state
+            command=self.save_current_pane_state,
+            style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=5)
 
         # 3. Post Processor button
@@ -524,7 +639,7 @@ class EBEAMSystemDashboard:
             config_frame,
             text="Press F1 for keyboard shortcuts",
             font=("Helvetica", 8, "italic"),
-            foreground="gray"
+            foreground=MD_TEXT_DIM
         )
         help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
 
@@ -579,8 +694,10 @@ class EBEAMSystemDashboard:
             frame: Frame to add title to
             title: Title text to display
         """
-        label = tk.Label(frame, text=title, font=("Helvetica", 10, "bold"))
-        label.pack(pady=0, fill=tk.X)
+        label = tk.Label(frame, text=title, font=("Segoe UI", 12, "bold"), bg=MD_CARD, fg=MD_PRIMARY)
+        label.pack(pady=(5, 0), padx=10, anchor="w")
+        sep = ttk.Separator(frame, orient="horizontal")
+        sep.pack(fill="x", pady=(4, 8), padx=10)
 
     # saves data to file when button is pressed
     def save_current_pane_state(self):
@@ -596,7 +713,7 @@ class EBEAMSystemDashboard:
             if title in savedData and savedData[title]:
                 dims = savedData[title]
                 if isinstance(dims, (list, tuple)) and len(dims) >= 2:
-                    frames_config[i] = (title, frames_config[i][1], dims[0], dims[1])
+                    frames_config[i] = (title, frames_config[i][1], float(dims[0]), float(dims[1]))
 
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
@@ -610,7 +727,8 @@ class EBEAMSystemDashboard:
             textvariable=self.log_level_var, 
             values=log_levels, 
             state="readonly", 
-            width=15
+            width=15,
+            style="MD.TCombobox"
         )
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
         
@@ -644,7 +762,7 @@ class EBEAMSystemDashboard:
                     else:
                         self.beams_ready_button.config(
                             text="ARM BEAMS",
-                            bg="sky blue"
+                            bg=MD_PRIMARY
                         )
                     # Disable beam toggle buttons, enable toggle buttons and reset states
                     self.update_beam_toggle_states(enabled=False, reset=True)
@@ -662,7 +780,7 @@ class EBEAMSystemDashboard:
                     else:
                         self.beams_ready_button.config(
                             text="BEAMS ARMED",
-                            bg="navy"  # Darker shade of blue
+                            bg=MD_PRIMARY_HOVER
                         )
                     # Enable beam toggle buttons and enable toggle buttons
                     self.update_beam_toggle_states(enabled=True)
@@ -705,7 +823,7 @@ class EBEAMSystemDashboard:
                         else:
                             self.beams_ready_button.config(
                                 text="ARM BEAMS",
-                                bg="sky blue"
+                                bg=MD_PRIMARY
                             )
                         # Disable beam toggle buttons, enable toggle buttons and reset states
                         self.update_beam_toggle_states(enabled=False, reset=True)
@@ -744,9 +862,9 @@ class EBEAMSystemDashboard:
                 if ch_index < len(self.enable_toggle_buttons):
                     btn = self.enable_toggle_buttons[ch_index]
                     if new_enabled:
-                        btn.config(bg="#2e7d32", text=f"CH{ch_index+1}: Enabled")   # dark green
+                        btn.config(bg=MD_SUCCESS, text=f"CH{ch_index+1}: Enabled")
                     else:
-                        btn.config(bg="#888888", text=f"CH{ch_index+1}: Disabled")  # gray
+                        btn.config(bg=MD_CARD_BORDER, text=f"CH{ch_index+1}: Disabled")
                 # Enable/disable the beam ON/OFF button to match channel enable state
                 if ch_index < len(self.beam_toggle_buttons):
                     self.beam_toggle_buttons[ch_index].config(
@@ -757,7 +875,7 @@ class EBEAMSystemDashboard:
                     beam_names = ["A", "B", "C"]
                     if ch_index < len(self.beam_toggle_buttons):
                         self.beam_toggle_buttons[ch_index].config(
-                            bg="gray", text=f"Beam {beam_names[ch_index]} OFF")
+                            bg=MD_CARD_BORDER, text=f"Beam {beam_names[ch_index]} OFF")
             else:
                 self.logger.warning("BCON driver not available for enable toggle")
         except Exception as e:
@@ -784,13 +902,13 @@ class EBEAMSystemDashboard:
             if current_status:
                 # Currently ON -> turn OFF
                 beam_pulse.send_channel_off(beam_index)
-                btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
+                btn.config(bg=MD_CARD_BORDER, text=f"Beam {beam_names[beam_index]} OFF")
                 self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
             else:
                 # Currently OFF -> send channel config to BCON
                 ok = beam_pulse.send_channel_config(beam_index)
                 if ok:
-                    btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
+                    btn.config(bg=MD_SUCCESS, text=f"Beam {beam_names[beam_index]} ON")
                     self.logger.info(f"Beam {beam_names[beam_index]} config sent to BCON")
                 else:
                     self.logger.error(f"Failed to send Beam {beam_names[beam_index]} config")
@@ -840,7 +958,7 @@ class EBEAMSystemDashboard:
                     
                     # Update button appearance
                     btn = self.beam_toggle_buttons[beam_index]
-                    btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
+                    btn.config(bg=MD_CARD_BORDER, text=f"Beam {beam_names[beam_index]} OFF")
                     
                     self.logger.info(f"Beam {beam_names[beam_index]} automatically turned OFF after pulse duration")
                     
@@ -858,7 +976,7 @@ class EBEAMSystemDashboard:
             if status:
                 # Beam turned ON - update button display
                 if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
+                    self.beam_toggle_buttons[beam_index].config(bg=MD_SUCCESS, text=f"Beam {beam_names[beam_index]} ON")
                 
                 if duration > 0:
                     self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
@@ -869,7 +987,7 @@ class EBEAMSystemDashboard:
             else:
                 # Beam turned OFF - update button display
                 if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
+                    self.beam_toggle_buttons[beam_index].config(bg=MD_CARD_BORDER, text=f"Beam {beam_names[beam_index]} OFF")
                 
         except Exception as e:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
@@ -890,14 +1008,14 @@ class EBEAMSystemDashboard:
         is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
         try:
             if is_running:
-                btn.config(bg="green", text=f"Beam {beam_names[ch]} ON")
+                btn.config(bg=MD_SUCCESS, text=f"Beam {beam_names[ch]} ON")
                 if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                     self.subsystems['Beam Pulse'].beam_on_status[ch] = True
             else:
                 # Only reset to gray when the button is currently green
                 # (avoids overwriting a manually-initiated OFF state)
-                if str(btn.cget('bg')) == 'green':
-                    btn.config(bg="gray", text=f"Beam {beam_names[ch]} OFF")
+                if str(btn.cget('bg')) == MD_SUCCESS:
+                    btn.config(bg=MD_CARD_BORDER, text=f"Beam {beam_names[ch]} OFF")
                     if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                         self.subsystems['Beam Pulse'].beam_on_status[ch] = False
         except Exception:
@@ -921,13 +1039,13 @@ class EBEAMSystemDashboard:
                     )
                     btn.config(state="normal" if ch_enabled else "disabled")
                     if reset:
-                        btn.config(bg="gray", text=f"Beam {beam_names[i]} OFF")
+                        btn.config(bg=MD_CARD_BORDER, text=f"Beam {beam_names[i]} OFF")
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']
                             if hasattr(beam_pulse, 'set_beam_status'):
                                 beam_pulse.set_beam_status(i, False)
                 else:
-                    btn.config(state="disabled", bg="gray", text=f"Beam {beam_names[i]} OFF")
+                    btn.config(state="disabled", bg=MD_CARD_BORDER, text=f"Beam {beam_names[i]} OFF")
                     if reset:
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']
@@ -950,7 +1068,7 @@ class EBEAMSystemDashboard:
                     # Keep current Enabled/Disabled appearance; don't forcibly reset visual
                 else:
                     # Disarmed — force all to Disabled appearance and reset tracking
-                    btn.config(state="disabled", bg="#888888", text=f"CH{i+1}: Disabled")
+                    btn.config(state="disabled", bg=MD_CARD_BORDER, text=f"CH{i+1}: Disabled")
                     if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
                         self._ch_enable_states[i] = False
         except Exception as e:
@@ -1148,6 +1266,7 @@ class EBEAMSystemDashboard:
             port_var = tk.StringVar(value=self.com_ports.get(subsystem, ''))
             self.port_selections[subsystem] = port_var
             dropdown = ttk.Combobox(frame, textvariable=port_var)
+            dropdown.configure(style="MD.TCombobox", state="readonly")
             dropdown.pack(side=tk.RIGHT)
             self.port_dropdowns[subsystem] = dropdown
 
@@ -1159,10 +1278,11 @@ class EBEAMSystemDashboard:
             port_var = tk.StringVar(value=self.com_ports.get('Beam Pulse', ''))
             self.port_selections['Beam Pulse'] = port_var
             dropdown = ttk.Combobox(frame, textvariable=port_var)
+            dropdown.configure(style="MD.TCombobox", state="readonly")
             dropdown.pack(side=tk.RIGHT)
             self.port_dropdowns['Beam Pulse'] = dropdown
 
-        ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
+        ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes, style="Primary.TButton").pack(pady=5)
 
     def toggle_com_port_menu(self):
         if self.com_port_menu.winfo_viewable():

@@ -18,6 +18,17 @@ SUBSYSTEMS = [
     'BeamPulse',
 ]
 
+# Material Design Dark Theme Palette
+MD_BG = "#1E1E2E"
+MD_CARD = "#2A2A3C"
+MD_CARD_BORDER = "#3A3A4C"
+MD_PRIMARY = "#7C4DFF"
+MD_PRIMARY_HOVER = "#6A3FE0"
+MD_TEXT = "#E0E0E0"
+MD_TEXT_DIM = "#9E9E9E"
+MIN_DASHBOARD_WIDTH = 1200
+MIN_DASHBOARD_HEIGHT = 675
+
 def create_dummy_port_labels(subsystems):
     """
     Create a list of dummy port labels that the user can select
@@ -45,10 +56,20 @@ def start_main_app(com_ports):
     """
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
+    root.configure(bg=MD_BG)
+    root.minsize(MIN_DASHBOARD_WIDTH, MIN_DASHBOARD_HEIGHT)
     root.attributes('-zoomed', True)
+    restore_geometry = "1920x1080"
 
     # Track fullscreen state
     fullscreen = False
+    was_zoomed = True
+    was_fullscreen = False
+
+    def restore_window_size_1080p():
+        root.attributes('-fullscreen', False)
+        root.attributes('-zoomed', False)
+        root.geometry(restore_geometry)
   
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
@@ -58,21 +79,43 @@ def start_main_app(com_ports):
     
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
-        fullscreen = not fullscreen
-        root.attributes('-fullscreen', fullscreen)
+        is_fullscreen = bool(root.attributes('-fullscreen'))
+        if is_fullscreen:
+            fullscreen = False
+            restore_window_size_1080p()
+        else:
+            fullscreen = True
+            root.attributes('-fullscreen', True)
         return "break"
     
     def escape_handler(event=None):
         nonlocal fullscreen
         if fullscreen:
             fullscreen = False
-            root.attributes('-fullscreen', False)
+            restore_window_size_1080p()
         return "break"
     
     def toggle_maximize(event=None):
         current = bool(root.attributes('-zoomed'))
-        root.attributes('-zoomed', not current)
+        if current:
+            restore_window_size_1080p()
+        else:
+            root.attributes('-zoomed', True)
         return "break"
+
+    def enforce_restore_geometry(event=None):
+        nonlocal was_zoomed, was_fullscreen, fullscreen
+        if event is not None and event.widget is not root:
+            return
+        is_zoomed = bool(root.attributes('-zoomed'))
+        is_fullscreen = bool(root.attributes('-fullscreen'))
+        fullscreen = is_fullscreen
+        if was_zoomed and (not is_zoomed) and (not is_fullscreen):
+            root.geometry(restore_geometry)
+        if was_fullscreen and (not is_fullscreen) and (not is_zoomed):
+            root.geometry(restore_geometry)
+        was_zoomed = is_zoomed
+        was_fullscreen = is_fullscreen
 
     def save_logs(event=None):
         if hasattr(app, 'messages_frame'):
@@ -170,6 +213,7 @@ def start_main_app(com_ports):
   
 
     app = EBEAMSystemDashboard(root, com_ports)
+    root.bind('<Configure>', enforce_restore_geometry, add='+')
     root.mainloop()
 
 def config_com_ports(saved_com_ports):
@@ -198,6 +242,39 @@ def config_com_ports(saved_com_ports):
 
     config_root = tk.Tk()
     config_root.title("Configure COM Ports")
+    config_root.configure(bg=MD_BG)
+
+    style = ttk.Style(config_root)
+    if "clam" in style.theme_names():
+        style.theme_use("clam")
+    style.configure(".", background=MD_BG, foreground=MD_TEXT)
+    style.configure("TFrame", background=MD_BG)
+    style.configure("TLabel", background=MD_BG, foreground=MD_TEXT)
+    style.configure("TButton", background=MD_PRIMARY, foreground="#FFFFFF", borderwidth=0, focusthickness=0, padding=(10, 6))
+    style.map("TButton", background=[("active", MD_PRIMARY_HOVER), ("pressed", MD_PRIMARY)], foreground=[("disabled", MD_TEXT_DIM)])
+    style.configure(
+        "MD.TCombobox",
+        fieldbackground=MD_CARD,
+        background=MD_CARD_BORDER,
+        foreground=MD_TEXT,
+        arrowcolor=MD_TEXT,
+        bordercolor=MD_CARD_BORDER,
+        lightcolor=MD_CARD_BORDER,
+        darkcolor=MD_CARD_BORDER,
+        insertcolor=MD_TEXT,
+        padding=(6, 4),
+    )
+    style.map(
+        "MD.TCombobox",
+        fieldbackground=[("readonly", MD_CARD), ("focus", MD_CARD)],
+        background=[("readonly", MD_CARD_BORDER), ("active", MD_PRIMARY_HOVER)],
+        foreground=[("readonly", MD_TEXT), ("disabled", MD_TEXT_DIM)],
+        arrowcolor=[("active", "#FFFFFF"), ("readonly", MD_TEXT)],
+    )
+    config_root.option_add('*TCombobox*Listbox*Background', MD_CARD)
+    config_root.option_add('*TCombobox*Listbox*Foreground', MD_TEXT)
+    config_root.option_add('*TCombobox*Listbox*selectBackground', MD_PRIMARY)
+    config_root.option_add('*TCombobox*Listbox*selectForeground', '#FFFFFF')
 
     selections = {}
 
@@ -209,10 +286,10 @@ def config_com_ports(saved_com_ports):
         frame = ttk.Frame(main_frame)
         frame.pack(pady=5, anchor='center')
 
-        label = tk.Label(
+        label = ttk.Label(
             frame, 
             text=f"{subsystem} COM Port:", 
-            width=25, 
+            width=25,
             anchor='e'
         )
         label.pack(side=tk.LEFT, padx=(0, 10))
@@ -225,7 +302,8 @@ def config_com_ports(saved_com_ports):
             values=combined_port_options, 
             textvariable=selected_port, 
             state='readonly', 
-            width=15
+            width=15,
+            style='MD.TCombobox'
         )
         combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
@@ -262,7 +340,7 @@ def config_com_ports(saved_com_ports):
         # Launch the main application
         start_main_app(selected_ports)
 
-    submit_button = tk.Button(config_root, text="Submit", command=on_submit)
+    submit_button = ttk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
     
     config_root.bind('<Return>', lambda event: on_submit())

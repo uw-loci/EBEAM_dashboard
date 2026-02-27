@@ -185,16 +185,18 @@ class BeamPulseSubsystem:
         bar = ttk.Frame(self.parent_frame)
         bar.pack(fill=tk.X, padx=5, pady=(5, 0))
 
+        MD_CARD = "#2A2A3C"
+
         # BCON connection indicator
         conn_frame = ttk.Frame(bar)
         conn_frame.pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Label(conn_frame, text="BCON", font=("Arial", 9, "bold")).pack(side=tk.LEFT)
-        self.bcon_connection_canvas = tk.Canvas(conn_frame, width=15, height=15, highlightthickness=0)
+        ttk.Label(conn_frame, text="BCON", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        self.bcon_connection_canvas = tk.Canvas(conn_frame, width=15, height=15, highlightthickness=0, bg=MD_CARD)
         self.bcon_connection_canvas.pack(side=tk.LEFT, padx=(4, 0))
         self.bcon_connection_canvas.create_oval(2, 2, 13, 13, fill="red", outline="black", tags="indicator")
 
         # Safety / interlock label
-        self.safety_label = ttk.Label(bar, text="Interlock: --  Watchdog: --", font=("Arial", 8))
+        self.safety_label = ttk.Label(bar, text="Interlock: --  Watchdog: --", font=("Segoe UI", 8))
         self.safety_label.pack(side=tk.LEFT, padx=10)
 
         self.connect_btn = ttk.Button(bar, text="Connect", command=self._manual_connect)
@@ -203,14 +205,14 @@ class BeamPulseSubsystem:
         # System settings row (watchdog / telemetry)
         sys_frame = ttk.Frame(self.parent_frame)
         sys_frame.pack(fill=tk.X, padx=5, pady=(2, 0))
-        ttk.Label(sys_frame, text="Watchdog (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
+        ttk.Label(sys_frame, text="Watchdog (ms):", font=("Segoe UI", 8)).pack(side=tk.LEFT)
         self.watchdog_entry = ttk.Entry(sys_frame, width=7)
         self.watchdog_entry.insert(0, "2000")  # safe default
         self.watchdog_entry.pack(side=tk.LEFT, padx=2)
         ttk.Button(sys_frame, text="Set", width=4, command=self._set_watchdog).pack(side=tk.LEFT, padx=(0, 8))
 
         # Log line
-        self.log_label = ttk.Label(sys_frame, text="Log: ready", font=("Arial", 8), foreground="gray")
+        self.log_label = ttk.Label(sys_frame, text="Log: ready", font=("Segoe UI", 8), foreground="gray")
         self.log_label.pack(side=tk.RIGHT, padx=4)
 
     # ----------------------------- Tab 1: Manual Separate Control --------- #
@@ -405,24 +407,28 @@ class BeamPulseSubsystem:
         if manual_panel_override is not None:
             self._ext_manual_frame = manual_panel_override
 
+            MD_CARD = "#2A2A3C"
+            MD_TEXT = "#E0E0E0"
+            MD_CARD_BORDER = "#3A3A4C"
+
             # --- Sync action row (appended below the CH Enable/Disable row) ---
-            self._sync_row = tk.Frame(manual_panel_override)
+            self._sync_row = tk.Frame(manual_panel_override, bg=MD_CARD)
             self._sync_row.pack(side="top", fill="x", pady=(4, 0))
             self._sync_row.grid_columnconfigure(0, weight=1, uniform="sbtn")
             self._sync_row.grid_columnconfigure(1, weight=1, uniform="sbtn")
 
             self.sync_start_btn = tk.Button(
                 self._sync_row, text="Sync Start",
-                bg="#1565C0", fg="white", font=("Helvetica", 9, "bold"),
-                state="disabled", command=self._sync_start,
+                bg="#1565C0", fg="white", font=("Segoe UI", 9, "bold"),
+                state="disabled", command=self._sync_start, relief="flat"
             )
             self.sync_start_btn.grid(row=0, column=0, sticky="ew", padx=(2, 1))
             self._armed_gated_buttons.append(self.sync_start_btn)
 
             self.sync_stop_btn = tk.Button(
                 self._sync_row, text="Sync Stop",
-                bg="#B71C1C", fg="white", font=("Helvetica", 9, "bold"),
-                state="normal", command=self._sync_stop_all,
+                bg="#B71C1C", fg="white", font=("Segoe UI", 9, "bold"),
+                state="normal", command=self._sync_stop_all, relief="flat"
             )
             self.sync_stop_btn.grid(row=0, column=1, sticky="ew", padx=(1, 2))
 

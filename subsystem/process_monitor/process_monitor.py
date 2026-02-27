@@ -20,19 +20,22 @@ class TemperatureBar(tk.Canvas):
     }
 
     def __init__(self, parent, name: str, height: int = 400, width: int = 40):
-        super().__init__(parent, height=height, width=width)
+        MD_CARD = "#2A2A3C"
+        super().__init__(parent, height=height, width=width, bg=MD_CARD, highlightthickness=0)
         self.name = name
         self.height = height
         self.width = width
         self.bar_width = 15
         self.value = 0
         
+        MD_TEXT = "#E0E0E0"
         # Create title
         self.create_text(
             width//2, 
             75, 
             text=name, 
-            font=('Arial', 8, 'bold'), 
+            font=('Segoe UI', 8, 'bold'), 
+            fill=MD_TEXT,
             anchor='n',
             angle=90  # Rotate text 90 degrees
         )
@@ -41,13 +44,14 @@ class TemperatureBar(tk.Canvas):
         self.create_scale()
         
     def create_scale(self):
+        MD_TEXT = "#E0E0E0"
         # Scale line
         scale_x = self.width - 20
         top_y = 35
         bottom_y = self.height - 20
         scale_height = bottom_y - top_y
         
-        self.create_line(scale_x, top_y, scale_x, bottom_y)
+        self.create_line(scale_x, top_y, scale_x, bottom_y, fill=MD_TEXT)
 
         # Determine scale based on name
         if 'Solenoid' in self.name:
@@ -66,13 +70,14 @@ class TemperatureBar(tk.Canvas):
         for i in range(self.temp_min, self.temp_max + 1, 10):    
             relative_pos = (i - self.temp_min) / temp_range
             y = bottom_y - (relative_pos * scale_height)
-            self.create_line(scale_x-2, y, scale_x+2, y)
+            self.create_line(scale_x-2, y, scale_x+2, y, fill=MD_TEXT)
             self.create_text(
                 scale_x-6, 
                 y, 
                 text=str(i), 
                 anchor='w', 
-                font=('Arial', 7),
+                font=('Segoe UI', 7),
+                fill=MD_TEXT,
                 angle=90,
                 tags='scale_labels'
             )
@@ -126,12 +131,13 @@ class TemperatureBar(tk.Canvas):
 
         # Update value label
         self.delete('value')
+        MD_TEXT = "#E0E0E0"
         self.create_text(
             self.width//2,
             self.height-5,
             text=value_text,
-            font=('Arial', 9, 'bold'),
-            fill='#808080' if value == self.DISCONNECTED else 'black',
+            font=('Segoe UI', 9, 'bold'),
+            fill='#808080' if value == self.DISCONNECTED else MD_TEXT,
             tags='value'
         )
         
@@ -209,7 +215,8 @@ class ProcessMonitorSubsystem:
         self.update_temperatures()
 
     def setup_gui(self):
-        self.frame = tk.Frame(self.parent)
+        MD_CARD = "#2A2A3C"
+        self.frame = tk.Frame(self.parent, bg=MD_CARD)
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         
         # Configure grid weights for responsive layout

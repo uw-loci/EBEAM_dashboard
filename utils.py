@@ -113,8 +113,16 @@ class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
 
     def __init__(self, parent, width=300, height=200):
+        # Material Dark Theme Palette
+        MD_BG           = "#1E1E2E"
+        MD_CARD         = "#2A2A3C"
+        MD_CARD_BORDER  = "#3A3A4C"
+        MD_PRIMARY      = "#7C4DFF"
+        MD_TEXT         = "#E0E0E0"
+        MD_ENTRY_BG     = "#353548"
+
         # Create the frame with a strict size
-        self.frame = tk.Frame(parent, borderwidth=2, relief="solid", width=width, height=height)
+        self.frame = tk.Frame(parent, bg=MD_CARD, highlightbackground=MD_CARD_BORDER, highlightthickness=1, width=width, height=height)
         
         # Prevent resizing of frame contents
         self.frame.pack_propagate(False)
@@ -124,33 +132,46 @@ class MessagesFrame:
         self.frame.pack(fill=tk.NONE)  
 
         # Add a title to the Messages & Errors frame
-        label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 8, "bold"))
-        label.grid(row=0, column=0, columnspan=4, sticky="ew", padx=5, pady=5)  # Reduce padding
+        label = tk.Label(self.frame, text="Messages & Errors", font=("Segoe UI", 12, "bold"), bg=MD_CARD, fg=MD_PRIMARY)
+        label.grid(row=0, column=0, columnspan=4, sticky="w", padx=10, pady=(5, 0))
+        
+        sep = ttk.Separator(self.frame, orient="horizontal")
+        sep.grid(row=1, column=0, columnspan=4, sticky="ew", padx=10, pady=(4, 8))
 
         # Configure grid so that widgets can resize proportionally
         self.frame.columnconfigure(0, weight=1)
         self.frame.columnconfigure(1, weight=1)
         self.frame.columnconfigure(2, weight=1)
         self.frame.columnconfigure(3, weight=0)
-        self.frame.rowconfigure(1, weight=1)  # Allow text widget to expand
+        self.frame.rowconfigure(2, weight=1)  # Allow text widget to expand
 
         # Create a Text widget for logs
-        self.text_widget = tk.Text(self.frame, wrap=tk.WORD, font=("Helvetica", 7), width=(width // 10 if width else 30), height=(height // 30 if height else 10))
-        self.text_widget.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=5, pady=5)
+        self.text_widget = tk.Text(
+            self.frame,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg=MD_ENTRY_BG,
+            fg=MD_TEXT,
+            insertbackground=MD_TEXT,
+            relief="flat",
+            width=(max(1, int(width / 10)) if width else 30),
+            height=(max(1, int(height / 30)) if height else 10),
+        )
+        self.text_widget.grid(row=2, column=0, columnspan=4, sticky="nsew", padx=10, pady=5)
 
         # Create a button to clear the text widget
-        self.clear_button = tk.Button(self.frame, text="Clear", command=self.confirm_clear, font=("Helvetica", 10))
-        self.clear_button.grid(row=2, column=0, sticky="ew", padx=2, pady=5)
+        self.clear_button = tk.Button(self.frame, text="Clear", command=self.confirm_clear, font=("Segoe UI", 10), bg=MD_CARD_BORDER, fg=MD_TEXT, relief="flat")
+        self.clear_button.grid(row=3, column=0, sticky="ew", padx=2, pady=5)
 
-        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log, font=("Helvetica", 10))
-        self.export_button.grid(row=2, column=1, sticky="ew", padx=2, pady=5)
+        self.export_button = tk.Button(self.frame, text="Export", command=self.export_log, font=("Segoe UI", 10), bg=MD_CARD_BORDER, fg=MD_TEXT, relief="flat")
+        self.export_button.grid(row=3, column=1, sticky="ew", padx=2, pady=5)
 
-        self.toggle_file_logging_button = tk.Button(self.frame, text="Log: ON", command=self.toggle_file_logging, font=("Helvetica", 10))
-        self.toggle_file_logging_button.grid(row=2, column=2, sticky="ew", padx=2, pady=5)
+        self.toggle_file_logging_button = tk.Button(self.frame, text="Log: ON", command=self.toggle_file_logging, font=("Segoe UI", 10), bg=MD_CARD_BORDER, fg=MD_TEXT, relief="flat")
+        self.toggle_file_logging_button.grid(row=3, column=2, sticky="ew", padx=2, pady=5)
 
         # Circular indicator for log writing state (unchanged size)
-        self.logging_indicator_canvas = tk.Canvas(self.frame, width=12, height=12, highlightthickness=0)
-        self.logging_indicator_canvas.grid(row=2, column=3, padx=(2, 5), pady=5)
+        self.logging_indicator_canvas = tk.Canvas(self.frame, width=12, height=12, highlightthickness=0, bg=MD_CARD)
+        self.logging_indicator_canvas.grid(row=3, column=3, padx=(2, 10), pady=5)
         self.logging_indicator_circle = self.logging_indicator_canvas.create_oval(
             2, 2, 10, 10, fill="#00FF24", outline="black"
         )
@@ -274,11 +295,15 @@ class SetupScripts:
         self.setup_gui()
 
     def setup_gui(self):
-        self.frame = tk.Frame(self.parent)
+        MD_CARD = "#2A2A3C"
+        MD_TEXT = "#E0E0E0"
+        MD_CARD_BORDER = "#3A3A4C"
+
+        self.frame = tk.Frame(self.parent, bg=MD_CARD)
         self.frame.pack(pady=10, fill=tk.X)
 
         # Label
-        tk.Label(self.frame, text="Script:").pack(side=tk.LEFT)
+        tk.Label(self.frame, text="Script:", bg=MD_CARD, fg=MD_TEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT)
 
         # Dropdown Menu for selecting a script
         self.script_var = tk.StringVar()
@@ -287,7 +312,7 @@ class SetupScripts:
         self.populate_dropdown()
 
         # Execute Button
-        self.execute_button = tk.Button(self.frame, text="Execute", command=self.execute_script)
+        self.execute_button = tk.Button(self.frame, text="Execute", command=self.execute_script, bg=MD_CARD_BORDER, fg=MD_TEXT, relief="flat", font=("Segoe UI", 10))
         self.execute_button.pack(side=tk.RIGHT, padx=5)
 
     def populate_dropdown(self):
@@ -405,7 +430,15 @@ class MachineStatus():
 
     def setup_gui(self):
         """Setup the GUI for the Machine Status Panel"""
-        self.machine_status_frame = tk.Frame(self.parent, bg="#dbd9d9")
+        # Material Dark Theme Palette
+        MD_BG           = "#1E1E2E"
+        MD_CARD         = "#2A2A3C"
+        MD_CARD_BORDER  = "#3A3A4C"
+        MD_PRIMARY      = "#7C4DFF"
+        MD_TEXT         = "#E0E0E0"
+        MD_ACTIVE       = "#00B0FF" # Cyan for active status
+
+        self.machine_status_frame = tk.Frame(self.parent, bg=MD_CARD)
         self.machine_status_frame.pack(fill=tk.BOTH, expand=True)
 
         # Configure columns for each individual machine status
@@ -415,21 +448,21 @@ class MachineStatus():
             self.machine_status_frame.grid_columnconfigure(i * 2 + 1, weight=0)  # Thin separator line
         
         for i, (name, _) in enumerate(self.MACHINE_STATUS.items()):
-            bg_color = "black" if name == "Machine Status" else "#dbd9d9"
-            fg_color = "white" if name == "Machine Status" else "black"
+            bg_color = MD_BG if name == "Machine Status" else MD_CARD
+            fg_color = MD_PRIMARY if name == "Machine Status" else MD_TEXT
 
             label = tk.Label(
                 self.machine_status_frame, text=name, anchor="w", padx=5,
                 bg=bg_color, fg=fg_color, width=12, height=2,
-                wraplength=80, justify="left"
+                wraplength=80, justify="left", font=("Segoe UI", 8)
             )
             label.grid(row=0, column=i * 2, sticky='ew')
 
             self.status_labels[name] = label
 
-            # Add a **very thin** black separator frame (1px wide)
+            # Add a **very thin** separator frame (1px wide)
             if i < len(self.MACHINE_STATUS) - 1:
-                separator = tk.Frame(self.machine_status_frame, bg="black", width=1)  # 1px width black separator
+                separator = tk.Frame(self.machine_status_frame, bg=MD_CARD_BORDER, width=1)  # 1px width separator
                 separator.grid(row=0, column=i * 2 + 1, sticky="ns")
 
     def update_status(self, status_dict=None):
@@ -458,7 +491,12 @@ class MachineStatus():
         self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
 
     def update_labels(self, status_dict):
-            for name, is_active in status_dict.items():
-                if name in self.status_labels and name != "Machine Status":  # Don't change main label
-                    new_color = "#57cce7" if is_active else "#dbd9d9"
-                    self.status_labels[name].config(bg=new_color)
+        MD_CARD = "#2A2A3C"
+        MD_ACTIVE = "#00B0FF"
+        MD_TEXT = "#E0E0E0"
+        MD_BG = "#1E1E2E"
+        for name, is_active in status_dict.items():
+            if name in self.status_labels and name != "Machine Status":  # Don't change main label
+                new_color = MD_ACTIVE if is_active else MD_CARD
+                fg_color = MD_BG if is_active else MD_TEXT
+                self.status_labels[name].config(bg=new_color, fg=fg_color)

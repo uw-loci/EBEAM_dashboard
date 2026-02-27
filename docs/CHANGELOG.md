@@ -8,6 +8,27 @@ All notable changes to the EBEAM Dashboard project are documented here.
 
 ### Fixed
 
+- **UI Layout Glitches on Resize** (`dashboard.py`)  
+  Fixed subpanel arrangement issues and UI glitches during window resizing and moving. Transitioned the adaptive layout engine to use floating-point math for all width/height calculations, preventing cumulative integer truncation/rounding errors.
+
+- **Window restore size after maximize/fullscreen drag-out** (`main.py`)  
+  Enforced a deterministic restore geometry of `1920x1080` when leaving fullscreen/maximized state (keyboard toggle or window-manager drag/restore). Added a `<Configure>` transition guard so maximize → normal always snaps back to the target restore size.
+
+- **Dashboard restore behavior and proportional panel scaling refinement** (`main.py`, `dashboard.py`)  
+  Revised restore/resize behavior for consistency and stability:
+  - Exiting fullscreen/maximized on the dashboard now consistently restores to `1920x1080` across keyboard and window-manager transitions.
+  - Subpanel resizing now scales from a stable baseline instead of cumulative step-scaling, preserving layout proportions during repeated resize/drag operations.
+  - Manual sash/grip panel adjustments are incorporated into the next resize baseline so user-adjusted proportions remain consistent on subsequent window resizes.
+
+- **Main-screen drag-collapse prevention** (`dashboard.py`, `main.py`)  
+  Fixed an issue where entering the dashboard main screen and dragging/restoring the window could shrink the entire layout to near-minimum size:
+  - Added minimum dashboard window size (`1200x675`) in the main app window.
+  - Updated resize handling to use event geometry and ignore transient tiny `<Configure>` sizes during drag/restore transitions.
+  - Prevented accidental global subpanel down-scaling caused by short-lived window-manager geometry glitches.
+
+- **Tk integer argument crash in log panel sizing** (`utils.py`)  
+  Fixed `_tkinter.TclError: expected integer but got "44.0"` by coercing `tk.Text` character `width` / `height` inputs to safe integers when frame dimensions are float-scaled.
+
 - **Linux compatibility — window maximize** (`main.py`)  
   Replaced `root.state('zoomed')` (Windows-only) with `root.attributes('-zoomed', True)` in `start_main_app()` and `toggle_maximize()`. The previous call raised `_tkinter.TclError: bad argument "zoomed"` on Linux/X11.
 
@@ -25,6 +46,15 @@ All notable changes to the EBEAM Dashboard project are documented here.
   Background polling threads (e.g. `poll_all_units` in `DP16_process_monitor`) continued to call `MessagesFrame.log()` after the Tk window was destroyed on quit, raising `TclError: invalid command name`. Wrapped the `text_widget.insert()` / `see()` calls in `try/except tk.TclError`; messages that arrive after window destruction fall back to `print()`.
 
 ### Added
+
+- **Material Dark Theme** (`dashboard.py`, `utils.py`, `subsystem/*`)  
+  Applied a consistent Material Design Dark theme across the entire dashboard and all subsystems. Replaced hardcoded colors with a unified palette (`MD_BG`, `MD_CARD`, `MD_PRIMARY`, `MD_TEXT`, etc.) for backgrounds, text, buttons, and plots.
+
+- **Material control variants for interactive UI elements** (`dashboard.py`, `main.py`)  
+  Extended the dark theme with refined control styling for actions and selectors:
+  - Added themed button variants (`Primary`, `Danger`) with hover/pressed states and consistent padding.
+  - Added styled option selectors (`ttk.Combobox`) including dark dropdown list colors and focused/readonly states.
+  - Updated beam/channel toggle controls and COM-port/config controls for consistent Material interaction feedback.
 
 - **Adaptive / responsive UI** (`dashboard.py`)  
   The dashboard layout now scales proportionally whenever the window is resized or un-maximised:
@@ -84,3 +114,22 @@ All notable changes to the EBEAM Dashboard project are documented here.
     - Windows: COM null-modem backend using paired ports (e.g. com0com `CNCAx`/`CNCBx`).
     - Windows mapping sources: `EBEAM_SIM_PORT_MAP_FILE`, `EBEAM_SIM_PORT_MAP`, or automatic com0com pair detection.
     - Added friendly startup error messaging in launcher when Windows COM mapping is missing/misconfigured.
+
+  - **CCS-410 PSU simulator command/state fidelity improvements** (`simulator/instruments.py`)  
+    Refined `PowerSupply9104Sim` command handling to better match dashboard driver/manual usage:
+    - Added stateful handling for `SETD`, `SETM`, `SABC`, `GDLT`/`SDLT`, and `GSWT`/`SSWT`.
+    - Expanded `GALL` to return a structured aggregate status payload rather than a generic ack.
+    - Preset selection now synchronizes active setpoints (`voltage_set`, `current_set`) with selected preset values.
+
+  - **E5CN simulator PV register encoding refinement** (`simulator/instruments.py`)  
+    Updated `E5CNModbusSim` PV register behavior for better controller realism:
+    - Keeps project-compatible read path (`addr=0x0000`, `count>=2`, PV in `regs[1]`).
+    - Encodes PV at 0.1°C resolution using signed 16-bit (two’s complement) representation, improving sub-zero temperature fidelity.
+
+  - **G9SP simulator manual-aligned protocol/status refinement** (`simulator/instruments.py`)  
+    Refined `G9DriverSim` based on the G9SP operator manual response format and status model:
+    - Added explicit normal response control bytes (`End code=0x0000`, `Service code=0xCB`) and command-format error response (`LL=0x06`).
+    - Added request validation (fixed header/footer and checksum) before generating a normal response.
+    - Implemented manual-aligned status fields: terminal status flags (`SITSF`/`SOTSF`) now represent self-diagnosis health (`1=normal, 0=error`) independent of ON/OFF data flags.
+    - Implemented Safety Input/Output terminal error-cause nibbles (`SITEC`/`SOTEC`) from simulator state.
+    - Added Unit Status bit mapping (normal/output power/safety I/O/function block), Configuration ID, and Unit Conduction Time fields.

@@ -17,9 +17,10 @@ class OilSubsystem:
 
     def setup_gui(self):
         """Creates and packs UI elements inside the given parent (horizontally)."""
-        self.frame = tk.Frame(self.parent)
+        MD_CARD = "#2A2A3C"
+        self.frame = tk.Frame(self.parent, bg=MD_CARD)
         self.frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        self.info_frame = tk.Frame(self.frame)
+        self.info_frame = tk.Frame(self.frame, bg=MD_CARD)
         self.info_frame.pack(fill=tk.X, expand=True)
 
         self.create_sensor_frame("Temperature", f"{self.temperature:.1f}°C", "temp_label")
@@ -31,11 +32,14 @@ class OilSubsystem:
 
     def create_sensor_frame(self, title, default_text, label_attr):
         """Creates a horizontally aligned sensor frame."""
-        frame = tk.Frame(self.info_frame, padx=20)
+        MD_CARD = "#2A2A3C"
+        MD_TEXT = "#E0E0E0"
+        MD_ENTRY_BG = "#353548"
+        frame = tk.Frame(self.info_frame, padx=20, bg=MD_CARD)
         frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
         
-        tk.Label(frame, text=title, font=("Helvetica", 10, "bold")).pack()
-        label = tk.Label(frame, text=default_text, font=('Helvetica', 10), bg = "#d3d3d3", fg = "black", padx = 5, pady = 2)
+        tk.Label(frame, text=title, font=("Segoe UI", 10, "bold"), bg=MD_CARD, fg=MD_TEXT).pack()
+        label = tk.Label(frame, text=default_text, font=('Segoe UI', 10), bg=MD_ENTRY_BG, fg=MD_TEXT, padx=5, pady=2)
         label.pack()
         
         setattr(self, label_attr, label)

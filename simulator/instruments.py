@@ -136,10 +136,25 @@ class PowerSupply9104Sim(BaseSimulator):
             "mode": 0,              # 0=CV, 1=CC
             "ovp": 42.0,
             "ocp": 5.0,
-            "preset": 0,
-            "presets": {0: (0.0, 0.0), 1: (0.0, 0.0), 2: (0.0, 0.0)},
+            "preset": 3,
+            "presets": {0: (0.0, 0.0), 1: (0.0, 0.0), 2: (0.0, 0.0), 3: (0.0, 0.0)},
+            "sw_times": {0: 1, 1: 1, 2: 1},
+            "delta_times": {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
         }
         self._buf = b""
+
+    @staticmethod
+    def _clamp(value: int, lo: int, hi: int) -> int:
+        return max(lo, min(hi, value))
+
+    @staticmethod
+    def _split_preset_and_value(raw: str) -> tuple[int, int] | None:
+        raw = raw.strip().replace(" ", "")
+        if len(raw) < 5 or not raw.isdigit():
+            return None
+        preset = int(raw[0])
+        value = int(raw[1:5])
+        return preset, value
 
     def run(self):
         while not self._stop.is_set():
@@ -184,17 +199,28 @@ class PowerSupply9104Sim(BaseSimulator):
             elif cmd == "GOUT":
                 return f"{'1' if self.state['output_on'] else '0'}\rOK"
             elif cmd.startswith("VOLT"):
-                raw = cmd[4:].strip()
-                if len(raw) >= 5:
-                    cv = int(raw[1:5])
+                parsed = self._split_preset_and_value(cmd[4:])
+                if parsed:
+                    preset, cv = parsed
                     self.state["voltage_set"] = cv / 100.0
+                    if preset in self.state["presets"]:
+                        _, cur = self.state["presets"][preset]
+                        self.state["presets"][preset] = (self.state["voltage_set"], cur)
+                    # If command targets active preset, reflect into active setpoint
+                    if preset == self.state["preset"]:
+                        self.state["voltage_set"] = cv / 100.0
                     self._notify()
                 return "OK"
             elif cmd.startswith("CURR"):
-                raw = cmd[4:].strip()
-                if len(raw) >= 5:
-                    ca = int(raw[1:5])
+                parsed = self._split_preset_and_value(cmd[4:])
+                if parsed:
+                    preset, ca = parsed
                     self.state["current_set"] = ca / 100.0
+                    if preset in self.state["presets"]:
+                        volt, _ = self.state["presets"][preset]
+                        self.state["presets"][preset] = (volt, self.state["current_set"])
+                    if preset == self.state["preset"]:
+                        self.state["current_set"] = ca / 100.0
                     self._notify()
                 return "OK"
             elif cmd == "GETD":
@@ -221,15 +247,105 @@ class PowerSupply9104Sim(BaseSimulator):
                 sv, si = self.state["presets"].get(p, (0, 0))
                 return f"{int(sv*100):04d}{int(si*100):04d}\rOK"
             elif cmd.startswith("SETD"):
+                # SETD<preset><voltage><current>
+                raw = cmd[4:].strip().replace(" ", "")
+                if len(raw) >= 9 and raw[:9].isdigit():
+                    p = int(raw[0])
+                    v = int(raw[1:5]) / 100.0
+                    c = int(raw[5:9]) / 100.0
+                    if p in self.state["presets"]:
+                        self.state["presets"][p] = (v, c)
+                    if p == self.state["preset"]:
+                        self.state["voltage_set"] = v
+                        self.state["current_set"] = c
+                    self._notify()
                 return "OK"
             elif cmd == "GABC":
                 return f"{self.state['preset']}\rOK"
             elif cmd.startswith("SABC"):
-                self.state["preset"] = int(cmd[4]) if len(cmd) > 4 else 0
+                if len(cmd) > 4 and cmd[4].isdigit():
+                    p = self._clamp(int(cmd[4]), 0, 3)
+                    self.state["preset"] = p
+                    v, c = self.state["presets"].get(p, (0.0, 0.0))
+                    self.state["voltage_set"] = v
+                    self.state["current_set"] = c
+                    self._notify()
+                return "OK"
+            elif cmd.startswith("GDLT"):
+                raw = cmd[4:].strip()
+                idx = int(raw[0]) if raw and raw[0].isdigit() else 0
+                idx = self._clamp(idx, 0, 5)
+                return f"{int(self.state['delta_times'][idx]):02d}\rOK"
+            elif cmd.startswith("SDLT"):
+                raw = cmd[4:].strip().replace(" ", "")
+                if len(raw) >= 3 and raw[:3].isdigit():
+                    idx = self._clamp(int(raw[0]), 0, 5)
+                    val = self._clamp(int(raw[1:3]), 0, 20)
+                    self.state["delta_times"][idx] = val
+                    self._notify()
+                return "OK"
+            elif cmd.startswith("GSWT"):
+                raw = cmd[4:].strip()
+                if raw and raw[0].isdigit():
+                    idx = self._clamp(int(raw[0]), 0, 2)
+                    return f"{int(self.state['sw_times'][idx]):03d}\rOK"
+                # Some host code calls GSWT without index; return first entry.
+                return f"{int(self.state['sw_times'][0]):03d}\rOK"
+            elif cmd.startswith("SSWT"):
+                raw = cmd[4:].strip().replace(" ", "")
+                if len(raw) >= 4 and raw[:4].isdigit():
+                    idx = self._clamp(int(raw[0]), 0, 2)
+                    val = self._clamp(int(raw[1:4]), 0, 600)
+                    self.state["sw_times"][idx] = val
+                    self._notify()
+                return "OK"
+            elif cmd.startswith("RUNP"):
                 return "OK"
             elif cmd in ("SESS", "ENDS", "STOP"):
                 return "OK"
             elif cmd == "GALL":
+                # Keep response shape close to manual examples while remaining lightweight.
+                abc = int(self.state["preset"])
+                channel = 0
+                uvl = int(self.state["ovp"] * 100)
+                ucl = int(self.state["ocp"] * 100)
+                out = 1 if self.state["output_on"] else 0
+                sw1 = int(self.state["sw_times"][0])
+                sw2 = int(self.state["sw_times"][1])
+                sw3 = int(self.state["sw_times"][2])
+                dt = "".join(f"{int(self.state['delta_times'][i]):02d}" for i in range(6))
+                mode = 8160
+                set_values = []
+                for p in (0, 1, 2, 3):
+                    v, c = self.state["presets"][p]
+                    set_values.append(f"{int(v * 100):04d}")
+                    set_values.append(f"{int(c * 100):04d}")
+                body = (
+                    f"{abc}{channel}{uvl:04d}{ucl:04d}{out}"
+                    f"{sw1:03d}{sw2:03d}{sw3:03d}{dt}{mode:04d}"
+                    + "".join(set_values)
+                )
+                return f"{body}\rOK"
+            elif cmd.startswith("SETM"):
+                # SETM<v1><i1><sw1><v2><i2><sw2><v3><i3><sw3>
+                raw = cmd[4:].strip().replace(" ", "")
+                if len(raw) >= 33 and raw[:33].isdigit():
+                    v1 = int(raw[0:4]) / 100.0
+                    i1 = int(raw[4:8]) / 100.0
+                    s1 = self._clamp(int(raw[8:11]), 0, 600)
+                    v2 = int(raw[11:15]) / 100.0
+                    i2 = int(raw[15:19]) / 100.0
+                    s2 = self._clamp(int(raw[19:22]), 0, 600)
+                    v3 = int(raw[22:26]) / 100.0
+                    i3 = int(raw[26:30]) / 100.0
+                    s3 = self._clamp(int(raw[30:33]), 0, 600)
+                    self.state["presets"][0] = (v1, i1)
+                    self.state["presets"][1] = (v2, i2)
+                    self.state["presets"][2] = (v3, i3)
+                    self.state["sw_times"][0] = s1
+                    self.state["sw_times"][1] = s2
+                    self.state["sw_times"][2] = s3
+                    self._notify()
                 return "OK"
             return "OK"
 
@@ -318,10 +434,13 @@ class E5CNModbusSim(BaseSimulator):
             return
         with self.lock:
             temp = self.state.get(f"temp_{slave}", 25.0)
-        # E5CN: register 0x0000, count=2 → response regs[1] = temp*10
+        # E5CN PV representation used by this project:
+        # read addr 0x0000, count=2, with PV in regs[1] at 0.1°C resolution.
+        # Encode as signed 16-bit two's complement for sub-zero values.
         regs = [0] * count
         if addr == 0x0000 and count >= 2:
-            regs[1] = int(temp * 10) & 0xFFFF
+            pv_raw = int(round(temp * 10.0))
+            regs[1] = pv_raw & 0xFFFF
         payload = bytes([count * 2])
         for r in regs:
             payload += struct.pack(">H", r & 0xFFFF)
@@ -350,7 +469,16 @@ class G9DriverSim(BaseSimulator):
     def __init__(self, pair: VirtualSerialPair):
         super().__init__(pair, "G9SP")
         self.state = {name: True for name in self.INTERLOCK_NAMES}
+        self.state.update({
+            "config_id": 0x0001,
+            "unit_conduction_minutes": 0,
+            "output_power_error": False,
+            "function_block_error": False,
+            "input_error_codes": [0] * 20,
+            "output_error_codes": [0] * 20,
+        })
         self._buf = b""
+        self._started_at = time.time()
 
     def interlock_chain_ok(self) -> bool:
         with self.lock:
@@ -362,6 +490,29 @@ class G9DriverSim(BaseSimulator):
             if bit:
                 packed[i // 8] |= (1 << (i % 8))
         return bytes(packed)
+
+    @staticmethod
+    def _pack_nibbles(error_codes: list[int], total_bytes: int) -> bytes:
+        packed = bytearray(total_bytes)
+        for i in range(total_bytes):
+            lo_idx = i * 2
+            hi_idx = lo_idx + 1
+            lo = int(error_codes[lo_idx]) & 0x0F if lo_idx < len(error_codes) else 0
+            hi = int(error_codes[hi_idx]) & 0x0F if hi_idx < len(error_codes) else 0
+            packed[i] = lo | (hi << 4)
+        return bytes(packed)
+
+    def _is_valid_request(self, frame: bytes) -> bool:
+        if len(frame) != 19:
+            return False
+        # +0..+8 fixed command header per manual
+        if frame[:9] != b"\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01":
+            return False
+        if frame[17:19] != b"\x2A\x0D":
+            return False
+        recv_cksum = struct.unpack(">H", frame[15:17])[0]
+        calc_cksum = sum(frame[:15]) & 0xFFFF
+        return recv_cksum == calc_cksum
 
     def run(self):
         while not self._stop.is_set():
@@ -382,8 +533,31 @@ class G9DriverSim(BaseSimulator):
                 self._buf = self._buf[idx:]
             if len(self._buf) < 19:
                 return
+            frame = self._buf[:19]
             self._buf = self._buf[19:]  # consume request
-            self._send_response()
+            if self._is_valid_request(frame):
+                self._send_response()
+            else:
+                self._send_error_response()
+
+    def _send_error_response(self):
+        """Build a manual-conformant command-format error response."""
+        resp = bytearray(199)
+        resp[0] = 0x40
+        resp[1] = 0x00
+        resp[2] = 0x00
+        resp[3] = 0x06  # Incorrect command format
+        resp[4] = 0x00
+        resp[5] = 0x01  # non-zero end code for format error
+        # no service code/data for incorrect command format
+        cksum = sum(resp[:195]) & 0xFFFF
+        resp[195] = (cksum >> 8) & 0xFF
+        resp[196] = cksum & 0xFF
+        resp[197] = 0x2A
+        resp[198] = 0x0D
+        time.sleep(0.01)
+        self.pair.write(bytes(resp))
+        self._notify()
 
     def _send_response(self):
         """Build a 199-byte G9SP response packet."""
@@ -392,22 +566,67 @@ class G9DriverSim(BaseSimulator):
         resp[1] = 0x00
         resp[2] = 0x00
         resp[3] = 0xC3
-        # OCTD at byte 7
-        resp[7] = 0x00
+        # End code + service code for normal response
+        resp[4] = 0x00
+        resp[5] = 0x00
+        resp[6] = 0xCB
+        # OCTD starts at byte 7
+        resp[7:11] = b"\x00\x00\x00\x00"
 
         with self.lock:
             input_bits = [bool(self.state.get(name, False)) for name in self.INTERLOCK_NAMES]
             chain_ok = all(input_bits[:11])
             g9_active = bool(self.state.get("g9sp_active", True))
+            input_error_codes = list(self.state.get("input_error_codes", [0] * 20))
+            output_error_codes = list(self.state.get("output_error_codes", [0] * 20))
+            output_power_error = bool(self.state.get("output_power_error", False))
+            function_block_error = bool(self.state.get("function_block_error", False))
+            config_id = int(self.state.get("config_id", 0x0001)) & 0xFFFF
+            started_at = self._started_at
 
-        sitsf_bytes = self._pack_flags(input_bits, total_bytes=6)
+        # Update conduction time in minutes.
+        conduction_minutes = max(0, int((time.time() - started_at) / 60.0)) & 0xFFFFFF
+        with self.lock:
+            self.state["unit_conduction_minutes"] = conduction_minutes
+
         sitdf_bytes = self._pack_flags(input_bits, total_bytes=6)
+        # Status flags indicate terminal health (1=normal, 0=error), independent from ON/OFF data flags.
+        input_status_bits = []
+        for i in range(len(self.INTERLOCK_NAMES)):
+            has_error = (i < len(input_error_codes) and int(input_error_codes[i]) != 0)
+            input_status_bits.append(not has_error)
+        sitsf_bytes = self._pack_flags(input_status_bits, total_bytes=6)
 
         # Output flags: bit 4 is consumed by driver as g9_active signal
         out_bits = [False] * 7
         out_bits[4] = bool(chain_ok and g9_active)
-        sotsf_bytes = self._pack_flags(out_bits, total_bytes=4)
         sotdf_bytes = self._pack_flags(out_bits, total_bytes=4)
+        output_status_bits = [True] * 7
+        for i in range(7):
+            if i < len(output_error_codes) and int(output_error_codes[i]) != 0:
+                output_status_bits[i] = False
+        sotsf_bytes = self._pack_flags(output_status_bits, total_bytes=4)
+
+        sitec_bytes = self._pack_nibbles(input_error_codes, total_bytes=24)
+        sotec_bytes = self._pack_nibbles(output_error_codes, total_bytes=16)
+
+        safety_io_error = any(code != 0 for code in input_error_codes[:20]) or any(
+            code != 0 for code in output_error_codes[:20]
+        )
+
+        # Unit Status bits per manual:
+        # byte0 bit0: Unit Normal Operating Flag
+        # byte1 bit1: Output Power Supply Error Flag
+        # byte1 bit2: Safety I/O Terminal Error Flag
+        # byte1 bit5: Function Block Error Flag
+        unit_status_lo = 0x01 if not (output_power_error or safety_io_error or function_block_error) else 0x00
+        unit_status_hi = 0x00
+        if output_power_error:
+            unit_status_hi |= 0x02
+        if safety_io_error:
+            unit_status_hi |= 0x04
+        if function_block_error:
+            unit_status_hi |= 0x20
 
         # SITDF at offset 11, 6 bytes
         resp[11:17] = sitdf_bytes
@@ -417,9 +636,25 @@ class G9DriverSim(BaseSimulator):
         resp[21:27] = sitsf_bytes
         # SOTSF at offset 27, 4 bytes
         resp[27:31] = sotsf_bytes
-        # US (unit status) at offset 73, 2 bytes — 0x0100 = normal
-        resp[73] = 0x01
-        resp[74] = 0x00
+
+        # SITEC at offset 31, 24 bytes
+        resp[31:55] = sitec_bytes
+        # SOTEC at offset 55, 16 bytes
+        resp[55:71] = sotec_bytes
+        # Unit Status at offset 73, 2 bytes
+        resp[73] = unit_status_lo
+        resp[74] = unit_status_hi
+
+        # Configuration ID at offset 75, rightmost then leftmost byte
+        resp[75] = config_id & 0xFF
+        resp[76] = (config_id >> 8) & 0xFF
+
+        # Unit conduction time at offset 77: 3 bytes little significance first + reserved byte
+        resp[77] = conduction_minutes & 0xFF
+        resp[78] = (conduction_minutes >> 8) & 0xFF
+        resp[79] = (conduction_minutes >> 16) & 0xFF
+        resp[80] = 0x00
+
         # Checksum at bytes 195–196: sum of 0..194 & 0xFFFF big-endian
         cksum = sum(resp[:195]) & 0xFFFF
         resp[195] = (cksum >> 8) & 0xFF

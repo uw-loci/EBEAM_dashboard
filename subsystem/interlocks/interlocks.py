@@ -112,7 +112,8 @@ class InterlocksSubsystem:
 
     def _create_main_frame(self):
         """Create and configure the main container frame"""
-        self.interlocks_frame = tk.Frame(self.parent)
+        MD_CARD = "#2A2A3C"
+        self.interlocks_frame = tk.Frame(self.parent, bg=MD_CARD)
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
         
         # Configure grid weights for responsive layout
@@ -124,7 +125,9 @@ class InterlocksSubsystem:
 
     def _create_interlocks_frame(self):
         """Create the frame that will contain the interlock indicators"""
-        interlocks_frame = tk.Frame(self.interlocks_frame, highlightbackground="black")
+        MD_CARD = "#2A2A3C"
+        MD_CARD_BORDER = "#3A3A4C"
+        interlocks_frame = tk.Frame(self.interlocks_frame, bg=MD_CARD, highlightbackground=MD_CARD_BORDER)
         interlocks_frame.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
         
         # Configure columns for indicator pairs (label + light)
@@ -145,16 +148,19 @@ class InterlocksSubsystem:
         Returns:
             tuple: (canvas, oval_id) for the created indicator
         """
-        canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0)
+        MD_CARD = "#2A2A3C"
+        canvas = tk.Canvas(frame, width=30, height=30, highlightthickness=0, bg=MD_CARD)
         canvas.grid(sticky='nsew')
         oval_id = canvas.create_oval(5, 5, 25, 25, fill=color, outline="black")
         return canvas, oval_id
 
     def _create_indicators(self, frame):
         """Create all indicator lights and their labels"""
+        MD_CARD = "#2A2A3C"
+        MD_TEXT = "#E0E0E0"
         for i, (name, _) in enumerate(self.INDICATORS.items()):
             # Create label
-            tk.Label(frame, text=name, anchor="center").grid(
+            tk.Label(frame, text=name, anchor="center", bg=MD_CARD, fg=MD_TEXT, font=("Segoe UI", 8)).grid(
                 row=0, column=i*2, sticky='ew'
             )
             
