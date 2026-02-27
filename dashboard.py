@@ -126,6 +126,25 @@ class EBEAMSystemDashboard:
             foreground=[("disabled", MD_TEXT_DIM)],
         )
         style.configure(
+            "TCombobox",
+            fieldbackground=MD_CARD,
+            background=MD_CARD_BORDER,
+            foreground=MD_TEXT,
+            arrowcolor=MD_TEXT,
+            bordercolor=MD_CARD_BORDER,
+            lightcolor=MD_CARD_BORDER,
+            darkcolor=MD_CARD_BORDER,
+            insertcolor=MD_TEXT,
+            padding=(6, 4),
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", MD_CARD), ("focus", MD_CARD)],
+            background=[("readonly", MD_CARD_BORDER), ("active", MD_PRIMARY_HOVER)],
+            foreground=[("readonly", MD_TEXT), ("disabled", MD_TEXT_DIM)],
+            arrowcolor=[("active", "#FFFFFF"), ("readonly", MD_TEXT)],
+        )
+        style.configure(
             "MD.TCombobox",
             fieldbackground=MD_CARD,
             background=MD_CARD_BORDER,
@@ -144,6 +163,26 @@ class EBEAMSystemDashboard:
             foreground=[("readonly", MD_TEXT), ("disabled", MD_TEXT_DIM)],
             arrowcolor=[("active", "#FFFFFF"), ("readonly", MD_TEXT)],
         )
+        style.configure(
+            "TEntry",
+            fieldbackground=MD_CARD,
+            background=MD_CARD,
+            foreground=MD_TEXT,
+            bordercolor=MD_CARD_BORDER,
+            lightcolor=MD_CARD_BORDER,
+            darkcolor=MD_CARD_BORDER,
+            insertcolor=MD_TEXT,
+            padding=(6, 4),
+        )
+        style.map(
+            "TEntry",
+            fieldbackground=[("disabled", MD_BG), ("focus", MD_CARD)],
+            foreground=[("disabled", MD_TEXT_DIM)],
+            bordercolor=[("focus", MD_PRIMARY), ("!focus", MD_CARD_BORDER)],
+            lightcolor=[("focus", MD_PRIMARY), ("!focus", MD_CARD_BORDER)],
+            darkcolor=[("focus", MD_PRIMARY), ("!focus", MD_CARD_BORDER)],
+        )
+        style.configure("MD.TEntry", fieldbackground=MD_CARD, background=MD_CARD, foreground=MD_TEXT)
         style.configure("Switch.TCheckbutton", background=MD_BG, foreground=MD_TEXT, padding=(8, 4))
         style.map(
             "Switch.TCheckbutton",
@@ -157,6 +196,16 @@ class EBEAMSystemDashboard:
         self.root.option_add('*TCombobox*Listbox*Foreground', MD_TEXT)
         self.root.option_add('*TCombobox*Listbox*selectBackground', MD_PRIMARY)
         self.root.option_add('*TCombobox*Listbox*selectForeground', '#FFFFFF')
+        self.root.option_add('*Entry*Background', MD_CARD)
+        self.root.option_add('*Entry*Foreground', MD_TEXT)
+        self.root.option_add('*Entry*insertBackground', MD_TEXT)
+        self.root.option_add('*Entry*selectBackground', MD_PRIMARY)
+        self.root.option_add('*Entry*selectForeground', '#FFFFFF')
+        self.root.option_add('*Text*Background', MD_CARD)
+        self.root.option_add('*Text*Foreground', MD_TEXT)
+        self.root.option_add('*Text*insertBackground', MD_TEXT)
+        self.root.option_add('*Text*selectBackground', MD_PRIMARY)
+        self.root.option_add('*Text*selectForeground', '#FFFFFF')
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
         
