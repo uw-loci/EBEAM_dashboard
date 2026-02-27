@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import platform
 import subsystem
 import tkinter as tk
 from tkinter import ttk
@@ -68,6 +69,20 @@ DEFAULT_WINDOW_WIDTH = 1920.0
 DEFAULT_WINDOW_HEIGHT = 1080.0
 MIN_LAYOUT_WIDTH = 1200
 MIN_LAYOUT_HEIGHT = 675
+
+PLATFORM_SYSTEM = platform.system().lower()
+IS_WINDOWS = PLATFORM_SYSTEM == "windows"
+IS_LINUX = PLATFORM_SYSTEM == "linux"
+
+
+def list_serial_ports_by_os():
+    """Return available serial ports filtered for the current OS."""
+    ports = [port.device for port in serial.tools.list_ports.comports() if port.device]
+    if IS_WINDOWS:
+        ports = [port for port in ports if port.upper().startswith("COM")]
+    elif IS_LINUX:
+        ports = [port for port in ports if port.startswith("/dev/tty")]
+    return sorted(set(ports))
 
 class EBEAMSystemDashboard:
     """
@@ -721,7 +736,7 @@ class EBEAMSystemDashboard:
             post_processor_path = os.path.join(base_path, 'scripts/post-process/post_process_gui.py')
 
             # Launch the post-processor script
-            if sys.platform.startswith('win'):
+            if IS_WINDOWS:
                 # On Windows, use pythonw to avoid console window
                 subprocess.Popen([sys.executable, post_processor_path], 
                             creationflags=subprocess.CREATE_NO_WINDOW)
@@ -1344,7 +1359,7 @@ class EBEAMSystemDashboard:
 
     def update_available_ports(self):
         """Scan for available COM ports and update dropdown menus."""
-        available_ports = [port.device for port in serial.tools.list_ports.comports()]
+        available_ports = list_serial_ports_by_os()
         for dropdown in self.port_dropdowns.values():
             current_value = dropdown.get()
             dropdown['values'] = available_ports

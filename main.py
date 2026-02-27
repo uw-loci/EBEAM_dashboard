@@ -1,4 +1,5 @@
 import sys
+import platform
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
@@ -29,6 +30,20 @@ MD_TEXT_DIM = "#9E9E9E"
 MIN_DASHBOARD_WIDTH = 1200
 MIN_DASHBOARD_HEIGHT = 675
 
+PLATFORM_SYSTEM = platform.system().lower()
+IS_WINDOWS = PLATFORM_SYSTEM == "windows"
+IS_LINUX = PLATFORM_SYSTEM == "linux"
+
+
+def list_serial_ports_by_os():
+    """Return available serial ports filtered for the current OS."""
+    ports = [port.device for port in serial.tools.list_ports.comports() if port.device]
+    if IS_WINDOWS:
+        ports = [port for port in ports if port.upper().startswith("COM")]
+    elif IS_LINUX:
+        ports = [port for port in ports if port.startswith("/dev/tty")]
+    return sorted(set(ports))
+
 def create_dummy_port_labels(subsystems):
     """
     Create a list of dummy port labels that the user can select
@@ -58,18 +73,41 @@ def start_main_app(com_ports):
     root.title("EBEAM System Dashboard")
     root.configure(bg=MD_BG)
     root.minsize(MIN_DASHBOARD_WIDTH, MIN_DASHBOARD_HEIGHT)
-    root.attributes('-zoomed', True)
+
+    def supports_zoomed() -> bool:
+        try:
+            root.attributes('-zoomed')
+            return True
+        except tk.TclError:
+            return False
+
+    can_zoom = supports_zoomed()
+
+    def set_maximized(enable: bool):
+        if can_zoom:
+            root.attributes('-zoomed', bool(enable))
+            return
+        if enable:
+            screen_w = root.winfo_screenwidth()
+            screen_h = root.winfo_screenheight()
+            root.geometry(f"{screen_w}x{screen_h}+0+0")
+
+    set_maximized(True)
     restore_geometry = "1920x1080"
 
     # Track fullscreen state
     fullscreen = False
-    was_zoomed = True
+    was_zoomed = can_zoom
     was_fullscreen = False
+    window_is_maximized = True
 
     def restore_window_size_1080p():
+        nonlocal window_is_maximized
         root.attributes('-fullscreen', False)
-        root.attributes('-zoomed', False)
+        if can_zoom:
+            root.attributes('-zoomed', False)
         root.geometry(restore_geometry)
+        window_is_maximized = False
   
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
@@ -96,21 +134,23 @@ def start_main_app(com_ports):
         return "break"
     
     def toggle_maximize(event=None):
-        current = bool(root.attributes('-zoomed'))
+        nonlocal window_is_maximized
+        current = bool(root.attributes('-zoomed')) if can_zoom else window_is_maximized
         if current:
             restore_window_size_1080p()
         else:
-            root.attributes('-zoomed', True)
+            set_maximized(True)
+            window_is_maximized = True
         return "break"
 
     def enforce_restore_geometry(event=None):
         nonlocal was_zoomed, was_fullscreen, fullscreen
         if event is not None and event.widget is not root:
             return
-        is_zoomed = bool(root.attributes('-zoomed'))
+        is_zoomed = bool(root.attributes('-zoomed')) if can_zoom else window_is_maximized
         is_fullscreen = bool(root.attributes('-fullscreen'))
         fullscreen = is_fullscreen
-        if was_zoomed and (not is_zoomed) and (not is_fullscreen):
+        if can_zoom and was_zoomed and (not is_zoomed) and (not is_fullscreen):
             root.geometry(restore_geometry)
         if was_fullscreen and (not is_fullscreen) and (not is_zoomed):
             root.geometry(restore_geometry)
@@ -234,7 +274,7 @@ def config_com_ports(saved_com_ports):
             pass
     
     # Get real COM ports on the system
-    real_ports = [port.device for port in serial.tools.list_ports.comports()]
+    real_ports = list_serial_ports_by_os()
     # Create a combined list of real + dummy port labels for user to pick
     dummy_port_labels = create_dummy_port_labels(SUBSYSTEMS)
     # Combine real + dummy port labels

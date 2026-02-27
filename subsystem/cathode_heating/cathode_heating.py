@@ -13,9 +13,26 @@ from instrumentctl.power_supply_9104.power_supply_9104 import PowerSupply9104
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
+import platform
 import numpy as np
 from utils import LogLevel
 from decimal import Decimal
+import serial.tools.list_ports
+
+
+PLATFORM_SYSTEM = platform.system().lower()
+IS_WINDOWS = PLATFORM_SYSTEM == "windows"
+IS_LINUX = PLATFORM_SYSTEM == "linux"
+
+
+def list_serial_ports_by_os():
+    """Return available serial ports filtered for the current OS."""
+    ports = [p.device for p in serial.tools.list_ports.comports() if p.device]
+    if IS_WINDOWS:
+        ports = [port for port in ports if port.upper().startswith("COM")]
+    elif IS_LINUX:
+        ports = [port for port in ports if port.startswith("/dev/tty")]
+    return sorted(set(ports))
 
 def resource_path(relative_path):
     """
@@ -630,8 +647,7 @@ class CathodeHeatingSubsystem:
             bool: True if port is available
         """
         try:
-            import serial.tools.list_ports
-            available_ports = [p.device for p in serial.tools.list_ports.comports()]
+            available_ports = list_serial_ports_by_os()
             return port in available_ports
         except Exception as e:
             self.log(f"Error verifying port availability: {str(e)}", LogLevel.ERROR)

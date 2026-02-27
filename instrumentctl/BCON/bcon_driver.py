@@ -21,6 +21,7 @@ from __future__ import annotations
 import copy
 import inspect
 import logging
+import platform
 import queue
 import threading
 import time
@@ -127,15 +128,24 @@ def scan_serial_ports() -> List[str]:
     """Return a list of available serial ports, with Arduino-like ports first."""
     if list_ports is None:
         return []
+    is_windows = platform.system().lower() == "windows"
+    is_linux = platform.system().lower() == "linux"
     ports = list_ports.comports()
     preferred, others = [], []
     for p in ports:
+        device = getattr(p, "device", None)
+        if not device:
+            continue
+        if is_windows and not str(device).upper().startswith("COM"):
+            continue
+        if is_linux and not str(device).startswith("/dev/tty"):
+            continue
         desc = (getattr(p, "description", "") or "").lower()
         hwid = (getattr(p, "hwid", "") or "").lower()
         if any(tok in desc for tok in ("arduino", "usb serial", "ch340", "cp210")) or "vid:pid=2341" in hwid:
-            preferred.append(p.device)
+            preferred.append(device)
         else:
-            others.append(p.device)
+            others.append(device)
     return preferred + others
 
 

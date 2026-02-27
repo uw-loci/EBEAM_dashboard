@@ -2,6 +2,7 @@ import time
 import threading
 from threading import Lock
 import struct
+import math
 from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
@@ -23,6 +24,8 @@ class DP16ProcessMonitor:
     # Polling delay
     BASE_DELAY = 0.1    # [seconds]
     MAX_DELAY = 5       # [seconds]
+    INTER_REQUEST_DELAY = 0.03
+    REQUEST_RETRIES = 2
 
     ERROR_THRESHOLD = 5
     ERROR_LOG_INTERVAL = 10 # [seconds]
@@ -58,6 +61,54 @@ class DP16ProcessMonitor:
         # Start single background polling thread after successful connection and configuration
         self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
         self._thread.start()
+
+    def _read_holding_registers_locked(self, address: int, count: int, slave: int):
+        """Read holding registers with retry. Caller must hold modbus_lock."""
+        last_exception = None
+        for attempt in range(self.REQUEST_RETRIES + 1):
+            try:
+                response = self.client.read_holding_registers(
+                    address=address,
+                    count=count,
+                    slave=slave
+                )
+                if response and not response.isError() and len(response.registers) >= count:
+                    return response
+            except Exception as exc:
+                last_exception = exc
+
+            if attempt < self.REQUEST_RETRIES:
+                time.sleep(self.INTER_REQUEST_DELAY)
+
+        if last_exception:
+            raise ModbusIOException(str(last_exception))
+        raise ModbusIOException(
+            f"Read failed for slave={slave}, address=0x{address:03X}, count={count}"
+        )
+
+    def _write_register_locked(self, address: int, value: int, slave: int):
+        """Write single register with retry. Caller must hold modbus_lock."""
+        last_exception = None
+        for attempt in range(self.REQUEST_RETRIES + 1):
+            try:
+                response = self.client.write_register(
+                    address=address,
+                    value=value,
+                    slave=slave
+                )
+                if response and not response.isError():
+                    return response
+            except Exception as exc:
+                last_exception = exc
+
+            if attempt < self.REQUEST_RETRIES:
+                time.sleep(self.INTER_REQUEST_DELAY)
+
+        if last_exception:
+            raise ModbusIOException(str(last_exception))
+        raise ModbusIOException(
+            f"Write failed for slave={slave}, address=0x{address:03X}, value={value}"
+        )
     
     def connect(self):
         """
@@ -79,28 +130,30 @@ class DP16ProcessMonitor:
                 # Check if any unit responds
                 working_units = set()
                 for unit in self.unit_numbers:
-                    status = self.client.read_holding_registers(
-                        address=self.STATUS_REG,
-                        count=1,
-                        slave=unit
-                    )
-                    if not status.isError():
+                    try:
+                        status = self._read_holding_registers_locked(
+                            address=self.STATUS_REG,
+                            count=1,
+                            slave=unit
+                        )
                         working_units.add(unit)
                         self.log(
                             f"DP16 Unit {unit} responded with status: {status.registers[0]}", 
                             LogLevel.VERBOSE
                         )
-                    else:
+                    except ModbusIOException:
                         self.log(f"DP16 Unit {unit} not responding", LogLevel.WARNING)
-                        # with self.response_lock:
-                        #     self.temperature_readings[unit] = self.DISCONNECTED
+                    finally:
+                        time.sleep(self.INTER_REQUEST_DELAY)
 
                 if working_units:
+                    self.consecutive_connection_errors = 0
                     self.log(
                         f"Connected to {len(working_units)}/{len(self.unit_numbers)} DP16 units", 
                         LogLevel.INFO
                     )
                     return True
+                self.client.close()
                 return False
 
             except ModbusIOException as e:
@@ -117,17 +170,16 @@ class DP16ProcessMonitor:
         """
         try:
             with self.modbus_lock:
-                response = self.client.read_holding_registers(
+                response = self._read_holding_registers_locked(
                     address=self.RDGCNF_REG,
                     count=1,
                     slave=unit
                 )
-                time.sleep(0.1)
-                if not response.isError():
-                    return response.registers[0]
-                return None
+                time.sleep(self.INTER_REQUEST_DELAY)
+                return response.registers[0]
         except ModbusIOException as e:
             self.log(f"Modbus IO error reading config for DP16 unit {unit}: {e}", LogLevel.WARNING)
+            return None
         except Exception as e:
             self.log(f"Error reading config: {e}", LogLevel.ERROR)
             return None
@@ -151,26 +203,20 @@ class DP16ProcessMonitor:
             with self.modbus_lock:
                 self.log(f"Setting RDGCNF_REG for unit {unit}", LogLevel.DEBUG)
                 # First write: Set decimal format
-                response1 = self.client.write_register(
+                self._write_register_locked(
                     address=self.RDGCNF_REG,
                     value=0x002, # e.g. "FFF.F"
                     slave=unit
                 )
-                if response1.isError():
-                    self.log(f"Failed to write RDGCNF_REG for DP16 unit {unit}. Response:{response1}", LogLevel.ERROR)
-                    return False # Exit early if the first write fails
                     
                 # Second write: Update STATUS_REG
                 self.log(f"Setting STATUS_REG for unit {unit}", LogLevel.DEBUG)
-                response2 = self.client.write_register(
+                self._write_register_locked(
                     address=self.STATUS_REG,
                     value=self.STATUS_RUNNING,
                     slave=unit
                 )
-                time.sleep(0.1)
-                if response2.isError():
-                    self.log(f"Failed to write STATUS_REG for DP16 unit {unit}: Response:{response2}", LogLevel.ERROR)
-                    return False # Exit if second write fails
+                time.sleep(self.INTER_REQUEST_DELAY)
                 
                 self.log(f"Configuration successful for DP16 unit {unit}", LogLevel.INFO)
                 return True
@@ -201,7 +247,11 @@ class DP16ProcessMonitor:
                         if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
                             self.log("Failed to reconnect to PMON", LogLevel.ERROR)
                             self.last_critical_error_time = current_time
-                        time.sleep(1)  # Delay before next attempt
+                        sleep_time = min(
+                            self.MAX_DELAY,
+                            max(self.BASE_DELAY, self.BASE_DELAY * (2 ** min(self.consecutive_connection_errors, 5)))
+                        )
+                        time.sleep(sleep_time)
                         continue
                 
                 # Poll each unit individually
@@ -209,8 +259,8 @@ class DP16ProcessMonitor:
                     try:
                         self._poll_single_unit(unit) 
                         self.consecutive_connection_errors = 0  # Reset on successful poll
-                        time.sleep(0.1)
-                    except ModbusIOException as e:
+                        time.sleep(self.INTER_REQUEST_DELAY)
+                    except Exception as e:
                         self._handle_poll_error(unit, e)
                         
                         # Rate limited error logging
@@ -234,19 +284,12 @@ class DP16ProcessMonitor:
             return
 
         with self.modbus_lock:
-            # Clear any stale data
-            if hasattr(self.client, 'serial'):
-                self.client.serial.reset_input_buffer()
-
             # Read status first
-            status = self.client.read_holding_registers(
+            status = self._read_holding_registers_locked(
                 address=self.STATUS_REG,
                 count=1,
                 slave=unit
             )
-            if status.isError():
-                self.consecutive_error_counts[unit] += 1
-                raise ModbusIOException("Status read failed")
 
             # Warn if not in expected running state
             if status.registers[0] != self.STATUS_RUNNING:
@@ -256,21 +299,19 @@ class DP16ProcessMonitor:
                 )
 
             # Read temperature
-            response = self.client.read_holding_registers(
+            response = self._read_holding_registers_locked(
                 address=self.PROCESS_VALUE_REG,
                 count=2,
                 slave=unit
             )
-            if response.isError():
-                raise ModbusIOException("Temperature read failed")
 
             # Process response
             raw_float = struct.pack('>HH', response.registers[0], response.registers[1])
             value = struct.unpack('>f', raw_float)[0]
 
             # In-line validation
-            if abs(value) < 0.001:
-                raise ValueError("Zero reading indicates communication error")
+            if not math.isfinite(value):
+                raise ValueError(f"Non-finite reading: {value}")
             if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                 raise ValueError(f"Temperature out of range: {value}")
 
@@ -331,18 +372,16 @@ class DP16ProcessMonitor:
             return dict(self.temperature_readings)
 
     def disconnect(self):
-        # Stop polling thread
-        # self._is_running = False
-        # if self._thread and self._thread.is_alive():
-        #     self._thread.join()
-        
-        # Close connection
-        # with self.modbus_lock:
-        if self.client.is_socket_open():
-            self.client.close()
-            self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
-        else:
-            self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
+        self._is_running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+
+        with self.modbus_lock:
+            if self.client.is_socket_open():
+                self.client.close()
+                self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
+            else:
+                self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
