@@ -142,12 +142,17 @@ class E5CNModbus:
         self.log("Stopping temperature reading threads...", LogLevel.DEBUG)
         self.stop_event.set()
         
+        threads_to_join = list(self.threads)
+        
         # Wait for threads to finish
-        for thread in self.threads:
+        for thread in threads_to_join:
             thread.join(timeout=2.0)
-            self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
-            
-        self.threads.clear()
+            if thread.is_alive():
+                self.log(f"Thread {thread.name} did not stop before timeout", LogLevel.WARNING)
+            else:
+                self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
+
+        self.threads = [thread for thread in threads_to_join if thread.is_alive()]
 
         with self.temperatures_lock:
             self.temperatures = [None, None, None]
@@ -308,10 +313,7 @@ class E5CNModbus:
         """Disconnect from the Modbus device with proper locking."""
         self.stop_event.set()
 
-        active_threads = [thread for thread in self.threads if thread.is_alive()]
-        if active_threads:
-            self.stop_reading()
-            return
+        self.stop_reading()
 
         with self.temperatures_lock:
             self.temperatures = [None, None, None]
@@ -320,8 +322,7 @@ class E5CNModbus:
         with self.modbus_lock:
             try:
                 if self.client.is_socket_open():
-                    self.client.close()
-                    self.connected = False
+                    self._close_client_locked()
                     self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
                 else:
                     self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)

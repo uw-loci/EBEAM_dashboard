@@ -86,6 +86,8 @@ class CathodeHeatingSubsystem:
         self.temperature_controller = None
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
         self.log_interval = datetime.timedelta(seconds=30) # E5CN timeout message interval
+        self._is_closing = False
+        self._update_after_id = None
 
         # Initialize GUI variables
         self._init_prediction_variables()    # Predicted values for cathode behavior
@@ -1028,6 +1030,9 @@ class CathodeHeatingSubsystem:
 
     
     def update_data(self):
+        if self._is_closing:
+            return
+
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
@@ -1143,7 +1148,10 @@ class CathodeHeatingSubsystem:
                 self.update_plot(i)
 
         # Schedule next update
-        self.parent.after(500, self.update_data)
+        try:
+            self._update_after_id = self.parent.after(500, self.update_data)
+        except tk.TclError:
+            self._update_after_id = None
 
     def update_plot(self, index):
         if len(self.time_data[index]) == 0:
@@ -1638,6 +1646,16 @@ class CathodeHeatingSubsystem:
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.
         """
+        self._is_closing = True
+
+        if self._update_after_id is not None:
+            try:
+                self.parent.after_cancel(self._update_after_id)
+            except Exception:
+                pass
+            finally:
+                self._update_after_id = None
+
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for ps in self.power_supplies:
                 if hasattr(ps, 'close'):
@@ -1645,7 +1663,6 @@ class CathodeHeatingSubsystem:
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
                 self.temperature_controller.disconnect()
                 self.temperature_controller = None
             except Exception as e:
