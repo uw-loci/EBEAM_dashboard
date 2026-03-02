@@ -85,7 +85,7 @@ class CathodeHeatingSubsystem:
         self.temp_controllers_connected = False
         self.temperature_controller = None
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
-        self.log_interval = datetime.timedelta(seconds=3) # E5CN timeout message interval
+        self.log_interval = datetime.timedelta(seconds=30) # E5CN timeout message interval
 
         # Initialize GUI variables
         self._init_prediction_variables()    # Predicted values for cathode behavior

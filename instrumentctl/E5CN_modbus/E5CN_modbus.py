@@ -39,6 +39,18 @@ class E5CNModbus:
         self.disconnect_timeout = max(1.0, float(disconnect_timeout))
         self.last_success_time = [None, None, None]
         self.unit_connected = [False, False, False]
+        self.log_throttle_intervals = {
+            "connect_failed": 30.0,
+            "connect_exception": 30.0,
+            "continuous_read_failed": 15.0,
+            "continuous_read_exception": 15.0,
+            "incomplete_response": 15.0,
+            "read_error": 15.0,
+            "unexpected_read_error": 15.0,
+            "unit_temperature": 5.0,
+        }
+        self.last_log_times = {}
+        self.log_throttle_lock = threading.Lock()
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -108,11 +120,21 @@ class E5CNModbus:
                     time.sleep(self.poll_interval)
                 else:
                     self._record_failure(unit)
-                    self.log(f"Unit {unit} read failed (no response/invalid response)", LogLevel.ERROR)
+                    self._log_throttled(
+                        key=f"continuous_read_failed_{unit}",
+                        message=f"Unit {unit} read failed (no response/invalid response)",
+                        level=LogLevel.ERROR,
+                        interval_seconds=self.log_throttle_intervals["continuous_read_failed"],
+                    )
                     time.sleep(self.retry_delay)
             except Exception as e:
                 self._record_failure(unit)
-                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._log_throttled(
+                    key=f"continuous_read_exception_{unit}",
+                    message=f"Error in continuous temperature reading for unit {unit}: {str(e)}",
+                    level=LogLevel.ERROR,
+                    interval_seconds=self.log_throttle_intervals["continuous_read_exception"],
+                )
                 time.sleep(1)  # Longer delay on error
 
     def stop_reading(self):
@@ -163,7 +185,12 @@ class E5CNModbus:
         if not was_connected:
             self.log(f"Temperature controller unit {unit} communication restored", LogLevel.INFO)
 
-        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+        self._log_throttled(
+            key=f"unit_temperature_{unit}",
+            message=f"Unit {unit} Temperature: {temperature} C",
+            level=LogLevel.INFO,
+            interval_seconds=self.log_throttle_intervals["unit_temperature"],
+        )
 
     def _record_failure(self, unit):
         idx = unit - 1
@@ -234,6 +261,16 @@ class E5CNModbus:
         finally:
             self.connected = False
 
+    def _log_throttled(self, key, message, level, interval_seconds):
+        now = time.monotonic()
+        with self.log_throttle_lock:
+            last_log_time = self.last_log_times.get(key)
+            if last_log_time is not None and (now - last_log_time) < interval_seconds:
+                return
+            self.last_log_times[key] = now
+
+        self.log(message, level)
+
     def _ensure_connection_locked(self, force_reopen=False):
         """Ensure the serial connection is open. Caller must hold modbus_lock."""
         try:
@@ -250,11 +287,21 @@ class E5CNModbus:
                 return True
 
             self.connected = False
-            self.log("Failed to connect to the E5CN Modbus device.", LogLevel.ERROR)
+            self._log_throttled(
+                key="connect_failed",
+                message="Failed to connect to the E5CN Modbus device.",
+                level=LogLevel.ERROR,
+                interval_seconds=self.log_throttle_intervals["connect_failed"],
+            )
             return False
         except Exception as e:
             self.connected = False
-            self.log(f"Error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
+            self._log_throttled(
+                key="connect_exception",
+                message=f"Error connecting to {self.port}: {str(e)}",
+                level=LogLevel.ERROR,
+                interval_seconds=self.log_throttle_intervals["connect_exception"],
+            )
             return False
 
     def disconnect(self):
@@ -299,7 +346,12 @@ class E5CNModbus:
                     if response and not response.isError():
                         self.connected = True
                         if not hasattr(response, 'registers') or len(response.registers) < 2:
-                            self.log(f"Incomplete temperature register response from unit {unit}: {response}", LogLevel.ERROR)
+                            self._log_throttled(
+                                key=f"incomplete_response_{unit}",
+                                message=f"Incomplete temperature register response from unit {unit}: {response}",
+                                level=LogLevel.ERROR,
+                                interval_seconds=self.log_throttle_intervals["incomplete_response"],
+                            )
                             attempts -= 1
                             continue
 
@@ -310,14 +362,24 @@ class E5CNModbus:
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
-                        self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
+                        self._log_throttled(
+                            key=f"read_error_{unit}",
+                            message=f"Error reading temperature from unit {unit}: {response}",
+                            level=LogLevel.ERROR,
+                            interval_seconds=self.log_throttle_intervals["read_error"],
+                        )
                         self.connected = False
                         self._close_client_locked()
                         attempts -= 1
                         continue
 
             except Exception as e:
-                self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._log_throttled(
+                    key=f"unexpected_read_error_{unit}",
+                    message=f"Unexpected error for unit {unit}: {str(e)}",
+                    level=LogLevel.ERROR,
+                    interval_seconds=self.log_throttle_intervals["unexpected_read_error"],
+                )
                 with self.modbus_lock:
                     self._close_client_locked()
                 attempts -= 1
