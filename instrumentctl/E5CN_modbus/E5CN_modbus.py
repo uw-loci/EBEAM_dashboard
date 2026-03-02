@@ -259,6 +259,13 @@ class E5CNModbus:
 
     def disconnect(self):
         """Disconnect from the Modbus device with proper locking."""
+        self.stop_event.set()
+
+        active_threads = [thread for thread in self.threads if thread.is_alive()]
+        if active_threads:
+            self.stop_reading()
+            return
+
         with self.temperatures_lock:
             self.temperatures = [None, None, None]
             self.last_success_time = [None, None, None]
