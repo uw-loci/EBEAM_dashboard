@@ -7,7 +7,7 @@ class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=1, bytesize=8, logger=None, debug_mode=False, poll_interval=0.5, retry_delay=0.02):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=1, bytesize=8, logger=None, debug_mode=False, poll_interval=0.5, retry_delay=0.02, disconnect_timeout=4.0):
         """
         Initialize the E5CNModbus instance with serial communication parameters and optional logging.
         
@@ -22,6 +22,7 @@ class E5CNModbus:
             debug_mode (bool): If True, enables debug logging.
             poll_interval (float): Delay between successful steady-state reads (default: 0.5 seconds).
             retry_delay (float): Delay between retries/reconnect attempts (default: 0.02 seconds).
+            disconnect_timeout (float): Time without successful reads before a unit is marked disconnected.
         """
         self.logger = logger
         self.debug_mode = debug_mode
@@ -35,6 +36,9 @@ class E5CNModbus:
         self.connected = False
         self.poll_interval = max(0.05, float(poll_interval))
         self.retry_delay = max(0.0, float(retry_delay))
+        self.disconnect_timeout = max(1.0, float(disconnect_timeout))
+        self.last_success_time = [None, None, None]
+        self.unit_connected = [False, False, False]
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -100,15 +104,15 @@ class E5CNModbus:
             try:
                 temperature = self.read_temperature(unit)
                 if temperature is not None:
-                    with self.temperatures_lock:
-                        self.temperatures[unit - 1] = temperature
-                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                    self._record_success(unit, temperature)
                     time.sleep(self.poll_interval)
                 else:
+                    self._record_failure(unit)
                     self.log(f"Unit {unit} read failed (no response/invalid response)", LogLevel.ERROR)
                     time.sleep(self.retry_delay)
             except Exception as e:
-                self.log(f"Error in continuous xtemperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._record_failure(unit)
+                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
                 time.sleep(1)  # Longer delay on error
 
     def stop_reading(self):
@@ -122,6 +126,11 @@ class E5CNModbus:
             self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
             
         self.threads.clear()
+
+        with self.temperatures_lock:
+            self.temperatures = [None, None, None]
+            self.last_success_time = [None, None, None]
+            self.unit_connected = [False, False, False]
         
         # Clean up the connection
         with self.modbus_lock:
@@ -141,6 +150,78 @@ class E5CNModbus:
         """
         with self.modbus_lock:
             return self._ensure_connection_locked(force_reopen=False)
+
+    def _record_success(self, unit, temperature):
+        idx = unit - 1
+        now = time.monotonic()
+        with self.temperatures_lock:
+            was_connected = self.unit_connected[idx]
+            self.temperatures[idx] = temperature
+            self.last_success_time[idx] = now
+            self.unit_connected[idx] = True
+
+        if not was_connected:
+            self.log(f"Temperature controller unit {unit} communication restored", LogLevel.INFO)
+
+        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+
+    def _record_failure(self, unit):
+        idx = unit - 1
+        now = time.monotonic()
+        with self.temperatures_lock:
+            last_success = self.last_success_time[idx]
+            if last_success is None:
+                self.unit_connected[idx] = False
+                self.temperatures[idx] = None
+                return
+
+            if (now - last_success) >= self.disconnect_timeout:
+                if self.unit_connected[idx]:
+                    self.log(
+                        f"Temperature controller unit {unit} marked disconnected after {self.disconnect_timeout:.1f}s without valid data",
+                        LogLevel.WARNING,
+                    )
+                self.unit_connected[idx] = False
+                self.temperatures[idx] = None
+
+    def get_temperature(self, unit):
+        idx = unit - 1
+        if idx < 0 or idx >= len(self.temperatures):
+            return None
+
+        now = time.monotonic()
+        with self.temperatures_lock:
+            last_success = self.last_success_time[idx]
+            if last_success is None:
+                self.unit_connected[idx] = False
+                return None
+
+            if (now - last_success) >= self.disconnect_timeout:
+                self.unit_connected[idx] = False
+                self.temperatures[idx] = None
+                return None
+
+            if not self.unit_connected[idx]:
+                return None
+
+            return self.temperatures[idx]
+
+    def is_unit_connected(self, unit):
+        idx = unit - 1
+        if idx < 0 or idx >= len(self.unit_connected):
+            return False
+
+        with self.temperatures_lock:
+            last_success = self.last_success_time[idx]
+            if last_success is None:
+                return False
+
+            if (time.monotonic() - last_success) >= self.disconnect_timeout:
+                self.unit_connected[idx] = False
+                self.temperatures[idx] = None
+                return False
+
+            return self.unit_connected[idx]
 
     def _close_client_locked(self):
         """Close the Modbus client. Caller must hold modbus_lock."""
@@ -178,6 +259,10 @@ class E5CNModbus:
 
     def disconnect(self):
         """Disconnect from the Modbus device with proper locking."""
+        with self.temperatures_lock:
+            self.temperatures = [None, None, None]
+            self.last_success_time = [None, None, None]
+            self.unit_connected = [False, False, False]
         with self.modbus_lock:
             try:
                 if self.client.is_socket_open():

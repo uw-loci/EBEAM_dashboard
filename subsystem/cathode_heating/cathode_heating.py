@@ -989,10 +989,10 @@ class CathodeHeatingSubsystem:
         Index corresponds to the cathode index (0-based).
         """
         current_time = datetime.datetime.now()
-        if self.temperature_controller and self.temperature_controller.connected:
+        if self.temperature_controller:
             try:
-                # Attempt to read temperature from the connected temperature controller
-                temperature = self.temperature_controller.temperatures[index]
+                unit = index + 1
+                temperature = self.temperature_controller.get_temperature(unit)
                 if isinstance(temperature, float):
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
 
@@ -1003,21 +1003,22 @@ class CathodeHeatingSubsystem:
                         self.set_plot_color(index, None) # set plot to blue for normal
 
                     return temperature
-                elif isinstance(temperature, str):
-                    self.clamp_temperature_vars[index].set("-- C")
-                    self.set_plot_color(index, 'ERROR')
-                    self.log(f"Reading temperature for cathode {index+1} returned an error",
-                              LogLevel.ERROR)
                 else:
-                    self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
+                    if not self.temperature_controller.is_unit_connected(unit):
+                        if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
+                            self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
+                            self.last_no_conn_log_time[index] = current_time
+                        self.set_plot_color(index, 'DISCONNECTED')
+                    else:
+                        self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
             except Exception as e:
                 self.log(f"Error reading temperature for cathode {index+1}: {str(e)}",
                           LogLevel.ERROR)
                 self.set_plot_color(index, 'ERROR')  # Set plot to orange for no data
         else:
-            # if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
-            self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
-            self.last_no_conn_log_time[index] = current_time
+            if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
+                self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
+                self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'DISCONNECTED')
 
 
