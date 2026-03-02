@@ -53,11 +53,19 @@ class E5CNModbus:
 
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
-        if not self.connect():
-            self.log("Cannot start reading temperatures - connection failed", LogLevel.ERROR)
-            return False
-            
+        active_threads = [thread for thread in self.threads if thread.is_alive()]
+        if active_threads:
+            self.threads = active_threads
+            self.log("Temperature reading threads already running", LogLevel.DEBUG)
+            return True
+
         self.stop_event.clear()
+
+        if not self.connect():
+            self.log(
+                "Initial E5CN connection failed; background polling will keep retrying.",
+                LogLevel.WARNING,
+            )
         
         for unit in self.UNIT_NUMBERS:
             if self.stop_event.is_set():
@@ -73,8 +81,13 @@ class E5CNModbus:
             self.threads.append(thread)
             self.log(f"Started temperature reading thread for unit {unit}", LogLevel.DEBUG)
             time.sleep(self.retry_delay)  # Small delay between thread starts
-            
-        return True
+
+        if self.threads:
+            self.is_initialized.set()
+            return True
+
+        self.log("No temperature reading threads were started", LogLevel.ERROR)
+        return False
 
     def _read_temperature_continuously(self, unit):
         """
@@ -95,7 +108,7 @@ class E5CNModbus:
                     self.log(f"Unit {unit} read failed (no response/invalid response)", LogLevel.ERROR)
                     time.sleep(self.retry_delay)
             except Exception as e:
-                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self.log(f"Error in continuous xtemperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
                 time.sleep(1)  # Longer delay on error
 
     def stop_reading(self):
@@ -113,12 +126,10 @@ class E5CNModbus:
         # Clean up the connection
         with self.modbus_lock:
             try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    self.log("Modbus connection closed", LogLevel.DEBUG)
+                self._close_client_locked()
             except Exception as e:
                 self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
-                
+
         self.is_initialized.clear()
 
     def connect(self):
@@ -129,55 +140,63 @@ class E5CNModbus:
             bool: True if connected successfully, False otherwise.
         """
         with self.modbus_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.connected = True
-                    self.log("Modbus client already connected.", LogLevel.DEBUG)
-                    return True
+            return self._ensure_connection_locked(force_reopen=False)
 
-                if self.client.connect():
-                    self.connected = True
-                    self.log(f"E5CN Connected to port {self.port}.", LogLevel.INFO)
-                    return True
-                else:
-                    self.log("Failed to connect to the E5CN Modbus device.", LogLevel.ERROR)
-                    return False
-            except Exception as e:
-                self.log(f"Error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
-                return False
-
-    def disconnect(self):
-        """Disconnect from the Modbus device with proper locking."""
-       # with self.modbus_lock:
+    def _close_client_locked(self):
+        """Close the Modbus client. Caller must hold modbus_lock."""
         try:
             if self.client.is_socket_open():
                 self.client.close()
-                self.connected = False
-                self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
-            else:
-                self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
+                self.log("Modbus connection closed", LogLevel.DEBUG)
         except Exception as e:
-            self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
+            self.log(f"Error closing Modbus connection: {str(e)}", LogLevel.ERROR)
+        finally:
+            self.connected = False
+
+    def _ensure_connection_locked(self, force_reopen=False):
+        """Ensure the serial connection is open. Caller must hold modbus_lock."""
+        try:
+            if force_reopen:
+                self._close_client_locked()
+
+            if self.client.is_socket_open():
+                self.connected = True
+                return True
+
+            if self.client.connect():
+                self.connected = True
+                self.log(f"E5CN Connected to port {self.port}.", LogLevel.INFO)
+                return True
+
+            self.connected = False
+            self.log("Failed to connect to the E5CN Modbus device.", LogLevel.ERROR)
+            return False
+        except Exception as e:
+            self.connected = False
+            self.log(f"Error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
+            return False
+
+    def disconnect(self):
+        """Disconnect from the Modbus device with proper locking."""
+        with self.modbus_lock:
+            try:
+                if self.client.is_socket_open():
+                    self.client.close()
+                    self.connected = False
+                    self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+                else:
+                    self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
+            except Exception as e:
+                self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
 
     def read_temperature(self, unit):
         attempts = 3
-        while attempts > 0:
+        while attempts > 0 and not self.stop_event.is_set():
             try:
                 with self.modbus_lock:
-                    if not self.client.is_socket_open():
-                        try:
-                            if self.client.connect():
-                                time.sleep(self.retry_delay)
-                            else:
-                                self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
-                                self.connected = False
-                                attempts -= 1
-                                continue
-                        except Exception as e:
-                            self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
-                            self.connected = False
-                            attempts -= 1
-                            continue
+                    if not self._ensure_connection_locked(force_reopen=False):
+                        attempts -= 1
+                        continue
 
                     response = self.client.read_holding_registers(
                         address=self.TEMPERATURE_ADDRESS,
@@ -190,7 +209,6 @@ class E5CNModbus:
                         if not hasattr(response, 'registers') or len(response.registers) < 2:
                             self.log(f"Incomplete temperature register response from unit {unit}: {response}", LogLevel.ERROR)
                             attempts -= 1
-                            time.sleep(self.retry_delay)
                             continue
 
                         reg0 = response.registers[0] & 0xFFFF
@@ -201,13 +219,18 @@ class E5CNModbus:
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
+                        self.connected = False
+                        self._close_client_locked()
                         attempts -= 1
-                        time.sleep(self.retry_delay)
                         continue
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
+                with self.modbus_lock:
+                    self._close_client_locked()
                 attempts -= 1
+
+            if attempts > 0 and not self.stop_event.is_set():
                 time.sleep(self.retry_delay)
 
         return None
