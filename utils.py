@@ -2,6 +2,7 @@
 import sys
 import subprocess
 import os
+import json
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 import datetime
@@ -31,6 +32,7 @@ class Logger:
         self.log_file = None
         self.log_start_time = None
         self.log_filepath = None
+        self.webMonitor_log_file = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
         self.supabase_client = None
@@ -110,21 +112,18 @@ class Logger:
             print(f"Error creating log file: {str(e)}")
 
     def setup_wm_logfile(self):
-        """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+        """Setup the web monitor log file (append mode, no rotation)."""
         try:
-            wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
+            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+            wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
             os.makedirs(wm_log_dir, exist_ok=True)
-            
-            # Create the web monitor log file with the old naming pattern
-            webMonitor_log_file_name = f"webMonitor_log.txt"
-            if self.webMonitor_log_file != None:
+            if self.webMonitor_log_file is not None:
                 self.webMonitor_log_file.close()
-            self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
-            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
-            self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+            wm_log_path = os.path.join(wm_log_dir, "webMonitor_log.txt")
+            self.webMonitor_log_file = open(wm_log_path, 'a')
+            print(f"WebMonitor Log File opened at {wm_log_path}")
         except Exception as e:
-            print(f"Error creating web monitor log file: {str(e)}")
+            print(f"Error opening web monitor log file: {str(e)}")
 
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
@@ -177,27 +176,16 @@ class Logger:
                 except Exception as e:
                     print(f"Supabase write error: {e}")
 
-        # return early if file logging is disabled
-        if not self.log_to_file:
-                return
-        try:
-            # overwrite logs on the same webMonitor file every hour
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
-                if self.webMonitor_log_file:
-                    self.webMonitor_log_file.close()
-                self.setup_wm_logfile()
-            if self.webMonitor_log_file is None:
-                return
-            entry = {
-                "timestamp": timestamp,
-                "status": update_dict
-            }
-            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-            self.webMonitor_log_file.flush()
-
-        except Exception as e:
-            print(f"Error writing web monitor updates: {e}")
-
+        if self.log_to_file and self.webMonitor_log_file:
+            try:
+                entry = {
+                    "timestamp": timestamp,
+                    "status": update_dict
+                }
+                self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                self.webMonitor_log_file.flush()
+            except Exception as e:
+                print(f"Error writing web monitor updates: {e}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
@@ -229,7 +217,7 @@ class Logger:
                 self.webMonitor_log_file.close()
                 self.webMonitor_log_file = None
             except Exception as e:
-                print(f"Error closing web monitor log file {str(e)}")
+                print(f"Error closing web monitor log file: {str(e)}")
 
 import tkinter as tk
 import sys
@@ -313,6 +301,12 @@ class MessagesFrame:
                 except Exception as e:
                     print(f"Error closing log file: {e}")
                 self.logger.log_file = None
+            if self.logger.webMonitor_log_file:
+                try:
+                    self.logger.webMonitor_log_file.close()
+                except Exception as e:
+                    print(f"Error closing web monitor log file: {e}")
+                self.logger.webMonitor_log_file = None
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
@@ -322,6 +316,8 @@ class MessagesFrame:
             
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
+            if not self.logger.webMonitor_log_file:
+                self.logger.setup_wm_logfile()
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
                 self.logging_indicator_circle, 
