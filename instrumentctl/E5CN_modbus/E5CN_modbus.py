@@ -67,6 +67,23 @@ class E5CNModbus:
         if self.debug_mode:
             self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
 
+    def _close_client_best_effort(self, lock_timeout=0.2):
+        """Attempt to close the client without blocking shutdown indefinitely."""
+        acquired = False
+        try:
+            acquired = self.modbus_lock.acquire(timeout=lock_timeout)
+            if not acquired:
+                self.log("Timed out waiting for Modbus lock during shutdown close", LogLevel.WARNING)
+                return False
+            self._close_client_locked()
+            return True
+        except Exception as e:
+            self.log(f"Error during best-effort client close: {str(e)}", LogLevel.ERROR)
+            return False
+        finally:
+            if acquired:
+                self.modbus_lock.release()
+
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
         active_threads = [thread for thread in self.threads if thread.is_alive()]
@@ -141,12 +158,15 @@ class E5CNModbus:
         """Stop all temperature reading threads and clean up connections."""
         self.log("Stopping temperature reading threads...", LogLevel.DEBUG)
         self.stop_event.set()
+
+        # Try to close quickly, but never block shutdown waiting on modbus_lock.
+        self._close_client_best_effort(lock_timeout=0.1)
         
         threads_to_join = list(self.threads)
         
         # Wait for threads to finish
         for thread in threads_to_join:
-            thread.join(timeout=2.0)
+            thread.join(timeout=1.0)
             if thread.is_alive():
                 self.log(f"Thread {thread.name} did not stop before timeout", LogLevel.WARNING)
             else:
@@ -159,12 +179,8 @@ class E5CNModbus:
             self.last_success_time = [None, None, None]
             self.unit_connected = [False, False, False]
         
-        # Clean up the connection
-        with self.modbus_lock:
-            try:
-                self._close_client_locked()
-            except Exception as e:
-                self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
+        # Final non-blocking close attempt.
+        self._close_client_best_effort(lock_timeout=0.1)
 
         self.is_initialized.clear()
 
@@ -313,21 +329,26 @@ class E5CNModbus:
         """Disconnect from the Modbus device with proper locking."""
         self.stop_event.set()
 
-        self.stop_reading()
+        try:
+            self.stop_reading()
+        except Exception as e:
+            self.log(f"Error while stopping temperature readers: {str(e)}", LogLevel.ERROR)
 
         with self.temperatures_lock:
             self.temperatures = [None, None, None]
             self.last_success_time = [None, None, None]
             self.unit_connected = [False, False, False]
-        with self.modbus_lock:
-            try:
-                if self.client.is_socket_open():
-                    self._close_client_locked()
-                    self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
-                else:
-                    self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
-            except Exception as e:
-                self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
+
+        if self._close_client_best_effort(lock_timeout=0.2):
+            self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+        else:
+            self.log(
+                "Disconnect proceeded without waiting for a busy Modbus lock; "
+                "background thread will exit via stop_event.",
+                LogLevel.WARNING,
+            )
+
+        self.is_initialized.clear()
 
     def read_temperature(self, unit):
         attempts = 3
@@ -391,7 +412,17 @@ class E5CNModbus:
         return None
 
     def log(self, message, level=LogLevel.INFO):
-        if self.logger:
-            self.logger.log(message, level)
-        else:
-            print(f"{level.name}: {message}")
+        try:
+            # Tk widgets are not thread-safe. Avoid UI-backed logger calls from
+            # background worker threads because they can hang during app close.
+            if self.logger and threading.current_thread() is threading.main_thread():
+                self.logger.log(message, level)
+            else:
+                print(f"{level.name}: {message}")
+        except Exception:
+            # Never allow logging failures (e.g., Tk widget teardown/threading)
+            # to crash communication threads or shutdown paths.
+            try:
+                print(f"{level.name}: {message}")
+            except Exception:
+                pass

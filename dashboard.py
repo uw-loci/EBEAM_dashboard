@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import threading
 import subsystem
 import tkinter as tk
 from tkinter import ttk
@@ -98,9 +99,23 @@ class EBEAMSystemDashboard:
         """Closes all open com ports before quitting the application."""
 
         print("Cleaning up com ports...")
-        for subsystem in self.subsystems.values():
-            if hasattr(subsystem, 'close_com_ports'):
-                subsystem.close_com_ports()
+
+        cleanup_threads = []
+        for subsystem_obj in self.subsystems.values():
+            if hasattr(subsystem_obj, 'close_com_ports'):
+                cleanup_thread = threading.Thread(
+                    target=subsystem_obj.close_com_ports,
+                    name=f"Cleanup-{subsystem_obj.__class__.__name__}",
+                    daemon=True,
+                )
+                cleanup_thread.start()
+                cleanup_threads.append(cleanup_thread)
+
+        for cleanup_thread in cleanup_threads:
+            cleanup_thread.join(timeout=1.5)
+            if cleanup_thread.is_alive():
+                print(f"Cleanup timeout for {cleanup_thread.name}; continuing shutdown.")
+
         print("Cleaned up com ports.")
 
     def setup_main_pane(self):
