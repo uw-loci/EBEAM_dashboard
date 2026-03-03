@@ -84,12 +84,20 @@ class E5CNModbus:
             if acquired:
                 self.modbus_lock.release()
 
+    # Minimum pause between reading successive slave IDs on the RS-485 bus (seconds).
+    # Rapid slave switching without a settle delay causes "no response" errors.
+    INTER_UNIT_DELAY = 0.15
+
     def start_reading_temperatures(self):
-        """Start threads for continuously reading temperature for each unit."""
+        """Start a single polling thread that reads all units sequentially.
+
+        Using one thread eliminates the port-thrashing that occurs when multiple
+        threads close and reopen the shared serial connection on read failures.
+        """
         active_threads = [thread for thread in self.threads if thread.is_alive()]
         if active_threads:
             self.threads = active_threads
-            self.log("Temperature reading threads already running", LogLevel.DEBUG)
+            self.log("Temperature reading thread already running", LogLevel.DEBUG)
             return True
 
         self.stop_event.clear()
@@ -99,60 +107,70 @@ class E5CNModbus:
                 "Initial E5CN connection failed; background polling will keep retrying.",
                 LogLevel.WARNING,
             )
-        
-        for unit in self.UNIT_NUMBERS:
-            if self.stop_event.is_set():
-                break
-                
-            thread = threading.Thread(
-                target=self._read_temperature_continuously, 
-                args=(unit,),
-                name=f"TempReader-Unit{unit}",
-                daemon=True
-            )
-            thread.start()
-            self.threads.append(thread)
-            self.log(f"Started temperature reading thread for unit {unit}", LogLevel.DEBUG)
-            time.sleep(self.retry_delay)  # Small delay between thread starts
 
-        if self.threads:
-            self.is_initialized.set()
-            return True
+        thread = threading.Thread(
+            target=self._poll_all_units,
+            name="TempReader-AllUnits",
+            daemon=True
+        )
+        thread.start()
+        self.threads.append(thread)
+        self.log("Started sequential temperature polling thread for all units", LogLevel.DEBUG)
 
-        self.log("No temperature reading threads were started", LogLevel.ERROR)
-        return False
+        self.is_initialized.set()
+        return True
 
-    def _read_temperature_continuously(self, unit):
-        """
-        Continuously read temperature data in a loop for the specified unit.
+    def _poll_all_units(self):
+        """Single thread that polls all units sequentially with an inter-unit RS-485 delay.
 
-        Parameters:
-            unit (int): The unit number to read temperature from.
+        This replaces the previous per-unit thread design.  All three units share
+        one serial port so running three threads simply serialised them through
+        modbus_lock, but each thread's error path called _close_client_locked()
+        which tore down the shared connection for every other thread.  That caused
+        a reconnection storm visible as repeated 'E5CN Connected' log lines
+        followed by 'No response received' errors on the remaining units.
         """
         while not self.stop_event.is_set():
-            try:
-                temperature = self.read_temperature(unit)
-                if temperature is not None:
-                    self._record_success(unit, temperature)
-                    time.sleep(self.poll_interval)
-                else:
+            any_exception = False
+            for unit in self.UNIT_NUMBERS:
+                if self.stop_event.is_set():
+                    break
+
+                try:
+                    temperature = self.read_temperature(unit)
+                    if temperature is not None:
+                        self._record_success(unit, temperature)
+                    else:
+                        self._record_failure(unit)
+                        self._log_throttled(
+                            key=f"continuous_read_failed_{unit}",
+                            message=f"Unit {unit} read failed (no response/invalid response)",
+                            level=LogLevel.ERROR,
+                            interval_seconds=self.log_throttle_intervals["continuous_read_failed"],
+                        )
+                except Exception as e:
+                    any_exception = True
                     self._record_failure(unit)
                     self._log_throttled(
-                        key=f"continuous_read_failed_{unit}",
-                        message=f"Unit {unit} read failed (no response/invalid response)",
+                        key=f"continuous_read_exception_{unit}",
+                        message=f"Error reading temperature for unit {unit}: {str(e)}",
                         level=LogLevel.ERROR,
-                        interval_seconds=self.log_throttle_intervals["continuous_read_failed"],
+                        interval_seconds=self.log_throttle_intervals["continuous_read_exception"],
                     )
-                    time.sleep(self.retry_delay)
-            except Exception as e:
-                self._record_failure(unit)
-                self._log_throttled(
-                    key=f"continuous_read_exception_{unit}",
-                    message=f"Error in continuous temperature reading for unit {unit}: {str(e)}",
-                    level=LogLevel.ERROR,
-                    interval_seconds=self.log_throttle_intervals["continuous_read_exception"],
-                )
-                time.sleep(1)  # Longer delay on error
+
+                # Pause between slave IDs to allow RS-485 bus to settle.
+                if not self.stop_event.is_set():
+                    time.sleep(self.INTER_UNIT_DELAY)
+
+            if self.stop_event.is_set():
+                break
+
+            if any_exception:
+                # Back off longer when an unrecoverable exception occurred.
+                time.sleep(1.0)
+            else:
+                # Normal steady-state inter-cycle delay.
+                time.sleep(self.poll_interval)
 
     def stop_reading(self):
         """Stop all temperature reading threads and clean up connections."""
@@ -384,18 +402,24 @@ class E5CNModbus:
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
+                        # A missing/error Modbus response does NOT mean the serial
+                        # connection is broken — the RS-485 line is shared by all
+                        # units.  Closing the port here tears down the connection
+                        # for every other unit thread and causes a reconnection
+                        # storm.  Simply retry without touching the socket.
                         self._log_throttled(
                             key=f"read_error_{unit}",
                             message=f"Error reading temperature from unit {unit}: {response}",
                             level=LogLevel.ERROR,
                             interval_seconds=self.log_throttle_intervals["read_error"],
                         )
-                        self.connected = False
-                        self._close_client_locked()
                         attempts -= 1
                         continue
 
             except Exception as e:
+                # A real communication exception (e.g. OSError, serial timeout)
+                # may indicate a broken port — close and let the next attempt
+                # reconnect.
                 self._log_throttled(
                     key=f"unexpected_read_error_{unit}",
                     message=f"Unexpected error for unit {unit}: {str(e)}",
