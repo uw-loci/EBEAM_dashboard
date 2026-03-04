@@ -64,6 +64,7 @@ class BeamEnergySubsystem:
         self.data_lock = threading.Lock()
         self.stop_polling = threading.Event()
         self.poll_thread = None
+        self.reconnect_in_progress = threading.Event()
 
         self.power_supply_instances = []  # List of KnobBoxPowerSupply instances
         self.setup_ui()
@@ -170,16 +171,32 @@ class BeamEnergySubsystem:
         top_row_frame.pack(fill=tk.X, pady=(0, 5))
         connection_label = ttk.Label(top_row_frame, text="Comms:", font=("Segoe UI", 8))
         connection_label.pack(side=tk.LEFT)
-        canvas, oval = self.create_indicator_circle(top_row_frame, color = self.connection_status_colors[index].get())
-        canvas.pack(side=tk.LEFT, padx=4)
+        connection_canvas, connection_oval = self.create_indicator_circle(
+            top_row_frame, color=self.connection_status_colors[index].get()
+        )
+        connection_canvas.pack(side=tk.LEFT, padx=4)
+
+        def update_connection_circle(*args):
+            connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
+
+        self.connection_status_colors[index].trace_add("write", update_connection_circle)
+        connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
         # TODO store references
 
         # Reset status indicator (at top right)
         if index != 2: # Exclude 20kV Bertan which does not have a reset function
-            canvas, oval = self.create_indicator_circle(top_row_frame, color = self.reset_status_colors[index].get())
-            canvas.pack(side=tk.RIGHT, padx=4)
+            reset_canvas, reset_oval = self.create_indicator_circle(
+                top_row_frame, color=self.reset_status_colors[index].get()
+            )
+            reset_canvas.pack(side=tk.RIGHT, padx=4)
             reset_label = ttk.Label(top_row_frame, text="Reset:", font=("Segoe UI", 8))
             reset_label.pack(side=tk.RIGHT)
+
+            def update_reset_circle(*args):
+                reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
+
+            self.reset_status_colors[index].trace_add("write", update_reset_circle)
+            reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
         # TODO store references
         
         # Output status indicator
@@ -274,7 +291,7 @@ class BeamEnergySubsystem:
         
         # Ensure any existing controller is properly closed
         if hasattr(self, 'knob_box_controller') and self.knob_box_controller:
-            self.knob_box_controller.close()
+            self.knob_box_controller.disconnect()
             time.sleep(.2)
         
         try:
@@ -298,7 +315,7 @@ class BeamEnergySubsystem:
     def attempt_knob_box_reconnect(self):
         """Attempt to reconnect to the KnobBox Modbus controller."""
         if self.knob_box_controller:
-            self.knob_box_controller.close()
+            self.knob_box_controller.disconnect()
             time.sleep(.2)  # Brief pause before reconnecting
         return self.initialize_knob_box_modbus()
     
@@ -334,7 +351,7 @@ class BeamEnergySubsystem:
             self.ccs_power_var.set("ON" if ccs_power else "OFF")
             self.glassman_interlock_var.set("BYPASSED" if arm_80kv else "ACTIVE")
             self.logic_comms_color.set("blue" if logic_comms else "red")
-            self.interlocks_color.set("green" if interlocks else "red")
+            self.interlocks_color.set("red" if interlocks else "green")
 
     def start_polling_thread(self):
         """Start a background thread to poll power supply data periodically."""
@@ -351,11 +368,21 @@ class BeamEnergySubsystem:
             try:
                 if self.knob_box_connected and self.knob_box_controller:
                     self.knob_box_controller.poll_all()
-                else:
-                    self.attempt_knob_box_reconnect()
-            except Exception as e:
-                self.attempt_knob_box_reconnect()
+                elif not self.reconnect_in_progress.is_set():
+                    self.reconnect_in_progress.set()
+                    self.parent_frame.after(0, self._safe_reconnect)
+            except Exception:
+                if not self.reconnect_in_progress.is_set():
+                    self.reconnect_in_progress.set()
+                    self.parent_frame.after(0, self._safe_reconnect)
             time.sleep(.2)  # Polling interval
+
+    def _safe_reconnect(self):
+        """Run reconnect in Tk thread to avoid thread-unsafe logger/UI interactions."""
+        try:
+            self.attempt_knob_box_reconnect()
+        finally:
+            self.reconnect_in_progress.clear()
 
     def update_readings(self):
         """
@@ -370,7 +397,9 @@ class BeamEnergySubsystem:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
-                self.attempt_knob_box_reconnect()
+                if not self.reconnect_in_progress.is_set():
+                    self.reconnect_in_progress.set()
+                    self.parent_frame.after(0, self._safe_reconnect)
                 # Schedule next update and exit early
                 self.log(
                     f"KnobBox controller not connected, using default values.",
@@ -429,13 +458,10 @@ class BeamEnergySubsystem:
                             voltage_V = float(v_read)
                             current_A = float(i_read) / 1000.0  # mA -> A
                             ps_number = unit_id  # keep 1-4 numbering aligned with UNIT_IDS
-                            self.log(
-                                f"Power supply {ps_number} readings - Voltage: {voltage_V:.3f}V, Current: {current_A:.6f}A, Mode: {mode_text}",
-                                LogLevel.DEBUG
-                            )
                         except Exception:
                             pass # If conversion fails, skip logging
 
+                    
                     self.update_connection_status(index, True)
                 else:
                     self.set_default_values(index)
@@ -458,10 +484,11 @@ class BeamEnergySubsystem:
 
                 # Get the connection status for the current unit
                 comms = knob_box.get_unit_connection_status(unit_id)
+                # self.logger.log(f"[unit {unit_id}] Connection status: {comms}", LogLevel.DEBUG)
 
                 # Update indicators based on data
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
-                self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, True, interlocks)
+                self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, False, interlocks)
                 self.update_output_status(index, hv_enable)
                 self.update_reset_status(index, reset_state)
                 self.update_connection_status(index, comms)
@@ -470,7 +497,9 @@ class BeamEnergySubsystem:
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
             for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
-            self.attempt_knob_box_reconnect()
+            if not self.reconnect_in_progress.is_set():
+                self.reconnect_in_progress.set()
+                self.parent_frame.after(0, self._safe_reconnect)
             
         
         # Schedule next update after 500 ms
@@ -500,7 +529,7 @@ class BeamEnergySubsystem:
         if new_port == self.com_ports.get('KnobBox', None):
             return True  # No change
         
-        self.com_ports = new_port
+        self.com_ports = new_com_ports
 
         # Close existing connections
         self.close_com_ports()
@@ -519,7 +548,7 @@ class BeamEnergySubsystem:
 
     def close(self):
         """Close the subsystem and clean up resources."""
-        self.stop_polling().set()
+        self.stop_polling.set()
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=2)
             self.poll_thread = None
