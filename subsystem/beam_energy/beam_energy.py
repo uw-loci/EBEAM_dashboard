@@ -278,15 +278,20 @@ class BeamEnergySubsystem:
             time.sleep(.2)
         
         try:
+            self.logger.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
             knob_box_modbus = KnobBoxModbus(port=port, logger=self.logger)
             if knob_box_modbus.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
+                self.logger.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
                 self.knob_box_controller = knob_box_modbus
                 self.knob_box_connected = True
+                self.start_polling_thread()  # Start background thread to poll data
                 return True
             else:
+                self.logger.log(f"Failed to connect to KnobBox Modbus controller on port {port}", LogLevel.ERROR)
                 self.knob_box_connected = False
                 return False
         except Exception as e:
+            self.logger.log(f"Exception thrown when trying to connect to KnobBox on port {port}: {str(e)}", LogLevel.ERROR)
             self.knob_box_connected = False
             return False
         
@@ -296,14 +301,6 @@ class BeamEnergySubsystem:
             self.knob_box_controller.close()
             time.sleep(.2)  # Brief pause before reconnecting
         return self.initialize_knob_box_modbus()
-    
-    def update_connection_status(self, index, connected):
-        """Update connection status indicators."""
-        if index < len(self.ui_elements):
-            if connected:
-                self.connection_status_colors[index].set("green")
-            else:
-                self.connection_status_colors[index].set("red")
     
     def update_output_status(self, index, status):
         """Update output status indicators."""
@@ -387,7 +384,7 @@ class BeamEnergySubsystem:
             for index, _ in enumerate(self.power_supplies):
                 
                 # Unit IDs start at one. We may want to create a mapping later when we have the final values
-                unit_id = index
+                unit_id = index + 1
                 data = data_snapshot.get(unit_id, None)
                 
                 if data:
@@ -399,7 +396,7 @@ class BeamEnergySubsystem:
                     arm_beams = data.get('arm_beams', False)
                     ccs_power = data.get('ccs_power', False)
                     arm_80kV = data.get('arm_80kV', False)
-                    reset_state = data.get('reset_state', False)
+                    reset_state = data.get('reset_state_1kV', False)
                     nomop_flag = data.get('nomop_flag', False)
                     # TODO flags for interlocks
 
@@ -460,7 +457,7 @@ class BeamEnergySubsystem:
                     self.actual_currents[index].set("-- mA")
 
                 # Get the connection status for the current unit
-                comms = self.get_unit_connection_status(unit_id)
+                comms = knob_box.get_unit_connection_status(unit_id)
 
                 # Update indicators based on data
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
@@ -536,6 +533,7 @@ class BeamEnergySubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
+
 
 # TODO: Add checks for logic arduino comms
 # TODO: Update for finalized unit ID assignments and expected voltage/current units
