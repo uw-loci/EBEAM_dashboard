@@ -13,34 +13,35 @@ IREG_I_READ_ADDR =          3   # integer microamps
 IREG_3KV_RESET_COUNT_ADDR = 4   # count of reset events for 3kV Bertan
 
 """Discrete Inputs (Function Code 02)"""
-DINPUT_HVENABLE_ADDR =          0
+DINPUT_HVENABLE_ADDR =          5
 # below are just reported by the matsusada monitoring arduinos
-DINPUT_RESET_STATE_1KV_ADDR =   1
+DINPUT_RESET_STATE_1KV_ADDR =   6
 # below are just reported by the 3kV monitoring arduino
 # (raw switch states)
-DINPUT_ARM80KV_ADDR =           2
+DINPUT_ARM80KV_ADDR =           7
 # (logic arduino outputs)
-DINPUT_ARMBEAMS_ADDR =          3
-DINPUT_CCSPOWER_ADDR =          4 
-DINPUT_3KV_ENABLE_ADDR =        5
+DINPUT_ARMBEAMS_ADDR =          8
+DINPUT_CCSPOWER_ADDR =          9 
+DINPUT_3KV_ENABLE_ADDR =        10
 # (logic arduino flags)
-DINPUT_NOMOP_FLAG_ADDR =        6
-DINPUT_3K_HVENABLE_FLAG_ADDR =  7
-DINPUT_ARMBEAMS_FLAG_ADDR =     8
-DINPUT_CCSPOWER_FLAG_ADDR =     9
-DINPUT_ARM80KV_FLAG_ADDR =      10
-DINPUT_1K_VCOMP_FLAG_ADDR =     11
-DINPUT_1K_ICOMP_FLAG_ADDR =     12
-DINPUT_NEG_1K_VCOMP_FLAG_ADDR = 13
-DINPUT_NEG_1K_ICOMP_FLAG_ADDR = 14
-DINPUT_20K_VCOMP_FLAG_ADDR =    15
-DINPUT_20K_ICOMP_FLAG_ADDR =    16
-DINPUT_3K_VCOMP_FLAG_ADDR =     17
-DINPUT_3K_ICOMP_FLAG_ADDR =     18
+DINPUT_NOMOP_FLAG_ADDR =        11
+DINPUT_3K_HVENABLE_FLAG_ADDR =  12
+DINPUT_ARMBEAMS_FLAG_ADDR =     13
+DINPUT_CCSPOWER_FLAG_ADDR =     14
+DINPUT_ARM80KV_FLAG_ADDR =      15
+DINPUT_1K_VCOMP_FLAG_ADDR =     16
+DINPUT_1K_ICOMP_FLAG_ADDR =     17
+DINPUT_NEG_1K_VCOMP_FLAG_ADDR = 18
+DINPUT_NEG_1K_ICOMP_FLAG_ADDR = 19
+DINPUT_20K_VCOMP_FLAG_ADDR =    20
+DINPUT_20K_ICOMP_FLAG_ADDR =    21
+DINPUT_3K_VCOMP_FLAG_ADDR =     22
+DINPUT_3K_ICOMP_FLAG_ADDR =     23
 
 # as the Modbus Map is updated, update these counts:
 IREG_COUNT = 5
 DINPUT_COUNT = 19
+TOTAL_REG_COUNT = IREG_COUNT + DINPUT_COUNT
 #===========================================================
 #============= END MODBUS MAP ==============================
 
@@ -91,7 +92,7 @@ class KnobBoxModbus:
     #      - 2: +1kV Matsusada
     #      - 3: +20kV Bertan
     #      - 4: +3kV Bertan
-    UNIT_IDS = [4] # for testing, just using one slave
+    UNIT_IDS = [1,2,3,4] # for testing, just using one slave
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='N', stopbits=1, bytesize=8, logger=None, debug_mode=True):
@@ -122,7 +123,7 @@ class KnobBoxModbus:
 
         # Initialize Modbus client without 'method' parameter
         self.client = ModbusClient(
-            method='rtu', # Specify RTU method for serial communication
+            #method='rtu', # Specify RTU method for serial communication
             port=port,
             baudrate=baudrate,
             parity=parity,
@@ -193,57 +194,52 @@ class KnobBoxModbus:
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             try:
                 with self.modbus_lock:
-                    # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ
-                    # Continuous block starting at address 1 (count=4)
-                    input_registers = self.client.read_input_registers(address=IREG_HEALTH_ADDR, count=IREG_COUNT, slave=unit_id)
+                    # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ, 3kv reset count, and flags
+                    # Continuous block starting at address 1 (count=24)
+                    input_registers = self.client.read_input_registers(address=IREG_HEALTH_ADDR, count=TOTAL_REG_COUNT, slave=unit_id)
                     if input_registers.isError():
-                        raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id})")
+                        raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id}): {input_registers}")
 
-                    if len(input_registers.registers) < 5:
+                    if len(input_registers.registers) < TOTAL_REG_COUNT:
                         raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
                     
-                    health, v_set, v_read, i_read, reset_counter = input_registers.registers
-                
-                    # Read Discrete Input for Overcurrent status
-                    discrete_input = self.client.read_discrete_inputs(address=DINPUT_HVENABLE_ADDR, count=DINPUT_COUNT, slave=unit_id)
-                    if discrete_input.isError():
-                        raise RuntimeError(f"FC02 read failed or invalid response (unit {unit_id})")
+                    health = input_registers.registers[IREG_HEALTH_ADDR]
+                    v_set = input_registers.registers[IREG_V_SET_ADDR]
+                    v_read = input_registers.registers[IREG_V_READ_ADDR]
+                    i_read = input_registers.registers[IREG_I_READ_ADDR]
+                    reset_counter = input_registers.registers[IREG_3KV_RESET_COUNT_ADDR]
                     
-                    # 3kV Bertan must report 18 bits
-                    if len(discrete_input.bits) < 19:
-                        raise RuntimeError(f"FC02 read returned insufficient bits (unit {unit_id})")
-                    
-                    hv_enable = int(bool(discrete_input.bits[DINPUT_HVENABLE_ADDR]))
+                    hv_enable = int(bool(input_registers.registers[DINPUT_HVENABLE_ADDR]))
 
-                    arm_80kv = int(bool(discrete_input.bits[DINPUT_ARM80KV_ADDR]))
+                    arm_80kV = int(bool(input_registers.registers[DINPUT_ARM80KV_ADDR]))
+                    arm_beams = int(bool(input_registers.registers[DINPUT_ARMBEAMS_ADDR]))
+                    ccs_power = int(bool(input_registers.registers[DINPUT_CCSPOWER_ADDR]))
+                    enable_3kV = int(bool(input_registers.registers[DINPUT_3KV_ENABLE_ADDR]))
 
-                    arm_beams = int(bool(discrete_input.bits[DINPUT_ARMBEAMS_ADDR]))
-                    ccs_power = int(bool(discrete_input.bits[DINPUT_CCSPOWER_ADDR]))
-                    enable_3kV = int(bool(discrete_input.bits[DINPUT_3KV_ENABLE_ADDR]))
+                    reset_state_1kV = int(bool(input_registers.registers[DINPUT_RESET_STATE_1KV_ADDR]))
 
-                    reset_state_1kV = int(bool(discrete_input.bits[DINPUT_RESET_STATE_1KV_ADDR]))
-
-                    nomop_flag = int(bool(discrete_input.bits[DINPUT_NOMOP_FLAG_ADDR]))
-                    hvenable_flag = int(bool(discrete_input.bits[DINPUT_3K_HVENABLE_FLAG_ADDR]))
-                    armbeams_flag = int(bool(discrete_input.bits[DINPUT_ARMBEAMS_FLAG_ADDR]))
-                    ccspower_flag = int(bool(discrete_input.bits[DINPUT_CCSPOWER_FLAG_ADDR]))
-                    arm80kv_flag = int(bool(discrete_input.bits[DINPUT_ARM80KV_FLAG_ADDR]))
-                    vcomp_1k_flag = int(bool(discrete_input.bits[DINPUT_1K_VCOMP_FLAG_ADDR]))
-                    icomp_1k_flag = int(bool(discrete_input.bits[DINPUT_1K_ICOMP_FLAG_ADDR]))
-                    neg_vcomp_1k_flag = int(bool(discrete_input.bits[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
-                    neg_icomp_1k_flag = int(bool(discrete_input.bits[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
-                    vcomp_20k_flag = int(bool(discrete_input.bits[DINPUT_20K_VCOMP_FLAG_ADDR]))
-                    icomp_20k_flag = int(bool(discrete_input.bits[DINPUT_20K_ICOMP_FLAG_ADDR]))
-                    vcomp_3k_flag = int(bool(discrete_input.bits[DINPUT_3K_VCOMP_FLAG_ADDR]))
-                    icomp_3k_flag = int(bool(discrete_input.bits[DINPUT_3K_ICOMP_FLAG_ADDR]))
+                    nomop_flag = int(bool(input_registers.registers[DINPUT_NOMOP_FLAG_ADDR]))
+                    hvenable_flag = int(bool(input_registers.registers[DINPUT_3K_HVENABLE_FLAG_ADDR]))
+                    armbeams_flag = int(bool(input_registers.registers[DINPUT_ARMBEAMS_FLAG_ADDR]))
+                    ccspower_flag = int(bool(input_registers.registers[DINPUT_CCSPOWER_FLAG_ADDR]))
+                    arm80kv_flag = int(bool(input_registers.registers[DINPUT_ARM80KV_FLAG_ADDR]))
+                    vcomp_1k_flag = int(bool(input_registers.registers[DINPUT_1K_VCOMP_FLAG_ADDR]))
+                    icomp_1k_flag = int(bool(input_registers.registers[DINPUT_1K_ICOMP_FLAG_ADDR]))
+                    neg_vcomp_1k_flag = int(bool(input_registers.registers[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
+                    neg_icomp_1k_flag = int(bool(input_registers.registers[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
+                    vcomp_20k_flag = int(bool(input_registers.registers[DINPUT_20K_VCOMP_FLAG_ADDR]))
+                    icomp_20k_flag = int(bool(input_registers.registers[DINPUT_20K_ICOMP_FLAG_ADDR]))
+                    vcomp_3k_flag = int(bool(input_registers.registers[DINPUT_3K_VCOMP_FLAG_ADDR]))
+                    icomp_3k_flag = int(bool(input_registers.registers[DINPUT_3K_ICOMP_FLAG_ADDR]))
 
                     new_data = {
                         "health": health,
                         "set_voltage_V": float(v_set),
                         "actual_voltage_V": float(v_read),
                         "actual_current_mA": float(i_read) / 1000.0, # convert uA to mA    
+                        "3kv_reset_count": reset_counter,
                         "hv_enable": hv_enable,
-                        "arm_80kv": arm_80kv,
+                        "arm_80kV": arm_80kV,
                         "arm_beams": arm_beams,
                         "ccs_power": ccs_power,
                         "3kV_enable": enable_3kV,
@@ -291,13 +287,11 @@ class KnobBoxModbus:
         with self.data_lock:
             return self.data.copy()
         
-    def get_unit_connection_status(self):
-        """Get the connection status for each Monitioring Arduino"""
+    def get_unit_connection_status(self, uid):
         now = time.time()
         return {
             uid: (now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT
-            for uid in self.UNIT_IDS
-    }
+        }
 
     def check_connection(self):
         """Check if the Modbus client is connected and attempt to reconnect if not."""
