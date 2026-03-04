@@ -1097,12 +1097,18 @@ class BeamPulseSubsystem:
         self._ui_queue.put(("seq_status", msg))
 
     def _manual_connect(self):
-        """Button handler: (re)connect to BCON in a background thread."""
+        """Button handler: disconnect when connected, reconnect when disconnected."""
         if not self.bcon_driver:
             messagebox.showwarning("Connect", "No port configured for BCON.")
             return
         if self.bcon_driver.is_connected():
+            # User clicked "Disconnect" — only tear down, do NOT reconnect.
             self.bcon_driver.disconnect()
+            if hasattr(self, 'connect_btn'):
+                self.connect_btn.configure(text="Reconnect", state="normal")
+            self._log_event("BCON disconnected by user")
+            return
+        # User clicked "Reconnect" / "Connect" — open the port.
         if hasattr(self, 'connect_btn'):
             self.connect_btn.configure(state="disabled", text="Connecting…")
             self.parent_frame.after(100, lambda: None)  # force redraw

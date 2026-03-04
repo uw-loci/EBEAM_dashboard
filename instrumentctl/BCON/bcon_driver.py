@@ -161,9 +161,9 @@ class BCONDriver:
     DEFAULT_BAUD       = 115200
     DEFAULT_UNIT       = 1
     DEFAULT_TIMEOUT    = 1.0
-    POLL_INTERVAL      = 0.3     # seconds between register polls
-    MAX_POLL_ERRORS    = 4       # consecutive failures before auto-disconnect
-    SETTLE_TIME        = 2.5     # seconds to wait after opening port (Arduino DTR reset)
+    POLL_INTERVAL      = 0.5     # seconds between register polls
+    MAX_POLL_ERRORS    = 15      # consecutive failures before auto-disconnect
+    SETTLE_TIME        = 4.5     # seconds to wait after opening port (Arduino DTR reset)
 
     def __init__(self, port: str, baudrate: int = DEFAULT_BAUD,
                  unit: int = DEFAULT_UNIT, timeout: float = DEFAULT_TIMEOUT,
@@ -202,6 +202,11 @@ class BCONDriver:
 
         # Callbacks for UI notification  (msg_type, *args)
         self._ui_queue: Optional[queue.Queue] = None
+
+        # Set True on user-initiated disconnect; prevents any automatic
+        # reconnect logic from reopening the port until the user explicitly
+        # requests a reconnect.
+        self._user_requested_disconnect = False
 
     def set_ui_queue(self, q: queue.Queue):
         """Set an optional queue to receive UI notification messages."""
@@ -278,10 +283,21 @@ class BCONDriver:
             self._log(f"Waiting {settle_s}s for firmware boot…", "INFO")
             time.sleep(settle_s)
 
+            # Immediately feed the watchdog so the firmware knows we're alive.
+            # This also validates that Modbus RTU communication is working
+            # before we declare "connected" and start the poll thread.
+            try:
+                self._write_register_compat(REG_WATCHDOG_MS, 2000)
+                self._log("Watchdog heartbeat sent after settle", "INFO")
+            except Exception as e:
+                self._log(f"Post-settle watchdog write failed: {e}", "WARNING")
+
         self._connected = ok
         self._poll_errors = 0
 
         if ok:
+            # Clear the user-disconnect flag so normal polling resumes.
+            self._user_requested_disconnect = False
             self._log(f"Connected to {self.port} at {self.baudrate} baud (unit={self.unit})", "INFO")
             self._start_poll_thread()
         else:
@@ -292,6 +308,7 @@ class BCONDriver:
 
     def disconnect(self):
         """Disconnect from BCON hardware."""
+        self._user_requested_disconnect = True
         self._stop_poll_thread()
         self._connected = False
         self._poll_errors = 0
@@ -412,7 +429,15 @@ class BCONDriver:
                         return True
 
                     ok = True
-                    ok &= read_block(0, 34)      # control + channel params
+                    # Read only the register addresses that the firmware actually
+                    # defines.  Registers 3-9, 14-19, and 24-29 are gaps in the
+                    # map; requesting them in a batch causes the firmware to reply
+                    # with a Modbus "illegal address" exception, which makes every
+                    # poll cycle fail and causes rapid auto-disconnect (~2.4 s).
+                    ok &= read_block(0, 3)       # control: watchdog(0), telemetry(1), command(2)
+                    ok &= read_block(10, 4)      # CH1 params: mode, pulse_ms, count, enable_toggle
+                    ok &= read_block(20, 4)      # CH2 params
+                    ok &= read_block(30, 4)      # CH3 params
                     ok &= read_block(100, 6)     # system status
                     ok &= read_block(110, 9)     # CH1 status (110-118)
                     ok &= read_block(120, 9)     # CH2 status (120-128)
@@ -451,12 +476,14 @@ class BCONDriver:
     def _auto_disconnect(self):
         """Called from poll thread when too many consecutive errors."""
         self._connected = False
+        self._poll_running = False   # tell the poll thread to exit cleanly
         if self._client:
             try:
                 self._client.close()
             except Exception:
                 pass
             self._client = None
+        self._poll_errors = 0
         self._log("Auto-disconnected after repeated poll failures", "WARNING")
         self._ui_put("connected", False)
 
