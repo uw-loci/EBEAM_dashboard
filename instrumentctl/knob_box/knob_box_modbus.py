@@ -182,7 +182,7 @@ class KnobBoxModbus:
                 self.log(f"[unit {uid}] poll error: {e}", LogLevel.ERROR)
         # Return a copy to avoid external mutation
         with self.data_lock:
-            return self.data.copy()
+            return {uid: values.copy() for uid, values in self.data.items()}
     
     def poll_one(self, unit_id):
         """
@@ -209,12 +209,21 @@ class KnobBoxModbus:
                     i_read = input_registers.registers[IREG_I_READ_ADDR]
                     reset_counter = input_registers.registers[IREG_3KV_RESET_COUNT_ADDR]
                     
-                    hv_enable = int(bool(input_registers.registers[DINPUT_HVENABLE_ADDR]))
+                    raw_hv_enable = input_registers.registers[DINPUT_HVENABLE_ADDR]
+                    hv_enable = int(bool(raw_hv_enable))
+                    if self.debug_mode:
+                        self.log(
+                            f"[unit {unit_id}] hv_enable raw={raw_hv_enable} interpreted={hv_enable}",
+                            LogLevel.DEBUG
+                        )
 
                     arm_80kV = int(bool(input_registers.registers[DINPUT_ARM80KV_ADDR]))
                     arm_beams = int(bool(input_registers.registers[DINPUT_ARMBEAMS_ADDR]))
                     ccs_power = int(bool(input_registers.registers[DINPUT_CCSPOWER_ADDR]))
                     enable_3kV = int(bool(input_registers.registers[DINPUT_3KV_ENABLE_ADDR]))
+
+                    if (unit_id == 4):
+                        hv_enable = enable_3kV # for the 3kV Bertan, hv enable comes from logic arduino output
 
                     reset_state_1kV = int(bool(input_registers.registers[DINPUT_RESET_STATE_1KV_ADDR]))
 
@@ -263,7 +272,8 @@ class KnobBoxModbus:
                     with self.data_lock:
                         self.data[unit_id] = new_data
                         self.last_success[unit_id] = time.time()
-                        self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
+                    # Keep UI-thread unsafe logger usage outside shared-state lock
+                    # self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
                     return
 
             except Exception as e:
@@ -285,7 +295,11 @@ class KnobBoxModbus:
             dict: A copy of the current data dictionary.
         """
         with self.data_lock:
-            return self.data.copy()
+            return {uid: values.copy() for uid, values in self.data.items()}
+
+    def close(self):
+        """Compatibility alias used by subsystem shutdown/reconnect paths."""
+        self.disconnect()
         
     def get_unit_connection_status(self, uid):
         now = time.time()
