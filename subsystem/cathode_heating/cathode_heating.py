@@ -1874,7 +1874,10 @@ class CathodeHeatingSubsystem:
                     # Ramp Voltage Mode
                     #Immediate set new current
                     if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
+                        # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
+                        self.power_supplies[index].set_output("0")
+                        return
 
                     # Ramp Voltage
                     self.on_ramp_start(index)
@@ -1936,7 +1939,10 @@ class CathodeHeatingSubsystem:
                     # Ramp Current mode
                     # Immediate set new voltage
                     if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
+                        # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
+                        self.power_supplies[index].set_output("0")
+                        return
 
                     # Ramp Current
                     self.on_ramp_start(index)
