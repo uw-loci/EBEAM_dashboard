@@ -5,7 +5,7 @@ import math
 from utils import LogLevel
 
 class PowerSupply9104:
-    MAX_RETRIES = 3 # 9104 display display reading attempts
+    MAX_RETRIES = 3 # 9104 display reading attempts
     CURRENT_SETTLE_TOLERANCE = 0.10  # 9104 current resolution is 100 mA
     VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
 
