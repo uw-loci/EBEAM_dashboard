@@ -1429,6 +1429,11 @@ class CathodeHeatingSubsystem:
                 return
             
             ocp = self.get_ocp(index)
+
+            if ocp is None:
+                self.log(f"Could not retrieve OCP for Cathode {['A', 'B', 'C'][index]}. Cannot verify current limit.", LogLevel.ERROR)
+                return
+            
             if target_current > ocp:
                 msgbox.showerror("Error", f"Target current {target_current:.2f}A exceeds OCP limit of {ocp:.2f}A for Cathode {['A', 'B', 'C'][index]}.")
                 return
