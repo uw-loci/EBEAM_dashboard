@@ -1469,7 +1469,7 @@ class CathodeHeatingSubsystem:
                         callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
                         sent_callback=sent_current_callback
                     ) 
-                if target_voltage is not None and control_mode == "voltage":
+                elif target_voltage is not None and control_mode == "voltage":
                     # Set current first prior to initiating voltage ramp operation
                     if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
                         self.log(f"Failed to set power supply {index} to current: {target_current}; ramp cancelled", LogLevel.ERROR)
@@ -1494,9 +1494,13 @@ class CathodeHeatingSubsystem:
                     )
             else: # ramp is off; Immediate Set both voltage and current
                 if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
-                    self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
+                    self.log(f"Failed to set power supply {index} to current: {target_current}; immediate set cancelled", LogLevel.ERROR)
+                    self.power_supplies[index].set_output("0")
+                    return
                 if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
-                    self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
+                    self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; immediate set cancelled", LogLevel.ERROR)
+                    self.power_supplies[index].set_output("0")
+                    return
                 
         else:
             # turning off the output
