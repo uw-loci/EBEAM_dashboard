@@ -1447,9 +1447,13 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]: # ramp is on; Gradual Set
                 if target_current is not None and control_mode == "current":
-                    # Set voltage
+                    # Set voltage first prior to initiating current ramp operation 
                     if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
-                        self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp toggle off")
+                        # Log and cancel ramp operation if voltage fails to be set 
+                        self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp cancelled", LogLevel.ERROR)
+                        self.power_supplies[index].set_output("0")
+                        return
+
                     # Ramp to target current
                     slew_rate = self.curr_slew_rate[index]
                     step_delay = 1.0  # seconds
@@ -1466,10 +1470,12 @@ class CathodeHeatingSubsystem:
                         sent_callback=sent_current_callback
                     ) 
                 if target_voltage is not None and control_mode == "voltage":
-                    # Set current
+                    # Set current first prior to initiating voltage ramp operation
                     if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
-                        self.log(f"Failed to set power supply {index} to current: {target_current}; ramp toggle off", LogLevel.ERROR)
-                        
+                        self.log(f"Failed to set power supply {index} to current: {target_current}; ramp cancelled", LogLevel.ERROR)
+                        self.power_supplies[index].set_output("0")
+                        return
+
                     # Ramp up to the target voltage
                     slew_rate = self.vlt_slew_rate[index]
                     step_delay = 1.0  # seconds
