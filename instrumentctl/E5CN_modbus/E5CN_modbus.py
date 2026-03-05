@@ -1,6 +1,7 @@
 import threading
 import time
 from pymodbus.client import ModbusSerialClient as ModbusClient
+from pymodbus.exceptions import ModbusIOException
 from utils import LogLevel  # Ensure this module is correctly implemented
 
 class E5CNModbus:
@@ -61,7 +62,7 @@ class E5CNModbus:
             stopbits=stopbits,
             bytesize=bytesize,
             timeout=timeout,
-            retries=2
+            retries=0
         )
 
         if self.debug_mode:
@@ -415,6 +416,17 @@ class E5CNModbus:
                         )
                         attempts -= 1
                         continue
+
+            except ModbusIOException as e:
+                # Slave didn't respond — normal on a shared RS-485 bus.
+                # Do NOT close the serial port; other units are still reachable.
+                self._log_throttled(
+                    key=f"read_error_{unit}",
+                    message=f"No response from unit {unit}: {str(e)}",
+                    level=LogLevel.ERROR,
+                    interval_seconds=self.log_throttle_intervals["read_error"],
+                )
+                attempts -= 1
 
             except Exception as e:
                 # A real communication exception (e.g. OSError, serial timeout)
