@@ -6,6 +6,8 @@ from utils import LogLevel
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display display reading attempts
+    CURRENT_SETTLE_TOLERANCE = 0.10  # 9104 current resolution is 100 mA
+    VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.port = port
@@ -284,11 +286,22 @@ class PowerSupply9104:
             time.sleep(1.0)  # Extra settling time
             _, final_current, _ = self.get_voltage_current_mode()
 
-            if final_current is not None:
-                self.log(f"Ramp complete. Target: {target_current:.2f}A, Final: {final_current:.2f}A", LogLevel.INFO)
-            else:
+            if final_current is None:
                 self.log("Ramp complete but could not verify final current", LogLevel.WARNING)
+                if callback:
+                    callback(False)
+                return
 
+            if abs(final_current - target_current) > self.CURRENT_SETTLE_TOLERANCE:
+                self.log(
+                    f"Ramp complete but verification failed. Target: {target_current:.2f}A, Final: {final_current:.2f}A",
+                    LogLevel.WARNING
+                )
+                if callback:
+                    callback(False)
+                return
+
+            self.log(f"Ramp complete. Target: {target_current:.2f}A, Final: {final_current:.2f}A", LogLevel.INFO)
             if callback:
                 callback(True)
         except Exception as e:
@@ -396,11 +409,22 @@ class PowerSupply9104:
             time.sleep(1.0)  # Extra settling time
             final_voltage, _, _ = self.get_voltage_current_mode()
             
-            if final_voltage is not None:
-                self.log(f"Ramp complete. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V", LogLevel.INFO)
-            else:
-                self.log(f"Ramp complete but could not verify final voltage", LogLevel.WARNING)
-                
+            if final_voltage is None:
+                self.log("Ramp complete but could not verify final voltage", LogLevel.WARNING)
+                if callback:
+                    callback(False)
+                return
+
+            if abs(final_voltage - target_voltage) > self.VOLTAGE_SETTLE_TOLERANCE:
+                self.log(
+                    f"Ramp complete but verification failed. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V",
+                    LogLevel.WARNING
+                )
+                if callback:
+                    callback(False)
+                return
+
+            self.log(f"Ramp complete. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V", LogLevel.INFO)
             if callback:
                 callback(True)
                 
