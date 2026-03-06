@@ -2,6 +2,7 @@ import time
 import threading
 from threading import Lock
 import struct
+import sys
 from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from pymodbus.exceptions import ModbusIOException
@@ -78,7 +79,6 @@ class DP16ProcessMonitor:
         Returns:
             bool: True if the connection is successful, False otherwise.
         """
-        import sys
         old_stderr = sys.stderr
         sys.stderr = self.StderrRedirector(self.logger, LogLevel.ERROR)
         try:
