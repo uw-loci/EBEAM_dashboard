@@ -857,6 +857,18 @@ class CathodeHeatingSubsystem:
                     else:
                         self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
 
+                    # Set voltage to 0V and confirm
+                    if ps.set_voltage(0):
+                        self.log(f"Set voltage to 0 V for cathode {cathode}", LogLevel.INFO)
+                        confirmed_voltage = ps.get_voltage()
+                        if confirmed_voltage is not None:
+                            if abs(confirmed_voltage - 0) < 0.2:  # 0.2V tolerance
+                                self.log(f"Voltage successfully set to 0 V for cathode {cathode}. Confirmed voltage: {confirmed_voltage:.2f} V", LogLevel.INFO)
+                            else:
+                                self.log(f"Voltage mismatch when setting to 0 V for cathode {cathode}. Got: {confirmed_voltage:.2f} V", LogLevel.WARNING)
+                        else:
+                            self.log(f"Failed to confirm voltage setting for cathode {cathode}", LogLevel.WARNING)
+
                     # Set and confirm OCP
                     stored_ocp = self.overcurrent_limit_vars[idx].get()
                     ocp_value = float(stored_ocp)
@@ -876,6 +888,18 @@ class CathodeHeatingSubsystem:
                             self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
                         self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.WARNING)
+
+                    # Set current to 0A and confirm
+                    if ps.set_current(0):
+                        self.log(f"Set current to 0 A for cathode {cathode}", LogLevel.INFO)
+                        confirmed_current = ps.get_current()
+                        if confirmed_current is not None:
+                            if abs(confirmed_current - 0) < 0.1:  # 0.1A tolerance
+                                self.log(f"Current successfully set to 0 A for cathode {cathode}. Confirmed current: {confirmed_current:.2f} A", LogLevel.INFO)
+                            else:
+                                self.log(f"Current mismatch when setting to 0 A for cathode {cathode}. Got: {confirmed_current:.2f} A", LogLevel.WARNING)
+                        else:
+                            self.log(f"Failed to confirm current setting for cathode {cathode}", LogLevel.WARNING)
 
                     self.power_supply_status[idx] = True
                     self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
