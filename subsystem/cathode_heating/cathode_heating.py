@@ -1444,10 +1444,17 @@ class CathodeHeatingSubsystem:
             
             if self.ramp_status[index]: # ramp is on; Gradual Set
                 if target_current is not None and control_mode == "current":
-                    # Set voltage first prior to initiating current ramp operation 
+                    # Set voltage first, then preset a safe low current before enabling output
+                    # so the supply cannot energize with a stale higher stored current limit.
                     if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
                         # Log and cancel ramp operation if voltage fails to be set 
                         self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp cancelled", LogLevel.ERROR)
+                        self.power_supplies[index].set_output("0")
+                        return
+
+                    safe_start_current = 0.0
+                    if not self.power_supplies[index].set_current(current=safe_start_current, preset=3, sent_callback=sent_current_callback):
+                        self.log(f"Failed to preset safe start current for Cathode {['A', 'B', 'C'][index]}; ramp cancelled", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
                         return
 
