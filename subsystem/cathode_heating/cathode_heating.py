@@ -1895,7 +1895,8 @@ class CathodeHeatingSubsystem:
                     )
                     self.voltage_set[index] = True
                 else: # Immediate set
-                    self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback)
+                    if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
+                        return
                     self.current_set[index] = True
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_current:.2f}A", LogLevel.INFO)
 
@@ -1960,7 +1961,8 @@ class CathodeHeatingSubsystem:
                     )
                     self.current_set[index] = True
                 else: # Immediate set
-                    self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback)
+                    if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
+                        return
                     self.voltage_set[index] = True
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_voltage:.2f}V", LogLevel.INFO)
 
