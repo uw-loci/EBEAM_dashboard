@@ -1438,9 +1438,6 @@ class CathodeHeatingSubsystem:
                 msgbox.showerror("Error", f"Target current {target_current:.2f}A exceeds OCP limit of {ocp:.2f}A for Cathode {['A', 'B', 'C'][index]}.")
                 return
             
-            if not self.power_supplies[index].set_output("1"):
-                self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                return
 
             sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
             sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
@@ -1454,6 +1451,10 @@ class CathodeHeatingSubsystem:
                         self.power_supplies[index].set_output("0")
                         return
 
+                    if not self.power_supplies[index].set_output("1"):
+                        self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                        return
+                    
                     # Ramp to target current
                     slew_rate = self.curr_slew_rate[index]
                     step_delay = 1.0  # seconds
@@ -1475,6 +1476,10 @@ class CathodeHeatingSubsystem:
                         self.log(f"Failed to set power supply {index} to current: {target_current}; ramp cancelled", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
                         return
+                    
+                    if not self.power_supplies[index].set_output("1"):
+                        self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                        return
 
                     # Ramp up to the target voltage
                     slew_rate = self.vlt_slew_rate[index]
@@ -1495,11 +1500,12 @@ class CathodeHeatingSubsystem:
             else: # ramp is off; Immediate Set both voltage and current
                 if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
                     self.log(f"Failed to set power supply {index} to current: {target_current}; immediate set cancelled", LogLevel.ERROR)
-                    self.power_supplies[index].set_output("0")
                     return
                 if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
                     self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; immediate set cancelled", LogLevel.ERROR)
-                    self.power_supplies[index].set_output("0")
+                    return
+                if not self.power_supplies[index].set_output("1"):
+                    self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                     return
                 
         else:
