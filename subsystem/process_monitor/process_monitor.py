@@ -169,6 +169,8 @@ class TemperatureBar(tk.Canvas):
 
 
 class ProcessMonitorSubsystem:
+    DUMMY_PORT_PREFIX = "DUMMY_COM"
+
     def __init__(self, parent, com_port, active, logger=None):
         self.parent = parent
         self.logger = logger
@@ -190,10 +192,11 @@ class ProcessMonitorSubsystem:
 
         self.setup_gui()
         self.monitor = None
+        if self._is_dummy_port(com_port):
+            self._enter_dummy_mode()
+            return
+
         try:
-            if not com_port:
-                raise ValueError("No COM port provided for ProcessMonitor")
-            # Instantiate PMON driver
             self.monitor = DP16ProcessMonitor(
                 port=com_port,
                 unit_numbers=list(self.thermometer_map.values()),
@@ -202,7 +205,9 @@ class ProcessMonitorSubsystem:
         except Exception as e:
             self.monitor = None
             self.log(f"Failed to initialize DP16ProcessMonitor: {str(e)}", LogLevel.ERROR)
+            self._set_environment_pass(False)
             self._set_all_temps_error()
+            return
         
         # start the callback method
         self.update_temperatures()
@@ -229,6 +234,7 @@ class ProcessMonitorSubsystem:
                 self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
+                    self._set_environment_pass(False)
                     if self.logger and hasattr(self.logger, "clear_value"):
                         self.logger.clear_value("temperatures")
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
@@ -257,7 +263,7 @@ class ProcessMonitorSubsystem:
                         self._set_all_temps_disconnected()
                         if self.logger and hasattr(self.logger, "clear_value"):
                             self.logger.clear_value("temperatures")
-                        self.active['Environment Pass'] = False
+                        self._set_environment_pass(False)
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                 else:
@@ -268,32 +274,32 @@ class ProcessMonitorSubsystem:
                         temp = temps.get(unit)
                         if temp is None:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
-                            self.active['Environment Pass'] = False
+                            self._set_environment_pass(False)
                         elif temp == self.monitor.SENSOR_ERROR:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
-                            self.active['Environment Pass'] = False
+                            self._set_environment_pass(False)
                         elif temp == self.monitor.DISCONNECTED:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
-                            self.active['Environment Pass'] = False
+                            self._set_environment_pass(False)
                         elif isinstance(temp, (int, float)):
                             try:
                                 temp_value = float(temp)
                                 if -90 <= temp_value <= 500:  # Valid temperature range
                                     self.temp_bars[name].update_value(name, temp_value)
-                                    self.active['Environment Pass'] = True # Update Machine Status Progress Bar
+                                    self._set_environment_pass(True) # Update Machine Status Progress Bar
                                     self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
                                     self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                     self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
-                                    self.active['Environment Pass'] = False
+                                    self._set_environment_pass(False)
                             except (ValueError, TypeError):
                                 self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                 self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
-                                self.active['Environment Pass'] = False
+                                self._set_environment_pass(False)
                         else:
                             self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                             self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
-                            self.active['Environment Pass'] = False
+                            self._set_environment_pass(False)
 
         except Exception as e:
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
@@ -317,6 +323,27 @@ class ProcessMonitorSubsystem:
         if hasattr(self, 'temp_bars'):
             for name in self.temp_bars:
                 self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+
+    def _enter_dummy_mode(self):
+        self.monitor = None
+        self._set_all_temps_disconnected()
+        self._set_environment_pass(False)
+        if self.logger and hasattr(self.logger, "clear_value"):
+            self.logger.clear_value("temperatures")
+        self.log(
+            f"PMON running in disconnected dummy mode on port {self.com_port}",
+            LogLevel.INFO
+        )
+
+    def _is_dummy_port(self, com_port):
+        if com_port is None:
+            return True
+        normalized_port = str(com_port).strip().upper()
+        return not normalized_port or normalized_port.startswith(self.DUMMY_PORT_PREFIX)
+
+    def _set_environment_pass(self, value):
+        if self.active is not None:
+            self.active['Environment Pass'] = value
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
