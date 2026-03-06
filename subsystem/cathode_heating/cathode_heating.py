@@ -1881,6 +1881,8 @@ class CathodeHeatingSubsystem:
                         # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
+                        self.toggle_states[index] = False
+                        self.toggle_buttons[index].config(image=self.toggle_off_image)
                         return
 
                     # Ramp Voltage
@@ -1947,6 +1949,8 @@ class CathodeHeatingSubsystem:
                         # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
+                        self.toggle_states[index] = False
+                        self.toggle_buttons[index].config(image=self.toggle_off_image)
                         return
 
                     # Ramp Current
