@@ -194,7 +194,7 @@ class PowerSupply9104:
         """
         if self.ramp_thread and self.ramp_thread.is_alive():
             self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
-            return
+            return False
 
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
@@ -205,10 +205,12 @@ class PowerSupply9104:
         try:
             self.ramp_thread.start()
             self.log(f"Ramping current to {target_current:.2f}A started.", LogLevel.INFO)
+            return True
         except Exception as e:
             self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
+            return False
 
     def _ramp_current_thread(self, target_current, step_size, step_delay, preset, callback, sent_callback):
         """Main current ramping implementation."""
@@ -321,7 +323,7 @@ class PowerSupply9104:
         """        
         if self.ramp_thread and self.ramp_thread.is_alive():
             self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
-            return
+            return False
 
         self.stop_event.clear()  # Clear the stop flag before starting
         self.ramp_thread = threading.Thread(
@@ -332,10 +334,12 @@ class PowerSupply9104:
         try:
             self.ramp_thread.start()
             self.log(f"Ramping voltage to {target_voltage:.2f}V started.", LogLevel.INFO)
+            return True
         except Exception as e:
             self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
+            return False
 
     def _ramp_voltage_thread(self, target_voltage, step_size, step_delay, preset, callback, sent_callback):
         """Main voltage ramping implementation."""
