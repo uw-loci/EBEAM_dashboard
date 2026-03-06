@@ -1473,7 +1473,7 @@ class CathodeHeatingSubsystem:
                         step_size=step_size,
                         step_delay=step_delay,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i, success=ok: self.handle_ramp_result(idx, success)),
                         sent_callback=sent_current_callback
                     )
                     if not ramp_started:
@@ -1511,7 +1511,7 @@ class CathodeHeatingSubsystem:
                         step_delay=step_delay,
                         preset=3,
                         callback = lambda ok,
-                        i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        i=index: self.parent.after(0, lambda idx=i, success=ok: self.handle_ramp_result(idx, success)),
                         sent_callback=sent_voltage_callback
                     )
                     if not ramp_started:
@@ -1897,7 +1897,7 @@ class CathodeHeatingSubsystem:
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i, success=ok: self.handle_ramp_result(idx, success)),
                         sent_callback=sent_current_callback
                     )
                     if not ramp_started:
@@ -1922,7 +1922,7 @@ class CathodeHeatingSubsystem:
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i, success=ok: self.handle_ramp_result(idx, success)),
                         sent_callback=sent_voltage_callback
                     )
                     if not ramp_started:
@@ -1972,7 +1972,7 @@ class CathodeHeatingSubsystem:
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i, success=ok: self.handle_ramp_result(idx, success)),
                         sent_callback=sent_voltage_callback
                     )
                     if not ramp_started:
@@ -1997,7 +1997,7 @@ class CathodeHeatingSubsystem:
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
                         preset=3,
-                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i: self.on_ramp_complete(idx)),
+                        callback=lambda ok, i=index: self.parent.after(0, lambda idx=i, success=ok: self.handle_ramp_result(idx, success)),
                         sent_callback=sent_current_callback
                     )
                     if not ramp_started:
@@ -2197,6 +2197,22 @@ class CathodeHeatingSubsystem:
         elif self.ramp_control_mode[index] == "current":
             self.set_vlt_adjustment_buttons_state(index, 'normal')
         self.set_text_set_buttons_state(index, 'normal')
+
+    def handle_ramp_result(self, index: int, ok: bool):
+        self.on_ramp_complete(index)
+        if ok:
+            return
+
+        ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+        if ps and ps.stop_event.is_set():
+            return
+
+        cathode = ['A', 'B', 'C'][index]
+        self.log(
+            f"Ramp for Cathode {cathode} aborted before reaching the requested setpoint. "
+            "Verify the live readback before continuing.",
+            LogLevel.WARNING
+        )
 
     def stop_ramp(self, index:int):
         """
