@@ -19,31 +19,21 @@ Register map mirrors the firmware Modbus slave implementation:
 from __future__ import annotations
 
 import copy
-import inspect
 import logging
 import queue
+import struct
 import threading
 import time
-from typing import Optional, Dict, List, Any, TYPE_CHECKING
+from typing import Optional, Dict, List, Any
 from enum import IntEnum
 
-if TYPE_CHECKING:
-    from pymodbus.client import ModbusSerialClient
-
-# Attempt pymodbus import
+# pyserial — used directly for Modbus RTU (bypasses pymodbus v3 framer bug)
 try:
-    from pymodbus.client import ModbusSerialClient as ModbusClient
-except ImportError:
-    ModbusClient = None
-
-# Attempt pyserial import (for port scanning)
-try:
+    import serial
     import serial.tools.list_ports as list_ports
 except ImportError:
+    serial = None
     list_ports = None
-
-# Suppress chatty pymodbus retry/timeout messages
-logging.getLogger("pymodbus").setLevel(logging.ERROR)
 
 
 # ======================== Register Map Constants ========================
@@ -164,6 +154,7 @@ class BCONDriver:
     POLL_INTERVAL      = 0.5     # seconds between register polls
     MAX_POLL_ERRORS    = 15      # consecutive failures before auto-disconnect
     SETTLE_TIME        = 4.5     # seconds to wait after opening port (Arduino DTR reset)
+    WATCHDOG_HEARTBEAT_S = 1.0   # write watchdog register this often (firmware default: 2000ms)
 
     def __init__(self, port: str, baudrate: int = DEFAULT_BAUD,
                  unit: int = DEFAULT_UNIT, timeout: float = DEFAULT_TIMEOUT,
@@ -184,8 +175,9 @@ class BCONDriver:
         self.timeout = timeout
         self.debug = debug
 
-        # Modbus client
-        self._client: Optional[ModbusSerialClient] = None
+        # Serial port (raw pyserial — replaces pymodbus which has a v3 framer bug)
+        self._serial: Optional[serial.Serial] = None
+        self._serial_lock = threading.Lock()  # serialize all serial I/O
         self._connected = False
 
         # Write command queue (thread-safe)
@@ -203,10 +195,8 @@ class BCONDriver:
         # Callbacks for UI notification  (msg_type, *args)
         self._ui_queue: Optional[queue.Queue] = None
 
-        # Set True on user-initiated disconnect; prevents any automatic
-        # reconnect logic from reopening the port until the user explicitly
-        # requests a reconnect.
         self._user_requested_disconnect = False
+        self._last_heartbeat_time: float = 0.0  # tracks last watchdog write
 
     def set_ui_queue(self, q: queue.Queue):
         """Set an optional queue to receive UI notification messages."""
@@ -244,36 +234,31 @@ class BCONDriver:
         Returns:
             True if connection successful, False otherwise.
         """
-        if ModbusClient is None:
-            self._log("pymodbus is not installed", "ERROR")
+        if serial is None:
+            self._log("pyserial is not installed", "ERROR")
             return False
 
         if settle_s is None:
             settle_s = self.SETTLE_TIME
 
-        if self._client:
+        if self._serial:
             try:
-                self._client.close()
+                self._serial.close()
             except Exception:
                 pass
 
         try:
-            # pymodbus v3 API
-            try:
-                self._client = ModbusClient(
-                    port=self.port, framer="rtu",
-                    baudrate=self.baudrate, timeout=self.timeout, retries=1
-                )
-            except TypeError:
-                # Older pymodbus signature
-                self._client = ModbusClient(
-                    method="rtu", port=self.port,
-                    baudrate=self.baudrate, timeout=self.timeout
-                )
-
-            ok = self._client.connect()
+            self._serial = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=self.timeout,
+            )
+            ok = self._serial.is_open
         except Exception as e:
-            self._client = None
+            self._serial = None
             self._connected = False
             self._log(f"Connect failed: {e}", "ERROR")
             self._ui_put("connected", False)
@@ -283,20 +268,32 @@ class BCONDriver:
             self._log(f"Waiting {settle_s}s for firmware boot…", "INFO")
             time.sleep(settle_s)
 
-            # Immediately feed the watchdog so the firmware knows we're alive.
-            # This also validates that Modbus RTU communication is working
-            # before we declare "connected" and start the poll thread.
+            # Flush any stale bytes left by the bootloader
             try:
-                self._write_register_compat(REG_WATCHDOG_MS, 2000)
-                self._log("Watchdog heartbeat sent after settle", "INFO")
+                self._serial.reset_input_buffer()
+                self._serial.reset_output_buffer()
+                self._log("Serial buffers flushed after settle", "INFO")
+            except Exception as e:
+                self._log(f"Buffer flush warning: {e}", "WARNING")
+
+            # Validate communication with a test write + read
+            try:
+                self._write_register_raw(REG_WATCHDOG_MS, 2000)
+                self._log("Watchdog heartbeat sent", "INFO")
             except Exception as e:
                 self._log(f"Post-settle watchdog write failed: {e}", "WARNING")
+
+            try:
+                vals = self._read_holding_registers_raw(0, 3)
+                self._log(f"Test read(0,3) OK: {vals}", "INFO")
+            except Exception as e:
+                self._log(f"Test read failed: {e}", "ERROR")
+                ok = False
 
         self._connected = ok
         self._poll_errors = 0
 
         if ok:
-            # Clear the user-disconnect flag so normal polling resumes.
             self._user_requested_disconnect = False
             self._log(f"Connected to {self.port} at {self.baudrate} baud (unit={self.unit})", "INFO")
             self._start_poll_thread()
@@ -312,46 +309,111 @@ class BCONDriver:
         self._stop_poll_thread()
         self._connected = False
         self._poll_errors = 0
-        if self._client:
+        if self._serial:
             try:
-                self._client.close()
+                self._serial.close()
             except Exception:
                 pass
-            self._client = None
+            self._serial = None
         self._log("Disconnected", "INFO")
         self._ui_put("connected", False)
 
     def is_connected(self) -> bool:
         """Check if connected to BCON hardware."""
-        return self._connected and self._client is not None
+        return self._connected and self._serial is not None
 
     # ================================================================== #
-    #                      Low-level Modbus I/O                            #
+    #          Raw Modbus RTU I/O  (bypasses pymodbus v3 framer bug)       #
     # ================================================================== #
 
-    def _write_register_compat(self, reg: int, val: int):
-        """Write a single holding register (compatible across pymodbus versions)."""
-        write_fn = self._client.write_register
-        sig = inspect.signature(write_fn)
-        if "device_id" in sig.parameters:
-            return write_fn(reg, int(val), device_id=self.unit)
-        if "unit" in sig.parameters:
-            return write_fn(reg, int(val), unit=self.unit)
-        if "slave" in sig.parameters:
-            return write_fn(reg, int(val), slave=self.unit)
-        return write_fn(reg, int(val))
+    @staticmethod
+    def _modbus_crc16(data: bytes) -> int:
+        """Compute Modbus CRC-16."""
+        crc = 0xFFFF
+        for byte in data:
+            crc ^= byte
+            for _ in range(8):
+                if crc & 1:
+                    crc = (crc >> 1) ^ 0xA001
+                else:
+                    crc >>= 1
+        return crc
 
-    def _read_holding_registers_compat(self, start: int, count: int):
-        """Read a block of holding registers (compatible across pymodbus versions)."""
-        read_fn = self._client.read_holding_registers
-        sig = inspect.signature(read_fn)
-        if "device_id" in sig.parameters:
-            return read_fn(start, count=count, device_id=self.unit)
-        if "unit" in sig.parameters:
-            return read_fn(start, count, unit=self.unit)
-        if "slave" in sig.parameters:
-            return read_fn(start, count, slave=self.unit)
-        return read_fn(start, count)
+    def _serial_transaction(self, request_payload: bytes, expected_min: int) -> bytes:
+        """
+        Send a Modbus RTU frame and read the response.
+
+        Args:
+            request_payload: Frame bytes WITHOUT CRC (slave + FC + data)
+            expected_min: Minimum expected response bytes (including CRC)
+
+        Returns:
+            Response payload (without CRC), or raises RuntimeError.
+        """
+        crc = self._modbus_crc16(request_payload)
+        frame = request_payload + struct.pack("<H", crc)
+
+        with self._serial_lock:
+            ser = self._serial
+            if not ser or not ser.is_open:
+                raise RuntimeError("Serial port not open")
+
+            # Drain any stale bytes before sending
+            if ser.in_waiting:
+                ser.read(ser.in_waiting)
+
+            ser.write(frame)
+            ser.flush()
+
+            # Read the response.  First read minimum expected bytes, then
+            # consume any additional bytes that arrive (for variable-length
+            # responses like FC 0x03).
+            response = ser.read(expected_min)
+            if not response:
+                raise RuntimeError(f"No response (0 bytes in {self.timeout}s)")
+
+            # For FC 0x03, the 3rd byte is the byte-count; we may need more
+            time.sleep(0.005)  # 5 ms for any trailing bytes to arrive
+            if ser.in_waiting:
+                response += ser.read(ser.in_waiting)
+
+        if len(response) < 4:
+            raise RuntimeError(
+                f"Short response: {len(response)} bytes "
+                f"(hex: {' '.join(f'{b:02X}' for b in response)})")
+
+        # Verify CRC
+        rx_crc = struct.unpack("<H", response[-2:])[0]
+        calc_crc = self._modbus_crc16(response[:-2])
+        if rx_crc != calc_crc:
+            raise RuntimeError(
+                f"CRC mismatch: rx=0x{rx_crc:04X} calc=0x{calc_crc:04X}")
+
+        # Check for Modbus exception response (FC | 0x80)
+        if response[1] & 0x80:
+            ex_code = response[2] if len(response) > 2 else 0xFF
+            raise RuntimeError(
+                f"Modbus exception: FC=0x{response[1]:02X} code={ex_code}")
+
+        return response[:-2]  # strip CRC
+
+    def _write_register_raw(self, reg: int, val: int):
+        """Write a single holding register (FC 0x06) via raw serial."""
+        payload = struct.pack(">BBHH", self.unit, 0x06, reg, int(val) & 0xFFFF)
+        self._serial_transaction(payload, 8)  # FC 0x06 response is always 8 bytes
+
+    def _read_holding_registers_raw(self, start: int, count: int) -> list:
+        """Read holding registers (FC 0x03) via raw serial. Returns list of ints."""
+        payload = struct.pack(">BBHH", self.unit, 0x03, start, count)
+        # Response: slave(1) + FC(1) + bytecount(1) + data(2*count) + CRC(2)
+        expected = 3 + 2 * count + 2
+        resp = self._serial_transaction(payload, expected)
+        # Parse register values from response payload (skip slave + FC + bytecount)
+        byte_count = resp[2]
+        values = []
+        for i in range(0, byte_count, 2):
+            values.append(struct.unpack(">H", resp[3 + i:5 + i])[0])
+        return values
 
     # ================================================================== #
     #                        Write Queue                                   #
@@ -383,7 +445,7 @@ class BCONDriver:
         if not self.is_connected():
             return False
         try:
-            self._write_register_compat(reg, value)
+            self._write_register_raw(reg, value)
             return True
         except Exception as e:
             self._log(f"Immediate write reg {reg}: {e}", "ERROR")
@@ -397,15 +459,35 @@ class BCONDriver:
         """Background thread: process write queue then poll registers."""
         last_error_msg = None
 
+        # Brief initial settle before the first poll cycle.  Opening the serial
+        # port (even without DTR) can cause brief USB-CDC enumeration traffic;
+        # waiting here prevents that traffic from disrupting the first reads.
+        time.sleep(1.0)
+
         while self._poll_running:
+            now = time.monotonic()
+
+            # --- Watchdog heartbeat (keeps firmware from timing out) ---
+            # Send a write to REG_WATCHDOG_MS if no queued writes are pending
+            # and enough time has elapsed. This prevents the firmware's software
+            # watchdog from expiring and forcing all channels OFF.
+            if (self._serial and self._connected
+                    and self._cmd_queue.empty()
+                    and (now - self._last_heartbeat_time) >= self.WATCHDOG_HEARTBEAT_S):
+                try:
+                    self._write_register_raw(REG_WATCHDOG_MS, 2000)
+                    self._last_heartbeat_time = now
+                except Exception as e:
+                    self._log(f"Watchdog heartbeat failed: {e}", "WARNING")
+
             # --- Process queued writes ---
             try:
                 while not self._cmd_queue.empty():
                     cmd = self._cmd_queue.get_nowait()
-                    if cmd[0] == "write" and self._client and self._connected:
+                    if cmd[0] == "write" and self._serial and self._connected:
                         _, reg, val = cmd
                         try:
-                            self._write_register_compat(reg, val)
+                            self._write_register_raw(reg, val)
                             self._ui_put("wrote", reg, val)
                         except Exception as e:
                             self._log(f"Write reg {reg}: {e}", "ERROR")
@@ -414,26 +496,28 @@ class BCONDriver:
                 pass
 
             # --- Poll registers ---
-            if self._client and self._connected:
+            if self._serial and self._connected:
                 try:
                     regs = [0] * TOTAL_REGS
 
                     def read_block(start, count):
-                        rr = self._read_holding_registers_compat(start, count)
-                        if not rr or not hasattr(rr, 'registers'):
+                        try:
+                            vals = self._read_holding_registers_raw(start, count)
+                            for i, value in enumerate(vals):
+                                idx = start + i
+                                if 0 <= idx < TOTAL_REGS:
+                                    regs[idx] = value
+                            return True
+                        except Exception as e:
+                            self._log(f"  read_block({start}, {count}) FAILED: {e}", "WARNING")
                             return False
-                        for i, value in enumerate(rr.registers):
-                            idx = start + i
-                            if 0 <= idx < TOTAL_REGS:
-                                regs[idx] = value
-                        return True
 
                     ok = True
                     # Read only the register addresses that the firmware actually
                     # defines.  Registers 3-9, 14-19, and 24-29 are gaps in the
-                    # map; requesting them in a batch causes the firmware to reply
-                    # with a Modbus "illegal address" exception, which makes every
-                    # poll cycle fail and causes rapid auto-disconnect (~2.4 s).
+                    # map; requesting them causes the firmware to reply with a
+                    # Modbus "illegal address" exception that aborts the entire
+                    # batch read.
                     ok &= read_block(0, 3)       # control: watchdog(0), telemetry(1), command(2)
                     ok &= read_block(10, 4)      # CH1 params: mode, pulse_ms, count, enable_toggle
                     ok &= read_block(20, 4)      # CH2 params
@@ -477,12 +561,12 @@ class BCONDriver:
         """Called from poll thread when too many consecutive errors."""
         self._connected = False
         self._poll_running = False   # tell the poll thread to exit cleanly
-        if self._client:
+        if self._serial:
             try:
-                self._client.close()
+                self._serial.close()
             except Exception:
                 pass
-            self._client = None
+            self._serial = None
         self._poll_errors = 0
         self._log("Auto-disconnected after repeated poll failures", "WARNING")
         self._ui_put("connected", False)
@@ -907,8 +991,8 @@ class BCONDriver:
         if not self.is_connected():
             return False
         try:
-            rr = self._read_holding_registers_compat(REG_SYS_STATE, 1)
-            return rr is not None and hasattr(rr, 'registers')
+            self._read_holding_registers_raw(REG_SYS_STATE, 1)
+            return True
         except Exception:
             return False
 
