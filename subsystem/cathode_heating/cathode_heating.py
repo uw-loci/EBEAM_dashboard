@@ -71,9 +71,7 @@ class CathodeHeatingSubsystem:
 
         # resolve the LUT folder via resource_path so the logic works in a
         # bundled executable as well as during development.
-        lut_rel = os.path.join('usr', 'usr_data',
-                               'EBEAM_dashboard_LUT',
-                               'power_supply')
+        lut_rel = os.path.join('data', 'lut', 'power_supply')
         lut_dir = resource_path(lut_rel)
 
         if os.path.isabs(filename):
@@ -125,12 +123,10 @@ class CathodeHeatingSubsystem:
         self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
 
-        # Load all CSV LUTs from the power_supply folder in the LUT submodule.
+        # Load all CSV LUTs from the power_supply folder.
         # Use resource_path so the code will find the files inside a PyInstaller
         # bundle.
-        lut_rel = os.path.join('usr', 'usr_data',
-                               'EBEAM_dashboard_LUT',
-                               'power_supply')
+        lut_rel = os.path.join('data', 'lut', 'power_supply')
         lut_dir = resource_path(lut_rel)
         self.lut_dir = lut_dir
         self.current_options = {}

@@ -217,7 +217,7 @@ def config_com_ports(saved_com_ports):
     right_frame.grid(row=0, column=1, sticky='n', padx=(30,0))
 
     # Dataset files for cathodes
-    lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply')
+    lut_dir = os.path.join('data', 'lut', 'power_supply')
     cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv') and f.lower() != 'default.csv']
     # Add 'Default' option at the top, do not show 'default.csv' in the dropdown
     dataset_options = ['Default'] + cathode_files
@@ -255,7 +255,7 @@ def config_com_ports(saved_com_ports):
             filetypes=[("CSV Files", "*.csv")],
         )
         if file_path:
-            dest_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply')
+            dest_dir = os.path.join('data', 'lut', 'power_supply')
             dest_file = os.path.join(dest_dir, os.path.basename(file_path))
             try:
                 shutil.copy(file_path, dest_file)
@@ -315,9 +315,9 @@ def config_com_ports(saved_com_ports):
         for key, value in dataset_selections.items():
             v = value.get()
             if v == 'Default':
-                selected_datasets[key] = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply', 'default.csv')
+                selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', 'default.csv')
             else:
-                selected_datasets[key] = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply', v)
+                selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', v)
 
         # check that all COM ports are selected
         if not all(selected_ports.values()):
