@@ -68,15 +68,22 @@ class CathodeHeatingSubsystem:
             str: Full path to the dataset file
         """
         filename = self.cathode_datasets.get(cathode_key, default_file)
-        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply')
-        
-        # If filename is absolute, use as is
+
+        # resolve the LUT folder via resource_path so the logic works in a
+        # bundled executable as well as during development.
+        lut_rel = os.path.join('usr', 'usr_data',
+                               'EBEAM_dashboard_LUT',
+                               'power_supply')
+        lut_dir = resource_path(lut_rel)
+
         if os.path.isabs(filename):
             return filename
-        # If filename already starts with lut_dir, use as is  
-        if filename.startswith(lut_dir):
-            return filename
-        # Otherwise, join lut_dir and filename
+
+        # path already references our LUT directory
+        if filename.startswith(lut_dir) or filename.startswith(lut_rel):
+            return resource_path(filename) if not os.path.isabs(filename) else filename
+
+        # otherwise assume it is the name of a file stored under the LUT dir
         return os.path.join(lut_dir, filename)
     
     def __init__(self, parent, com_ports, active, logger=None, cathode_datasets=None):
@@ -118,8 +125,14 @@ class CathodeHeatingSubsystem:
         self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
 
-        # Load all CSV LUTs from the power_supply folder in the LUT submodule
-        lut_dir = os.path.join('usr', 'usr_data', 'EBEAM_dashboard_LUT', 'power_supply')
+        # Load all CSV LUTs from the power_supply folder in the LUT submodule.
+        # Use resource_path so the code will find the files inside a PyInstaller
+        # bundle.
+        lut_rel = os.path.join('usr', 'usr_data',
+                               'EBEAM_dashboard_LUT',
+                               'power_supply')
+        lut_dir = resource_path(lut_rel)
+        self.lut_dir = lut_dir
         self.current_options = {}
         
         def validate_lut(df):
@@ -134,20 +147,20 @@ class CathodeHeatingSubsystem:
 
         if os.path.exists(lut_dir):
             for filename in os.listdir(lut_dir):
-                if filename.endswith('.csv'):
+                if filename.lower().endswith('.csv'):
                     file_path = os.path.join(lut_dir, filename)
                     try:
-                        df = pd.read_csv(resource_path(file_path))
-                        key = 'Default' if filename == 'default.csv' else filename
-                        if validate_lut(df):
-                            self.current_options[key] = df
-                        else:
-                            self.current_options[key] = None
+                        df = pd.read_csv(file_path)
+                        key = 'Default' if filename.lower() == 'default.csv' else filename
+                        self.current_options[key] = df if validate_lut(df) else None
                     except Exception as e:
                         if self.logger:
                             self.logger.log(f"Failed to load LUT {filename}: {e}", LogLevel.ERROR)
-                        key = 'Default' if filename == 'default.csv' else filename
+                        key = 'Default' if filename.lower() == 'default.csv' else filename
                         self.current_options[key] = None
+        else:
+            if self.logger:
+                self.logger.log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
 
         # Track selected LUT filenames for each cathode (A, B, C)
         self.selected_lut_files = [None, None, None]
@@ -937,14 +950,43 @@ class CathodeHeatingSubsystem:
             lookup_table_box = ttk.Combobox(lut_frame, values=lookup_table_options, state='readonly', width=19)
             lookup_table_box.pack(side='left', padx=(8, 0))
 
-            # Set the default value to 'Default' if present, else first option
-            if 'Default' in lookup_table_options:
+            # use any dataset specified by cathode_datasets; fall back to Default
+            cfg_key = f'Cathode{cathode_labels[i]} PS'
+            preferred = None
+            if cfg_key in self.cathode_datasets:
+                pref_path = self.cathode_datasets.get(cfg_key)
+                if pref_path:
+                    basename = os.path.basename(pref_path)
+                    if basename.lower() == 'default.csv':
+                        preferred = 'Default'
+                    elif basename in lookup_table_options:
+                        preferred = basename
+                    else:
+                        # try matching the absolute path
+                        for opt in lookup_table_options:
+                            if opt == 'Default':
+                                continue
+                            candidate = os.path.join(self.lut_dir, opt)
+                            try:
+                                if os.path.normcase(os.path.abspath(candidate)) == \
+                                   os.path.normcase(os.path.abspath(pref_path)):
+                                    preferred = opt
+                                    break
+                            except Exception:
+                                pass
+
+            if preferred:
+                lookup_table_box.set(preferred)
+                self.selected_lut_files[i] = preferred
+            elif 'Default' in lookup_table_options:
                 lookup_table_box.set('Default')
                 self.selected_lut_files[i] = 'Default'
             else:
-                lookup_table_box.set(lookup_table_options[0] if lookup_table_options else '')
-                self.selected_lut_files[i] = lookup_table_options[0] if lookup_table_options else None
-            # Set lookup_table_setting for this cathode
+                first = lookup_table_options[0] if lookup_table_options else ''
+                lookup_table_box.set(first)
+                self.selected_lut_files[i] = first or None
+
+            # finally record the active DataFrame
             self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
 
             # Bind LUT combobox to centralized class method
