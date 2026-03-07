@@ -18,38 +18,6 @@ Lookup Tables for EBEAM System GUI
 >   - **Scan Speed Files:** Columns are `frequency_hz` and `scan_speed_mps`
 > - Energy values in filenames indicate the electron beam energy (in keV) for which the calibration is valid.
 
-## Repository Structure
-
-```
-EBEAM_dashboard_LUT/
-├── README.md
-├── clean.py
-├── power_supply/
-│   ├── raw_files/
-│   │   ├── raw_default.csv
-│   │   ├── raw_A.csv
-│   │   ├── raw_B.csv
-│   │   └── raw_C.csv
-│   ├── plots/
-│   │   └── (generated plots)
-│   ├── default.csv
-│   ├── powersupply_A.csv
-│   ├── powersupply_B.csv
-│   └── powersupply_C.csv
-└── beam_control/
-    ├── raw_files/
-    │   ├── raw_bd_20keV.csv
-    │   ├── raw_bd_50keV.csv
-    │   ├── raw_ss_20keV.csv
-    │   └── raw_ss_50keV.csv
-    ├── plots/
-    │   └── (generated plots)
-    ├── beam_deflection_20keV.csv
-    ├── beam_deflection_50keV.csv
-    ├── scan_speed_20keV.csv
-    └── scan_speed_50keV.csv
-```
-
 ## Workflow for Updating Power Supply Lookup Tables
 
 To update the power supply lookup tables and generate visualizations:
