@@ -91,7 +91,8 @@ class PowerSupply9104:
                 self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
                 return None
             except Exception as e:
-                self.log(f"Critical Error", LogLevel.ERROR)
+                self.log(f"CCS - Critical Error on send_command: {str(e)}", LogLevel.ERROR)
+                return None
 
     def _mark_disconnected(self):
         """Close the serial port and set to None so is_connected() fails fast."""

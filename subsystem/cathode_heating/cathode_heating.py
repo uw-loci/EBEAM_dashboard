@@ -97,6 +97,7 @@ class CathodeHeatingSubsystem:
         self.curr_adjustment_buttons = []  # Track current +/- buttons 
         self.vlt_adjustment_buttons = []  # Track voltage +/- buttons 
         self.set_button_states = [] # Track both voltage and current set button states to disable during ramp
+        self._cmd_busy = [False, False, False]  # Prevents re-entrant serial commands per cathode
 
 
         # Temperature controller state tracking
@@ -963,9 +964,9 @@ class CathodeHeatingSubsystem:
                                 self._ps_cache[i] = reading
                             continue
 
-                    result = ps.get_voltage_current_mode()
-                    if result is not None:
-                        reading = result
+                    v, c, m = ps.get_voltage_current_mode()
+                    if v is not None and c is not None:
+                        reading = (v, c, m)
                 except Exception as e:
                     self.log(f"Poll error for power supply {i+1}: {e}", LogLevel.ERROR)
 
@@ -1304,6 +1305,14 @@ class CathodeHeatingSubsystem:
 
     
     def update_data(self):
+        try:
+            self._update_data_impl()
+        except Exception as e:
+            self.log(f"Error in update_data: {e}", LogLevel.ERROR)
+        finally:
+            self.parent.after(500, self.update_data)
+
+    def _update_data_impl(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
@@ -1369,7 +1378,7 @@ class CathodeHeatingSubsystem:
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
             elif isinstance(temperature, str):
                 self.clamp_temperature_vars[i].set("-- C")
-                self.clamp_temp_labels[i].config(foreground='oragne')
+                self.clamp_temp_labels[i].config(foreground='orange')
             else:
                 self.clamp_temperature_vars[i].set("-- C")
                 self.clamp_temp_labels[i].config(foreground='black')
@@ -1410,9 +1419,6 @@ class CathodeHeatingSubsystem:
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
-
-        # Schedule next update
-        self.parent.after(500, self.update_data)
 
     def update_plot(self, index):
         if len(self.time_data[index]) == 0:
@@ -1476,8 +1482,15 @@ class CathodeHeatingSubsystem:
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
 
     def toggle_output(self, index, control_mode: str = None):
+        if self._cmd_busy[index]:
+            return
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+            return
+
+        ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+        if ps is None:
+            self.log(f"Power supply {index+1} is unavailable.", LogLevel.ERROR)
             return
         
         if control_mode not in ("current", "voltage"):
@@ -1682,6 +1695,8 @@ class CathodeHeatingSubsystem:
         Shows a dialog for current input if output is disabled. 
         Updates predictions and display values based on entered current.
         """
+        if self._cmd_busy[index]:
+            return
         # Check for active ramping
         if self.is_ramping(index):
             self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
@@ -1721,6 +1736,8 @@ class CathodeHeatingSubsystem:
         Shows a dialog for voltage input if output is disabled. 
         Updates predictions and display values based on entered voltage.
         """
+        if self._cmd_busy[index]:
+            return
         # Check for active ramping
         if self.is_ramping(index):
                 self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
@@ -1752,92 +1769,166 @@ class CathodeHeatingSubsystem:
 
     def adjust_current(self, index: int, delta: float) -> None:
         """
-        Increment / decrement the *requested* heater current by *delta* amps
-        and push the change through the same pathway used for manual entry.
-        Parameters
-        ----------
-        index : int
-            Cathode index 0-2  (A, B, C).
-        delta : float
-            +0.01 → raise 10 mA   |   -0.01 → lower 10 mA.
+        Increment / decrement the *requested* heater current by *delta* amps.
+        Serial I/O runs on a background thread to keep the GUI responsive.
         """
-        # Check for active ramping
+        if self._cmd_busy[index]:
+            return
         if self.is_ramping(index):
-                self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
-                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
-                return
-        # Pull whatever text is currently shown under “Set Heater (A)”.
+            self.log(f"Cannot set manual current for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+            msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.')
+            return
+
         try:
             raw = self.heater_current_vars[index].get()
             current_a = float(raw)
-        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
+        except (tk.TclError, ValueError):
             current_a = 0.0
 
-        new_current = round(current_a + delta, 2)      # keep two decimals for UI
-
-        # Guard-rails
-        valid_input = self.validate_current(index, new_current)
-        if not valid_input:
-            # Error message already shown in validate_current
+        new_current = round(current_a + delta, 2)
+        if new_current < 0:
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_current(index, new_current)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        self._cmd_busy[index] = True
+        self.set_curr_adjustment_buttons_state(index, 'disabled')
+        self.set_vlt_adjustment_buttons_state(index, 'disabled')
+        self.set_text_set_buttons_state(index, 'disabled')
 
-        set_success = self.update_output_from_current(index, new_current)
-        if set_success:
+        threading.Thread(
+            target=self._adjust_current_worker,
+            args=(index, new_current),
+            daemon=True
+        ).start()
+
+    def _adjust_current_worker(self, index: int, new_current: float):
+        """Background worker for adjust_current serial I/O."""
+        error_msg = None
+        success = False
+        try:
+            ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+            if ps is None or not ps.is_connected():
+                error_msg = f"Power supply {index+1} not connected."
+            else:
+                ocp = None
+                try:
+                    ocp = ps.get_over_current_protection()
+                except Exception:
+                    pass
+                if ocp is None:
+                    error_msg = f"OCP unavailable for Cathode {['A','B','C'][index]}."
+                elif new_current > ocp:
+                    error_msg = f"Current {new_current:.2f}A exceeds OCP {ocp:.2f}A."
+                else:
+                    success = self.update_output_from_current(index, new_current)
+        except Exception as e:
+            self.log(f"Error in adjust_current worker: {e}", LogLevel.ERROR)
+        self.parent.after(0, lambda s=success, e=error_msg: self._on_adjust_current_done(index, new_current, s, e))
+
+    def _on_adjust_current_done(self, index: int, new_current: float, success: bool, error_msg: str):
+        """GUI-thread callback after adjust_current serial work completes."""
+        self._cmd_busy[index] = False
+        if error_msg:
+            self.log(error_msg, LogLevel.WARNING)
+        elif success:
             self.heater_current_vars[index].set(f"{new_current:.2f}")
             setattr(self, f"last_set_current_{index}", new_current)
             self.current_set[index] = True
         else:
             self.log(f"Failed to set manual current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        if not self.is_ramping(index):
+            self._restore_adjustment_buttons(index)
 
     def adjust_voltage(self, index: int, delta: float) -> None:
         """
-        Increment / decrement the *requested* heater voltage by *delta* volts
-        and push the change through the same pathway used for manual entry.
-        Parameters
-        ----------
-        index : int
-            Cathode index 0-2  (A, B, C).
-        delta : float
-            +0.02 → raise 20 mV   |   -0.02 → lower 20 mV.
+        Increment / decrement the *requested* heater voltage by *delta* volts.
+        Serial I/O runs on a background thread to keep the GUI responsive.
         """
-        # Check for active ramping
+        if self._cmd_busy[index]:
+            return
         if self.is_ramping(index):
-                self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
-                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
-                return
+            self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+            msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.')
+            return
 
-        # Pull whatever text is currently shown under “Set Heater (V)”.
         try:
             raw = self.heater_voltage_vars[index].get()
             current_voltage = float(raw)
-        except (tk.TclError, ValueError):                       # label still ‘--’ or non-numeric
+        except (tk.TclError, ValueError):
             current_voltage = 0.0
 
-        new_voltage = round(current_voltage + delta, 2)      # keep two decimals for UI
-
-        # Guard-rails
-        valid_input = self.validate_voltage(index, new_voltage)
-        if not valid_input:
-            # Error message already shown in validate_voltage
+        new_voltage = round(current_voltage + delta, 2)
+        if new_voltage < 0:
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        self._cmd_busy[index] = True
+        self.set_curr_adjustment_buttons_state(index, 'disabled')
+        self.set_vlt_adjustment_buttons_state(index, 'disabled')
+        self.set_text_set_buttons_state(index, 'disabled')
 
-        set_success = self.update_output_from_voltage(index, new_voltage)
-        if set_success:
+        threading.Thread(
+            target=self._adjust_voltage_worker,
+            args=(index, new_voltage),
+            daemon=True
+        ).start()
+
+    def _adjust_voltage_worker(self, index: int, new_voltage: float):
+        """Background worker for adjust_voltage serial I/O."""
+        error_msg = None
+        success = False
+        try:
+            ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+            if ps is None or not ps.is_connected():
+                error_msg = f"Power supply {index+1} not connected."
+            else:
+                ovp = None
+                try:
+                    ovp = ps.get_over_voltage_protection()
+                except Exception:
+                    pass
+                if ovp is None:
+                    error_msg = f"OVP unavailable for Cathode {['A','B','C'][index]}."
+                elif new_voltage > ovp:
+                    error_msg = f"Voltage {new_voltage:.2f}V exceeds OVP {ovp:.2f}V."
+                else:
+                    remainder = new_voltage % 0.02
+                    if abs(remainder) > 1e-10 and abs(remainder - 0.02) > 1e-10:
+                        error_msg = f"Voltage {new_voltage:.2f}V is not a multiple of 0.02V."
+                    else:
+                        success = self.update_output_from_voltage(index, new_voltage)
+        except Exception as e:
+            self.log(f"Error in adjust_voltage worker: {e}", LogLevel.ERROR)
+        self.parent.after(0, lambda s=success, e=error_msg: self._on_adjust_voltage_done(index, new_voltage, s, e))
+
+    def _on_adjust_voltage_done(self, index: int, new_voltage: float, success: bool, error_msg: str):
+        """GUI-thread callback after adjust_voltage serial work completes."""
+        self._cmd_busy[index] = False
+        if error_msg:
+            self.log(error_msg, LogLevel.WARNING)
+        elif success:
             self.heater_voltage_vars[index].set(f"{new_voltage:.2f}")
             setattr(self, f'last_set_voltage_{index}', new_voltage)
             self.voltage_set[index] = True
         else:
             self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        if not self.is_ramping(index):
+            self._restore_adjustment_buttons(index)
+
+    def _restore_adjustment_buttons(self, index: int):
+        """Re-enable nudge and set buttons based on the current output mode."""
+        if self.ramp_control_mode[index] == "current" and self.ramp_status[index]:
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        elif self.ramp_control_mode[index] == "voltage" and self.ramp_status[index]:
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+        else:
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        self.set_text_set_buttons_state(index, 'normal')
+
+    def _force_output_off_display(self, index: int):
+        """Update GUI to reflect a forced-off output. Must run on the GUI thread."""
+        self.toggle_states[index] = False
+        if index < len(self.toggle_buttons):
+            self.toggle_buttons[index].config(image=self.toggle_off_image)
 
     def update_predictions_from_voltage(self, index, voltage):
         """
@@ -1951,6 +2042,7 @@ class CathodeHeatingSubsystem:
     def update_output_from_current(self, index:int, new_current:float):
         """
         Updates the set current on the power supply. Assumes guard rails are checked prior to function call.
+        Thread-safe: all widget operations are dispatched to the GUI thread via parent.after.
         Args:
             index(int): identifies correct power supply
             new_current(float): new target heater current to be set
@@ -1961,7 +2053,12 @@ class CathodeHeatingSubsystem:
 
             if not self.power_supplies_initialized or not self.power_supplies:
                 self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
-                return
+                return False
+
+            ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+            if ps is None:
+                self.log(f"Power supply {index+1} is None.", LogLevel.ERROR)
+                return False
 
             self.user_set_currents[index] = new_current
             sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
@@ -1971,7 +2068,7 @@ class CathodeHeatingSubsystem:
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
                     # Ramp Current mode
-                    ramp_started = self.power_supplies[index].ramp_current(
+                    ramp_started = ps.ramp_current(
                         new_current,
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
@@ -1982,21 +2079,20 @@ class CathodeHeatingSubsystem:
                     if not ramp_started:
                         self.log(f"Failed to start current ramp for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                         return False
-                    self.on_ramp_start(index)
+                    self.parent.after(0, lambda i=index: self.on_ramp_start(i))
                     self.current_set[index] = True
                 elif self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
                     # Ramp Voltage Mode
                     #Immediate set new current
-                    if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
+                    if not ps.set_current(3, new_current, sent_callback=sent_current_callback):
                         # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
-                        self.power_supplies[index].set_output("0")
-                        self.toggle_states[index] = False
-                        self.toggle_buttons[index].config(image=self.toggle_off_image)
-                        return
+                        ps.set_output("0")
+                        self.parent.after(0, lambda i=index: self._force_output_off_display(i))
+                        return False
 
                     # Ramp Voltage
-                    ramp_started = self.power_supplies[index].ramp_voltage(
+                    ramp_started = ps.ramp_voltage(
                         self.user_set_voltages[index],
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
@@ -2007,24 +2103,25 @@ class CathodeHeatingSubsystem:
                     if not ramp_started:
                         self.log(f"Failed to start voltage ramp for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                         return False
-                    self.on_ramp_start(index)
+                    self.parent.after(0, lambda i=index: self.on_ramp_start(i))
                     self.voltage_set[index] = True
                 else: # Immediate set
-                    if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
+                    if not ps.set_current(3, new_current, sent_callback=sent_current_callback):
                         self.log(f"Failed to set current for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                        return
+                        return False
                     self.current_set[index] = True
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_current:.2f}A", LogLevel.INFO)
 
             return True
         except Exception as e:
-            self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
-            self.reset_related_variables(index)
+            self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
+            self.parent.after(0, lambda i=index: self.reset_related_variables(i))
             return False
 
     def update_output_from_voltage(self, index: int, new_voltage:float):
         """
         Updates the set voltage on the power supply. Assumes guard rails are checked prior to function call.
+        Thread-safe: all widget operations are dispatched to the GUI thread via parent.after.
         Args:
             index(int): identifies correct power supply
             new_voltage(float): new target heater voltage to be set
@@ -2035,8 +2132,12 @@ class CathodeHeatingSubsystem:
 
             if not self.power_supplies_initialized or not self.power_supplies:
                 self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
-                return
+                return False
 
+            ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+            if ps is None:
+                self.log(f"Power supply {index+1} is None.", LogLevel.ERROR)
+                return False
 
             self.user_set_voltages[index] = new_voltage
             sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
@@ -2046,7 +2147,7 @@ class CathodeHeatingSubsystem:
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
                     # Ramp Voltage mode
-                    ramp_started = self.power_supplies[index].ramp_voltage(
+                    ramp_started = ps.ramp_voltage(
                         new_voltage,
                         step_size = self.vlt_slew_rate[index],
                         step_delay = 1.0,
@@ -2057,21 +2158,20 @@ class CathodeHeatingSubsystem:
                     if not ramp_started:
                         self.log(f"Failed to start voltage ramp for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                         return False
-                    self.on_ramp_start(index)
+                    self.parent.after(0, lambda i=index: self.on_ramp_start(i))
                     self.voltage_set[index] = True
                 elif self.ramp_status[index] and self.ramp_control_mode[index] == "current":
                     # Ramp Current mode
                     # Immediate set new voltage
-                    if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
+                    if not ps.set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
                         # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
-                        self.power_supplies[index].set_output("0")
-                        self.toggle_states[index] = False
-                        self.toggle_buttons[index].config(image=self.toggle_off_image)
-                        return
+                        ps.set_output("0")
+                        self.parent.after(0, lambda i=index: self._force_output_off_display(i))
+                        return False
 
                     # Ramp Current
-                    ramp_started = self.power_supplies[index].ramp_current(
+                    ramp_started = ps.ramp_current(
                         self.user_set_currents[index],
                         step_size = self.curr_slew_rate[index],
                         step_delay = 1.0,
@@ -2082,19 +2182,19 @@ class CathodeHeatingSubsystem:
                     if not ramp_started:
                         self.log(f"Failed to start current ramp for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                         return False
-                    self.on_ramp_start(index)
+                    self.parent.after(0, lambda i=index: self.on_ramp_start(i))
                     self.current_set[index] = True
                 else: # Immediate set
-                    if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
+                    if not ps.set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
                         self.log(f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                        return
+                        return False
                     self.voltage_set[index] = True
             self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {new_voltage:.2f}V", LogLevel.INFO)
 
             return True
         except Exception as e:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
-            self.reset_related_variables(index)
+            self.parent.after(0, lambda i=index: self.reset_related_variables(i))
             return False
         
     def get_ocp(self, index):
@@ -2225,7 +2325,7 @@ class CathodeHeatingSubsystem:
         """
         ocp = self.get_ocp(index)
 
-        if new_current < 0 or new_current is None:
+        if new_current is None or new_current < 0:
             msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
             return False
         
