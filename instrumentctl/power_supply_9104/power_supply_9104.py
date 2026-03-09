@@ -15,7 +15,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
-        # self.serial_lock = threading.Lock()
+        self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
@@ -56,45 +56,51 @@ class PowerSupply9104:
 
     def send_command(self, command):
         """Send a command to the power supply and read the response."""
-        try:
-            if not self.is_connected():
-                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
-                return None # return immediately to prevent blocking GUI on serial read
-            
-            self.flush_serial()
-            
-            self.log(f"Sending command: {command}", LogLevel.DEBUG)
-            self.ser.write(f"{command}\r\n".encode())
-            
-            response = self.ser.read_until(b'\r').decode()
-
-            if 'OK' not in response:
-                additional = self.ser.read_until(b'\r').decode().strip()
-                response = f"{response}\r{additional}"
-
-            if not response:
-                raise ValueError("No response received from 9104 supply")
-            if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
-
-            self.log(f"Response: {response}", LogLevel.DEBUG)
-                
-            return response.strip()
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            # Mark port as dead so subsequent calls in this cycle fail fast
+        with self.serial_lock:
             try:
-                if self.ser:
-                    self.ser.close()
-            except Exception:
-                pass
-            self.ser = None
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
-        except Exception as e:
-            self.log(f"Critical Error", LogLevel.ERROR)
+                if not self.is_connected():
+                    self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                    return None # return immediately to prevent blocking GUI on serial read
+                
+                self.flush_serial()
+                
+                self.log(f"Sending command: {command}", LogLevel.DEBUG)
+                self.ser.write(f"{command}\r\n".encode())
+                
+                response = self.ser.read_until(b'\r').decode()
+
+                if 'OK' not in response:
+                    additional = self.ser.read_until(b'\r').decode().strip()
+                    response = f"{response}\r{additional}"
+
+                if not response or not response.strip():
+                    # Timeout with no data — device is likely gone
+                    self._mark_disconnected()
+                    return None
+                if 'OK' not in response:
+                    self.log(f"Acknowledgement not in 9104 supply response")
+
+                self.log(f"Response: {response}", LogLevel.DEBUG)
+                    
+                return response.strip()
+            except serial.SerialException as e:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                self._mark_disconnected()
+                return None
+            except ValueError as e:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                return None
+            except Exception as e:
+                self.log(f"Critical Error", LogLevel.ERROR)
+
+    def _mark_disconnected(self):
+        """Close the serial port and set to None so is_connected() fails fast."""
+        try:
+            if self.ser:
+                self.ser.close()
+        except Exception:
+            pass
+        self.ser = None
 
     def set_output(self, state):
         """Set the output on/off."""

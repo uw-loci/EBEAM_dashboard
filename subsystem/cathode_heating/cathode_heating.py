@@ -4,6 +4,7 @@ from tkinter import ttk
 import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
+import threading
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -108,6 +109,11 @@ class CathodeHeatingSubsystem:
         self.RECONNECT_COOLDOWN = datetime.timedelta(seconds=10)
         self.last_reconnect_attempt = [datetime.datetime.min for _ in range(3)]
 
+        # Background power-supply polling
+        self._ps_cache = [(None, None, None) for _ in range(3)]  # (voltage, current, mode)
+        self._ps_cache_lock = threading.Lock()
+        self._ps_poll_stop = threading.Event()
+
         # Initialize GUI variables
         self._init_prediction_variables()    # Predicted values for cathode behavior
         self._init_measurement_variables()   # Real-time hardware measurements
@@ -118,6 +124,7 @@ class CathodeHeatingSubsystem:
         self.setup_gui()                            # Set up graphical interface
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
+        self._start_ps_poll_thread()                 # Start background serial polling
         self.update_data()                          # Start the data update loop
 
     def _init_prediction_variables(self):
@@ -907,6 +914,69 @@ class CathodeHeatingSubsystem:
         
         self.update_query_settings_button_states()
 
+    # ── Background power-supply polling ─────────────────────────────────
+
+    def _start_ps_poll_thread(self):
+        """Launch (or re-launch) the daemon thread that polls every power supply."""
+        if hasattr(self, '_ps_poll_thread') and self._ps_poll_thread.is_alive():
+            return  # already running
+        self._ps_poll_stop.clear()
+        self._ps_poll_thread = threading.Thread(
+            target=self._poll_power_supplies, daemon=True
+        )
+        self._ps_poll_thread.start()
+
+    def _poll_power_supplies(self):
+        """Background loop: read each supply and cache the result.
+
+        Also handles reconnection with the existing cooldown so the
+        GUI thread never blocks on serial I/O.
+        """
+        while not self._ps_poll_stop.is_set():
+            for i in range(3):
+                if self._ps_poll_stop.is_set():
+                    return
+
+                reading = (None, None, None)
+
+                if not self.power_supplies_initialized or self.power_supplies[i] is None:
+                    with self._ps_cache_lock:
+                        self._ps_cache[i] = reading
+                    continue
+
+                ps = self.power_supplies[i]
+
+                try:
+                    if not ps.is_connected():
+                        now = datetime.datetime.now()
+                        if (now - self.last_reconnect_attempt[i]) >= self.RECONNECT_COOLDOWN:
+                            self.last_reconnect_attempt[i] = now
+                            self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
+                            if self.retry_connection(i):
+                                self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
+                                ps = self.power_supplies[i]  # refresh ref after reconnect
+                            else:
+                                self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
+                        # Whether we just reconnected or are in cooldown, refresh reading
+                        if not ps.is_connected():
+                            with self._ps_cache_lock:
+                                self._ps_cache[i] = reading
+                            continue
+
+                    result = ps.get_voltage_current_mode()
+                    if result is not None:
+                        reading = result
+                except Exception as e:
+                    self.log(f"Poll error for power supply {i+1}: {e}", LogLevel.ERROR)
+
+                with self._ps_cache_lock:
+                    self._ps_cache[i] = reading
+
+            # Wait between poll cycles (interruptible by stop event)
+            self._ps_poll_stop.wait(0.5)
+
+    # ── Reconnection ────────────────────────────────────────────────────
+
     def retry_connection(self, index):
         """Single lightweight reconnect attempt — no retries, no full reconfiguration."""
         try:
@@ -921,13 +991,19 @@ class CathodeHeatingSubsystem:
                 return False
             self.power_supplies[index] = new_ps
             self.power_supply_status[index] = True
-            self.toggle_buttons[index]['state'] = 'normal'
+            # GUI updates must happen on the main thread
+            self.parent.after(0, lambda idx=index: self._on_ps_reconnected(idx))
             self.log(f"Reconnected to power supply on port {port}", LogLevel.INFO)
-            self.update_query_settings_button_states()
             return True
         except Exception as e:
             self.log(f"Reconnect attempt failed for cathode {chr(65+index)}: {str(e)}", LogLevel.ERROR)
             return False
+
+    def _on_ps_reconnected(self, index):
+        """GUI-thread callback after a successful reconnect."""
+        if index < len(self.toggle_buttons):
+            self.toggle_buttons[index]['state'] = 'normal'
+        self.update_query_settings_button_states()
     
     def set_slew_rate(self, index, var, control_mode="current"):
         """
@@ -1239,35 +1315,21 @@ class CathodeHeatingSubsystem:
             mode = None
             temperature = None
 
-            if self.power_supplies_initialized and self.power_supplies[i] is not None:
+            # Read cached power supply data (populated by background poll thread)
+            with self._ps_cache_lock:
+                voltage, current, mode = self._ps_cache[i]
+
+            if voltage is not None and current is not None:
                 try:
-                    if not self.power_supplies[i].is_connected():
-                        # Backoff: only attempt reconnect after cooldown period
-                        if (current_time - self.last_reconnect_attempt[i]) < self.RECONNECT_COOLDOWN:
-                            continue
-                        self.last_reconnect_attempt[i] = current_time
-                        self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
-                        if self.retry_connection(i):
-                            self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
-                        else:
-                            self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
-                            continue
-                    
-                    voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
                     
-                    self.actual_heater_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")
+                    self.actual_heater_current_vars[i].set(f"{current:.2f}")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}")
 
                     cathode_label = ['A', 'B', 'C'][i]
-                    key_current = f"Cathode {cathode_label} - Heater Current:"
-                    value_current = current
-
-                    key_voltage = f"Cathode {cathode_label} - Heater Voltage:"
-                    value_voltage = voltage
                     if self.logger and hasattr(self.logger, "update_field"):
-                        self.logger.update_field(key_current, value_current)
-                        self.logger.update_field(key_voltage, value_voltage)
+                        self.logger.update_field(f"Cathode {cathode_label} - Heater Current:", current)
+                        self.logger.update_field(f"Cathode {cathode_label} - Heater Voltage:", voltage)
 
                     # Update mode display
                     cv_lbl, cc_lbl = self.cv_cc_labels[i]
@@ -1291,6 +1353,11 @@ class CathodeHeatingSubsystem:
                 self.actual_heater_current_vars[i].set("--")
                 self.actual_heater_voltage_vars[i].set("--")
                 self.actual_target_current_vars[i].set("--")
+                # Grey out mode indicators for unavailable supplies
+                if i < len(self.cv_cc_labels):
+                    cv_lbl, cc_lbl = self.cv_cc_labels[i]
+                    cv_lbl.config(bg='grey')
+                    cc_lbl.config(bg='grey')
 
             temperature = self.read_temperature(i)
             if self.logger and hasattr(self.logger, "update_field"):
@@ -2256,8 +2323,15 @@ class CathodeHeatingSubsystem:
 
     def close_com_ports(self):
         """
-        Disables all power supply outputs and closes serial connections upon quitting the application.
+        Stops background polling, disables all power supply outputs,
+        and closes serial connections upon quitting the application.
         """
+        # Stop the background poll thread first
+        if hasattr(self, '_ps_poll_stop'):
+            self._ps_poll_stop.set()
+        if hasattr(self, '_ps_poll_thread') and self._ps_poll_thread.is_alive():
+            self._ps_poll_thread.join(timeout=3.0)
+
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for i, ps in enumerate(self.power_supplies):
                 try:
