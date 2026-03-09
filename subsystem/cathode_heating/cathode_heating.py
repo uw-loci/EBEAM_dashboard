@@ -104,6 +104,10 @@ class CathodeHeatingSubsystem:
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
         self.log_interval = datetime.timedelta(seconds=3) # E5CN timeout message interval
 
+        # Reconnection backoff tracking — avoid hammering dead ports every 500 ms
+        self.RECONNECT_COOLDOWN = datetime.timedelta(seconds=10)
+        self.last_reconnect_attempt = [datetime.datetime.min for _ in range(3)]
+
         # Initialize GUI variables
         self._init_prediction_variables()    # Predicted values for cathode behavior
         self._init_measurement_variables()   # Real-time hardware measurements
@@ -904,22 +908,26 @@ class CathodeHeatingSubsystem:
         self.update_query_settings_button_states()
 
     def retry_connection(self, index):
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                port = self.com_ports[f'Cathode{chr(65+index)} PS']
-                new_ps = PowerSupply9104(port=port, logger=self.logger)
-                self.power_supplies[index] = new_ps
-                self.power_supply_status[index] = True
-                self.toggle_buttons[index]['state'] = 'normal'
-                self.log(f"Reconnected to power supply on port {port}", LogLevel.DEBUG)
-                self.update_query_settings_button_states()
-                return True
-            except Exception as e:
-                self.log(f"Retry {attempt+1} failed: {str(e)}", LogLevel.ERROR)
-        
-        self.log(f"Failed to reconnect after {max_retries} attempts", LogLevel.ERROR)
-        return False
+        """Single lightweight reconnect attempt — no retries, no full reconfiguration."""
+        try:
+            port = self.com_ports[f'Cathode{chr(65+index)} PS']
+            new_ps = PowerSupply9104(port=port, logger=self.logger)
+            if not new_ps.is_connected():
+                return False
+            # Quick probe: if the port opened but the device isn't responding, bail
+            probe = new_ps.send_command("GOUT")
+            if probe is None:
+                new_ps.close()
+                return False
+            self.power_supplies[index] = new_ps
+            self.power_supply_status[index] = True
+            self.toggle_buttons[index]['state'] = 'normal'
+            self.log(f"Reconnected to power supply on port {port}", LogLevel.INFO)
+            self.update_query_settings_button_states()
+            return True
+        except Exception as e:
+            self.log(f"Reconnect attempt failed for cathode {chr(65+index)}: {str(e)}", LogLevel.ERROR)
+            return False
     
     def set_slew_rate(self, index, var, control_mode="current"):
         """
@@ -1234,6 +1242,10 @@ class CathodeHeatingSubsystem:
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 try:
                     if not self.power_supplies[i].is_connected():
+                        # Backoff: only attempt reconnect after cooldown period
+                        if (current_time - self.last_reconnect_attempt[i]) < self.RECONNECT_COOLDOWN:
+                            continue
+                        self.last_reconnect_attempt[i] = current_time
                         self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
                         if self.retry_connection(i):
                             self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)

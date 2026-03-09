@@ -82,6 +82,13 @@ class PowerSupply9104:
             return response.strip()
         except serial.SerialException as e:
             self.log(f"Serial error: {e}", LogLevel.ERROR)
+            # Mark port as dead so subsequent calls in this cycle fail fast
+            try:
+                if self.ser:
+                    self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
             return None
         except ValueError as e:
             self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
@@ -500,6 +507,9 @@ class PowerSupply9104:
         """
         for attempt in range(self.MAX_RETRIES):
             try:
+                if not self.is_connected():
+                    break
+
                 reading = self.get_display_readings()
 
                 if not reading:
@@ -522,8 +532,9 @@ class PowerSupply9104:
                 time.sleep(0.05)
             except Exception as e:
                 self.log(f"Error getting voltage mode", LogLevel.ERROR)
+                break  # Don't retry on unexpected errors
 
-        self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+        self.log(f"Failed to get valid reading after {attempt + 1} attempt(s)", LogLevel.WARNING)
         return None, None, "Err"
 
     def set_over_current_protection(self, ocp_amps):
