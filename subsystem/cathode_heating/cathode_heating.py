@@ -2244,10 +2244,16 @@ class CathodeHeatingSubsystem:
 
     def close_com_ports(self):
         """
-        Closes the serial port connection and stops the serial thread upon quitting the application.
+        Disables all power supply outputs and closes serial connections upon quitting the application.
         """
         if hasattr(self, 'power_supplies') and self.power_supplies:
-            for ps in self.power_supplies:
+            for i, ps in enumerate(self.power_supplies):
+                try:
+                    if hasattr(ps, 'disable_output') and ps.is_connected():
+                        self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
+                        ps.disable_output()
+                except Exception as e:
+                    self.log(f"Error disabling output on cathode {chr(65 + i)}: {e}", LogLevel.ERROR)
                 if hasattr(ps, 'close'):
                     ps.close()
 

@@ -699,6 +699,20 @@ class PowerSupply9104:
         command = f"SETM{setv1:04}{seti1:04}{swtime1:03}{setv2:04}{seti2:04}{swtime2:03}{setv3:04}{seti3:04}{swtime3:03}"
         return self.send_command(command)
     
+    def disable_output(self):
+        """Disable the power supply output unconditionally (no OVP validation)."""
+        if not self.is_connected():
+            self.log("Cannot disable output: not connected.", LogLevel.WARNING)
+            return False
+        command = "SOUT0"
+        response = self.send_command(command)
+        if response and "OK" in response:
+            self.log("Output disabled.", LogLevel.INFO)
+            return True
+        else:
+            self.log(f"Failed to disable output: {response}", LogLevel.ERROR)
+            return False
+
     def close(self):
         """Close the serial connection and stop threads."""
         self.log("Stopping threads and closing serial connection.", LogLevel.INFO)
