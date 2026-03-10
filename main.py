@@ -8,6 +8,7 @@ import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
+from utils import Logger, LogLevel
 
 
 SUBSYSTEMS = [
@@ -39,13 +40,16 @@ def create_dummy_ports(subsystems):
     """
     return {subsystem: f"DUMMY_COM{i+1}" for i, subsystem in enumerate(subsystems)}
 
-def start_main_app(com_ports, cathode_datasets=None):
+def start_main_app(com_ports, cathode_datasets=None, logger=None):
     """
     Create and start the main EBEAM System Dashboard application.
 
     :param com_ports: Dict mapping subsystems to their selected COM ports.
     :param cathode_datasets: Dict mapping cathode names to selected dataset files.
     """
+    if logger is None:
+        logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+    logger.info("Dashboard init start")
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
@@ -174,10 +178,10 @@ def start_main_app(com_ports, cathode_datasets=None):
     root.bind('<Control-s>', save_logs)         # Save log file
   
 
-    app = EBEAMSystemDashboard(root, com_ports, cathode_datasets=cathode_datasets)
+    app = EBEAMSystemDashboard(root, com_ports, cathode_datasets=cathode_datasets, logger=logger)
     root.mainloop()
 
-def config_com_ports(saved_com_ports):
+def config_com_ports(saved_com_ports, logger=None):
     """
     Display a configuration GUI for selecting COM ports for each subsystem.
     Users can choose from available real COM ports or dummy ports.
@@ -337,11 +341,13 @@ def config_com_ports(saved_com_ports):
                 return  # Stay on the configuration window
         
         # save final selections
-        save_com_ports(selected_ports)
+        save_com_ports(selected_ports, logger=logger)
+        if logger is not None:
+            logger.info(f"COM-port selection submitted: {selected_ports}")
         config_root.destroy()
 
         # Pass selected_datasets to main app
-        start_main_app(selected_ports, cathode_datasets=selected_datasets)
+        start_main_app(selected_ports, cathode_datasets=selected_datasets, logger=logger)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
@@ -351,8 +357,12 @@ def config_com_ports(saved_com_ports):
 
 
 if __name__ == "__main__":
+    bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+    bootstrap_logger.info("Process launch")
+
     # Load previously saved COM ports, if any
-    saved_com_ports = load_com_ports()
+    saved_com_ports = load_com_ports(logger=bootstrap_logger)
+    bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available")
 
     # Prompt the user to confirm or change COM ports
-    config_com_ports(saved_com_ports)
+    config_com_ports(saved_com_ports, logger=bootstrap_logger)
