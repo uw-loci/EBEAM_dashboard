@@ -1,7 +1,8 @@
-__pycache__/
+﻿__pycache__/
 usr/usr_data/
 venv/
 build/
 dist/
 EBEAM-Dashboard-Logs/
 EBEAM-Dashboard-WMLogs/
+citestfiles/_tmp/
