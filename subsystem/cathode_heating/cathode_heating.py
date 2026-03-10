@@ -56,34 +56,6 @@ class CathodeHeatingSubsystem:
         'DISCONNECTED': '#808080'
     }
 
-    def get_dataset_path(self, cathode_key, default_file):
-        """
-        Get the full path to a dataset file for a cathode.
-        
-        Args:
-            cathode_key (str): Key for the cathode (e.g., 'CathodeA PS')
-            default_file (str): Default filename to use if not specified
-            
-        Returns:
-            str: Full path to the dataset file
-        """
-        filename = self.cathode_datasets.get(cathode_key, default_file)
-
-        # resolve the LUT folder via resource_path so the logic works in a
-        # bundled executable as well as during development.
-        lut_rel = os.path.join('data', 'lut', 'power_supply')
-        lut_dir = resource_path(lut_rel)
-
-        if os.path.isabs(filename):
-            return filename
-
-        # path already references our LUT directory
-        if filename.startswith(lut_dir) or filename.startswith(lut_rel):
-            return resource_path(filename) if not os.path.isabs(filename) else filename
-
-        # otherwise assume it is the name of a file stored under the LUT dir
-        return os.path.join(lut_dir, filename)
-    
     def __init__(self, parent, com_ports, active, logger=None, cathode_datasets=None):
         """
         Initialize the cathode heating subsystem.
@@ -160,11 +132,8 @@ class CathodeHeatingSubsystem:
 
         # Track selected LUT filenames for each cathode (A, B, C)
         self.selected_lut_files = [None, None, None]
-        self.lookup_table_setting = [
-            self.current_options.get("Cathode A", self.current_options.get("Default", None)), 
-            self.current_options.get("Cathode B", self.current_options.get("Default", None)), 
-            self.current_options.get("Cathode C", self.current_options.get("Default", None)),
-        ]
+        default_lut = self.current_options.get("Default", None)
+        self.lookup_table_setting = [default_lut, default_lut, default_lut]
         
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
