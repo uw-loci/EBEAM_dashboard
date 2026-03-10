@@ -923,20 +923,49 @@ class CathodeHeatingSubsystem:
             overtemp_status_frame.grid(row=10, column=0, columnspan=3, sticky='w', pady=(2, 2))
             overtemp_status_label = ttk.Label(overtemp_status_frame, text='Overtemp Status:', style='LeftAlign.TLabel')
             overtemp_status_label.pack(side='left')
+            ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
 
             # Place echoback and temperature buttons on the config tab
             echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
                                         command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=10, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
             read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
                                         command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
         config_tab.columnconfigure(1, weight=1)
 
         self.init_time = datetime.datetime.now()
+
+    def refresh_predictions(self, cathode_idx):
+        """
+        Refresh predicted values for the specified cathode index after LUT change.
+        """
+        lut_df = self.lookup_table_setting[cathode_idx]
+        # If LUT is valid, update predictions; else set to '--'
+        if lut_df is not None and not lut_df.empty:
+            # Use the first row of the LUT as a demonstration (replace with your actual logic)
+            try:
+                row = lut_df.iloc[0]
+                self.predicted_emission_current_vars[cathode_idx].set(str(row.get('beam_current', '--')))
+                self.predicted_grid_current_vars[cathode_idx].set(str(round(row.get('beam_current', 0) * 0.28, 2)) if 'beam_current' in row else '--')
+                self.predicted_heater_current_vars[cathode_idx].set(str(row.get('heater_current', '--')))
+                self.predicted_heater_voltage_vars[cathode_idx].set(str(row.get('voltage', '--')))
+                self.predicted_temperature_vars[cathode_idx].set('--')  # Add temperature prediction if available
+            except Exception:
+                self.predicted_emission_current_vars[cathode_idx].set('--')
+                self.predicted_grid_current_vars[cathode_idx].set('--')
+                self.predicted_heater_current_vars[cathode_idx].set('--')
+                self.predicted_heater_voltage_vars[cathode_idx].set('--')
+                self.predicted_temperature_vars[cathode_idx].set('--')
+        else:
+            self.predicted_emission_current_vars[cathode_idx].set('--')
+            self.predicted_grid_current_vars[cathode_idx].set('--')
+            self.predicted_heater_current_vars[cathode_idx].set('--')
+            self.predicted_heater_voltage_vars[cathode_idx].set('--')
+            self.predicted_temperature_vars[cathode_idx].set('--')
 
     def update_com_ports(self, new_com_ports):
         """
