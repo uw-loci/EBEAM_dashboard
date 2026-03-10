@@ -4,7 +4,7 @@ from threading import Lock
 import struct
 from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
-from pymodbus.exceptions import ModbusIOException
+from pymodbus.exceptions import ModbusIOException, ConnectionException
 from typing import Dict
 
 class DP16ProcessMonitor:
@@ -46,7 +46,8 @@ class DP16ProcessMonitor:
             bytesize=8,
             parity='N',
             stopbits=1,
-            timeout=0.3
+            timeout=0.3,
+            retries=1,
         )
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
@@ -228,7 +229,11 @@ class DP16ProcessMonitor:
         self.poll_all_units()
 
     def poll_all_units(self):
-        """Single polling loop with each unit independent"""
+        """Single polling loop with each unit independent.
+        
+        Port management is handled by pymodbus execute() auto-connect.
+        We only track connection state for logging and DISCONNECTED threshold.
+        """
         self.log("poll_all_units: entering main loop", LogLevel.DEBUG)
         poll_cycle = 0
         while self._is_running:
@@ -236,40 +241,15 @@ class DP16ProcessMonitor:
             cycle_start = time.time()
             current_time = cycle_start
             try:
-                # Check if client is still connected
+                # Log port state for diagnostics — but don't gate on it;
+                # pymodbus execute() will auto-reopen if needed
                 socket_open = self.client.is_socket_open()
                 if not socket_open:
-                    self.consecutive_connection_errors += 1
                     self.log(
-                        f"poll cycle {poll_cycle}: socket closed "
-                        f"(consecutive_connection_errors={self.consecutive_connection_errors})",
+                        f"poll cycle {poll_cycle}: socket closed — "
+                        f"pymodbus will auto-reconnect on next read",
                         LogLevel.DEBUG
                     )
-                    # Mark all disconnected if we exceed error threshold
-                    if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
-                        with self.response_lock:
-                            for unit in self.unit_numbers:
-                                self.temperature_readings[unit] = self.DISCONNECTED
-                        self.log(
-                            f"poll cycle {poll_cycle}: all units marked DISCONNECTED "
-                            f"(threshold {self.ERROR_THRESHOLD} reached)",
-                            LogLevel.WARNING
-                        )
-                    
-                    # Try to reconnect
-                    self.log(f"poll cycle {poll_cycle}: attempting reconnect...", LogLevel.DEBUG)
-                    if not self.connect():
-                        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
-                            self.log(
-                                f"poll cycle {poll_cycle}: reconnect failed — "
-                                f"retrying in 1s",
-                                LogLevel.ERROR
-                            )
-                            self.last_critical_error_time = current_time
-                        time.sleep(1)  # Delay before next attempt
-                        continue
-                    else:
-                        self.log(f"poll cycle {poll_cycle}: reconnect succeeded", LogLevel.INFO)
                 
                 # Poll each unit individually
                 units_ok = 0
@@ -277,14 +257,25 @@ class DP16ProcessMonitor:
                 for unit in sorted(self.unit_numbers):
                     try:
                         self._poll_single_unit(unit) 
-                        self.consecutive_connection_errors = 0  # Reset on successful poll
+                        self.consecutive_connection_errors = 0
                         units_ok += 1
                         time.sleep(0.1)
+                    except ConnectionException as e:
+                        # Port could not be opened — bus-level failure
+                        self.consecutive_connection_errors += 1
+                        self._handle_poll_error(unit, e)
+                        units_err += 1
+                        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+                            self.log(
+                                f"poll cycle {poll_cycle}: connection failed: {e}",
+                                LogLevel.ERROR
+                            )
+                            self.last_critical_error_time = current_time
+                        # No point polling remaining units if port won't open
+                        break
                     except (ModbusIOException, ValueError) as e:
                         self._handle_poll_error(unit, e)
                         units_err += 1
-                        
-                        # Rate limited error logging
                         if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
                             self.log(
                                 f"poll cycle {poll_cycle}: unit {unit} error: "
@@ -293,6 +284,19 @@ class DP16ProcessMonitor:
                             )
                             self.last_critical_error_time = current_time
 
+                # Mark all units DISCONNECTED if connection errors exceed threshold
+                if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
+                    with self.response_lock:
+                        for unit in self.unit_numbers:
+                            self.temperature_readings[unit] = self.DISCONNECTED
+                    if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+                        self.log(
+                            f"poll cycle {poll_cycle}: all units DISCONNECTED "
+                            f"(connection errors={self.consecutive_connection_errors})",
+                            LogLevel.WARNING
+                        )
+                        self.last_critical_error_time = current_time
+
                 cycle_ms = (time.time() - cycle_start) * 1000
                 self.log(
                     f"poll cycle {poll_cycle}: ok={units_ok} err={units_err} "
@@ -300,7 +304,12 @@ class DP16ProcessMonitor:
                     LogLevel.VERBOSE
                 )
 
-                if self.consecutive_connection_errors == 0:
+                # Backoff: longer sleep when everything is failing
+                if self.consecutive_connection_errors > 0:
+                    time.sleep(1)
+                elif units_err == len(self.unit_numbers):
+                    time.sleep(0.5)
+                else:
                     time.sleep(self.BASE_DELAY)
                     
             except Exception as e:
@@ -312,53 +321,24 @@ class DP16ProcessMonitor:
                         LogLevel.ERROR
                     )
                     self.last_critical_error_time = current_time
-                time.sleep(1)  # Backoff to prevent spin-loop on persistent errors
+                time.sleep(1)
 
     def _poll_single_unit(self, unit):
-        """Poll a single unit atomically"""
+        """Poll a single unit — read process value (temperature) directly.
+        
+        Matches the approach of the working pmon_modbus.py driver:
+        read PROCESS_VALUE_REG only, skip STATUS_REG during normal polling.
+        pymodbus execute() handles auto-connect if port was closed.
+        """
         if not self._is_running:
             return
 
         with self.modbus_lock:
-            # Clear any stale data before status read
+            # Clear any stale data
             if hasattr(self.client, 'serial') and self.client.serial:
                 self.client.serial.reset_input_buffer()
 
-            # Read status first
-            self.log(f"_poll unit {unit}: reading STATUS_REG (0x{self.STATUS_REG:04X})", LogLevel.VERBOSE)
-            status = self.client.read_holding_registers(
-                address=self.STATUS_REG,
-                count=1,
-                slave=unit
-            )
-            time.sleep(self.INTER_COMMAND_DELAY)
-            if status.isError():
-                self.consecutive_error_counts[unit] += 1
-                self.log(
-                    f"_poll unit {unit}: STATUS_REG read error — response: {status}",
-                    LogLevel.DEBUG
-                )
-                raise ModbusIOException("Status read failed")
-
-            status_val = status.registers[0]
-            self.log(
-                f"_poll unit {unit}: status=0x{status_val:04X}",
-                LogLevel.VERBOSE
-            )
-
-            # Warn if not in expected running state
-            if status_val != self.STATUS_RUNNING:
-                self.log(
-                    f"_poll unit {unit}: status 0x{status_val:04X} differs from "
-                    f"expected RUNNING (0x{self.STATUS_RUNNING:04X})",
-                    LogLevel.WARNING
-                )
-
-            # Clear buffer before temperature read
-            if hasattr(self.client, 'serial') and self.client.serial:
-                self.client.serial.reset_input_buffer()
-
-            # Read temperature
+            # Read temperature (2 registers, IEEE 754 float)
             self.log(
                 f"_poll unit {unit}: reading PROCESS_VALUE_REG (0x{self.PROCESS_VALUE_REG:04X}, 2 regs)",
                 LogLevel.VERBOSE
@@ -369,12 +349,13 @@ class DP16ProcessMonitor:
                 slave=unit
             )
             time.sleep(self.INTER_COMMAND_DELAY)
+
             if response.isError():
                 self.log(
                     f"_poll unit {unit}: PROCESS_VALUE read error — response: {response}",
                     LogLevel.DEBUG
                 )
-                raise ModbusIOException("Temperature read failed")
+                raise ModbusIOException(f"Temperature read failed for unit {unit}")
 
             # Process response
             reg0, reg1 = response.registers[0], response.registers[1]
@@ -386,7 +367,7 @@ class DP16ProcessMonitor:
                 LogLevel.VERBOSE
             )
 
-            # In-line validation
+            # Validation
             if abs(value) < 0.001:
                 self.log(
                     f"_poll unit {unit}: near-zero reading {value:.6f} — likely comms error",
@@ -401,10 +382,9 @@ class DP16ProcessMonitor:
                 )
                 raise ValueError(f"Temperature out of range: {value}")
 
-            # All good, reset the consecutive error count
+            # All good — reset error count and update reading
             self.consecutive_error_counts[unit] = 0
             
-            # Update reading for GUI availability
             with self.response_lock:
                 prev = self.temperature_readings[unit]
                 self.temperature_readings[unit] = value
