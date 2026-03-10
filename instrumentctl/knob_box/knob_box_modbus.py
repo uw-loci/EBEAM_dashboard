@@ -209,20 +209,14 @@ class KnobBoxModbus:
                     i_read = input_registers.registers[IREG_I_READ_ADDR]
                     reset_counter = input_registers.registers[IREG_3KV_RESET_COUNT_ADDR]
                     
-                    raw_hv_enable = input_registers.registers[DINPUT_HVENABLE_ADDR]
-                    hv_enable = int(bool(raw_hv_enable))
-                    if self.debug_mode:
-                        self.log(
-                            f"[unit {unit_id}] hv_enable raw={raw_hv_enable} interpreted={hv_enable}",
-                            LogLevel.DEBUG
-                        )
+                    hv_enable = int(bool(input_registers.registers[DINPUT_HVENABLE_ADDR]))
 
                     arm_80kV = int(bool(input_registers.registers[DINPUT_ARM80KV_ADDR]))
-                    arm_beams = int(bool(input_registers.registers[DINPUT_ARMBEAMS_ADDR]))
-                    ccs_power = int(bool(input_registers.registers[DINPUT_CCSPOWER_ADDR]))
-                    enable_3kV = int(bool(input_registers.registers[DINPUT_3KV_ENABLE_ADDR]))
+                    arm_beams = not int(bool(input_registers.registers[DINPUT_ARMBEAMS_ADDR]))
+                    ccs_power = not int(bool(input_registers.registers[DINPUT_CCSPOWER_ADDR]))
+                    enable_3kV = not int(bool(input_registers.registers[DINPUT_3KV_ENABLE_ADDR]))
 
-                    if (unit_id == 4):
+                    if (unit_id == 4 ):
                         hv_enable = enable_3kV # for the 3kV Bertan, hv enable comes from logic arduino output
 
                     reset_state_1kV = int(bool(input_registers.registers[DINPUT_RESET_STATE_1KV_ADDR]))
