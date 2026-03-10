@@ -49,6 +49,7 @@ class InterlocksSubsystem:
         self.update_interval = 500  # Default update interval (ms)
         self.max_interval = 5000   # Maximum update interval (ms)
         self._last_status = None
+        self._after_ids = set()
         self.setup_gui()
 
         try:
@@ -68,7 +69,7 @@ class InterlocksSubsystem:
             self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
             self._set_all_indicators('red')
         
-        self.parent.after(self.update_interval, self.update_data)
+        self._schedule_update()
 
     def update_com_port(self, com_port):
         """
@@ -269,7 +270,6 @@ class InterlocksSubsystem:
                         self.log("No data available from G9", LogLevel.CRITICAL)
                         self.last_error_time = current_time
                         self._adjust_update_interval(success=False)
-                        self.parent.after(self.update_interval, self.update_data)
                         return
                 
                 sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms, debug_data = status
@@ -346,7 +346,32 @@ class InterlocksSubsystem:
         finally:
             # Schedule next update
             if self.driver:
-                self.parent.after(self.update_interval, self.update_data)
+                self._schedule_update()
+    
+    def cancel_updates(self):
+        '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        if hasattr(self, '_after_ids') and self._after_ids:
+            for after_id in list(self._after_ids):
+                try:
+                    self.parent.after_cancel(after_id)
+                except Exception:
+                    pass
+            self._after_ids.clear()
+            self.log('Canceled scheduled interlock status update.', LogLevel.DEBUG)
+
+    def _schedule_update(self):
+        """Schedule the next update and track the callback id for cancellation."""
+        id_holder = {}
+
+        def _callback():
+            after_id = id_holder.get('id')
+            if after_id:
+                self._after_ids.discard(after_id)
+            self.update_data()
+
+        after_id = self.parent.after(self.update_interval, _callback)
+        id_holder['id'] = after_id
+        self._after_ids.add(after_id)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
