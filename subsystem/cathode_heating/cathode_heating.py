@@ -958,13 +958,6 @@ class CathodeHeatingSubsystem:
             overtemp_status_label.pack(side='left')
             ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
 
-            # Place echoback and temperature buttons on the config tab
-            echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
-                                        command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=12, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-            read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
-                                        command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=13, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
