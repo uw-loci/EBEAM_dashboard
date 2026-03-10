@@ -17,15 +17,23 @@ def save_pane_states(config, frames, pane, filepath=CONFIG_FILE):
         json.dump(data, file)
 
 # reads in file and passes the config file back as a dict
-def load_pane_states(filepath=CONFIG_FILE):
+def load_pane_states(filepath=CONFIG_FILE, logger=None):
     try:
         with open(filepath, 'r') as file:
             data = json.load(file)
+        if logger is not None:
+            logger.info(f"Pane state loaded from {filepath}.")
         return dict(data)
     except FileNotFoundError:
-        print("No previous pane state saved.")
+        if logger is not None:
+            logger.info("No previous pane state saved.")
+        else:
+            print("No previous pane state saved.")
     except Exception as e:
-        print(f"Failed to load pane states: {e}")
+        if logger is not None:
+            logger.error(f"Failed to load pane states: {e}")
+        else:
+            print(f"Failed to load pane states: {e}")
 
 # checks to see if that config file exists
 def saveFileExists(filepath=CONFIG_FILE):

@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
-from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
+from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
 frames_config = [
@@ -62,17 +62,20 @@ class EBEAMSystemDashboard:
         "safetyInputStatusFlags"
     ]}
 
-    def __init__(self, root, com_ports):
+    def __init__(self, root, com_ports, logger=None):
         self.root = root
         self.com_ports = com_ports
+        self.logger = logger
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
         
         
-        # if save file exists call it and open it
-        if saveFileExists():
-             self.load_saved_pane_state()
+        if self.load_saved_pane_state():
+            if self.logger is not None:
+                self.logger.info("Pane-state restore result: restored saved pane state")
+        elif self.logger is not None:
+            self.logger.info("Pane-state restore result: no saved pane state applied")
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
@@ -90,9 +93,13 @@ class EBEAMSystemDashboard:
         self.create_machine_status_frame()
 
         # Set up different subsystems within their respective frames
+        if self.logger is not None:
+            self.logger.info("Subsystem initialization start")
         self.create_subsystems()
 
         self._check_ports()
+        if self.logger is not None:
+            self.logger.info("Dashboard ready")
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -246,12 +253,13 @@ class EBEAMSystemDashboard:
 
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
-        savedData = load_pane_states()
-
+        savedData = load_pane_states(logger=self.logger)
+        if not savedData:
+            return False
         for i in range(len(frames_config)):
             if frames_config[i][0] in savedData:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
-        savedData = load_pane_states()
+        return True
 
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
@@ -345,7 +353,7 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
+        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3], logger=self.logger)
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
