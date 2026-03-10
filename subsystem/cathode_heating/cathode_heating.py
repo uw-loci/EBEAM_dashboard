@@ -14,6 +14,7 @@ from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np
+import pandas as pd
 from utils import LogLevel
 from decimal import Decimal
 
@@ -79,10 +80,42 @@ class CathodeHeatingSubsystem:
         self.logger = logger
         self.active = active
         self.cathode_datasets = cathode_datasets or {}
+        
+        lut_rel = os.path.join('data', 'lut', 'power_supply')
+        lut_dir = resource_path(lut_rel)
+        self.lut_dir = lut_dir
         self.current_options = {}
+
+        def validate_lut(df):
+            required_cols = ['beam_current', 'voltage', 'heater_current']
+            if not all(col in df.columns for col in required_cols):
+                return False
+            if df[required_cols].isnull().any().any():
+                return False
+            if len(df) == 0:
+                return False
+            return True
+
+        if os.path.exists(lut_dir):
+            for filename in os.listdir(lut_dir):
+                if filename.lower().endswith('.csv'):
+                    file_path = os.path.join(lut_dir, filename)
+                    try:
+                        df = pd.read_csv(file_path)
+                        key = 'Default' if filename.lower() == 'default.csv' else filename
+                        self.current_options[key] = df if validate_lut(df) else None
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.log(f"Failed to load LUT {filename}: {e}", LogLevel.ERROR)
+                        key = 'Default' if filename.lower() == 'default.csv' else filename
+                        self.current_options[key] = None
+        else:
+            if self.logger:
+                self.logger.log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
+
         self.selected_lut_files = [None, None, None]
-        self.lookup_table_setting = [None, None, None]
-        self.lut_dir = ""
+        default_lut = self.current_options.get("Default", None)
+        self.lookup_table_setting = [default_lut, default_lut, default_lut]
 
         # Power supply state tracking
         self.power_supply_status = [False, False, False]

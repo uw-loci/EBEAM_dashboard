@@ -8,7 +8,6 @@ import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
-from utils import Logger, LogLevel
 
 
 SUBSYSTEMS = [
@@ -40,43 +39,39 @@ def create_dummy_ports(subsystems):
     """
     return {subsystem: f"DUMMY_COM{i+1}" for i, subsystem in enumerate(subsystems)}
 
-def start_main_app(com_ports, logger=None, cathode_datasets=None):
+def start_main_app(com_ports, cathode_datasets=None):
     """
     Create and start the main EBEAM System Dashboard application.
 
     :param com_ports: Dict mapping subsystems to their selected COM ports.
-    :param logger: Optional logger.
     :param cathode_datasets: Dict mapping cathode names to selected dataset files.
     """
-    if logger is None:
-        logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
-    logger.info("Dashboard init start")
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
 
     # Track fullscreen state
     fullscreen = False
-  
+
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             app.cleanup()
             root.destroy()
         return "break"
-    
+
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
         fullscreen = not fullscreen
         root.attributes('-fullscreen', fullscreen)
         return "break"
-    
+
     def escape_handler(event=None):
         nonlocal fullscreen
         if fullscreen:
             fullscreen = False
             root.attributes('-fullscreen', False)
         return "break"
-    
+
     def toggle_maximize(event=None):
         if root.state() == 'zoomed':
             root.state('normal')
@@ -177,11 +172,12 @@ def start_main_app(com_ports, logger=None, cathode_datasets=None):
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
+  
 
-    app = EBEAMSystemDashboard(root, com_ports, logger=logger, cathode_datasets=cathode_datasets)
+    app = EBEAMSystemDashboard(root, com_ports, cathode_datasets=cathode_datasets)
     root.mainloop()
 
-def config_com_ports(saved_com_ports, logger=None):
+def config_com_ports(saved_com_ports):
     """
     Display a configuration GUI for selecting COM ports for each subsystem.
     Users can choose from available real COM ports or dummy ports.
@@ -222,7 +218,7 @@ def config_com_ports(saved_com_ports, logger=None):
 
     # Dataset files for cathodes
     lut_dir = os.path.join('data', 'lut', 'power_supply')
-    cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv') and f.lower() != 'default.csv'] if os.path.exists(lut_dir) else []
+    cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv') and f.lower() != 'default.csv']
     # Add 'Default' option at the top, do not show 'default.csv' in the dropdown
     dataset_options = ['Default'] + cathode_files
     cathode_map = {'CathodeA PS': 'A', 'CathodeB PS': 'B', 'CathodeC PS': 'C'}
@@ -260,7 +256,6 @@ def config_com_ports(saved_com_ports, logger=None):
         )
         if file_path:
             dest_dir = os.path.join('data', 'lut', 'power_supply')
-            os.makedirs(dest_dir, exist_ok=True)
             dest_file = os.path.join(dest_dir, os.path.basename(file_path))
             try:
                 shutil.copy(file_path, dest_file)
@@ -307,12 +302,14 @@ def config_com_ports(saved_com_ports, logger=None):
         dataset_selections[cathode] = selected_dataset
         dataset_comboboxes.append(dataset_combobox)
 
+
     def on_submit():
         """
         Handler for the 'Submit' button. Checks if all subsystems have a port
         selected. If not, offers to fill those with dummy ports. If the user
         refuses, they remain in the config window.
         """
+
         selected_ports = {key: value.get() for key, value in selections.items()}
         selected_datasets = {}
         for key, value in dataset_selections.items():
@@ -321,7 +318,7 @@ def config_com_ports(saved_com_ports, logger=None):
                 selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', 'default.csv')
             else:
                 selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', v)
-        
+
         # check that all COM ports are selected
         if not all(selected_ports.values()):
             response = messagebox.askquestion(
@@ -340,13 +337,11 @@ def config_com_ports(saved_com_ports, logger=None):
                 return  # Stay on the configuration window
         
         # save final selections
-        save_com_ports(selected_ports, logger=logger)
-        if logger is not None:
-            logger.info(f"COM-port selection submitted: {selected_ports}")
+        save_com_ports(selected_ports)
         config_root.destroy()
-        
-        # Launch the main application
-        start_main_app(selected_ports, logger=logger, cathode_datasets=selected_datasets)
+
+        # Pass selected_datasets to main app
+        start_main_app(selected_ports, cathode_datasets=selected_datasets)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
@@ -356,12 +351,8 @@ def config_com_ports(saved_com_ports, logger=None):
 
 
 if __name__ == "__main__":
-    bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
-    bootstrap_logger.info("Process launch")
-
     # Load previously saved COM ports, if any
-    saved_com_ports = load_com_ports(logger=bootstrap_logger)
-    bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available")
+    saved_com_ports = load_com_ports()
 
     # Prompt the user to confirm or change COM ports
-    config_com_ports(saved_com_ports, logger=bootstrap_logger)
+    config_com_ports(saved_com_ports)
