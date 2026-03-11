@@ -34,6 +34,7 @@ class BeamEnergySubsystem:
 
         self.knob_box_controller = None
         self.knob_box_connected = False
+        self.knob_box_connected_at = None
         
         # Main power supply configurations
         self.power_supplies = [
@@ -316,15 +317,18 @@ class BeamEnergySubsystem:
                 self.logger.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
                 self.knob_box_controller = knob_box_modbus
                 self.knob_box_connected = True
+                self.knob_box_connected_at = time.time()
                 self.start_polling_thread()  # Start background thread to poll data
                 return True
             else:
                 self.logger.log(f"Failed to connect to KnobBox Modbus controller on port {port}", LogLevel.ERROR)
                 self.knob_box_connected = False
+                self.knob_box_connected_at = None
                 return False
         except Exception as e:
             self.logger.log(f"Exception thrown when trying to connect to KnobBox on port {port}: {str(e)}", LogLevel.ERROR)
             self.knob_box_connected = False
+            self.knob_box_connected_at = None
             return False
         
     def attempt_knob_box_reconnect(self):
@@ -415,6 +419,29 @@ class BeamEnergySubsystem:
         try:
             if self.knob_box_connected and self.knob_box_controller:
                 knob_box = self.knob_box_controller
+                any_connected = knob_box.any_unit_connected()
+                if not any_connected:
+                    # Allow a short grace period after connect before forcing reconnect.
+                    if self.knob_box_connected_at and (time.time() - self.knob_box_connected_at) < knob_box.CONNECTION_TIMEOUT:
+                        for index, _ in enumerate(self.power_supplies):
+                            self.set_default_values(index)
+                        self.after_id = self.parent_frame.after(500, self.update_readings)
+                        return
+
+                    self.knob_box_connected = False
+                    self.knob_box_connected_at = None
+                    for index, _ in enumerate(self.power_supplies):
+                        self.set_default_values(index)
+                    if not self.reconnect_in_progress.is_set():
+                        self.reconnect_in_progress.set()
+                        self.parent_frame.after(0, self._safe_reconnect)
+                    # Schedule next update and exit early
+                    self.log(
+                        "KnobBox controller unresponsive, using default values.",
+                        LogLevel.DEBUG
+                    )
+                    self.after_id = self.parent_frame.after(500, self.update_readings)
+                    return
             else:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
@@ -436,58 +463,64 @@ class BeamEnergySubsystem:
                 
                 # Unit IDs start at one. We may want to create a mapping later when we have the final values
                 unit_id = index + 1
+                comms = knob_box.get_unit_connection_status(unit_id)
+                if not comms:
+                    self.set_default_values(index)
+                    continue
+
                 data = data_snapshot.get(unit_id, None)
                 
-                if data:
-                    health = data.get('health', 'unknown')
-                    v_set = data.get('set_voltage_V', None)
-                    v_read = data.get('actual_voltage_V', None)
-                    i_read = data.get('actual_current_mA', None)
-                    hv_enable = data.get('hv_enable', False)
-                    arm_beams = data.get('arm_beams', False)
-                    ccs_power = data.get('ccs_power', False)
-                    arm_80kV = data.get('arm_80kV', False)
-                    reset_state = data.get('reset_state_1kV', False)
-                    nomop_flag = data.get('nomop_flag', False)
-                    logic_alive = data.get('logic_alive', False)
-                    # TODO flags for interlocks
-
-                    # Map mode integer to human-readable label for logging
-                    mode_text = "health unintialized" if health == 0 else "health unknown"
-
-                    # Overcurrent Handling:
-                    # if overcurrent:
-                    #     # Log once when overcurrent condition is first detected
-                    #     if not self.overcurrent_flags[index]:
-                    #         self.log(f"Overcurrent detected on Power Supply {unit_id}!", LogLevel.WARNING)
-                            
-                    #         messagebox.showwarning(
-                    #             title="Overcurrent Warning",
-                    #             message=f"Overcurrent detected on Power Supply {unit_id}.\n"
-                    #                     f"The hardware system has taken protective action.\n\n"
-                    #                     f"Press OK to acknowledge.")
-
-                    #     self.overcurrent_flags[index] = True
-
-                    # else:
-                    #     # Clear flag and log recovery from overcurrent state
-                    #     if self.overcurrent_flags[index]:
-                    #         self.log(f"Power Supply {unit_id} recovered from overcurrent.", LogLevel.INFO)
-                    #     self.overcurrent_flags[index] = False
-
-                    # print structured DEBUG log line per unit when measurements are present
-                    if (v_read is not None) and (i_read is not None):
-                        try:
-                            voltage_V = float(v_read)
-                            current_A = float(i_read) / 1000.0  # mA -> A
-                            ps_number = unit_id  # keep 1-4 numbering aligned with UNIT_IDS
-                        except Exception:
-                            pass # If conversion fails, skip logging
-
-                    
-                    self.update_connection_status(index, True)
-                else:
+                if not data:
                     self.set_default_values(index)
+                    continue
+
+                health = data.get('health', 'unknown')
+                v_set = data.get('set_voltage_V', None)
+                v_read = data.get('actual_voltage_V', None)
+                i_read = data.get('actual_current_mA', None)
+                hv_enable = data.get('hv_enable', False)
+                arm_beams = data.get('arm_beams', False)
+                ccs_power = data.get('ccs_power', False)
+                arm_80kV = data.get('arm_80kV', False)
+                reset_state = data.get('reset_state_1kV', False)
+                nomop_flag = data.get('nomop_flag', False)
+                logic_alive = data.get('logic_alive', False)
+                # TODO flags for interlocks
+
+                # Map mode integer to human-readable label for logging
+                mode_text = "health unintialized" if health == 0 else "health unknown"
+
+                # Overcurrent Handling:
+                # if overcurrent:
+                #     # Log once when overcurrent condition is first detected
+                #     if not self.overcurrent_flags[index]:
+                #         self.log(f"Overcurrent detected on Power Supply {unit_id}!", LogLevel.WARNING)
+                        
+                #         messagebox.showwarning(
+                #             title="Overcurrent Warning",
+                #             message=f"Overcurrent detected on Power Supply {unit_id}.\n"
+                #                     f"The hardware system has taken protective action.\n\n"
+                #                     f"Press OK to acknowledge.")
+
+                #     self.overcurrent_flags[index] = True
+
+                # else:
+                #     # Clear flag and log recovery from overcurrent state
+                #     if self.overcurrent_flags[index]:
+                #         self.log(f"Power Supply {unit_id} recovered from overcurrent.", LogLevel.INFO)
+                #     self.overcurrent_flags[index] = False
+
+                # print structured DEBUG log line per unit when measurements are present
+                if (v_read is not None) and (i_read is not None):
+                    try:
+                        voltage_V = float(v_read)
+                        current_A = float(i_read) / 1000.0  # mA -> A
+                        ps_number = unit_id  # keep 1-4 numbering aligned with UNIT_IDS
+                    except Exception:
+                        pass # If conversion fails, skip logging
+
+                
+                self.update_connection_status(index, True)
 
                 # Update display values if data is valid
                 if v_set is not None:
@@ -506,7 +539,6 @@ class BeamEnergySubsystem:
                     self.actual_currents[index].set("-- mA")
 
                 # Get the connection status for the current unit
-                comms = knob_box.get_unit_connection_status(unit_id)
                 # self.logger.log(f"[unit {unit_id}] Connection status: {comms}", LogLevel.DEBUG)
 
                 # Update indicators based on data
@@ -568,6 +600,7 @@ class BeamEnergySubsystem:
             self.knob_box_controller.disconnect()
             self.knob_box_controller = None
             self.knob_box_connected = False
+            self.knob_box_connected_at = None
 
     def close(self):
         """Close the subsystem and clean up resources."""
