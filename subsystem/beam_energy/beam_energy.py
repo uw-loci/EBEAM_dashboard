@@ -449,6 +449,7 @@ class BeamEnergySubsystem:
                     arm_80kV = data.get('arm_80kV', False)
                     reset_state = data.get('reset_state_1kV', False)
                     nomop_flag = data.get('nomop_flag', False)
+                    logic_alive = data.get('logic_alive', False)
                     # TODO flags for interlocks
 
                     # Map mode integer to human-readable label for logging
