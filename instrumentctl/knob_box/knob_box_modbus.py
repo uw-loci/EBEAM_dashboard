@@ -36,11 +36,12 @@ DINPUT_NEG_1K_ICOMP_FLAG_ADDR = 19
 DINPUT_20K_VCOMP_FLAG_ADDR =    20
 DINPUT_20K_ICOMP_FLAG_ADDR =    21
 DINPUT_3K_VCOMP_FLAG_ADDR =     22
-DINPUT_3K_ICOMP_FLAG_ADDR =     23
+DINPUT_3K_ICOMP_FLAG_ADDR =     23 
+DINPUT_LOGIC_ALIVE_ADDR =       24
 
 # as the Modbus Map is updated, update these counts:
 IREG_COUNT = 5
-DINPUT_COUNT = 19
+DINPUT_COUNT = 20
 TOTAL_REG_COUNT = IREG_COUNT + DINPUT_COUNT
 #===========================================================
 #============= END MODBUS MAP ==============================
@@ -68,7 +69,8 @@ DATA_TEMPLATE = {
     "vcomp_20k_flag": 0,
     "icomp_20k_flag": 0,
     "vcomp_3k_flag": 0,
-    "icomp_3k_flag": 0
+    "icomp_3k_flag": 0,
+    "logic_alive": 0
 }
 
 class KnobBoxModbus:
@@ -235,6 +237,8 @@ class KnobBoxModbus:
                     vcomp_3k_flag = int(bool(input_registers.registers[DINPUT_3K_VCOMP_FLAG_ADDR]))
                     icomp_3k_flag = int(bool(input_registers.registers[DINPUT_3K_ICOMP_FLAG_ADDR]))
 
+                    logic_alive_flag = int(bool(input_registers.registers[DINPUT_LOGIC_ALIVE_ADDR]))
+
                     new_data = {
                         "health": health,
                         "set_voltage_V": float(v_set),
@@ -259,7 +263,8 @@ class KnobBoxModbus:
                         "vcomp_20k_flag": vcomp_20k_flag,
                         "icomp_20k_flag": icomp_20k_flag,
                         "vcomp_3k_flag": vcomp_3k_flag,
-                        "icomp_3k_flag": icomp_3k_flag
+                        "icomp_3k_flag": icomp_3k_flag,
+                        "logic_alive": logic_alive_flag
                     }
 
                     # Success - update data and return
@@ -323,5 +328,3 @@ class KnobBoxModbus:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
-
-# TODO: Figure out how output status will be recorded and stored in firmware
