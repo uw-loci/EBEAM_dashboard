@@ -53,7 +53,7 @@ class BeamEnergySubsystem:
         self.reset_status_colors = [tk.StringVar(value="white") for _ in range(2)]
         self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertran
         # Indicator Panel -> not power supply specific
-        self.glassman_interlock_var = tk.StringVar(value="ACTIVE")
+        self.glassman_interlock_var = tk.StringVar(value="UNARMED")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
@@ -191,7 +191,7 @@ class BeamEnergySubsystem:
                 top_row_frame, color=self.reset_status_colors[index].get()
             )
             reset_canvas.pack(side=tk.RIGHT, padx=4)
-            reset_label = ttk.Label(top_row_frame, text="Reset:", font=("Segoe UI", 8))
+            reset_label = ttk.Label(top_row_frame, text="Overcurrent:", font=("Segoe UI", 8))
             reset_label.pack(side=tk.RIGHT)
 
             def update_reset_circle(*args):
@@ -375,7 +375,7 @@ class BeamEnergySubsystem:
         if index < len(self.ui_elements):
             self.arm_beams_var.set("ARMED" if arm_beams else "UNARMED")
             self.ccs_power_var.set("ON" if ccs_power else "OFF")
-            self.glassman_interlock_var.set("BYPASSED" if arm_80kv else "ACTIVE")
+            self.glassman_interlock_var.set("ARMED" if arm_80kv else "UNARMED")
             self.logic_comms_color.set("blue" if logic_comms else "red")
             self.interlocks_color.set("red" if interlocks else "green")
 
@@ -573,7 +573,7 @@ class BeamEnergySubsystem:
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
         self.update_reset_status(index, False)
-        self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, logic_comms=False, interlocks=False)
+        self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, logic_comms=False, interlocks=True)
 
     def update_com_ports(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""
