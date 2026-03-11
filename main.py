@@ -56,26 +56,26 @@ def start_main_app(com_ports, cathode_datasets=None, logger=None):
 
     # Track fullscreen state
     fullscreen = False
-
+  
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             app.cleanup()
             root.destroy()
         return "break"
-
+    
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
         fullscreen = not fullscreen
         root.attributes('-fullscreen', fullscreen)
         return "break"
-
+    
     def escape_handler(event=None):
         nonlocal fullscreen
         if fullscreen:
             fullscreen = False
             root.attributes('-fullscreen', False)
         return "break"
-
+    
     def toggle_maximize(event=None):
         if root.state() == 'zoomed':
             root.state('normal')
@@ -176,7 +176,6 @@ def start_main_app(com_ports, cathode_datasets=None, logger=None):
     root.bind('<Escape>', escape_handler)       # Exit fullscreen
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
-  
 
     app = EBEAMSystemDashboard(root, com_ports, cathode_datasets=cathode_datasets, logger=logger)
     root.mainloop()
@@ -322,7 +321,7 @@ def config_com_ports(saved_com_ports, logger=None):
                 selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', 'default.csv')
             else:
                 selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', v)
-
+        
         # check that all COM ports are selected
         if not all(selected_ports.values()):
             response = messagebox.askquestion(
@@ -345,7 +344,7 @@ def config_com_ports(saved_com_ports, logger=None):
         if logger is not None:
             logger.info(f"COM-port selection submitted: {selected_ports}")
         config_root.destroy()
-
+        
         # Pass selected_datasets to main app
         start_main_app(selected_ports, cathode_datasets=selected_datasets, logger=logger)
 
