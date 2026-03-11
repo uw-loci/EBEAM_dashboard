@@ -172,7 +172,7 @@ class Logger:
         if self.supabase_client and self.log_to_file:
             if self.last_supabase_write is None or (now - self.last_supabase_write).total_seconds() >= 2:
                 try:
-                    self.supabase_client.insert_status_log(timestamp, update_dict)
+                    self.supabase_client.insert_status_log(update_dict)
                     self.last_supabase_write = now
                 except Exception as e:
                     print(f"Supabase write error: {e}")
