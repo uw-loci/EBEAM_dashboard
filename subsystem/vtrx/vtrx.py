@@ -51,6 +51,8 @@ class VTRXSubsystem:
         self.baud_rate = baud_rate
         self.logger = logger
         self.data_queue = queue.Queue()
+        self._closing = False
+        self._process_queue_after_id = None
         
         self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
@@ -182,6 +184,8 @@ class VTRXSubsystem:
 
         After processing all items, reschedules itself to run again after 500 ms.
         """
+        if self._closing or not self._ui_alive():
+            return
         try:
             while True:
                 data = self.data_queue.get_nowait()
@@ -192,7 +196,11 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
-            self.parent.after(500, self.process_queue)
+            if not self._closing and self._ui_alive():
+                try:
+                    self._process_queue_after_id = self.parent.after(500, self.process_queue)
+                except tk.TclError:
+                    self._process_queue_after_id = None
 
     def update_gui_with_error_state(self):
         """
@@ -201,6 +209,8 @@ class VTRXSubsystem:
         Sets indicators to red, updates pressure label, and changes plot appearance
         to indicate error condition.
         """
+        if self._closing or not self._ui_alive():
+            return
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
         self.ax.set_title('(Error)', fontsize=10, color='red')
@@ -404,7 +414,7 @@ class VTRXSubsystem:
             pressure_raw (str): Raw pressure string from sensor (e.g. "1.23E-04)
             switch_states (list): List of 8 bits binary switch states
         """
-        if self.error_state:
+        if self._closing or self.error_state or not self._ui_alive():
             return
         
         current_time = datetime.datetime.now()
@@ -457,6 +467,8 @@ class VTRXSubsystem:
 
     def update_plot(self):
         """Update plot with current display window data."""
+        if self._closing or not self._ui_alive():
+            return
         # Update the data for the line
         self.line.set_data(self.x_data, self.y_data)
         self.ax.relim()
@@ -480,14 +492,21 @@ class VTRXSubsystem:
         self.stop_event.clear()
         self.serial_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.serial_thread.start()
-        self.parent.after(100, self.process_queue)
+        if self._ui_alive():
+            try:
+                self._process_queue_after_id = self.parent.after(100, self.process_queue)
+            except tk.TclError:
+                self._process_queue_after_id = None
 
     def stop_serial_thread(self):
         self.stop_event.set()
+        self._cancel_process_queue()
         if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
             self.serial_thread.join()
     
     def update_time_window(self, seconds):
+        if self._closing or not self._ui_alive():
+            return
         current_time = datetime.datetime.now()
         self.display_window = seconds
         
@@ -536,6 +555,7 @@ class VTRXSubsystem:
 
     def __del__(self):
             # TBD ensure serial thread is stopped when the object is destroyed
+            self._closing = True
             self.stop_serial_thread()
             if self.ser and self.ser.is_open:
                 self.ser.close()
@@ -544,10 +564,26 @@ class VTRXSubsystem:
         """
         Closes the serial port connection and stops the serial thread upon quitting the application.
         """
+        self._closing = True
         self.stop_serial_thread()
         if self.ser and self.ser.is_open:
             self.ser.close()
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
         else:
             self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
+
+    def _cancel_process_queue(self):
+        if self._process_queue_after_id is None:
+            return
+        try:
+            self.parent.after_cancel(self._process_queue_after_id)
+        except tk.TclError:
+            pass
+        self._process_queue_after_id = None
+
+    def _ui_alive(self):
+        try:
+            return bool(self.parent.winfo_exists())
+        except tk.TclError:
+            return False
           

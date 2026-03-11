@@ -178,6 +178,8 @@ class ProcessMonitorSubsystem:
         self.error_count = 0
         self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
+        self._closing = False
+        self._update_after_id = None
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.thermometer_map = {
@@ -224,6 +226,8 @@ class ProcessMonitorSubsystem:
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
+        if self._closing or not self._ui_alive():
+            return
         current_time = time.time()
         try:
             if not self.monitor:
@@ -298,8 +302,13 @@ class ProcessMonitorSubsystem:
                 
         finally:
             # Schedule next update
-            if self.monitor:
-                self.parent.after(self.update_interval, self.update_temperatures)
+            if self.monitor and not self._closing and self._ui_alive():
+                try:
+                    self._update_after_id = self.parent.after(
+                        self.update_interval, self.update_temperatures
+                    )
+                except tk.TclError:
+                    self._update_after_id = None
 
     def _set_all_temps_error(self):
         """Set all temperature bars to error state"""
@@ -324,8 +333,26 @@ class ProcessMonitorSubsystem:
         """
         Closes the serial port connection upon quitting the application.
         """
+        self._closing = True
+        self._cancel_update()
         if self.monitor and hasattr(self.monitor, 'disconnect'):
             self.monitor.disconnect()
+            self.monitor = None
             self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
         else:
             self.log("Connection to PMON already closed", LogLevel.INFO)
+
+    def _cancel_update(self):
+        if self._update_after_id is None:
+            return
+        try:
+            self.parent.after_cancel(self._update_after_id)
+        except tk.TclError:
+            pass
+        self._update_after_id = None
+
+    def _ui_alive(self):
+        try:
+            return bool(self.parent.winfo_exists())
+        except tk.TclError:
+            return False

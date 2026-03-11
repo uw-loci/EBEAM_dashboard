@@ -5,6 +5,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 import datetime
+import threading
+import queue
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
@@ -25,8 +27,15 @@ class Logger:
         self.log_to_file = log_to_file
         self.log_file = None
         self.log_start_time = None
+        self._gui_queue = queue.Queue()
+        self._pump_after_id = None
+        self._pump_interval_ms = 100
+        self._closed = False
+        self._log_tag_configured = False
+        self._file_lock = threading.Lock()
         if log_to_file:
             self.setup_log_file()
+        self._start_gui_pump()
 
     def setup_log_file(self):
         """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
@@ -49,6 +58,69 @@ class Logger:
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
         
+    def _widget_alive(self):
+        if self.text_widget is None:
+            return False
+        try:
+            return bool(self.text_widget.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _start_gui_pump(self):
+        if not self._widget_alive():
+            return
+        if self._pump_after_id is None:
+            try:
+                self._pump_after_id = self.text_widget.after(
+                    self._pump_interval_ms, self._pump_queue
+                )
+            except tk.TclError:
+                self._pump_after_id = None
+
+    def _pump_queue(self):
+        if self._closed or not self._widget_alive():
+            self._pump_after_id = None
+            return
+        try:
+            while True:
+                message, tag = self._gui_queue.get_nowait()
+                self._write_to_text_widget(message, tag)
+        except queue.Empty:
+            pass
+        finally:
+            if not self._closed and self._widget_alive():
+                try:
+                    self._pump_after_id = self.text_widget.after(
+                        self._pump_interval_ms, self._pump_queue
+                    )
+                except tk.TclError:
+                    self._pump_after_id = None
+
+    def _write_to_text_widget(self, message, tag="log"):
+        if not self._widget_alive():
+            return
+        try:
+            self.text_widget.insert(tk.END, message, (tag,))
+            if tag == "log" and not self._log_tag_configured:
+                self.text_widget.tag_config("log", font=("Helvetica", 9))
+                self._log_tag_configured = True
+            self.text_widget.see(tk.END)
+        except tk.TclError:
+            # Widget is likely destroyed during shutdown.
+            pass
+
+    def _enqueue_gui_write(self, message, tag="log"):
+        if self._closed or self.text_widget is None:
+            return
+        if threading.current_thread() is threading.main_thread():
+            self._write_to_text_widget(message, tag)
+        else:
+            self._gui_queue.put((message, tag))
+
+    def write_raw(self, message, tag="stdout"):
+        """Write a raw message (no formatting) to the text widget safely."""
+        self._enqueue_gui_write(message, tag=tag)
+
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
         if level >= self.log_level:
@@ -56,9 +128,7 @@ class Logger:
             formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
             
             # Write to text widget
-            self.text_widget.insert(tk.END, formatted_message, ("log",))
-            self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
-            self.text_widget.see(tk.END)
+            self._enqueue_gui_write(formatted_message, tag="log")
 
             # write to log flie if enabled
             if self.log_to_file:
@@ -68,8 +138,9 @@ class Logger:
 
                 if self.log_file:
                     try:
-                        self.log_file.write(formatted_message)
-                        self.log_file.flush()
+                        with self._file_lock:
+                            self.log_file.write(formatted_message)
+                            self.log_file.flush()
                     except Exception as e:
                         print(f"Error writing to log file: {str(e)}")
 
@@ -92,6 +163,13 @@ class Logger:
         self.log_level = level
 
     def close(self):
+        self._closed = True
+        if self._pump_after_id is not None and self._widget_alive():
+            try:
+                self.text_widget.after_cancel(self._pump_after_id)
+            except tk.TclError:
+                pass
+            self._pump_after_id = None
         if self.log_file:
             try:
                 self.log_file.close()
@@ -155,15 +233,22 @@ class MessagesFrame:
         self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
 
         # Redirect stdout to the text widget
-        sys.stdout = TextRedirector(self.text_widget, "stdout")
+        sys.stdout = TextRedirector(self.text_widget, "stdout", logger=self.logger)
 
         # Ensure that the log directory exists
         self.ensure_log_directory()
 
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
-        self.text_widget.insert(tk.END, msg)
-        self.trim_text()
+        if self.logger:
+            self.logger.write_raw(msg, tag="stdout")
+            self.trim_text()
+        else:
+            try:
+                self.text_widget.insert(tk.END, msg)
+                self.trim_text()
+            except tk.TclError:
+                pass
 
     def toggle_file_logging(self):
         if self.file_logging_enabled:
@@ -253,13 +338,21 @@ class MessagesFrame:
             self.text_widget.delete('1.0', tk.END)
 
 class TextRedirector:
-    def __init__(self, widget, tag="stdout"):
+    def __init__(self, widget, tag="stdout", logger=None):
         self.widget = widget
         self.tag = tag
+        self.logger = logger
 
     def write(self, msg):
-        self.widget.insert(tk.END, msg, (self.tag,))
-        self.widget.see(tk.END)  # Scroll to the end
+        if self.logger:
+            self.logger.write_raw(msg, tag=self.tag)
+            return
+        try:
+            if self.widget.winfo_exists():
+                self.widget.insert(tk.END, msg, (self.tag,))
+                self.widget.see(tk.END)  # Scroll to the end
+        except tk.TclError:
+            pass
 
     def flush(self):
         pass  # Needed for compatibility

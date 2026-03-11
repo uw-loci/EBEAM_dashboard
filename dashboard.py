@@ -94,6 +94,8 @@ class EBEAMSystemDashboard:
             if hasattr(subsystem, 'close_com_ports'):
                 subsystem.close_com_ports()
         print("Cleaned up com ports.")
+        if hasattr(self, 'logger') and self.logger:
+            self.logger.close()
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""

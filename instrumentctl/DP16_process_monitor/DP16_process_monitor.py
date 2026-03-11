@@ -206,6 +206,8 @@ class DP16ProcessMonitor:
                 
                 # Poll each unit individually
                 for unit in sorted(self.unit_numbers):
+                    if not self._is_running:
+                        break
                     try:
                         self._poll_single_unit(unit) 
                         self.consecutive_connection_errors = 0  # Reset on successful poll
@@ -218,7 +220,7 @@ class DP16ProcessMonitor:
                             self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
                             self.last_critical_error_time = current_time
 
-                if self.consecutive_connection_errors == 0:
+                if self.consecutive_connection_errors == 0 and self._is_running:
                     time.sleep(self.BASE_DELAY)
                     
             except Exception as e:
@@ -332,9 +334,10 @@ class DP16ProcessMonitor:
 
     def disconnect(self):
         # Stop polling thread
-        # self._is_running = False
-        # if self._thread and self._thread.is_alive():
-        #     self._thread.join()
+        self._is_running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._thread = None
         
         # Close connection
         # with self.modbus_lock:
@@ -343,6 +346,10 @@ class DP16ProcessMonitor:
             self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
         else:
             self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
+
+    def close(self):
+        """Compatibility alias used by subsystem shutdown paths."""
+        self.disconnect()
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""

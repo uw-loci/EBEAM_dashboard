@@ -113,6 +113,7 @@ class E5CNModbus:
                     self.log("Modbus connection closed", LogLevel.DEBUG)
             except Exception as e:
                 self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
+        self.connected = False
                 
         self.is_initialized.clear()
 
@@ -152,6 +153,7 @@ class E5CNModbus:
                 self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
         except Exception as e:
             self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
+        self.connected = False
 
     def read_temperature(self, unit):
         attempts = 3
