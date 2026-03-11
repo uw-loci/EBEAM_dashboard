@@ -49,7 +49,8 @@ class BeamEnergySubsystem:
         self.actual_currents = [tk.StringVar(value="-- mA") for _ in range(len(self.power_supplies))]
         self.output_status = [tk.StringVar(value="DISABLED") for _ in range(len(self.power_supplies))]
         self.connection_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies) )]
-        self.reset_status_colors = [tk.StringVar(value="white") for _ in range(len(self.power_supplies))]
+        self.reset_status_colors = [tk.StringVar(value="white") for _ in range(2)]
+        self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertran
         # Indicator Panel -> not power supply specific
         self.glassman_interlock_var = tk.StringVar(value="ACTIVE")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
@@ -183,8 +184,8 @@ class BeamEnergySubsystem:
         connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
         # TODO store references
 
-        # Reset status indicator (at top right)
-        if index != 2: # Exclude 20kV Bertan which does not have a reset function
+        # Matsusada reset status indicator (at top right)
+        if index < 2:
             reset_canvas, reset_oval = self.create_indicator_circle(
                 top_row_frame, color=self.reset_status_colors[index].get()
             )
@@ -197,7 +198,21 @@ class BeamEnergySubsystem:
 
             self.reset_status_colors[index].trace_add("write", update_reset_circle)
             reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
-        # TODO store references
+
+        # 3kV Bertan "Forced Off" indicator (at top right)
+        if index == 3:
+            forced_off_canvas, forced_off_oval = self.create_indicator_circle(
+                top_row_frame, color=self.forced_off_color.get()
+            )
+            forced_off_canvas.pack(side=tk.RIGHT, padx=4)
+            forced_off_label = ttk.Label(top_row_frame, text="Forced Off:", font=("Segoe UI", 8))
+            forced_off_label.pack(side=tk.RIGHT)
+
+            def update_forced_off_circle(*args):
+                forced_off_canvas.itemconfig(forced_off_oval, fill=self.forced_off_color.get())
+
+            self.forced_off_color.trace_add("write", update_forced_off_circle)
+            forced_off_canvas.itemconfig(forced_off_oval, fill=self.forced_off_color.get())
         
         # Output status indicator
         status_frame = ttk.Frame(frame)
@@ -330,11 +345,18 @@ class BeamEnergySubsystem:
                 self.ui_elements[index]['status_label'].config(foreground="red")
 
     def update_reset_status(self, index, reset_state):
-        if index < len(self.ui_elements) and index != 2:
+        if index < 2:  # Only Matsusada units have reset status
             if reset_state:
                 self.reset_status_colors[index].set("yellow")
             else:
                 self.reset_status_colors[index].set("white")
+
+    def update_forced_off_status(self, index, forced_off):
+        if index == 3:  # Only 3kV Bertran has forced off status
+            if forced_off:
+                self.forced_off_color.set("red")
+            else:
+                self.forced_off_color.set("white")
 
     def update_connection_status(self, index, connected):
         """Update connection status indicators."""
@@ -488,7 +510,7 @@ class BeamEnergySubsystem:
 
                 # Update indicators based on data
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
-                self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, False, interlocks)
+                self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, logic_alive, interlocks)
                 self.update_output_status(index, hv_enable)
                 self.update_reset_status(index, reset_state)
                 self.update_connection_status(index, comms)
