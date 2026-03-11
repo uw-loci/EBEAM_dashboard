@@ -61,6 +61,7 @@ class Logger:
             }
         if log_to_file:
             self.setup_log_file()
+            self.setup_wm_logfile()
 
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
