@@ -118,7 +118,7 @@ class KnobBoxModbus:
         self.port = port
         self.connected = False
         self.last_success = {uid: 0 for uid in self.UNIT_IDS} # Track last successful poll time for each unit
-        self.CONNECTION_TIMEOUT = 2.0 # seconds without successful poll before considering connection lost
+        self.CONNECTION_TIMEOUT = 10.0 # seconds without successful poll before considering connection lost
 
         # Create data dictionary for each unit in the list of UNIT_IDS
         self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS} 
@@ -302,9 +302,14 @@ class KnobBoxModbus:
         
     def get_unit_connection_status(self, uid):
         now = time.time()
-        return {
-            uid: (now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT
-        }
+        with self.data_lock:
+            last_ok = self.last_success.get(uid, 0)
+        return (now - last_ok) < self.CONNECTION_TIMEOUT
+
+    def any_unit_connected(self):
+        now = time.time()
+        with self.data_lock:
+            return any((now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT for uid in self.UNIT_IDS)
 
     def check_connection(self):
         """Check if the Modbus client is connected and attempt to reconnect if not."""
