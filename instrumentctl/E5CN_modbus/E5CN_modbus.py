@@ -101,10 +101,17 @@ class E5CNModbus:
         """Stop all temperature reading threads and clean up connections."""
         self.log("Stopping temperature reading threads...", LogLevel.DEBUG)
         self.stop_event.set()
+
+        # Close connection early to unblock any in-flight reads
+        try:
+            if self.client.is_socket_open():
+                self.client.close()
+        except Exception:
+            pass
         
         # Wait for threads to finish
         for thread in self.threads:
-            thread.join(timeout=2.0)
+            thread.join(timeout=0.5)
             if thread.is_alive():
                 self.log(f"Warning: Thread {thread.name} did not terminate in time", LogLevel.WARNING)
             else:
@@ -113,7 +120,7 @@ class E5CNModbus:
         self.threads.clear()
         
         # Clean up the connection
-        acquired = self.modbus_lock.acquire(timeout=1.0)
+        acquired = self.modbus_lock.acquire(timeout=0.2)
         try:
             if self.client.is_socket_open():
                 self.client.close()

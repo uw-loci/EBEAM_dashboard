@@ -495,6 +495,11 @@ class VTRXSubsystem:
 
     def stop_serial_thread(self):
         self.stop_event.set()
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+        except Exception:
+            pass
         if self.process_after_id:
             try:
                 self.parent.after_cancel(self.process_after_id)
@@ -502,7 +507,7 @@ class VTRXSubsystem:
                 pass
             self.process_after_id = None
         if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
-            self.serial_thread.join(timeout=2.0)
+            self.serial_thread.join(timeout=0.5)
             if self.serial_thread.is_alive():
                 self.log("Warning: VTRX serial thread did not terminate in time", LogLevel.WARNING)
     

@@ -736,7 +736,7 @@ class PowerSupply9104:
 
         # Wait for the ramping thread to finish
         if self.ramp_thread and self.ramp_thread.is_alive():
-            self.ramp_thread.join(timeout=2.0)
+            self.ramp_thread.join(timeout=0.5)
             if self.ramp_thread.is_alive():
                 self.log("Warning: Ramping thread did not terminate in time", LogLevel.WARNING)
             else:

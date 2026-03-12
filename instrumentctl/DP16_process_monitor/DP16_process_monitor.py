@@ -337,12 +337,20 @@ class DP16ProcessMonitor:
     def disconnect(self):
         # Stop polling thread
         self._is_running = False
+
+        # Close connection early to unblock any in-flight reads
+        try:
+            if self.client.is_socket_open():
+                self.client.close()
+        except Exception:
+            pass
+
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=0.5)
             if self._thread.is_alive():
                 self.log("Warning: Polling thread did not terminate in time", LogLevel.WARNING)
         self._thread = None
-
+        
         # Close connection
         # with self.modbus_lock:
         if self.client.is_socket_open():
