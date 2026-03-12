@@ -78,21 +78,6 @@ class Logger:
         while self._pending_widget_messages:
             self._write_to_text_widget(self._pending_widget_messages.popleft())
 
-    def _get_dashboard_base_path(self):
-        return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-
-    def _write_to_text_widget(self, formatted_message):
-        if self.text_widget is None:
-            return
-        self.text_widget.insert(tk.END, formatted_message, ("log",))
-        self.text_widget.tag_config("log", font=("Helvetica", 9))
-        self.text_widget.see(tk.END)
-
-    def attach_text_widget(self, text_widget):
-        self.text_widget = text_widget
-        while self._pending_widget_messages:
-            self._write_to_text_widget(self._pending_widget_messages.popleft())
-
     def setup_log_file(self):
         """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
