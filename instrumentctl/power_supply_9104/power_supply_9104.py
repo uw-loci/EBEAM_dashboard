@@ -736,8 +736,11 @@ class PowerSupply9104:
 
         # Wait for the ramping thread to finish
         if self.ramp_thread and self.ramp_thread.is_alive():
-            self.ramp_thread.join()
-            self.log("Ramping thread terminated.", LogLevel.INFO)
+            self.ramp_thread.join(timeout=2.0)
+            if self.ramp_thread.is_alive():
+                self.log("Warning: Ramping thread did not terminate in time", LogLevel.WARNING)
+            else:
+                self.log("Ramping thread terminated.", LogLevel.INFO)
 
         # Close the serial connection
         if self.ser and self.ser.is_open:

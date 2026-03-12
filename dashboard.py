@@ -3,6 +3,7 @@ import sys
 import os
 import subsystem
 import tkinter as tk
+import threading
 from tkinter import ttk
 from tkinter import messagebox
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
@@ -104,11 +105,13 @@ class EBEAMSystemDashboard:
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
 
+        self._dump_threads("cleanup start")
         print("Cleaning up com ports...")
         for subsystem in self.subsystems.values():
             if hasattr(subsystem, 'close_com_ports'):
                 subsystem.close_com_ports()
         print("Cleaned up com ports.")
+        self._dump_threads("after close_com_ports")
 
         '''Cancels all scheduled Dashboard updates before quitting the application.'''
         # First cancel updates in each subsystem
@@ -126,8 +129,21 @@ class EBEAMSystemDashboard:
         # Now cancel machine status updates
         if hasattr(self.machine_status_frame, 'cancel_updates'):
             self.machine_status_frame.cancel_updates()
-        print("Dashboard upates cancelled.")
+        # Close logger and restore stdout while widgets still exist
+        if hasattr(self, 'messages_frame') and hasattr(self.messages_frame, 'close'):
+            self.messages_frame.close()
+        self._dump_threads("after cancel_updates and logger close")
 
+    def _dump_threads(self, label):
+        print(f"--- Thread dump: {label} ---")
+        for thread in threading.enumerate():
+            print(
+                f"Thread name={thread.name} "
+                f"ident={thread.ident} "
+                f"daemon={thread.daemon} "
+                f"alive={thread.is_alive()}"
+            )
+            
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)

@@ -71,6 +71,8 @@ class Logger:
     def _widget_alive(self):
         if self.text_widget is None:
             return False
+        if not hasattr(self.text_widget, "winfo_exists"):
+            return True
         try:
             return bool(self.text_widget.winfo_exists())
         except tk.TclError:
@@ -78,6 +80,8 @@ class Logger:
 
     def _start_gui_pump(self):
         if self._closed or not self._widget_alive():
+            return
+        if not hasattr(self.text_widget, "after"):
             return
         if self._pump_after_id is None:
             try:
@@ -99,6 +103,9 @@ class Logger:
             pass
         finally:
             if not self._closed and self._widget_alive():
+                if not hasattr(self.text_widget, "after"):
+                    self._pump_after_id = None
+                    return
                 try:
                     self._pump_after_id = self.text_widget.after(
                         self._pump_interval_ms, self._pump_queue
@@ -111,7 +118,7 @@ class Logger:
             return
         try:
             self.text_widget.insert(tk.END, formatted_message, (tag,))
-            if tag == "log" and not self._log_tag_configured:
+            if tag == "log" and not self._log_tag_configured and hasattr(self.text_widget, "tag_config"):
                 self.text_widget.tag_config("log", font=("Helvetica", 9))
                 self._log_tag_configured = True
             self.text_widget.see(tk.END)
@@ -121,6 +128,12 @@ class Logger:
     def _enqueue_gui_write(self, message, tag="log"):
         if self._closed:
             return
+        if self.text_widget is None:
+            self._pending_widget_messages.append((message, tag))
+            return
+        if not hasattr(self.text_widget, "after"):
+            self._write_to_text_widget(message, tag)
+            return
         if not self._widget_alive():
             self._pending_widget_messages.append((message, tag))
             return
@@ -129,6 +142,11 @@ class Logger:
 
     def attach_text_widget(self, text_widget):
         self.text_widget = text_widget
+        if not hasattr(self.text_widget, "after"):
+            while self._pending_widget_messages:
+                message, tag = self._pending_widget_messages.popleft()
+                self._write_to_text_widget(message, tag)
+            return
         while self._pending_widget_messages:
             message, tag = self._pending_widget_messages.popleft()
             self._gui_queue.put((message, tag))
@@ -154,7 +172,7 @@ class Logger:
                 self.log_filepath = os.path.join(log_dir, log_file_name)
                 self.log_file = open(self.log_filepath, 'w')
                 self.log_start_time = datetime.datetime.now()
-            print(f"Log file created at {self.log_filepath}")
+                self._write_startup_notice("Log file created at", self.log_filepath)
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
 
@@ -172,12 +190,14 @@ class Logger:
                 self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
                 self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
                 self.webMonitor_log_start_time = datetime.datetime.now()
-            print(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+                self._write_startup_notice("WebMonitor log file created at", self.webMonitor_log_filepath)
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
 
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
+        if self._closed:
+            return
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
@@ -216,6 +236,8 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
+        if self._closed:
+                return
         # return early if file logging is disabled
         if not self.log_to_file:
                 return
@@ -237,6 +259,16 @@ class Logger:
                 self.webMonitor_log_file.flush()
         except Exception as e:
             print(f"Error writing web monitor updates: {e}")
+
+    def _write_startup_notice(self, prefix, path):
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        message = f"{prefix} {path}"
+        line = f"[{timestamp}] - INFO: {message}\n"
+        if self.log_file:
+            self.log_file.write(line)
+            self.log_file.flush()
+        if LogLevel.INFO >= self.log_level:
+            self._enqueue_gui_write(line, tag="log")
 
 
     def debug(self, message):
@@ -339,6 +371,7 @@ class MessagesFrame:
         self.logger.info("Messages pane attached to logger")
 
         # Redirect stdout to the text widget
+        self._original_stdout = sys.stdout
         sys.stdout = TextRedirector(self.text_widget, "stdout", logger=self.logger)
 
     def write(self, msg):
@@ -469,6 +502,13 @@ class MessagesFrame:
         ''' Show a confirmation dialog before clearing the text widget '''
         if messagebox.askokcancel("Clear Messages", "Do you really want to clear all messages?"):
             self.text_widget.delete('1.0', tk.END)
+
+    def close(self):
+        if getattr(self, "_original_stdout", None) is not None:
+            sys.stdout = self._original_stdout
+            self._original_stdout = None
+        if self.logger:
+            self.logger.close()
 
 class TextRedirector:
     def __init__(self, widget, tag="stdout", logger=None):

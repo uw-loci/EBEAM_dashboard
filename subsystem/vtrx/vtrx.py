@@ -65,6 +65,7 @@ class VTRXSubsystem:
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
         self.last_gui_update_time = time.time()
+        self.process_after_id = None
 
         self.setup_serial()
         self.setup_gui()
@@ -176,6 +177,8 @@ class VTRXSubsystem:
 
         After processing all items, reschedules itself to run again after 500 ms.
         """
+        if self.stop_event.is_set():
+            return
         try:
             while True:
                 data = self.data_queue.get_nowait()
@@ -186,7 +189,8 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
-            self.parent.after(500, self.process_queue)
+            if not self.stop_event.is_set():
+                self.process_after_id = self.parent.after(500, self.process_queue)
 
     def update_gui_with_error_state(self):
         """
@@ -487,12 +491,20 @@ class VTRXSubsystem:
         self.stop_event.clear()
         self.serial_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.serial_thread.start()
-        self.parent.after(100, self.process_queue)
+        self.process_after_id = self.parent.after(100, self.process_queue)
 
     def stop_serial_thread(self):
         self.stop_event.set()
+        if self.process_after_id:
+            try:
+                self.parent.after_cancel(self.process_after_id)
+            except Exception:
+                pass
+            self.process_after_id = None
         if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
-            self.serial_thread.join()
+            self.serial_thread.join(timeout=2.0)
+            if self.serial_thread.is_alive():
+                self.log("Warning: VTRX serial thread did not terminate in time", LogLevel.WARNING)
     
     def update_time_window(self, seconds):
         current_time = datetime.datetime.now()
@@ -557,4 +569,13 @@ class VTRXSubsystem:
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
         else:
             self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
+
+    def cancel_updates(self):
+        if self.process_after_id:
+            try:
+                self.parent.after_cancel(self.process_after_id)
+                self.log("Canceled scheduled VTRX queue processing.", LogLevel.DEBUG)
+            except Exception:
+                self.log("Failed to cancel scheduled VTRX queue processing.", LogLevel.DEBUG)
+            self.process_after_id = None
           
