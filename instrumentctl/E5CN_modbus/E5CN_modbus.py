@@ -81,7 +81,11 @@ class E5CNModbus:
         """
         while not self.stop_event.is_set():
             try:
+                if self.stop_event.is_set():
+                    break
                 temperature = self.read_temperature(unit)
+                if self.stop_event.is_set():
+                    break
                 if temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
@@ -101,19 +105,26 @@ class E5CNModbus:
         # Wait for threads to finish
         for thread in self.threads:
             thread.join(timeout=2.0)
-            self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
+            if thread.is_alive():
+                self.log(f"Warning: Thread {thread.name} did not terminate in time", LogLevel.WARNING)
+            else:
+                self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
             
         self.threads.clear()
         
         # Clean up the connection
-        with self.modbus_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    self.log("Modbus connection closed", LogLevel.DEBUG)
-            except Exception as e:
-                self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
+        acquired = self.modbus_lock.acquire(timeout=1.0)
+        try:
+            if self.client.is_socket_open():
+                self.client.close()
+                self.log("Modbus connection closed", LogLevel.DEBUG)
+        except Exception as e:
+            self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
+        finally:
+            if acquired:
+                self.modbus_lock.release()
                 
+        self.connected = False
         self.is_initialized.clear()
 
     def connect(self):
@@ -157,7 +168,11 @@ class E5CNModbus:
         attempts = 3
         while attempts > 0:
             try:
+                if self.stop_event.is_set():
+                    return None
                 with self.modbus_lock:
+                    if self.stop_event.is_set():
+                        return None
                     if not self.client.is_socket_open():
                         try:
                             if self.client.connect():
