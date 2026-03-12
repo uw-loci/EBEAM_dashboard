@@ -105,6 +105,13 @@ class G9Driver:
             self._response_queue.get_nowait()
         self._response_queue.put(data)
 
+    def close(self):
+        """Stop the communication thread and close the serial port."""
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._close_serial()
+
     def _communication_thread(self):
         """Background thread for handling serial communication"""
         while self._running:
@@ -135,6 +142,11 @@ class G9Driver:
 
             except serial.SerialException:
                 self._update_queue()
+
+            except (TypeError, OSError):
+                # Serial port destroyed during shutdown (e.g. ctypes byref NoneType)
+                self._running = False
+                break
 
             time.sleep(0.1)  # minimum sleep between successful reads
 

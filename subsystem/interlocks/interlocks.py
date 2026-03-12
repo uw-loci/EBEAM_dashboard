@@ -357,10 +357,13 @@ class InterlocksSubsystem:
 
     def close_com_ports(self):
         """
-        Closes the serial port connection upon quitting the application.
+        Stops the G9 communication thread and closes the serial port upon quitting.
         """
-        if self.driver and hasattr(self.driver, 'ser'):
-            if self.driver.ser and self.driver.ser.is_open:
+        if self.driver:
+            if hasattr(self.driver, 'close'):
+                self.driver.close()
+                self.log(f"Closed G9 driver and serial port {self.com_port}", LogLevel.INFO)
+            elif hasattr(self.driver, 'ser') and self.driver.ser and self.driver.ser.is_open:
                 self.driver.ser.close()
                 self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
             else:

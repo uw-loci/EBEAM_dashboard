@@ -173,6 +173,9 @@ def start_main_app(com_ports, logger=None):
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
 
+    # Ensure cleanup runs when the window close button (X) is clicked
+    root.protocol("WM_DELETE_WINDOW", quit_app)
+
     app = EBEAMSystemDashboard(root, com_ports, logger=logger)
     root.mainloop()
 

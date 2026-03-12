@@ -332,12 +332,11 @@ class DP16ProcessMonitor:
 
     def disconnect(self):
         # Stop polling thread
-        # self._is_running = False
-        # if self._thread and self._thread.is_alive():
-        #     self._thread.join()
+        self._is_running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
         
         # Close connection
-        # with self.modbus_lock:
         if self.client.is_socket_open():
             self.client.close()
             self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
