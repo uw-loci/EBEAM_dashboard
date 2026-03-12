@@ -3,6 +3,8 @@ import sys
 import os
 import subsystem
 import tkinter as tk
+import threading
+import datetime
 from tkinter import ttk
 from tkinter import messagebox
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
@@ -109,7 +111,36 @@ class EBEAMSystemDashboard:
             if hasattr(subsystem, 'close_com_ports'):
                 subsystem.close_com_ports()
         print("Cleaned up com ports.")
+        self._dump_threads("after close_com_ports")
 
+    def _dump_threads(self, label):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines = [f"--- Thread dump: {label} @ {timestamp} ---"]
+        for thread in threading.enumerate():
+            lines.append(
+                f"Thread name={thread.name} "
+                f"ident={thread.ident} "
+                f"daemon={thread.daemon} "
+                f"alive={thread.is_alive()}"
+            )
+        payload = "\n".join(lines) + "\n"
+
+        try:
+            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
+            os.makedirs(log_dir, exist_ok=True)
+            dump_path = os.path.join(log_dir, "thread_dumps.txt")
+            with open(dump_path, "a", encoding="utf-8") as handle:
+                handle.write(payload)
+        except Exception:
+            pass
+
+        try:
+            sys.__stderr__.write(payload)
+            sys.__stderr__.flush()
+        except Exception:
+            pass
+            
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
         self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
