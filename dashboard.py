@@ -108,9 +108,11 @@ class EBEAMSystemDashboard:
 
         self._dump_threads("cleanup start")
         print("Cleaning up com ports...")
-        for subsystem in self.subsystems.values():
+        for name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'close_com_ports'):
+                self._log_cleanup_step(f"closing {name} ({subsystem.__class__.__name__})")
                 subsystem.close_com_ports()
+                self._log_cleanup_step(f"closed {name} ({subsystem.__class__.__name__})")
         print("Cleaned up com ports.")
         self._dump_threads("after close_com_ports")
 
@@ -159,6 +161,24 @@ class EBEAMSystemDashboard:
 
         try:
             sys.__stderr__.write(payload)
+            sys.__stderr__.flush()
+        except Exception:
+            pass
+
+    def _log_cleanup_step(self, message):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{timestamp}] {message}\n"
+        try:
+            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
+            os.makedirs(log_dir, exist_ok=True)
+            dump_path = os.path.join(log_dir, "thread_dumps.txt")
+            with open(dump_path, "a", encoding="utf-8") as handle:
+                handle.write(line)
+        except Exception:
+            pass
+        try:
+            sys.__stderr__.write(line)
             sys.__stderr__.flush()
         except Exception:
             pass
