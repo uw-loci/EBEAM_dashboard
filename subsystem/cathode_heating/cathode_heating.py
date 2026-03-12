@@ -2021,10 +2021,9 @@ class CathodeHeatingSubsystem:
             msgbox.showerror("Invalid Input", "Please enter a valid current value.")
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_current(index, new_current)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_current(index, new_current)
+        if not prediction_success:
+            self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_current(index, new_current)
         if set_success:
@@ -2060,10 +2059,9 @@ class CathodeHeatingSubsystem:
             msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        if not prediction_success:
+            self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_voltage(index, new_voltage)
         if set_success:
@@ -2104,10 +2102,9 @@ class CathodeHeatingSubsystem:
             # Error message already shown in validate_current
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_current(index, new_current)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_current(index, new_current)
+        if not prediction_success:
+            self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_current(index, new_current)
         if set_success:
@@ -2149,10 +2146,9 @@ class CathodeHeatingSubsystem:
             # Error message already shown in validate_voltage
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        if not prediction_success:
+            self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_voltage(index, new_voltage)
         if set_success:
@@ -2161,6 +2157,69 @@ class CathodeHeatingSubsystem:
             self.voltage_set[index] = True
         else:
             self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def update_predictions_from_current(self, index, current):
+        """
+        Calculate and update predicted values based on a manually set current.
+        
+        Args:
+            index (int): Index of cathode (0-2)
+            current (float): Manually entered current value
+
+        Returns:
+            bool: True if update successful, False if failed
+        """
+        try:
+            # If voltage is set we expect one value to limit the other
+            if self.voltage_set[index]:
+                limited_voltage = self._max_voltage_for_current(index, current)
+                limited_current = self._max_current_at_voltage(index, self.user_set_voltages[index])
+                if limited_voltage is None or limited_current is None:
+                    # no data in LUT, return to update output without predictions
+                    self.reset_related_variables(index)
+                    return False
+
+                if current >= limited_current:
+                    # Current is limited by voltage and will not reach full set value
+                    pred_heater_current = limited_current
+                    pred_heater_voltage = self.user_set_voltages[index]
+                else:
+                    # Voltage is potentially limited by current
+                    pred_heater_current = current
+                    pred_heater_voltage = min(self.user_set_voltages[index], limited_voltage)
+            else:
+                # If no heater voltage is set we will predict the voltage produced by the new current and set it on the power supply
+                pred_heater_voltage = self._max_voltage_for_current(index, current)
+                pred_heater_current = current
+            
+            # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
+            _,_, pred_beam_current = self.emission_cur_vlt_converter(index, pred_heater_voltage)
+            
+            # Check that LUT returned values, if not then reset predicted values
+            if pred_beam_current == -1:
+                self.reset_related_variables(index)
+                self.log(f"No lookup table data available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return False
+                
+            # Calculate dependent variables - beam_current is what hits the target, emission is total
+            ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
+            predicted_grid_current = 0.28 * ideal_emission_current
+
+            # Update GUI with new values
+            self.predicted_heater_current_vars[index].set(f'{pred_heater_current:.2f} A')
+            self.predicted_heater_voltage_vars[index].set(f'{pred_heater_voltage:.2f} V')
+            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+            self.predicted_temperature_vars[index].set('--')
+
+            return True
+        
+        except ValueError as e:
+            self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
+            return False
+        except Exception as e:
+            self.log(f"Unexpected error while processing manual current setting: {str(e)}", LogLevel.ERROR)
+            return False
 
     def update_predictions_from_voltage(self, index, voltage):
         """
@@ -2172,104 +2231,112 @@ class CathodeHeatingSubsystem:
 
         Returns:
             bool: True if update successful, False if failed
-
-        Updates:
-            - Heater current prediction
-            - Emission current prediction
-            - Temperature prediction
-            - Power supply settings
         """
-
         try:
-            current_ovp = self.get_ovp(index)
-            
-            if current_ovp is None:
-                self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                return
-
-            if voltage > current_ovp:
-                self.log(f"Calculated voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                return
-            
-            if voltage < 0:
-                raise ValueError("Voltage must be positive")
-
-            # Use the ES440_cathode model to interpolate current from voltage
-            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                                        log_transform=False)
-            heater_current = cathode_model.interpolate(voltage, inverse=True)
-
-            # Set Upper Current Limit on the power supply. Voltage is set in the power supply class when toggle_output is called
-            if self.power_supplies and len(self.power_supplies) > index:
-                # voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
-                current_set_success = self.power_supplies[index].set_current(
-                    3,
-                    heater_current,
-                    sent_callback=lambda c, i=index: self.parent.after(0, lambda idx=i, val=c: self._update_sent_current_display(idx, val))
-                )
-                if not current_set_success:
-                    self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                    
-                # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                if self.toggle_states[index]:
-                    if self.ramp_status[index]:
-                        self.power_supplies[index].ramp_voltage(
-                            voltage,
-                            step_size=self.slew_rates[index],
-                            step_delay=1.0,
-                            preset=3,
-                            sent_callback=lambda v, i=index: self.parent.after(0, lambda idx=i, val=v: self._update_sent_voltage_display(idx, val))
-                        )
-                        self.voltage_set[index] = True
-                    else:
-                        self.power_supplies[index].set_voltage(
-                            3,
-                            voltage,
-                            sent_callback=lambda v, i=index: self.parent.after(0, lambda idx=i, val=v: self._update_sent_voltage_display(idx, val))
-                        )
-                        self.voltage_set[index] = True
-                
-                # Confirm the set values
-                _ , set_current = self.power_supplies[index].get_settings(3)
-                if set_current is not None:    
-                    # voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
-                    current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-
-                    if current_mismatch:
-                        self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                        # if voltage_mismatch:
-                        #     self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
-                        if current_mismatch:
-                            self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
-                        return False
-                    else:
-                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
-                else:
-                    self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
+            # If current is set we expect one value to limit the other
+            if self.current_set[index]:
+                limited_voltage = self._max_voltage_for_current(index, self.user_set_currents[index])
+                limited_current = self._max_current_at_voltage(index, voltage)
+                if limited_voltage is None or limited_current is None:
+                    # no data in LUT, return to update output without predictions
+                    self.reset_related_variables(index)
                     return False
-                
-                self.user_set_voltages[index] = voltage
 
-            # Calculate dependent variables
-            ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
+                if voltage >= limited_voltage:
+                    # Voltage is limited by current and will not reach full set value
+                    pred_heater_voltage = limited_voltage
+                    pred_heater_current = self.user_set_currents[index]
+                else:
+                    # Current is potentially limited by voltage
+                    pred_heater_voltage = voltage
+                    pred_heater_current = min(self.user_set_currents[index], limited_current)
+            else:
+                # If no heater current is set we will predict the current produced by the new voltage and set it on the power supply
+                pred_heater_current = self._max_current_at_voltage(index, voltage)
+                pred_heater_voltage = voltage
+            
+            # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
+            _,_, pred_beam_current = self.emission_cur_vlt_converter(index, pred_heater_voltage)
+            
+            # Check that LUT returned values, if not then reset predicted values
+            if pred_beam_current == -1:
+                self.reset_related_variables(index)
+                self.log(f"No lookup table data available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return False
+                
+            # Calculate dependent variables - beam_current is what hits the target, emission is total
+            ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
-            predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-            predicted_temperature_C = predicted_temperature_K - 273.15
 
             # Update GUI with new values
-            self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-            self.predicted_emission_current_vars[index].set("--")
-            self.predicted_grid_current_vars[index].set("--")
-            self.predicted_temperature_vars[index].set("--")
-
-            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A", LogLevel.INFO)
+            self.predicted_heater_current_vars[index].set(f'{pred_heater_current:.2f} A')
+            self.predicted_heater_voltage_vars[index].set(f'{pred_heater_voltage:.2f} V')
+            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+            self.predicted_temperature_vars[index].set('--')
+            
             return True
-        except ValueError as e:
+        
+        except Exception as e:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
-            self.reset_related_variables(index)
             return False
+
+    def _max_current_at_voltage(self, index: int, voltage: float):
+        """
+        Data lookup helper to return the largest heater current listed for the exact
+        voltage in the active lookup table, or None if the voltage does not appear
+        """
+        table = self.lookup_table_setting[index]
+        if table is None or table.empty:
+            return None
+        rows = table[table["voltage"].round(2) == round(voltage, 2)]
+        if rows.empty:
+            return None
+        return rows["heater_current"].max()
+    
+    def _max_voltage_for_current(self, index: int, current: float):
+        """
+        Data lookup helper to return the largest heater voltage listed for the exact
+        current in the active lookup table, or None if current does not appear
+        """
+        table = self.lookup_table_setting[index]
+        if table is None or table.empty:
+            return None
+        rows = table[table["heater_current"].round(2) == round(current, 2)]
+        if rows.empty:
+            return None
+        return rows["voltage"].max()
+
+    def emission_cur_vlt_converter(self, index, val):
+        """
+        Convert between voltage and current using the DataFrame lookup.
+        
+        Args:
+            index (int): Index of the cathode (0-2)
+            val (float): Input value (voltage or current)
+            
+        Returns:
+            tuple: (heater_voltage, heater_current, beam_current)
+        """
+        if isinstance(self.lookup_table_setting[index], pd.DataFrame):
+            df = self.lookup_table_setting[index]
+            # Look for exact match in voltage column
+            exact_match = df[df['voltage'].round(2) == round(val, 2)]
+            if exact_match.empty:
+                heater_voltage = val
+                heater_current = -1
+                beam_current = -1
+                return (heater_voltage, heater_current, beam_current)
+            
+            # Use the first exact match found
+            match_row = exact_match.iloc[0]
+            heater_voltage = match_row['voltage']
+            heater_current = match_row['heater_current']  # This is the heater current
+            beam_current = match_row['beam_current']     # This is the beam current
+            return (heater_voltage, heater_current, beam_current)
+        else:
+            self.log("Lookup table not properly configured as DataFrame", LogLevel.ERROR)
+            return (val, -1, -1)
         
     def update_output_from_current(self, index:int, new_current:float):
         """
