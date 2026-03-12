@@ -5,6 +5,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 import datetime
+import threading
+import queue
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
@@ -34,6 +36,12 @@ class Logger:
         self.log_filepath = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
+        self._gui_queue = queue.Queue()
+        self._pump_after_id = None
+        self._pump_interval_ms = 100
+        self._closed = False
+        self._log_tag_configured = False
+        self._file_lock = threading.RLock()
         self.dict_logger = {
             "pressure": None,
             "safetyOutputDataFlags": None,
@@ -55,55 +63,116 @@ class Logger:
         if log_to_file:
             self.setup_log_file()
             self.setup_wm_logfile()
+        self._start_gui_pump()
 
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
 
-    def _write_to_text_widget(self, formatted_message):
+    def _widget_alive(self):
         if self.text_widget is None:
+            return False
+        try:
+            return bool(self.text_widget.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _start_gui_pump(self):
+        if self._closed or not self._widget_alive():
             return
-        self.text_widget.insert(tk.END, formatted_message, ("log",))
-        self.text_widget.tag_config("log", font=("Helvetica", 9))
-        self.text_widget.see(tk.END)
+        if self._pump_after_id is None:
+            try:
+                self._pump_after_id = self.text_widget.after(
+                    self._pump_interval_ms, self._pump_queue
+                )
+            except tk.TclError:
+                self._pump_after_id = None
+
+    def _pump_queue(self):
+        if self._closed or not self._widget_alive():
+            self._pump_after_id = None
+            return
+        try:
+            while True:
+                message, tag = self._gui_queue.get_nowait()
+                self._write_to_text_widget(message, tag)
+        except queue.Empty:
+            pass
+        finally:
+            if not self._closed and self._widget_alive():
+                try:
+                    self._pump_after_id = self.text_widget.after(
+                        self._pump_interval_ms, self._pump_queue
+                    )
+                except tk.TclError:
+                    self._pump_after_id = None
+
+    def _write_to_text_widget(self, formatted_message, tag="log"):
+        if not self._widget_alive():
+            return
+        try:
+            self.text_widget.insert(tk.END, formatted_message, (tag,))
+            if tag == "log" and not self._log_tag_configured:
+                self.text_widget.tag_config("log", font=("Helvetica", 9))
+                self._log_tag_configured = True
+            self.text_widget.see(tk.END)
+        except tk.TclError:
+            pass
+
+    def _enqueue_gui_write(self, message, tag="log"):
+        if self._closed:
+            return
+        if not self._widget_alive():
+            self._pending_widget_messages.append((message, tag))
+            return
+        self._gui_queue.put((message, tag))
+        self._start_gui_pump()
 
     def attach_text_widget(self, text_widget):
         self.text_widget = text_widget
         while self._pending_widget_messages:
-            self._write_to_text_widget(self._pending_widget_messages.popleft())
+            message, tag = self._pending_widget_messages.popleft()
+            self._gui_queue.put((message, tag))
+        self._start_gui_pump()
+
+    def write_raw(self, message, tag="stdout"):
+        """Write a raw message (no formatting) to the text widget safely."""
+        self._enqueue_gui_write(message, tag=tag)
 
     def setup_log_file(self):
         """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
-            log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-Logs")
-            os.makedirs(log_dir, exist_ok=True)
-            
-            # Create the log file with the old naming pattern
-            log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-            # close the existing log file at intervals of 8 hours and create a new one
-            if self.log_file != None:
-                self.log_file.close()
+            with self._file_lock:
+                log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-Logs")
+                os.makedirs(log_dir, exist_ok=True)
+                
+                # Create the log file with the old naming pattern
+                log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+                # close the existing log file at intervals of 8 hours and create a new one
+                if self.log_file != None:
+                    self.log_file.close()
 
-            self.log_filepath = os.path.join(log_dir, log_file_name)
-            self.log_file = open(self.log_filepath, 'w')
-            self.log_start_time = datetime.datetime.now()
-            self.info(f"Log file created at {self.log_filepath}")
+                self.log_filepath = os.path.join(log_dir, log_file_name)
+                self.log_file = open(self.log_filepath, 'w')
+                self.log_start_time = datetime.datetime.now()
+            print(f"Log file created at {self.log_filepath}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
 
     def setup_wm_logfile(self):
         """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
-            wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
-            os.makedirs(wm_log_dir, exist_ok=True)
-            
-            # Create the web monitor log file with the old naming pattern
-            webMonitor_log_file_name = f"webMonitor_log.txt"
-            if self.webMonitor_log_file != None:
-                self.webMonitor_log_file.close()
-            self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
-            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
-            self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+            with self._file_lock:
+                wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
+                os.makedirs(wm_log_dir, exist_ok=True)
+                
+                # Create the web monitor log file with the old naming pattern
+                webMonitor_log_file_name = f"webMonitor_log.txt"
+                if self.webMonitor_log_file != None:
+                    self.webMonitor_log_file.close()
+                self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
+                self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
+                self.webMonitor_log_start_time = datetime.datetime.now()
+            print(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
 
@@ -113,24 +182,25 @@ class Logger:
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
             if self.text_widget is not None:
-                self._write_to_text_widget(formatted_message)
+                self._enqueue_gui_write(formatted_message, tag="log")
             else:
-                self._pending_widget_messages.append(formatted_message)
+                self._pending_widget_messages.append((formatted_message, "log"))
         # return early if file logging is disabled
         if not self.log_to_file:
             return
         # write to log file if enabled
         if self.log_to_file and level >= self.file_log_level:
-            now = datetime.datetime.now()
-            # close the log file at intervals of 8 hours and create a new one
-            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
-                self.setup_log_file()
-            if self.log_file is None:
-                return
             try:
-                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-                self.log_file.write(file_formatted_message)
-                self.log_file.flush()
+                with self._file_lock:
+                    now = datetime.datetime.now()
+                    # close the log file at intervals of 8 hours and create a new one
+                    if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+                        self.setup_log_file()
+                    if self.log_file is None:
+                        return
+                    file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+                    self.log_file.write(file_formatted_message)
+                    self.log_file.flush()
             except Exception as e:
                 print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
@@ -150,21 +220,21 @@ class Logger:
         if not self.log_to_file:
                 return
         try:
-            now = datetime.datetime.now()
-            # overwrite logs on the same webMonitor file every hour
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
-                if self.webMonitor_log_file:
-                    self.webMonitor_log_file.close()
-                self.setup_wm_logfile()
-            if self.webMonitor_log_file is None:
-                return
-            entry = {
-                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": update_dict
-            }
-            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-            self.webMonitor_log_file.flush()
-
+            with self._file_lock:
+                now = datetime.datetime.now()
+                # overwrite logs on the same webMonitor file every hour
+                if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
+                    if self.webMonitor_log_file:
+                        self.webMonitor_log_file.close()
+                    self.setup_wm_logfile()
+                if self.webMonitor_log_file is None:
+                    return
+                entry = {
+                    "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                    "status": update_dict
+                }
+                self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                self.webMonitor_log_file.flush()
         except Exception as e:
             print(f"Error writing web monitor updates: {e}")
 
@@ -188,16 +258,25 @@ class Logger:
         self.log_level = level
 
     def close(self):
+        self._closed = True
+        if self._pump_after_id is not None and self._widget_alive():
+            try:
+                self.text_widget.after_cancel(self._pump_after_id)
+            except tk.TclError:
+                pass
+            self._pump_after_id = None
         if self.log_file:
             try:
-                self.log_file.close()
-                self.log_file = None
+                with self._file_lock:
+                    self.log_file.close()
+                    self.log_file = None
             except Exception as e:
                 print(f"Error closing log file {str(e)}")
         if self.webMonitor_log_file:
             try:
-                self.webMonitor_log_file.close()
-                self.webMonitor_log_file = None
+                with self._file_lock:
+                    self.webMonitor_log_file.close()
+                    self.webMonitor_log_file = None
             except Exception as e:
                 print(f"Error closing web monitor log file {str(e)}")
 
@@ -260,12 +339,20 @@ class MessagesFrame:
         self.logger.info("Messages pane attached to logger")
 
         # Redirect stdout to the text widget
-        sys.stdout = TextRedirector(self.text_widget, "stdout")
+        sys.stdout = TextRedirector(self.text_widget, "stdout", logger=self.logger)
 
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
-        self.text_widget.insert(tk.END, msg)
-        self.trim_text()
+        if self.logger:
+            self.logger.write_raw(msg, tag="stdout")
+            if threading.current_thread() is threading.main_thread():
+                self.trim_text()
+            return
+        try:
+            self.text_widget.insert(tk.END, msg)
+            self.trim_text()
+        except tk.TclError:
+            pass
 
     def toggle_file_logging(self):
         if self.file_logging_enabled:
@@ -384,13 +471,21 @@ class MessagesFrame:
             self.text_widget.delete('1.0', tk.END)
 
 class TextRedirector:
-    def __init__(self, widget, tag="stdout"):
+    def __init__(self, widget, tag="stdout", logger=None):
         self.widget = widget
         self.tag = tag
+        self.logger = logger
 
     def write(self, msg):
-        self.widget.insert(tk.END, msg, (self.tag,))
-        self.widget.see(tk.END)  # Scroll to the end
+        if self.logger:
+            self.logger.write_raw(msg, tag=self.tag)
+            return
+        try:
+            if self.widget.winfo_exists():
+                self.widget.insert(tk.END, msg, (self.tag,))
+                self.widget.see(tk.END)  # Scroll to the end
+        except tk.TclError:
+            pass
 
     def flush(self):
         pass  # Needed for compatibility
