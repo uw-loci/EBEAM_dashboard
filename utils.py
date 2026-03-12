@@ -106,6 +106,7 @@ class Logger:
             if self.webMonitor_log_file is not None:
                 self.webMonitor_log_file.close()
             wm_log_path = os.path.join(wm_log_dir, "webMonitor_log.txt")
+            self.webMonitor_log_filepath = wm_log_path
             self.webMonitor_log_file = open(wm_log_path, 'a')
             self.info(f"WebMonitor log file created at {wm_log_path}")
         except Exception as e:
