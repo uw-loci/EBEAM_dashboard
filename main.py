@@ -237,6 +237,7 @@ def config_com_ports(saved_com_ports, logger=None):
     config_root.title("Configure COM Ports")
 
     selections = {}
+    selected_ports = None
 
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
@@ -268,6 +269,7 @@ def config_com_ports(saved_com_ports, logger=None):
         selections[subsystem] = selected_port
 
     def on_submit():
+        nonlocal selected_ports
         """
         Handler for the 'Submit' button. Checks if all subsystems have a port
         selected. If not, offers to fill those with dummy ports. If the user
@@ -296,16 +298,17 @@ def config_com_ports(saved_com_ports, logger=None):
         save_com_ports(selected_ports, logger=logger)
         if logger is not None:
             logger.info(f"COM-port selection submitted: {selected_ports}")
-        config_root.destroy()
-        
-        # Launch the main application
-        start_main_app(selected_ports, logger=logger)
+        config_root.quit()
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
     
     config_root.bind('<Return>', lambda event: on_submit())
     config_root.mainloop()
+    config_root.destroy()
+
+    if selected_ports:
+        start_main_app(selected_ports, logger=logger)
 
 
 if __name__ == "__main__":
