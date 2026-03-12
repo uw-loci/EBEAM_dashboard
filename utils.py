@@ -122,7 +122,7 @@ class Logger:
                 self.webMonitor_log_file.close()
             wm_log_path = os.path.join(wm_log_dir, "webMonitor_log.txt")
             self.webMonitor_log_file = open(wm_log_path, 'a')
-            print(f"WebMonitor Log File opened at {wm_log_path}")
+            self.info(f"WebMonitor log file created at {wm_log_path}")
         except Exception as e:
             print(f"Error opening web monitor log file: {str(e)}")
 
