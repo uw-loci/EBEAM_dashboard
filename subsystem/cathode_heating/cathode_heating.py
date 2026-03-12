@@ -2267,21 +2267,51 @@ class CathodeHeatingSubsystem:
         """
         Disables all power supply outputs and closes serial connections upon quitting the application.
         """
+        def _shutdown_log(message: str):
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            line = f"[{timestamp}] cathode_heating shutdown: {message}\n"
+            try:
+                base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+                log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
+                os.makedirs(log_dir, exist_ok=True)
+                dump_path = os.path.join(log_dir, "thread_dumps.txt")
+                with open(dump_path, "a", encoding="utf-8") as handle:
+                    handle.write(line)
+            except Exception:
+                pass
+            try:
+                sys.__stderr__.write(line)
+                sys.__stderr__.flush()
+            except Exception:
+                pass
+
+        _shutdown_log("enter close_com_ports")
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for i, ps in enumerate(self.power_supplies):
                 try:
                     if hasattr(ps, 'disable_output') and ps.is_connected():
+                        _shutdown_log(f"disabling output for cathode {chr(65 + i)}")
                         self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
                         ps.disable_output()
+                        _shutdown_log(f"disabled output for cathode {chr(65 + i)}")
                 except Exception as e:
                     self.log(f"Error disabling output on cathode {chr(65 + i)}: {e}", LogLevel.ERROR)
+                    _shutdown_log(f"error disabling output for cathode {chr(65 + i)}: {e}")
                 if hasattr(ps, 'close'):
+                    _shutdown_log(f"closing power supply for cathode {chr(65 + i)}")
                     ps.close()
+                    _shutdown_log(f"closed power supply for cathode {chr(65 + i)}")
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
                 if hasattr(self.temperature_controller, 'stop_reading'):
+                    _shutdown_log("stopping temperature controller threads")
                     self.temperature_controller.stop_reading()
+                    _shutdown_log("stopped temperature controller threads")
+                _shutdown_log("disconnecting temperature controller")
                 self.temperature_controller.disconnect()
+                _shutdown_log("disconnected temperature controller")
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
+                _shutdown_log(f"error cleaning up temperature controller: {e}")
+        _shutdown_log("exit close_com_ports")
