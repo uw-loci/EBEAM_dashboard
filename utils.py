@@ -284,7 +284,6 @@ class MessagesFrame:
         # Ensure that the log directory exists
         self.ensure_log_directory()
 
-
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
