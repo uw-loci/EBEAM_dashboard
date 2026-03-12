@@ -162,16 +162,32 @@ class Logger:
                 except Exception as e:
                     print(f"Supabase write error: {e}")
 
-        if self.log_to_file and self.webMonitor_log_file:
-            try:
+        if self.log_to_file:
+            if self.webMonitor_log_file is None:
+                self.setup_wm_logfile()
+            if self.webMonitor_log_file:
                 entry = {
                     "timestamp": timestamp,
                     "status": update_dict
                 }
-                self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-                self.webMonitor_log_file.flush()
-            except Exception as e:
-                print(f"Error writing web monitor updates: {e}")
+                try:
+                    self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                    self.webMonitor_log_file.flush()
+                except Exception as e:
+                    try:
+                        self.webMonitor_log_file.close()
+                    except Exception:
+                        pass
+                    self.webMonitor_log_file = None
+                    try:
+                        self.setup_wm_logfile()
+                        if self.webMonitor_log_file:
+                            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                            self.webMonitor_log_file.flush()
+                        else:
+                            print(f"Error writing web monitor updates: {e}")
+                    except Exception as retry_error:
+                        print(f"Error writing web monitor updates: {retry_error}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
