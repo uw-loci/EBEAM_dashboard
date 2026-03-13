@@ -119,6 +119,9 @@ class KnobBoxModbus:
         self.connected = False
         self.last_success = {uid: 0 for uid in self.UNIT_IDS} # Track last successful poll time for each unit
         self.CONNECTION_TIMEOUT = 10.0 # seconds without successful poll before considering connection lost
+        self._connect_backoff_sec = 0.5 # time between connection attempts, will exponentially back off on failures up to a max
+        self._connect_backoff_max_sec = 5.0 # backoff will max out at this duration between attempts
+        self._next_connect_time = 0.0 # used for backoff timing of connection attempts
 
         # Create data dictionary for each unit in the list of UNIT_IDS
         self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS} 
@@ -146,15 +149,39 @@ class KnobBoxModbus:
             try:
                 if self.connected:
                     return True
+                now = time.time()
+                if now < self._next_connect_time:
+                    return False
                 if self.client.connect():
                     self.connected = True
+                    self._connect_backoff_sec = 0.5
+                    self._next_connect_time = 0.0
                     self.log(f"Knob Box Connected to port {self.port}.", LogLevel.INFO)
                     return True
                 else:
+                    # Connection failed --> schedule next attempt with backoff
                     self.log("Failed to connect to the Knob Box Modbus device.", LogLevel.ERROR)
+                    self._next_connect_time = now + self._connect_backoff_sec
+                    # Exponential backoff for next connection attempt
+                    self._connect_backoff_sec = min(self._connect_backoff_sec * 2, self._connect_backoff_max_sec)
                     return False
-            except Exception as e:
+            except PermissionError as e: # COMx access denied
+                self.connected = False
+                try:
+                    self.client.close()
+                except Exception:
+                    pass
+                self.log(f"Permission error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
+                now = time.time()
+                self._next_connect_time = now + self._connect_backoff_sec
+                self._connect_backoff_sec = min(self._connect_backoff_sec * 2, self._connect_backoff_max_sec)
+                return False
+            except Exception as e: # general catch-all for errors
+                self.connected = False
                 self.log(f"Error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
+                now = time.time()
+                self._next_connect_time = now + self._connect_backoff_sec
+                self._connect_backoff_sec = min(self._connect_backoff_sec * 2, self._connect_backoff_max_sec)
                 return False
             
     def disconnect(self):
