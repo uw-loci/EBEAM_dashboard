@@ -979,10 +979,25 @@ class CathodeHeatingSubsystem:
             # Use the first row of the LUT as a demonstration (replace with your actual logic)
             try:
                 row = lut_df.iloc[0]
-                self.predicted_emission_current_vars[cathode_idx].set(str(row.get('beam_current', '--')))
-                self.predicted_grid_current_vars[cathode_idx].set(str(round(row.get('beam_current', 0) * 0.28, 2)) if 'beam_current' in row else '--')
-                self.predicted_heater_current_vars[cathode_idx].set(str(row.get('heater_current', '--')))
-                self.predicted_heater_voltage_vars[cathode_idx].set(str(row.get('voltage', '--')))
+                
+                if 'beam_current' in row and pd.notna(row['beam_current']):
+                    emission_val = float(row['beam_current']) / 0.72
+                    self.predicted_emission_current_vars[cathode_idx].set(f"{emission_val:.2f} mA")
+                    self.predicted_grid_current_vars[cathode_idx].set(f"{emission_val * 0.28:.2f} mA")
+                else:
+                    self.predicted_emission_current_vars[cathode_idx].set('--')
+                    self.predicted_grid_current_vars[cathode_idx].set('--')
+
+                if 'heater_current' in row and pd.notna(row['heater_current']):
+                    self.predicted_heater_current_vars[cathode_idx].set(f"{float(row['heater_current']):.2f} A")
+                else:
+                    self.predicted_heater_current_vars[cathode_idx].set('--')
+
+                if 'voltage' in row and pd.notna(row['voltage']):
+                    self.predicted_heater_voltage_vars[cathode_idx].set(f"{float(row['voltage']):.2f} V")
+                else:
+                    self.predicted_heater_voltage_vars[cathode_idx].set('--')
+                    
                 self.predicted_temperature_vars[cathode_idx].set('--')  # Add temperature prediction if available
             except Exception:
                 self.predicted_emission_current_vars[cathode_idx].set('--')
