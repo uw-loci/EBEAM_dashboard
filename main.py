@@ -345,7 +345,7 @@ def config_com_ports(saved_com_ports, logger=None):
             logger.info(f"COM-port selection submitted: {selected_ports}")
         config_root.destroy()
         
-        # Pass selected_datasets to main app
+        # Launch the main application
         start_main_app(selected_ports, cathode_datasets=selected_datasets, logger=logger)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
