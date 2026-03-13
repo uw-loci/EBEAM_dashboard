@@ -404,11 +404,14 @@ class BeamEnergySubsystem:
             time.sleep(.2)  # Polling interval
 
     def _safe_reconnect(self):
-        """Run reconnect in Tk thread to avoid thread-unsafe logger/UI interactions."""
-        try:
-            self.attempt_knob_box_reconnect()
-        finally:
-            self.reconnect_in_progress.clear()
+        """Run reconnect in a background thread to keep the UI responsive."""
+        def _worker():
+            try:
+                self.attempt_knob_box_reconnect()
+            finally:
+                self.reconnect_in_progress.clear()
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def update_readings(self):
         """
