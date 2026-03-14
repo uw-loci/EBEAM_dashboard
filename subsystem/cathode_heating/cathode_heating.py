@@ -255,6 +255,8 @@ class CathodeHeatingSubsystem:
         ## Power supply protection
         self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
         self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
+        self.ovl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
+        self.ocl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
 
     def setup_gui(self):
         self._init_ocl_live_values()
@@ -630,7 +632,7 @@ class CathodeHeatingSubsystem:
             ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ovl_display_frame.configure(bg='#d9d9d9')
             ovl_display_frame.pack(side='left', padx=(34, 0))
-            ovl_readback = tk.StringVar(value="--")
+            ovl_readback = self.ovl_readback_vars[i]
             ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
             ovl_live_label.pack(side='left')
             ovl_unit_label = ttk.Label(ovl_display_frame, text=" V", style="Bold.TLabel")
@@ -654,10 +656,8 @@ class CathodeHeatingSubsystem:
                 return update_ovl_live_box
             update_ovl_live_box = create_ovl_update_function(i, ovl_readback)
 
-            # Initialize with default value (1.0V) instead of reading from hardware
-            # Power supplies are locked when connected, so no manual changes possible
-            val_ovl = 1.0  # Default overvoltage limit value
-            self.ovl_live_values[i] = val_ovl
+            # Keep readback unknown until hardware confirms a value.
+            self.ovl_live_values[i] = None
             update_ovl_live_box()
 
             def create_ovl_set_function(cathode_idx, update_func, entry_var):
@@ -675,14 +675,13 @@ class CathodeHeatingSubsystem:
                             msgbox.showerror("Error", "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
                             return
 
-                        # Only update values if validation passes
-                        self.overvoltage_limit_vars[cathode_idx].set(new_value)
-                        self.ovl_live_values[cathode_idx] = new_value
+                        # Only commit UI values after hardware readback confirmation.
+                        set_ok = self.set_overvoltage_limit(cathode_idx, requested_value=new_value)
                         update_func()
-                        entry_var.set("")  # Clear the entry box
-
-                        # Try to set the actual power supply value
-                        self.set_overvoltage_limit(cathode_idx)
+                        if set_ok:
+                            entry_var.set("")  # Clear only after successful confirmation
+                        else:
+                            msgbox.showwarning("OVP Not Confirmed", "OVP could not be confirmed from power supply readback.")
 
                     except ValueError:
                         msgbox.showerror("Error", "Please enter a valid number for overvoltage limit.")
@@ -705,7 +704,7 @@ class CathodeHeatingSubsystem:
             ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
             ocl_display_frame.configure(bg='#d9d9d9')
             ocl_display_frame.pack(side='left', padx=(34, 0))
-            ocl_readback = tk.StringVar(value="--")
+            ocl_readback = self.ocl_readback_vars[i]
             ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
             ocl_live_label.pack(side='left')
             ocl_unit_label = ttk.Label(ocl_display_frame, text=" A", style="Bold.TLabel")
@@ -729,10 +728,8 @@ class CathodeHeatingSubsystem:
                 return update_ocl_live_box
             update_ocl_live_box = create_ocl_update_function(i, ocl_readback)
 
-            # Initialize with default value (9.0A) instead of reading from hardware
-            # Power supplies are locked when connected, so no manual changes possible
-            val_ocl = 9.0  # Default overcurrent limit value
-            self.ocl_live_values[i] = val_ocl
+            # Keep readback unknown until hardware confirms a value.
+            self.ocl_live_values[i] = None
             update_ocl_live_box()
 
             # FIXED: Create set function with proper closure
@@ -751,14 +748,13 @@ class CathodeHeatingSubsystem:
                             msgbox.showerror("Error", "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
                             return
 
-                        # Only update values if validation passes
-                        self.overcurrent_limit_vars[cathode_idx].set(new_value)
-                        self.ocl_live_values[cathode_idx] = new_value
+                        # Only commit UI values after hardware readback confirmation.
+                        set_ok = self.set_overcurrent_limit(cathode_idx, requested_value=new_value)
                         update_func()
-                        entry_var.set("")  # Clear the entry box
-
-                        # Try to set the actual power supply value
-                        self.set_overcurrent_limit(cathode_idx)
+                        if set_ok:
+                            entry_var.set("")  # Clear only after successful confirmation
+                        else:
+                            msgbox.showwarning("OCP Not Confirmed", "OCP could not be confirmed from power supply readback.")
 
                     except ValueError:
                         msgbox.showerror("Error", "Please enter a valid number for overcurrent limit.")
@@ -1223,6 +1219,9 @@ class CathodeHeatingSubsystem:
                         # Confirm the OVP setting
                         confirmed_ovp = ps.get_over_voltage_protection()
                         if confirmed_ovp is not None:
+                            self.ovl_live_values[idx] = float(confirmed_ovp)
+                            self.overvoltage_limit_vars[idx].set(float(confirmed_ovp))
+                            self.ovl_readback_vars[idx].set(f"{float(confirmed_ovp):.2f}")
                             if abs(confirmed_ovp - ovp_value) < 0.1:  # 0.1V tolerance
                                 self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
                             else:
@@ -1243,6 +1242,9 @@ class CathodeHeatingSubsystem:
                         # Confirm the OCP setting
                         confirmed_ocp = ps.get_over_current_protection()
                         if confirmed_ocp is not None:
+                            self.ocl_live_values[idx] = float(confirmed_ocp)
+                            self.overcurrent_limit_vars[idx].set(float(confirmed_ocp))
+                            self.ocl_readback_vars[idx].set(f"{float(confirmed_ocp):.2f}")
                             if abs(confirmed_ocp - ocp_value) < 0.05:  # 0.05A tolerance
                                 self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
                             else:
@@ -1293,6 +1295,22 @@ class CathodeHeatingSubsystem:
             self.power_supplies[index] = new_ps
             self.power_supply_status[index] = True
             self.toggle_buttons[index]['state'] = 'normal'
+
+            # Re-apply protection settings after reconnect so defaults/configured limits
+            # are actively pushed back to hardware.
+            cathode_label = ['A', 'B', 'C'][index]
+            preset_ok = new_ps.set_preset_selection(3)
+            if not preset_ok:
+                self.log(f"Reconnect: failed to set preset mode 3 for Cathode {cathode_label}", LogLevel.WARNING)
+
+            ovp_ok = self.set_overvoltage_limit(index)
+            if not ovp_ok:
+                self.log(f"Reconnect: failed to confirm OVP for Cathode {cathode_label}", LogLevel.WARNING)
+
+            ocp_ok = self.set_overcurrent_limit(index)
+            if not ocp_ok:
+                self.log(f"Reconnect: failed to confirm OCP for Cathode {cathode_label}", LogLevel.WARNING)
+
             self.log(f"Reconnected to power supply on port {port}", LogLevel.INFO)
             self.update_log_power_settings_button_states()
             return True
@@ -1374,15 +1392,14 @@ class CathodeHeatingSubsystem:
             self.set_vlt_adjustment_buttons_state(index, 'normal')
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
 
-    def set_overvoltage_limit(self, index):
+    def set_overvoltage_limit(self, index, requested_value=None):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OVP.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set OVP.")
             return
 
         try:
-            stored_ovp = self.overvoltage_limit_vars[index].get()
-            ovp_value = float(stored_ovp)
+            ovp_value = float(requested_value) if requested_value is not None else float(self.overvoltage_limit_vars[index].get())
 
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {ovp_value:.2f}", LogLevel.DEBUG)
             ovp_set = Decimal(str(ovp_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
@@ -1394,8 +1411,12 @@ class CathodeHeatingSubsystem:
             # Verify the set value
             ovp_get_response = self.power_supplies[index].get_over_voltage_protection()
             if ovp_get_response is None:
+                self.ovl_readback_vars[index].set("N/A")
                 self.log("OVP readback is None--possible comm issue", LogLevel.WARNING)
             else:
+                self.ovl_live_values[index] = float(ovp_get_response)
+                self.overvoltage_limit_vars[index].set(float(ovp_get_response))
+                self.ovl_readback_vars[index].set(f"{float(ovp_get_response):.2f}")
                 if abs(ovp_get_response - ovp_value) > 0.01:
                     self.log(
                         f"OVP mismatch for Cathode {['A','B','C'][index]}. "
@@ -1421,16 +1442,15 @@ class CathodeHeatingSubsystem:
 
         return False
 
-    def set_overcurrent_limit(self, index):
+    def set_overcurrent_limit(self, index, requested_value=None):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OCP.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set OCP.")
             return
 
         try:
-            stored_ocp = self.overcurrent_limit_vars[index].get()
-            raw_value = float(stored_ocp)
-            ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
+            raw_value = float(requested_value) if requested_value is not None else float(self.overcurrent_limit_vars[index].get())
+            ocp_set   = Decimal(str(raw_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
             
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
             ocp_set_response = self.power_supplies[index].set_over_current_protection(ocp_set)
@@ -1440,6 +1460,12 @@ class CathodeHeatingSubsystem:
 
             # Verify the set value
             ocp_get_response = self.power_supplies[index].get_over_current_protection()
+            if ocp_get_response is not None:
+                self.ocl_live_values[index] = float(ocp_get_response)
+                self.overcurrent_limit_vars[index].set(float(ocp_get_response))
+                self.ocl_readback_vars[index].set(f"{float(ocp_get_response):.2f}")
+            else:
+                self.ocl_readback_vars[index].set("N/A")
             if ocp_get_response is None or abs(ocp_get_response - raw_value) > 0.01:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:.2f}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
