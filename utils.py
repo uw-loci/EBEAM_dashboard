@@ -8,7 +8,8 @@ import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
-
+import json
+from collections import deque
 
 class LogLevel(enum.IntEnum):
     VERBOSE = 0
@@ -19,59 +20,154 @@ class LogLevel(enum.IntEnum):
     CRITICAL = 5
 
 class Logger:
-    def __init__(self, text_widget, log_level=LogLevel.INFO, log_to_file=False):
+    STARTUP_BUFFER_MAX = 500
+
+    def __init__(self, text_widget, file_log_level = LogLevel.VERBOSE, log_level=LogLevel.INFO, log_to_file=False):
         self.text_widget = text_widget
+        self.file_log_level = file_log_level
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
+        self.webMonitor_log_file = None
         self.log_start_time = None
+        self.webMonitor_log_start_time = None
+        self.log_filepath = None
+        self.webMonitor_log_filepath = None
+        self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
+        self.dict_logger = {
+            "pressure": None,
+            "safetyOutputDataFlags": None,
+            "safetyInputDataFlags": None,
+            "safetyOutputStatusFlags": None,
+            "safetyInputStatusFlags": None,
+            "temperatures": None,
+            "vacuumBits": None,
+            "Cathode A - Heater Current:": None,
+            "Cathode B - Heater Current:": None,
+            "Cathode C - Heater Current:": None,
+            "Cathode A - Heater Voltage:": None,
+            "Cathode B - Heater Voltage:": None,
+            "Cathode C - Heater Voltage:": None,
+            "clamp_temperature_A" : None,
+            "clamp_temperature_B" : None,
+            "clamp_temperature_C" : None
+            }
         if log_to_file:
             self.setup_log_file()
+            self.setup_wm_logfile()
+
+    def _get_dashboard_base_path(self):
+        return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
+
+    def _write_to_text_widget(self, formatted_message):
+        if self.text_widget is None:
+            return
+        self.text_widget.insert(tk.END, formatted_message, ("log",))
+        self.text_widget.tag_config("log", font=("Helvetica", 9))
+        self.text_widget.see(tk.END)
+
+    def attach_text_widget(self, text_widget):
+        self.text_widget = text_widget
+        while self._pending_widget_messages:
+            self._write_to_text_widget(self._pending_widget_messages.popleft())
 
     def setup_log_file(self):
         """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
-            # Use the EBEAM_dashboard directory
-            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
+            log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-Logs")
             os.makedirs(log_dir, exist_ok=True)
             
             # Create the log file with the old naming pattern
             log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-
             # close the existing log file at intervals of 8 hours and create a new one
             if self.log_file != None:
                 self.log_file.close()
 
-            self.log_file = open(os.path.join(log_dir, log_file_name), 'w')
+            self.log_filepath = os.path.join(log_dir, log_file_name)
+            self.log_file = open(self.log_filepath, 'w')
             self.log_start_time = datetime.datetime.now()
-            print(f"Log file created at {os.path.join(log_dir, log_file_name)}")
+            self.info(f"Log file created at {self.log_filepath}")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
-        
+
+    def setup_wm_logfile(self):
+        """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+        try:
+            wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
+            os.makedirs(wm_log_dir, exist_ok=True)
+            
+            # Create the web monitor log file with the old naming pattern
+            webMonitor_log_file_name = f"webMonitor_log.txt"
+            if self.webMonitor_log_file != None:
+                self.webMonitor_log_file.close()
+            self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
+            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
+            self.webMonitor_log_start_time = datetime.datetime.now()
+            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+        except Exception as e:
+            print(f"Error creating web monitor log file: {str(e)}")
+
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
-            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-            formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-            
-            # Write to text widget
-            self.text_widget.insert(tk.END, formatted_message, ("log",))
-            self.text_widget.tag_config("log", font=("Helvetica", 9))  # Set font size
-            self.text_widget.see(tk.END)
+            if self.text_widget is not None:
+                self._write_to_text_widget(formatted_message)
+            else:
+                self._pending_widget_messages.append(formatted_message)
+        # return early if file logging is disabled
+        if not self.log_to_file:
+            return
+        # write to log file if enabled
+        if self.log_to_file and level >= self.file_log_level:
+            now = datetime.datetime.now()
+            # close the log file at intervals of 8 hours and create a new one
+            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+                self.setup_log_file()
+            if self.log_file is None:
+                return
+            try:
+                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+                self.log_file.write(file_formatted_message)
+                self.log_file.flush()
+            except Exception as e:
+                print(f"Error writing to log file: {str(e)}")   
+    def update_field(self, field, value):
+        if field in self.dict_logger:
+            self.dict_logger[field] = value
+            self.log_dict_update(self.dict_logger)
+        else:
+            raise KeyError(f"'{field}' is not a valid key in status dict.")
+    def clear_value(self, field):
+        if field in self.dict_logger:
+            self.dict_logger[field] = None
+            self.log_dict_update(self.dict_logger)
+        else:
+            raise KeyError(f"'{field}' is not a valid key in status dict.")
+    def log_dict_update(self, update_dict):
+        # return early if file logging is disabled
+        if not self.log_to_file:
+                return
+        try:
+            now = datetime.datetime.now()
+            # overwrite logs on the same webMonitor file every hour
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
+                if self.webMonitor_log_file:
+                    self.webMonitor_log_file.close()
+                self.setup_wm_logfile()
+            if self.webMonitor_log_file is None:
+                return
+            entry = {
+                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": update_dict
+            }
+            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+            self.webMonitor_log_file.flush()
 
-            # write to log flie if enabled
-            if self.log_to_file:
-                now = datetime.datetime.now()
-                if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
-                    self.setup_log_file()
+        except Exception as e:
+            print(f"Error writing web monitor updates: {e}")
 
-                if self.log_file:
-                    try:
-                        self.log_file.write(formatted_message)
-                        self.log_file.flush()
-                    except Exception as e:
-                        print(f"Error writing to log file: {str(e)}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
@@ -98,9 +194,12 @@ class Logger:
                 self.log_file = None
             except Exception as e:
                 print(f"Error closing log file {str(e)}")
-
-import tkinter as tk
-import sys
+        if self.webMonitor_log_file:
+            try:
+                self.webMonitor_log_file.close()
+                self.webMonitor_log_file = None
+            except Exception as e:
+                print(f"Error closing web monitor log file {str(e)}")
 
 import tkinter as tk
 import sys
@@ -108,7 +207,7 @@ import sys
 class MessagesFrame:
     MAX_LINES = 100  # Maximum number of lines to keep in the widget at a time
 
-    def __init__(self, parent, width=300, height=200):
+    def __init__(self, parent, width=300, height=200, logger=None):
         # Create the frame with a strict size
         self.frame = tk.Frame(parent, borderwidth=2, relief="solid", width=width, height=height)
         
@@ -151,14 +250,17 @@ class MessagesFrame:
             2, 2, 10, 10, fill="#00FF24", outline="black"
         )
 
-        self.file_logging_enabled = True
-        self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, log_to_file=True)
+        if logger is None:
+            self.logger = Logger(self.text_widget, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+        else:
+            self.logger = logger
+            self.logger.attach_text_widget(self.text_widget)
+
+        self.file_logging_enabled = self.logger.log_to_file
+        self.logger.info("Messages pane attached to logger")
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
-
-        # Ensure that the log directory exists
-        self.ensure_log_directory()
 
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
@@ -177,6 +279,12 @@ class MessagesFrame:
                 except Exception as e:
                     print(f"Error closing log file: {e}")
                 self.logger.log_file = None
+            if self.logger.webMonitor_log_file:
+                try:
+                    self.logger.webMonitor_log_file.close()
+                except Exception as e:
+                    print(f"Error closing web monitor log file: {e}")
+                self.logger.webMonitor_log_file = None
 
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
@@ -187,6 +295,8 @@ class MessagesFrame:
             
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
+            if not self.logger.webMonitor_log_file:
+                self.logger.setup_wm_logfile()
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
                 self.logging_indicator_circle, 
@@ -199,6 +309,9 @@ class MessagesFrame:
 
     def get_log_level(self):
         return self.logger.log_level
+    
+    def get_file_log_level(self):
+        return self.logger.file_log_level
 
     def flush(self):
         """ Flush method needed for stdout redirection compatibility. """
@@ -228,6 +341,24 @@ class MessagesFrame:
                 os.makedirs(self.log_dir)
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
+    
+    def ensure_wm_log_directory(self):
+        ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
+        try:
+            # For PyInstaller, _MEIPASS is the path to the temporary folder where the app is unpacked.
+            # os.path.abspath(".") gives the path to the current directory when running the script normally.
+            if hasattr(sys, '_MEIPASS'):
+                # If running as a bundled executable
+                base_path = os.path.expanduser("~")  # Gets the home directory
+            else:
+                # If running as a script (e.g., python main.py)
+                base_path = os.path.abspath(".")
+
+            self.wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
+            if not os.path.exists(self.wm_log_dir):
+                os.makedirs(self.wm_log_dir)
+        except Exception as e:
+            print(f"Failed to create wm log directory: {str(e)}")
 
     def export_log(self):
         """ Export the current log contents to a user-specified file. """

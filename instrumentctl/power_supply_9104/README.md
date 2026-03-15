@@ -62,3 +62,88 @@ True
 
 >>> ps.close()
 ```
+
+# Backend Ramping Procedure for Current
+```mermaid
+flowchart TB
+    Start["Ramp current requested (target, step, delay)"] --> ActiveRamp{"Active ramp process?"}
+
+    ActiveRamp -->|Yes| RampWarn["Display/Log ramp in progress warning"]
+    RampWarn --> End
+
+    ActiveRamp -->|No| Prep["Clear stop event<br/>Record start time<br/>Read initial V/I/Mode"]
+    Prep --> Plan["Compute ramp plan<br/>steps = ceil(|target - I0| / step)"]
+
+    Plan --> Loop{"For each step until target reached"}
+
+    Loop -->|Stop set| StopEarly["Stop event set — abort ramp"]
+    StopEarly --> CallbackFail["Callback(False)"] --> End
+
+    Loop -->|Continue| Conn{"Supply connected?"}
+    Conn -->|No| ConnWarn["Connection lost — abort ramp"]
+    ConnWarn --> CallbackFail2["Callback(False)"] --> End
+
+    Conn -->|Yes| NextVal["Compute next current setpoint<br/>clamp to target"]
+
+    NextVal --> TrySet{"Set current succeeded?"}
+    TrySet -->|No| Retry{"Retry ≤ MAX_RETRIES ?"}
+    Retry -->|Yes| NextVal
+    Retry -->|No| GiveUp["Failed after retries — abort"] --> CallbackFail3["Callback(False)"] --> End
+
+    TrySet -->|Yes| LimitChk{"Being limited?<br/>(Mode==CV AND |Imeas - Iset| > tol)?"}
+
+    LimitChk -->|Yes| StoreGood{"Store last good value (first hit)"} --> HitCount{"Consecutive hits ≥ HIT_LIMIT?"}
+    LimitChk -->|No| Progress["Update progress log"]
+
+    HitCount -->|No| Delay["sleep(step_delay)"] --> Loop
+    HitCount -->|Yes| Restore{"Restore last good if stored"} --> Abort["Abort ramp due to limit"] --> CallbackFail4["Callback(False)"] --> End
+
+    Progress --> Delay2["sleep(step_delay)"] --> Loop
+
+    Loop -->|Done| Settle["sleep(verify_delay)"] --> Verify{"Final reading OK?"}
+    Verify -->|No| CallbackFail5["Callback(False)"] --> End
+    Verify -->|Yes| CallbackOK["Callback(True)"] --> End
+```
+
+# Backend Ramping Procedure for Voltage
+```mermaid
+flowchart TB
+    Start["Ramp voltage requested (target, step, delay)"] --> ActiveRamp{"Active ramp process?"}
+
+    ActiveRamp -->|Yes| RampWarn["Display/Log ramp in progress warning"]
+    RampWarn --> End
+
+    ActiveRamp -->|No| Prep["Clear stop event<br/>Record start time<br/>Read initial V/I/Mode"]
+    Prep --> Plan["Compute ramp plan<br/>steps = ceil(|target - V0| / step)"]
+
+    Plan --> Loop{"For each step until target reached"}
+
+    Loop -->|Stop set| StopEarly["Stop event set — abort ramp"]
+    StopEarly --> CallbackFail["Callback(False)"] --> End
+
+    Loop -->|Continue| Conn{"Supply connected?"}
+    Conn -->|No| ConnWarn["Connection lost — abort ramp"]
+    ConnWarn --> CallbackFail2["Callback(False)"] --> End
+
+    Conn -->|Yes| NextVal["Compute next voltage setpoint<br/>clamp to target"]
+
+    NextVal --> TrySet{"Set voltage succeeded?"}
+    TrySet -->|No| Retry{"Retry ≤ MAX_RETRIES ?"}
+    Retry -->|Yes| NextVal
+    Retry -->|No| GiveUp["Failed after retries — abort"] --> CallbackFail3["Callback(False)"] --> End
+
+    TrySet -->|Yes| LimitChk{"Being limited?<br/>(Mode==CC AND |Vmeas - Vset| > tol)?"}
+
+    LimitChk -->|Yes| StoreGood{"Store last good value (first hit)"} --> HitCount{"Consecutive hits ≥ HIT_LIMIT?"}
+    LimitChk -->|No| Progress["Update progress log"]
+
+    HitCount -->|No| Delay["sleep(step_delay)"] --> Loop
+    HitCount -->|Yes| Restore{"Restore last good if stored"} --> Abort["Abort ramp due to limit"] --> CallbackFail4["Callback(False)"] --> End
+
+    Progress --> Delay2["sleep(step_delay)"] --> Loop
+
+    Loop -->|Done| Settle["sleep(verify_delay)"] --> Verify{"Final reading OK?"}
+    Verify -->|No| CallbackFail5["Callback(False)"] --> End
+    Verify -->|Yes| CallbackOK["Callback(True)"] --> End
+
+```
