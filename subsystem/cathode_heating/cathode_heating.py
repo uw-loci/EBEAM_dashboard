@@ -1401,6 +1401,10 @@ class CathodeHeatingSubsystem:
         try:
             ovp_value = float(requested_value) if requested_value is not None else float(self.overvoltage_limit_vars[index].get())
 
+            # Backend safety validation (do not rely only on GUI-bound checks)
+            if ovp_value < 0.02 or ovp_value > 84:
+                raise ValueError("OVP must be a value greater than 0.02 V and less than or equal to 84 V")
+
             self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {ovp_value:.2f}", LogLevel.DEBUG)
             ovp_set = Decimal(str(ovp_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
             ovp_set_response = self.power_supplies[index].set_over_voltage_protection(ovp_set)
@@ -1450,6 +1454,11 @@ class CathodeHeatingSubsystem:
 
         try:
             raw_value = float(requested_value) if requested_value is not None else float(self.overcurrent_limit_vars[index].get())
+
+            # Backend safety validation (do not rely only on GUI-bound checks)
+            if raw_value < 0.1 or raw_value > 10:
+                raise ValueError("Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
+
             ocp_set   = Decimal(str(raw_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
             
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
