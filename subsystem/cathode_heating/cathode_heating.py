@@ -2006,6 +2006,14 @@ class CathodeHeatingSubsystem:
         self.voltage_set[index] = False
         self.current_set[index] = False        
 
+    def clear_prediction_variables(self, index):
+        """Clear only prediction display fields while preserving active setpoints/state."""
+        self.predicted_emission_current_vars[index].set('--')
+        self.predicted_grid_current_vars[index].set('--')
+        self.predicted_heater_current_vars[index].set('--')
+        self.predicted_heater_voltage_vars[index].set('--')
+        self.predicted_temperature_vars[index].set('--')
+
     def reset_power_supply(self, index):
         """
         Reset a power supply to zero voltage and current (UVL and UCL)
@@ -2210,7 +2218,7 @@ class CathodeHeatingSubsystem:
                 limited_current = self._max_current_at_voltage(index, self.user_set_voltages[index])
                 if limited_voltage is None or limited_current is None:
                     # no data in LUT, return to update output without predictions
-                    self.reset_related_variables(index)
+                    self.clear_prediction_variables(index)
                     return False
 
                 if current >= limited_current:
@@ -2231,7 +2239,7 @@ class CathodeHeatingSubsystem:
             
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
-                self.reset_related_variables(index)
+                self.clear_prediction_variables(index)
                 self.log(f"No lookup table data available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return False
                 
@@ -2273,7 +2281,7 @@ class CathodeHeatingSubsystem:
                 limited_current = self._max_current_at_voltage(index, voltage)
                 if limited_voltage is None or limited_current is None:
                     # no data in LUT, return to update output without predictions
-                    self.reset_related_variables(index)
+                    self.clear_prediction_variables(index)
                     return False
 
                 if voltage >= limited_voltage:
@@ -2294,7 +2302,7 @@ class CathodeHeatingSubsystem:
             
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
-                self.reset_related_variables(index)
+                self.clear_prediction_variables(index)
                 self.log(f"No lookup table data available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return False
                 
