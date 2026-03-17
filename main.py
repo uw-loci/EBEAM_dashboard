@@ -208,6 +208,17 @@ def start_main_app(com_ports, logger=None):
     app = EBEAMSystemDashboard(root, com_ports, logger=logger)
     root.mainloop()
     _append_shutdown_log("mainloop exited")
+    
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    # Force process termination to ensure the terminal regains control.
+    try:
+        os._exit(0)
+    except Exception:
+        # If os._exit fails for any reason, raise SystemExit as a fallback.
+        raise SystemExit(0)
 
 def config_com_ports(saved_com_ports, logger=None):
     """
@@ -298,7 +309,8 @@ def config_com_ports(saved_com_ports, logger=None):
         save_com_ports(selected_ports, logger=logger)
         if logger is not None:
             logger.info(f"COM-port selection submitted: {selected_ports}")
-        config_root.quit()
+        config_root.destroy()
+        start_main_app(selected_ports, logger=logger)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
@@ -306,10 +318,6 @@ def config_com_ports(saved_com_ports, logger=None):
     config_root.bind('<Return>', lambda event: on_submit())
     config_root.mainloop()
     config_root.destroy()
-
-    if selected_ports:
-        start_main_app(selected_ports, logger=logger)
-
 
 if __name__ == "__main__":
     bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
