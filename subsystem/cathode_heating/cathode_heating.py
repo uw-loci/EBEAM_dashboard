@@ -784,20 +784,20 @@ class CathodeHeatingSubsystem:
 
             current_slew_rate_var = tk.StringVar(value="")
 
-            def current_slew_command():
+            def current_slew_command(idx=i, entry_var=current_slew_rate_var):
                 # Called when spinbox arrows are clicked
-                current_val = current_slew_rate_var.get()
+                current_val = entry_var.get()
                 if current_val == "" or current_val.strip() == "":
                     # If empty, populate with current slew rate + increment
-                    new_val = self.curr_slew_rate[i] + 0.01
-                    current_slew_rate_var.set(f"{new_val:.2f}")
+                    new_val = self.curr_slew_rate[idx] + 0.01
+                    entry_var.set(f"{new_val:.2f}")
                 else:
                     try:
                         val = float(current_val)
                         if val <= 0:
-                            current_slew_rate_var.set("0.01")
+                            entry_var.set("0.01")
                     except ValueError:
-                        current_slew_rate_var.set(f"{self.curr_slew_rate[i]:.2f}")
+                        entry_var.set(f"{self.curr_slew_rate[idx]:.2f}")
 
             current_slew_rate_spinbox = ttk.Spinbox(csr_control_frame, textvariable=current_slew_rate_var,
                                                   width=5, from_=0.01, to=10.0, increment=0.01,
@@ -839,20 +839,20 @@ class CathodeHeatingSubsystem:
 
             slew_rate_var = tk.StringVar(value="")
 
-            def voltage_slew_command():
+            def voltage_slew_command(idx=i, entry_var=slew_rate_var):
                 # Called when spinbox arrows are clicked
-                current_val = slew_rate_var.get()
+                current_val = entry_var.get()
                 if current_val == "" or current_val.strip() == "":
                     # If empty, populate with current slew rate + increment
-                    new_val = self.vlt_slew_rate[i] + 0.02
-                    slew_rate_var.set(f"{new_val:.2f}")
+                    new_val = self.vlt_slew_rate[idx] + 0.02
+                    entry_var.set(f"{new_val:.2f}")
                 else:
                     try:
                         val = float(current_val)
                         if val <= 0:
-                            slew_rate_var.set("0.02")
+                            entry_var.set("0.02")
                     except ValueError:
-                        slew_rate_var.set(f"{self.vlt_slew_rate[i]:.2f}")
+                        entry_var.set(f"{self.vlt_slew_rate[idx]:.2f}")
 
             slew_rate_spinbox = ttk.Spinbox(vsr_control_frame, textvariable=slew_rate_var,
                                           width=5, from_=0.02, to=0.06, increment=0.02,
