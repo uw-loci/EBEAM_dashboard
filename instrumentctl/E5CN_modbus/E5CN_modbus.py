@@ -7,7 +7,7 @@ class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
 
-    def __init__(self, port, baudrate=9600, timeout=0.5, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
         """
         Initialize the E5CNModbus instance with serial communication parameters and optional logging.
         
@@ -111,7 +111,7 @@ class E5CNModbus:
         
         # Wait for threads to finish
         for thread in self.threads:
-            thread.join(timeout=4)
+            thread.join(timeout=0.5)
             if thread.is_alive():
                 self.log(f"Warning: Thread {thread.name} did not terminate in time", LogLevel.WARNING)
             else:
@@ -173,13 +173,13 @@ class E5CNModbus:
 
     def read_temperature(self, unit):
         attempts = 3
-        while attempts > 0 and not self.stop_event.is_set():
+        while attempts > 0:
             try:
                 if self.stop_event.is_set():
                     return None
-                if self.stop_event.is_set():
-                    return None
                 with self.modbus_lock:
+                    if self.stop_event.is_set():
+                        return None
                     if not self.client.is_socket_open():
                         try:
                             if self.client.connect():
