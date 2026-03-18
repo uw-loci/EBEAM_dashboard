@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import tkinter.filedialog as filedialog
 import shutil
+import csv
 import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
@@ -221,6 +222,7 @@ def config_com_ports(saved_com_ports, logger=None):
 
     # Dataset files for cathodes
     lut_dir = os.path.join('data', 'lut', 'power_supply')
+    os.makedirs(lut_dir, exist_ok=True)
     cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv') and f.lower() != 'default.csv']
     # Add 'Default' option at the top, do not show 'default.csv' in the dropdown
     dataset_options = ['Default'] + cathode_files
@@ -253,21 +255,72 @@ def config_com_ports(saved_com_ports, logger=None):
         selections[subsystem] = selected_port
 
     def add_lut_dataset():
+        def validate_lut_csv(csv_path):
+            required_cols = {'beam_current', 'voltage', 'heater_current'}
+            try:
+                with open(csv_path, newline='', encoding='utf-8') as fh:
+                    reader = csv.DictReader(fh)
+                    if not reader.fieldnames:
+                        return False, "CSV has no header row."
+
+                    headers = {h.strip() for h in reader.fieldnames if h is not None}
+                    missing = required_cols - headers
+                    if missing:
+                        return False, f"CSV is missing required columns: {', '.join(sorted(missing))}"
+
+                    has_row = False
+                    for row in reader:
+                        has_row = True
+                        for col in required_cols:
+                            cell = row.get(col, "")
+                            if cell is None or str(cell).strip() == "":
+                                return False, f"CSV contains empty values in required column '{col}'."
+
+                    if not has_row:
+                        return False, "CSV contains no data rows."
+            except Exception as e:
+                return False, f"Could not validate CSV: {e}"
+
+            return True, ""
+
         file_path = filedialog.askopenfilename(
             title="Select LUT CSV File",
             filetypes=[("CSV Files", "*.csv")],
         )
         if file_path:
-            dest_dir = os.path.join('data', 'lut', 'power_supply')
-            dest_file = os.path.join(dest_dir, os.path.basename(file_path))
+            os.makedirs(lut_dir, exist_ok=True)
+            source_name = os.path.basename(file_path)
+
+            if source_name.lower() == 'default.csv':
+                messagebox.showerror("Invalid Dataset Name", "'default.csv' is reserved and cannot be imported as a custom LUT.")
+                return
+
+            is_valid, validation_msg = validate_lut_csv(file_path)
+            if not is_valid:
+                messagebox.showerror("Invalid LUT CSV", validation_msg)
+                return
+
+            dest_file = os.path.join(lut_dir, source_name)
             try:
+                if os.path.exists(dest_file):
+                    overwrite = messagebox.askyesno(
+                        "Dataset Exists",
+                        f"A dataset named '{source_name}' already exists.\nDo you want to overwrite it?"
+                    )
+                    if not overwrite:
+                        return
+
                 shutil.copy(file_path, dest_file)
+
                 # Update the cathode_files and dataset_options list and all dataset dropdowns
-                cathode_files.append(os.path.basename(file_path))
+                if source_name not in cathode_files:
+                    cathode_files.append(source_name)
                 dataset_options.clear()
-                dataset_options.extend(['Default'] + cathode_files)
+                dataset_options.extend(['Default'] + sorted(cathode_files, key=str.lower))
                 for cb in dataset_comboboxes:
                     cb['values'] = dataset_options
+
+                messagebox.showinfo("LUT Added", f"Dataset '{source_name}' is now available.")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to add LUT file:\n{e}")
 
