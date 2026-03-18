@@ -961,45 +961,29 @@ class CathodeHeatingSubsystem:
     def refresh_predictions(self, cathode_idx):
         """
         Refresh predicted values for the specified cathode index after LUT change.
+
+        Recomputes from the currently requested heater setpoint(s) when available,
+        so switching datasets does not overwrite predictions with an unrelated LUT row.
         """
         lut_df = self.lookup_table_setting[cathode_idx]
-        # If LUT is valid, update predictions; else set to '--'
-        if lut_df is not None and not lut_df.empty:
-            # Use the first row of the LUT as a demonstration (replace with your actual logic)
-            try:
-                row = lut_df.iloc[0]
-                
-                if 'beam_current' in row and pd.notna(row['beam_current']):
-                    emission_val = float(row['beam_current']) / 0.72
-                    self.predicted_emission_current_vars[cathode_idx].set(f"{emission_val:.2f} mA")
-                    self.predicted_grid_current_vars[cathode_idx].set(f"{emission_val * 0.28:.2f} mA")
-                else:
-                    self.predicted_emission_current_vars[cathode_idx].set('--')
-                    self.predicted_grid_current_vars[cathode_idx].set('--')
+        if lut_df is None or lut_df.empty:
+            self.clear_prediction_variables(cathode_idx)
+            return
 
-                if 'heater_current' in row and pd.notna(row['heater_current']):
-                    self.predicted_heater_current_vars[cathode_idx].set(f"{float(row['heater_current']):.2f} A")
-                else:
-                    self.predicted_heater_current_vars[cathode_idx].set('--')
+        has_current_setpoint = (
+            self.current_set[cathode_idx] and self.user_set_currents[cathode_idx] is not None
+        )
+        has_voltage_setpoint = (
+            self.voltage_set[cathode_idx] and self.user_set_voltages[cathode_idx] is not None
+        )
 
-                if 'voltage' in row and pd.notna(row['voltage']):
-                    self.predicted_heater_voltage_vars[cathode_idx].set(f"{float(row['voltage']):.2f} V")
-                else:
-                    self.predicted_heater_voltage_vars[cathode_idx].set('--')
-                    
-                self.predicted_temperature_vars[cathode_idx].set('--')  # Add temperature prediction if available
-            except Exception:
-                self.predicted_emission_current_vars[cathode_idx].set('--')
-                self.predicted_grid_current_vars[cathode_idx].set('--')
-                self.predicted_heater_current_vars[cathode_idx].set('--')
-                self.predicted_heater_voltage_vars[cathode_idx].set('--')
-                self.predicted_temperature_vars[cathode_idx].set('--')
+        # Recompute predictions from active setpoints so dataset switch reflects current request.
+        if has_current_setpoint:
+            self.update_predictions_from_current(cathode_idx, self.user_set_currents[cathode_idx])
+        elif has_voltage_setpoint:
+            self.update_predictions_from_voltage(cathode_idx, self.user_set_voltages[cathode_idx])
         else:
-            self.predicted_emission_current_vars[cathode_idx].set('--')
-            self.predicted_grid_current_vars[cathode_idx].set('--')
-            self.predicted_heater_current_vars[cathode_idx].set('--')
-            self.predicted_heater_voltage_vars[cathode_idx].set('--')
-            self.predicted_temperature_vars[cathode_idx].set('--')
+            self.clear_prediction_variables(cathode_idx)
 
     def update_com_ports(self, new_com_ports):
         """
