@@ -22,6 +22,15 @@ SUBSYSTEMS = [
     'ProcessMonitors'
 ]
 
+
+def resource_path(relative_path):
+    """Resolve resource paths for both source and PyInstaller bundled execution."""
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS  # type: ignore[attr-defined]
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 def create_dummy_port_labels(subsystems):
     """
     Create a list of dummy port labels that the user can select
@@ -220,10 +229,17 @@ def config_com_ports(saved_com_ports, logger=None):
     right_frame = ttk.Frame(main_frame)
     right_frame.grid(row=0, column=1, sticky='n', padx=(30,0))
 
-    # Dataset files for cathodes
-    lut_dir = os.path.join('data', 'lut', 'power_supply')
-    os.makedirs(lut_dir, exist_ok=True)
-    cathode_files = [f for f in os.listdir(lut_dir) if f.lower().endswith('.csv') and f.lower() != 'default.csv']
+    # Dataset files for cathodes (resolved from application/resource root)
+    lut_dir = resource_path(os.path.join('data', 'lut', 'power_supply'))
+    if os.path.isdir(lut_dir):
+        cathode_files = [
+            f for f in os.listdir(lut_dir)
+            if f.lower().endswith('.csv') and f.lower() != 'default.csv'
+        ]
+    else:
+        cathode_files = []
+        if logger is not None:
+            logger.warning(f"LUT directory not found: {lut_dir}")
     # Add 'Default' option at the top, do not show 'default.csv' in the dropdown
     dataset_options = ['Default'] + cathode_files
     cathode_map = {'CathodeA PS': 'A', 'CathodeB PS': 'B', 'CathodeC PS': 'C'}
@@ -288,7 +304,11 @@ def config_com_ports(saved_com_ports, logger=None):
             filetypes=[("CSV Files", "*.csv")],
         )
         if file_path:
-            os.makedirs(lut_dir, exist_ok=True)
+            try:
+                os.makedirs(lut_dir, exist_ok=True)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not create LUT directory:\n{e}")
+                return
             source_name = os.path.basename(file_path)
 
             if source_name.lower() == 'default.csv':
@@ -371,9 +391,9 @@ def config_com_ports(saved_com_ports, logger=None):
         for key, value in dataset_selections.items():
             v = value.get()
             if v == 'Default':
-                selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', 'default.csv')
+                selected_datasets[key] = os.path.join(lut_dir, 'default.csv')
             else:
-                selected_datasets[key] = os.path.join('data', 'lut', 'power_supply', v)
+                selected_datasets[key] = os.path.join(lut_dir, v)
         
         # check that all COM ports are selected
         if not all(selected_ports.values()):
