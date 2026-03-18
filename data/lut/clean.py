@@ -4,13 +4,15 @@ import argparse
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-POWER_SUPPLY_RAW_DIR = "power_supply/raw_files"
-POWER_SUPPLY_PLOT_DIR = "power_supply/plots"
-POWER_SUPPLY_OUTPUT_DIR = "power_supply"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-BEAM_CONTROL_RAW_DIR = "beam_control/raw_files"
-BEAM_CONTROL_PLOT_DIR = "beam_control/plots"
-BEAM_CONTROL_OUTPUT_DIR = "beam_control"
+POWER_SUPPLY_RAW_DIR = os.path.join(BASE_DIR, "power_supply", "raw_files")
+POWER_SUPPLY_PLOT_DIR = os.path.join(BASE_DIR, "power_supply", "plots")
+POWER_SUPPLY_OUTPUT_DIR = os.path.join(BASE_DIR, "power_supply")
+
+BEAM_CONTROL_RAW_DIR = os.path.join(BASE_DIR, "beam_control", "raw_files")
+BEAM_CONTROL_PLOT_DIR = os.path.join(BASE_DIR, "beam_control", "plots")
+BEAM_CONTROL_OUTPUT_DIR = os.path.join(BASE_DIR, "beam_control")
 
 POWER_SUPPLY_FILES = [
     ("raw_default.csv", "default.csv"),
