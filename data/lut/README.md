@@ -66,18 +66,22 @@ To update the beam control lookup tables and generate visualizations:
 
 ## Running Cleanup Operations
 
-To process power supply data:
-To process beam control data:
+From the repository root, run:
 ```bash
-python clean.py --subsystem beam_control
+# Process power supply data
+python data/lut/clean.py --subsystem power_supply
+
+# Process beam control data
+python data/lut/clean.py --subsystem beam_control
+
+# Process all subsystems
+python data/lut/clean.py --subsystem all
 ```
 
+Or, from the `data/lut` directory, run:
 ```bash
 python clean.py --subsystem power_supply
-```
-
-Or process all subsystems at once:
-```bash
+python clean.py --subsystem beam_control
 python clean.py --subsystem all
 ```
 
