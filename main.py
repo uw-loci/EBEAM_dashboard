@@ -2,7 +2,6 @@ import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
-import os
 
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
@@ -188,12 +187,6 @@ def start_main_app(com_ports, logger=None):
         root.destroy()
     except Exception:
         pass
-    # Force process termination to ensure the terminal regains control.
-    try:
-        os._exit(0)
-    except Exception:
-        # If os._exit fails for any reason, raise SystemExit as a fallback.
-        raise SystemExit(0)
 
 def config_com_ports(saved_com_ports, logger=None):
     """
