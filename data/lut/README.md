@@ -22,7 +22,9 @@ Lookup Tables for EBEAM System GUI
 
 To update the power supply lookup tables and generate visualizations:
 
-1. Replace your new raw CSV files in the `power_supply/raw_files/` directory, ensuring they are named: `raw_default.csv`, `raw_A.csv`, `raw_B.csv`, `raw_C.csv`.
+1. Replace your new raw CSV files in the `power_supply/raw_files/` directory.
+   - Files must be named using the `raw_` prefix and `.csv` extension (for example: `raw_default.csv`, `raw_cathodeA.csv`).
+   - Cleaned output filenames are created automatically by removing `raw_` (for example: `raw_cathodeA.csv` -> `cathodeA.csv`).
    - **Required columns:** Each raw file must have the following column headers (case-sensitive):
      - `beam_current`, `voltage`, `heater_current`
    - Example:
@@ -37,8 +39,7 @@ To update the power supply lookup tables and generate visualizations:
    ```bash
    python clean.py --subsystem power_supply
    ```
-   - The script will process each raw file, clean and deduplicate the data, and write the results to `power_supply/` as `default.csv`, `powersupply_A.csv`, `powersupply_B.csv`, and `powersupply_C.csv` (overwriting any existing files).
-   - If any expected raw file is missing, the script will skip it and print a message.
+    - The script processes all files in `power_supply/raw_files/` matching `raw_*.csv`, cleans and deduplicates the data, and writes results to `power_supply/` using the same filename with `raw_` removed.
    - For each cleaned dataset, two plots are generated:
      - Beam Current vs Voltage (X: voltage, Y: beam current)
      - Beam Current vs Heater Current (X: heater current, Y: beam current)
@@ -48,9 +49,10 @@ To update the power supply lookup tables and generate visualizations:
 
 To update the beam control lookup tables and generate visualizations:
 
-1. Replace your new raw CSV files in the `beam_control/raw_files/` directory, ensuring they follow the naming convention:
-   - `raw_bd_20keV.csv`, `raw_bd_50keV.csv` (beam deflection at 20 keV and 50 keV)
-   - `raw_ss_20keV.csv`, `raw_ss_50keV.csv` (scan speed at 20 keV and 50 keV)
+1. Replace your new raw CSV files in the `beam_control/raw_files/` directory.
+   - Files must be named using the `raw_` prefix and `.csv` extension.
+   - Cleaned output filenames are created automatically by removing `raw_`.
+   - Existing beam-control plotting behavior expects names containing `bd` (beam deflection) or `ss` (scan speed), such as `raw_bd_20keV.csv` and `raw_ss_20keV.csv`.
    
    **Required columns by file type:**
    - **Beam Deflection files:** `current_amplitude_A`, `deflection_cm`
@@ -60,7 +62,7 @@ To update the beam control lookup tables and generate visualizations:
    ```bash
    python clean.py --subsystem beam_control
    ```
-   - The script will process each raw file and write the results to `beam_control/` as `beam_deflection_20keV.csv`, `beam_deflection_50keV.csv`, `scan_speed_20keV.csv`, and `scan_speed_50keV.csv`.
+   - The script processes all files in `beam_control/raw_files/` matching `raw_*.csv` and writes results to `beam_control/` using the same filename with `raw_` removed.
    - For each dataset, a plot is generated showing the calibration curve.
    - All plots are saved in the `beam_control/plots/` directory.
 

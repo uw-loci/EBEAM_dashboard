@@ -14,19 +14,7 @@ BEAM_CONTROL_RAW_DIR = os.path.join(BASE_DIR, "beam_control", "raw_files")
 BEAM_CONTROL_PLOT_DIR = os.path.join(BASE_DIR, "beam_control", "plots")
 BEAM_CONTROL_OUTPUT_DIR = os.path.join(BASE_DIR, "beam_control")
 
-POWER_SUPPLY_FILES = [
-    ("raw_default.csv", "default.csv"),
-    ("raw_A.csv", "powersupply_A.csv"),
-    ("raw_B.csv", "powersupply_B.csv"),
-    ("raw_C.csv", "powersupply_C.csv"),
-]
-
-BEAM_CONTROL_FILES = [
-    ("raw_bd_20keV.csv", "beam_deflection_20keV.csv"),
-    ("raw_bd_50keV.csv", "beam_deflection_50keV.csv"),
-    ("raw_ss_20keV.csv", "scan_speed_20keV.csv"),
-    ("raw_ss_50keV.csv", "scan_speed_50keV.csv"),
-]
+RAW_PREFIX = "raw_"
 
 def read_csv(filename):
     with open(filename, newline="") as f:
@@ -84,6 +72,28 @@ def clean_power_supply_file(raw_path, clean_path):
     write_csv(clean_path, rows)
     return rows
 
+
+def discover_raw_file_pairs(raw_dir):
+    """Return (raw_name, clean_name) for files named raw_*.csv in raw_dir."""
+    if not os.path.isdir(raw_dir):
+        return []
+
+    file_pairs = []
+    for name in sorted(os.listdir(raw_dir), key=str.lower):
+        lower_name = name.lower()
+        if not lower_name.endswith(".csv"):
+            continue
+        if not lower_name.startswith(RAW_PREFIX):
+            continue
+
+        clean_name = name[len(RAW_PREFIX):]
+        clean_stem, clean_ext = os.path.splitext(clean_name)
+        if not clean_name or clean_ext.lower() != ".csv" or not clean_stem:
+            continue
+        file_pairs.append((name, clean_name))
+
+    return file_pairs
+
 def plot_power_supply_graphs(rows, name, plot_dir):
     beam = [float(r["beam_current"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
     volt = [float(r["voltage"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
@@ -111,20 +121,18 @@ def plot_power_supply_graphs(rows, name, plot_dir):
 
 def process_power_supply_data():
     print("Processing power supply data...")
-    missing = []
-    for raw_name, clean_name in POWER_SUPPLY_FILES:
+    file_pairs = discover_raw_file_pairs(POWER_SUPPLY_RAW_DIR)
+    if not file_pairs:
+        print("Power Supply: No raw CSV files found matching raw_*.csv")
+        return
+
+    for raw_name, clean_name in file_pairs:
         raw_path = os.path.join(POWER_SUPPLY_RAW_DIR, raw_name)
         clean_path = os.path.join(POWER_SUPPLY_OUTPUT_DIR, clean_name)
-        if not os.path.exists(raw_path):
-            missing.append(raw_name)
-            continue
         rows = clean_power_supply_file(raw_path, clean_path)
         plot_power_supply_graphs(rows, clean_name.replace('.csv',''), POWER_SUPPLY_PLOT_DIR)
-    
-    if missing:
-        print(f"Power Supply: The following files are missing: {', '.join(missing)}")
-    else:
-        print("Power Supply: All files processed and plots generated.")
+
+    print(f"Power Supply: Processed {len(file_pairs)} files and generated plots.")
 
 def read_beam_control_csv(filename):
     """Read beam control CSV files (already in final format)."""
@@ -188,22 +196,20 @@ def plot_beam_control_graphs(rows, name, plot_dir, file_type):
 
 def process_beam_control_data():
     print("Processing beam control data...")
-    missing = []
-    for raw_name, clean_name in BEAM_CONTROL_FILES:
+    file_pairs = discover_raw_file_pairs(BEAM_CONTROL_RAW_DIR)
+    if not file_pairs:
+        print("Beam Control: No raw CSV files found matching raw_*.csv")
+        return
+
+    for raw_name, clean_name in file_pairs:
         raw_path = os.path.join(BEAM_CONTROL_RAW_DIR, raw_name)
         clean_path = os.path.join(BEAM_CONTROL_OUTPUT_DIR, clean_name)
-        if not os.path.exists(raw_path):
-            missing.append(raw_name)
-            continue
         rows = clean_beam_control_file(raw_path, clean_path)
         # Determine file type for plotting
         file_type = 'deflection' if 'bd' in raw_name else 'scan_speed'
         plot_beam_control_graphs(rows, clean_name.replace('.csv',''), BEAM_CONTROL_PLOT_DIR, file_type)
-    
-    if missing:
-        print(f"Beam Control: The following files are missing: {', '.join(missing)}")
-    else:
-        print("Beam Control: All files processed and plots generated.")
+
+    print(f"Beam Control: Processed {len(file_pairs)} files and generated plots.")
 
 def main():
     parser = argparse.ArgumentParser(description='Clean and process EBEAM lookup table data')
