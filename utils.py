@@ -26,8 +26,6 @@ class Logger:
 
     def __init__(self, text_widget, file_log_level = LogLevel.VERBOSE, log_level=LogLevel.INFO, log_to_file=False):
         self.text_widget = text_widget
-        # Only updated from the main thread: indicates the text widget is attached and safe to call
-        self._widget_attached = False
         self.file_log_level = file_log_level
         self.log_level = log_level
         self.log_to_file = log_to_file
@@ -65,25 +63,25 @@ class Logger:
         if log_to_file:
             self.setup_log_file()
             self.setup_wm_logfile()
-        # Start GUI pump only if a widget was provided at construction and we're on the main thread.
-        if self.text_widget and threading.current_thread() is threading.main_thread():
-            if hasattr(self.text_widget, "after"):
-                self._widget_attached = True
-                self._start_gui_pump()
+        self._start_gui_pump()
 
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
 
     def _widget_alive(self):
-        # Do NOT invoke any tkinter methods from background threads (e.g., winfo_exists).
-        # This flag is only set/cleared from the main thread (see attach_text_widget and close()).
-        return bool(self.text_widget) and bool(self._widget_attached)
+        if self.text_widget is None:
+            return False
+        if not hasattr(self.text_widget, "winfo_exists"):
+            return True
+        try:
+            return bool(self.text_widget.winfo_exists())
+        except tk.TclError:
+            return False
 
     def _start_gui_pump(self):
-        # Only start pumping when the widget is attached and supports `after`.
-        if self._closed or not self._widget_attached:
+        if self._closed or not self._widget_alive():
             return
-        if self.text_widget is None or not hasattr(self.text_widget, "after"):
+        if not hasattr(self.text_widget, "after"):
             return
         if self._pump_after_id is None:
             try:
@@ -94,7 +92,7 @@ class Logger:
                 self._pump_after_id = None
 
     def _pump_queue(self):
-        if self._closed or not self._widget_attached:
+        if self._closed or not self._widget_alive():
             self._pump_after_id = None
             return
         try:
@@ -104,8 +102,8 @@ class Logger:
         except queue.Empty:
             pass
         finally:
-            if not self._closed and self._widget_attached:
-                if self.text_widget is None or not hasattr(self.text_widget, "after"):
+            if not self._closed and self._widget_alive():
+                if not hasattr(self.text_widget, "after"):
                     self._pump_after_id = None
                     return
                 try:
@@ -116,8 +114,7 @@ class Logger:
                     self._pump_after_id = None
 
     def _write_to_text_widget(self, formatted_message, tag="log"):
-        # Expect this to be called from the main thread via the pump; guard with the attached flag.
-        if not (self.text_widget and self._widget_attached):
+        if not self._widget_alive():
             return
         try:
             self.text_widget.insert(tk.END, formatted_message, (tag,))
@@ -131,35 +128,20 @@ class Logger:
     def _enqueue_gui_write(self, message, tag="log"):
         if self._closed:
             return
-
-        # Always enqueue into the thread-safe queue.
-        try:
-            self._gui_queue.put((message, tag))
-        except Exception:
-            # If queue put fails for some reason, fall back to pending buffer.
-            try:
-                self._pending_widget_messages.append((message, tag))
-            except Exception:
-                pass
+        if self.text_widget is None:
+            self._pending_widget_messages.append((message, tag))
             return
-
-        # If widget is not attached yet or doesn't support `after`, buffer until attach.
-        if not self._widget_attached or self.text_widget is None or not hasattr(self.text_widget, "after"):
-            try:
-                self._pending_widget_messages.append((message, tag))
-            except Exception:
-                pass
+        if not hasattr(self.text_widget, "after"):
+            self._write_to_text_widget(message, tag)
             return
-
-        # Only call into tkinter (start the pump) from the main thread.
-        if threading.current_thread() is threading.main_thread():
-            self._start_gui_pump()
+        if not self._widget_alive():
+            self._pending_widget_messages.append((message, tag))
+            return
+        self._gui_queue.put((message, tag))
+        self._start_gui_pump()
 
     def attach_text_widget(self, text_widget):
-        # Called from the main thread to attach a tkinter Text widget.
         self.text_widget = text_widget
-        # Mark attached (only set from main thread)
-        self._widget_attached = True
         if not hasattr(self.text_widget, "after"):
             while self._pending_widget_messages:
                 message, tag = self._pending_widget_messages.popleft()
@@ -168,7 +150,6 @@ class Logger:
         while self._pending_widget_messages:
             message, tag = self._pending_widget_messages.popleft()
             self._gui_queue.put((message, tag))
-        # Safe to start pump because this is called on the main thread.
         self._start_gui_pump()
 
     def write_raw(self, message, tag="stdout"):
@@ -310,17 +291,12 @@ class Logger:
 
     def close(self):
         self._closed = True
-        # Try to cancel scheduled after() only from the main thread to avoid Tk calls from background threads.
-        if self._pump_after_id is not None:
-            if threading.current_thread() is threading.main_thread() and self._widget_attached and self.text_widget and hasattr(self.text_widget, "after"):
-                try:
-                    self.text_widget.after_cancel(self._pump_after_id)
-                except tk.TclError:
-                    pass
-            # clear pump id regardless; the pump checks _closed and will stop if running
+        if self._pump_after_id is not None and self._widget_alive():
+            try:
+                self.text_widget.after_cancel(self._pump_after_id)
+            except tk.TclError:
+                pass
             self._pump_after_id = None
-        # mark widget detached
-        self._widget_attached = False
         if self.log_file:
             try:
                 with self._file_lock:
