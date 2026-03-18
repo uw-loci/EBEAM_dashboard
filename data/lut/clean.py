@@ -149,13 +149,88 @@ def write_beam_control_csv(filename, rows, columns):
         for row in rows:
             writer.writerow(row)
 
-def clean_beam_control_file(raw_path, clean_path):
+
+def _normalize_beam_control_type(file_type):
+    """Normalize beam-control type aliases to canonical values."""
+    if not file_type:
+        return None
+    ft = str(file_type).strip().lower()
+    if ft in ("deflection", "beam_deflection", "bd"):
+        return "deflection"
+    if ft in ("scan_speed", "scan", "ss"):
+        return "scan_speed"
+    return None
+
+
+def _infer_beam_control_type(rows):
+    """Infer beam-control data type from row headers when filename hints are absent."""
+    if not rows:
+        return None
+    headers = set(rows[0].keys())
+    if {"current_amplitude_A", "deflection_cm"}.issubset(headers):
+        return "deflection"
+    if {"frequency_hz", "scan_speed_mps"}.issubset(headers):
+        return "scan_speed"
+    return None
+
+
+def _validate_beam_control_rows(rows, filename, file_type=None):
+    """Validate beam-control rows against expected schema before write/plot."""
+    if not rows:
+        return
+
+    normalized_type = _normalize_beam_control_type(file_type) or _infer_beam_control_type(rows)
+    if normalized_type == "deflection":
+        required_columns = ["current_amplitude_A", "deflection_cm"]
+    elif normalized_type == "scan_speed":
+        required_columns = ["frequency_hz", "scan_speed_mps"]
+    else:
+        found = ", ".join(list(rows[0].keys()))
+        raise ValueError(
+            f"Beam control file '{filename}' type could not be inferred. "
+            f"Expected headers for deflection ({'current_amplitude_A, deflection_cm'}) "
+            f"or scan speed ({'frequency_hz, scan_speed_mps'}). Found: {found}."
+        )
+
+    header_keys = list(rows[0].keys())
+    missing = [col for col in required_columns if col not in header_keys]
+    if missing:
+        raise ValueError(
+            f"Beam control file '{filename}' is missing required columns: "
+            f"{', '.join(missing)}. Expected at least: {', '.join(required_columns)}."
+        )
+
+    for idx, row in enumerate(rows, start=2):
+        # Skip entirely empty lines.
+        if all((val is None or str(val).strip() == "") for val in row.values()):
+            continue
+        for col in required_columns:
+            value = row.get(col)
+            if value is None or str(value).strip() == "":
+                raise ValueError(
+                    f"Beam control file '{filename}' has empty value for required column "
+                    f"'{col}' at CSV row {idx}."
+                )
+            try:
+                float(value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Beam control file '{filename}' has non-numeric value for column "
+                    f"'{col}' at CSV row {idx}: {value!r}."
+                )
+
+
+def clean_beam_control_file(raw_path, clean_path, file_type=None):
     """Clean beam control files (pass-through with validation)."""
     rows = read_beam_control_csv(raw_path)
+    if not rows:
+        return rows
+
+    _validate_beam_control_rows(rows, os.path.basename(raw_path), file_type=file_type)
+
     # Determine columns from the first row keys
-    if rows:
-        columns = list(rows[0].keys())
-        write_beam_control_csv(clean_path, rows, columns)
+    columns = list(rows[0].keys())
+    write_beam_control_csv(clean_path, rows, columns)
     return rows
 
 def plot_beam_control_graphs(rows, name, plot_dir, file_type):
@@ -166,15 +241,17 @@ def plot_beam_control_graphs(rows, name, plot_dir, file_type):
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
     
-    # Determine plot type based on file type
-    if 'beam_deflection' in name:
+    normalized_type = _normalize_beam_control_type(file_type) or _infer_beam_control_type(rows)
+
+    # Determine plot type based on file type (with header-based fallback)
+    if normalized_type == "deflection":
         # Beam deflection plot: current_amplitude_A vs deflection_cm
         x_data = [float(r['current_amplitude_A']) for r in rows]
         y_data = [float(r['deflection_cm']) for r in rows]
         x_label = 'Current Amplitude (A)'
         y_label = 'Deflection (cm)'
         title = f'{name.replace("_", " ").title()}'
-    elif 'scan_speed' in name:
+    elif normalized_type == "scan_speed":
         # Scan speed plot: frequency_hz vs scan_speed_mps
         x_data = [float(r['frequency_hz']) for r in rows]
         y_data = [float(r['scan_speed_mps']) for r in rows]
@@ -204,9 +281,14 @@ def process_beam_control_data():
     for raw_name, clean_name in file_pairs:
         raw_path = os.path.join(BEAM_CONTROL_RAW_DIR, raw_name)
         clean_path = os.path.join(BEAM_CONTROL_OUTPUT_DIR, clean_name)
-        rows = clean_beam_control_file(raw_path, clean_path)
-        # Determine file type for plotting
-        file_type = 'deflection' if 'bd' in raw_name else 'scan_speed'
+        raw_lower = raw_name.lower()
+        if "bd" in raw_lower:
+            file_type = "deflection"
+        elif "ss" in raw_lower:
+            file_type = "scan_speed"
+        else:
+            file_type = None
+        rows = clean_beam_control_file(raw_path, clean_path, file_type=file_type)
         plot_beam_control_graphs(rows, clean_name.replace('.csv',''), BEAM_CONTROL_PLOT_DIR, file_type)
 
     print(f"Beam Control: Processed {len(file_pairs)} files and generated plots.")

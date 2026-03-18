@@ -2,12 +2,19 @@ import csv
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from data.lut.clean import clean_power_supply_file, discover_raw_file_pairs, fill_missing_voltages
+from data.lut.clean import (
+    clean_beam_control_file,
+    clean_power_supply_file,
+    discover_raw_file_pairs,
+    fill_missing_voltages,
+)
 
 
 def test_discover_raw_file_pairs_filters_and_strips_prefix(tmp_path):
@@ -81,3 +88,44 @@ def test_clean_power_supply_file_with_all_missing_voltage_does_not_crash(tmp_pat
     assert len(rows) == 1
     assert rows[0]["heater_current"] == "6.00"
     assert rows[0]["voltage"] == ""
+
+
+def test_clean_beam_control_file_raises_on_missing_required_columns(tmp_path):
+    raw_path = tmp_path / "raw_bd_bad.csv"
+    clean_path = tmp_path / "bd_bad.csv"
+
+    with raw_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["current_amplitude_A", "wrong_col"])
+        writer.writeheader()
+        writer.writerow({"current_amplitude_A": "0.5", "wrong_col": "1.2"})
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        clean_beam_control_file(str(raw_path), str(clean_path), file_type="deflection")
+
+
+def test_clean_beam_control_file_raises_on_non_numeric_values(tmp_path):
+    raw_path = tmp_path / "raw_ss_bad.csv"
+    clean_path = tmp_path / "ss_bad.csv"
+
+    with raw_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["frequency_hz", "scan_speed_mps"])
+        writer.writeheader()
+        writer.writerow({"frequency_hz": "abc", "scan_speed_mps": "2.3"})
+
+    with pytest.raises(ValueError, match="non-numeric value"):
+        clean_beam_control_file(str(raw_path), str(clean_path), file_type="scan_speed")
+
+
+def test_clean_beam_control_file_infers_type_from_headers_when_not_provided(tmp_path):
+    raw_path = tmp_path / "raw_custom.csv"
+    clean_path = tmp_path / "custom.csv"
+
+    with raw_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["current_amplitude_A", "deflection_cm"])
+        writer.writeheader()
+        writer.writerow({"current_amplitude_A": "0.5", "deflection_cm": "1.2"})
+
+    rows = clean_beam_control_file(str(raw_path), str(clean_path), file_type=None)
+
+    assert len(rows) == 1
+    assert clean_path.exists()
