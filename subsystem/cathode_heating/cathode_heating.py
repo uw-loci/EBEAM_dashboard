@@ -2228,7 +2228,11 @@ class CathodeHeatingSubsystem:
                 pred_heater_current = current
             
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
-            _,_, pred_beam_current = self.emission_cur_vlt_converter(index, pred_heater_voltage)
+            _,_, pred_beam_current = self.emission_cur_vlt_converter(
+                index,
+                pred_heater_voltage,
+                target_heater_current=pred_heater_current
+            )
             
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
@@ -2291,7 +2295,11 @@ class CathodeHeatingSubsystem:
                 pred_heater_voltage = voltage
             
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
-            _,_, pred_beam_current = self.emission_cur_vlt_converter(index, pred_heater_voltage)
+            _,_, pred_beam_current = self.emission_cur_vlt_converter(
+                index,
+                pred_heater_voltage,
+                target_heater_current=pred_heater_current
+            )
             
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
@@ -2342,13 +2350,19 @@ class CathodeHeatingSubsystem:
             return None
         return rows["voltage"].max()
 
-    def emission_cur_vlt_converter(self, index, val):
+    def emission_cur_vlt_converter(self, index, val, target_heater_current=None):
         """
         Convert between voltage and current using the DataFrame lookup.
+
+        When multiple LUT rows share the same voltage, choose the row that best
+        matches the active heater-current constraint (if provided). Otherwise,
+        use a deterministic fallback to avoid file-order-dependent behavior.
         
         Args:
             index (int): Index of the cathode (0-2)
             val (float): Input value (voltage or current)
+            target_heater_current (float | None): Preferred heater current used to
+                disambiguate duplicate-voltage rows
             
         Returns:
             tuple: (heater_voltage, heater_current, beam_current)
@@ -2362,9 +2376,30 @@ class CathodeHeatingSubsystem:
                 heater_current = -1
                 beam_current = -1
                 return (heater_voltage, heater_current, beam_current)
-            
-            # Use the first exact match found
-            match_row = exact_match.iloc[0]
+
+            match_row = None
+            candidates = exact_match.copy()
+            candidates['_heater_current_num'] = pd.to_numeric(candidates['heater_current'], errors='coerce')
+
+            # Prefer row closest to the active heater-current constraint.
+            if target_heater_current is not None:
+                numeric_rows = candidates.dropna(subset=['_heater_current_num']).copy()
+                if not numeric_rows.empty:
+                    target = float(target_heater_current)
+                    numeric_rows['_delta'] = (numeric_rows['_heater_current_num'] - target).abs()
+                    match_row = numeric_rows.sort_values(
+                        by=['_delta', '_heater_current_num'],
+                        ascending=[True, False]
+                    ).iloc[0]
+
+            # Deterministic fallback: highest heater current at this voltage.
+            if match_row is None:
+                numeric_rows = candidates.dropna(subset=['_heater_current_num'])
+                if not numeric_rows.empty:
+                    match_row = numeric_rows.sort_values(by=['_heater_current_num'], ascending=[False]).iloc[0]
+                else:
+                    match_row = exact_match.iloc[0]
+
             heater_voltage = match_row['voltage']
             heater_current = match_row['heater_current']  # This is the heater current
             beam_current = match_row['beam_current']     # This is the beam current
