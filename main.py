@@ -3,7 +3,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
 import os
-import datetime
 
 from dashboard import EBEAMSystemDashboard
 from usr.com_port_config import save_com_ports, load_com_ports
@@ -52,40 +51,17 @@ def start_main_app(com_ports, logger=None):
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
 
-    def _append_shutdown_log(message):
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        line = f"[{timestamp}] shutdown: {message}\n"
-        try:
-            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-            log_dir = os.path.join(base_path, "EBEAM-Dashboard-Logs")
-            os.makedirs(log_dir, exist_ok=True)
-            dump_path = os.path.join(log_dir, "thread_dumps.txt")
-            with open(dump_path, "a", encoding="utf-8") as handle:
-                handle.write(line)
-        except Exception:
-            pass
-        try:
-            sys.__stderr__.write(line)
-            sys.__stderr__.flush()
-        except Exception:
-            pass
-
     # Track fullscreen state
     fullscreen = False
   
     def quit_app(event=None):
-        _append_shutdown_log("quit_app invoked")
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            _append_shutdown_log("quit confirmed")
             app.cleanup()
-            _append_shutdown_log("cleanup returned, calling root.quit")
             try:
                 root.quit()
             except Exception:
                 pass
-            _append_shutdown_log("calling root.destroy")
             root.destroy()
-            _append_shutdown_log("root.destroy returned")
         return "break"
     
     """Esnure that quit_app is called when the window is closed, not just when Ctrl+Q is pressed."""
@@ -207,7 +183,6 @@ def start_main_app(com_ports, logger=None):
 
     app = EBEAMSystemDashboard(root, com_ports, logger=logger)
     root.mainloop()
-    _append_shutdown_log("mainloop exited")
     
     try:
         root.destroy()
