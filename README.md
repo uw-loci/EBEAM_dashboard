@@ -169,14 +169,15 @@ cd EBEAM_dashboard
 ```
 Create a virtual environment:
 ```
-python -m venv venv
+py -3.11 -m venv .venv
 ```
 Activate the virtual environment (assuming on Windows)*:
 ```
-venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 ```
 Install the requirements:
 ```
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 Run the main application:
