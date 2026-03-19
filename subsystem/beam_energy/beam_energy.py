@@ -355,10 +355,10 @@ class BeamEnergySubsystem:
             else:
                 self.reset_status_colors[index].set("white")
 
-    def update_forced_off_status(self, index, forced_off):
+    def update_forced_off_status(self, index, timer_state_3k):
         if index == 3:  # Only 3kV Bertran has forced off status
-            if forced_off:
-                self.forced_off_color.set("red")
+            if timer_state_3k:
+                self.forced_off_color.set("red") 
             else:
                 self.forced_off_color.set("white")
 
@@ -488,42 +488,12 @@ class BeamEnergySubsystem:
                 reset_state = data.get('reset_state_1kV', False)
                 nomop_flag = data.get('nomop_flag', False)
                 logic_alive = data.get('logic_alive', False)
-                # TODO flags for interlocks
+                reset_counter = data.get('reset_counter', False)
+                timer_state_3k = data.get('timer_state_3kV', False)
+                # TODO rest of flags for interlocks?
+                # TODO use mode bit for ddvice health
 
-                # Map mode integer to human-readable label for logging
-                mode_text = "health unintialized" if health == 0 else "health unknown"
-
-                # Overcurrent Handling:
-                # if overcurrent:
-                #     # Log once when overcurrent condition is first detected
-                #     if not self.overcurrent_flags[index]:
-                #         self.log(f"Overcurrent detected on Power Supply {unit_id}!", LogLevel.WARNING)
-                        
-                #         messagebox.showwarning(
-                #             title="Overcurrent Warning",
-                #             message=f"Overcurrent detected on Power Supply {unit_id}.\n"
-                #                     f"The hardware system has taken protective action.\n\n"
-                #                     f"Press OK to acknowledge.")
-
-                #     self.overcurrent_flags[index] = True
-
-                # else:
-                #     # Clear flag and log recovery from overcurrent state
-                #     if self.overcurrent_flags[index]:
-                #         self.log(f"Power Supply {unit_id} recovered from overcurrent.", LogLevel.INFO)
-                #     self.overcurrent_flags[index] = False
-
-                # print structured DEBUG log line per unit when measurements are present
-                if (v_read is not None) and (i_read is not None):
-                    try:
-                        voltage_V = float(v_read)
-                        current_A = float(i_read) / 1000.0  # mA -> A
-                        ps_number = unit_id  # keep 1-4 numbering aligned with UNIT_IDS
-                    except Exception:
-                        pass # If conversion fails, skip logging
-
-                
-                self.update_connection_status(index, True)
+                # self.update_connection_status(index, True)
 
                 # Update display values if data is valid
                 if v_set is not None:
@@ -541,15 +511,13 @@ class BeamEnergySubsystem:
                 else:
                     self.actual_currents[index].set("-- mA")
 
-                # Get the connection status for the current unit
-                # self.logger.log(f"[unit {unit_id}] Connection status: {comms}", LogLevel.DEBUG)
-
                 # Update indicators based on data
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
                 self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, logic_alive, interlocks)
                 self.update_output_status(index, hv_enable)
                 self.update_reset_status(index, reset_state)
                 self.update_connection_status(index, comms)
+                self.update_forced_off_status(index, timer_state_3k)
 
         except Exception as e:  
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
