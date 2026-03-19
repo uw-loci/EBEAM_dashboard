@@ -25,7 +25,7 @@ DINPUT_CCSPOWER_ADDR =          9
 DINPUT_3KV_ENABLE_ADDR =        10
 # (logic arduino flags)
 DINPUT_NOMOP_FLAG_ADDR =        11
-DINPUT_3K_HVENABLE_FLAG_ADDR =  12
+DINPUT_3KV_TIMER_FLAG_ADDR =    12
 DINPUT_ARMBEAMS_FLAG_ADDR =     13
 DINPUT_CCSPOWER_FLAG_ADDR =     14
 DINPUT_ARM80KV_FLAG_ADDR =      15
@@ -55,7 +55,7 @@ DATA_TEMPLATE = {
     "arm_80kv": 0,
     "arm_beams": 0,
     "ccs_power": 0,
-    "3kV_enable": 0,
+    "timer_state_3kV": 0,
     "reset_state_1kV": 0,
     "nomop_flag": 0,
     "hvenable_flag": 0,
@@ -97,7 +97,7 @@ class KnobBoxModbus:
     UNIT_IDS = [1,2,3,4] # for testing, just using one slave
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='N', stopbits=1, bytesize=8, logger=None, debug_mode=True):
+    def __init__(self, port, baudrate=9600, timeout=0.5, parity='N', stopbits=1, bytesize=8, logger=None, debug_mode=True):
         """
         Initialize the KnobBoxModbus instance with serial communication parameters and optional logging.
         
@@ -115,6 +115,7 @@ class KnobBoxModbus:
         self.debug_mode = debug_mode
         self.modbus_lock = threading.Lock() # Lock for Modbus communication
         self.data_lock = threading.Lock()  # Lock for data state updates
+        self.poll_schedule_lock = threading.Lock()  # Lock for per-unit poll scheduling/backoff
         self.port = port
         self.connected = False
         self.last_success = {uid: 0 for uid in self.UNIT_IDS} # Track last successful poll time for each unit
@@ -122,6 +123,11 @@ class KnobBoxModbus:
         self._connect_backoff_sec = 0.5 # time between connection attempts, will exponentially back off on failures up to a max
         self._connect_backoff_max_sec = 5.0 # backoff will max out at this duration between attempts
         self._next_connect_time = 0.0 # used for backoff timing of connection attempts
+        self._poll_index = 0  # rotate unit polling order to avoid always lagging the same unit
+        self._unit_poll_backoff_base_sec = 0.5  # per-unit backoff after poll failures
+        self._unit_poll_backoff_max_sec = 5.0
+        self._unit_poll_backoff_sec = {uid: 0.0 for uid in self.UNIT_IDS}
+        self._next_unit_poll_time = {uid: 0.0 for uid in self.UNIT_IDS}
 
         # Create data dictionary for each unit in the list of UNIT_IDS
         self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS} 
@@ -135,7 +141,7 @@ class KnobBoxModbus:
             stopbits=stopbits,
             bytesize=bytesize,
             timeout=timeout,
-            retries=2
+            retries=0  # avoid double-retry (manual retries handled in poll_one)
         )
 
     def connect(self):
@@ -204,7 +210,20 @@ class KnobBoxModbus:
         """
         if not self.connect():
             raise RuntimeError("Unable to open Modbus serial port")
-        for uid in self.UNIT_IDS:
+        # Rotate polling order to distribute latency across units
+        if self.UNIT_IDS:
+            start_index = self._poll_index % len(self.UNIT_IDS)
+            unit_order = self.UNIT_IDS[start_index:] + self.UNIT_IDS[:start_index]
+            self._poll_index = (start_index + 1) % len(self.UNIT_IDS)
+        else:
+            unit_order = []
+
+        for uid in unit_order:
+            now = time.time()
+            with self.poll_schedule_lock:
+                next_due = self._next_unit_poll_time.get(uid, 0.0)
+            if now < next_due:
+                continue
             try:
                 self.poll_one(uid)
             except Exception as e:
@@ -224,83 +243,92 @@ class KnobBoxModbus:
             try:
                 with self.modbus_lock:
                     # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ, 3kv reset count, and flags
-                    # Continuous block starting at address 1 (count=24)
-                    input_registers = self.client.read_input_registers(address=IREG_HEALTH_ADDR, count=TOTAL_REG_COUNT, slave=unit_id)
-                    if input_registers.isError():
-                        raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id}): {input_registers}")
+                    # Continuous block starting at address 0 (count=25)
+                    input_registers = self.client.read_input_registers(
+                        address=IREG_HEALTH_ADDR,
+                        count=TOTAL_REG_COUNT,
+                        slave=unit_id
+                    )
+                if input_registers.isError():
+                    raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id}): {input_registers}")
 
-                    if len(input_registers.registers) < TOTAL_REG_COUNT:
-                        raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
-                    
-                    health = input_registers.registers[IREG_HEALTH_ADDR]
-                    v_set = input_registers.registers[IREG_V_SET_ADDR]
-                    v_read = input_registers.registers[IREG_V_READ_ADDR]
-                    i_read = input_registers.registers[IREG_I_READ_ADDR]
-                    reset_counter = input_registers.registers[IREG_3KV_RESET_COUNT_ADDR]
-                    
-                    hv_enable = int(bool(input_registers.registers[DINPUT_HVENABLE_ADDR]))
+                if len(input_registers.registers) < TOTAL_REG_COUNT:
+                    raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
 
-                    arm_80kV = int(bool(input_registers.registers[DINPUT_ARM80KV_ADDR]))
-                    arm_beams = not int(bool(input_registers.registers[DINPUT_ARMBEAMS_ADDR]))
-                    ccs_power = not int(bool(input_registers.registers[DINPUT_CCSPOWER_ADDR]))
-                    enable_3kV = not int(bool(input_registers.registers[DINPUT_3KV_ENABLE_ADDR]))
+                registers = input_registers.registers
 
-                    if (unit_id == 4 ):
-                        hv_enable = enable_3kV # for the 3kV Bertan, hv enable comes from logic arduino output
+                health = registers[IREG_HEALTH_ADDR]
+                v_set = registers[IREG_V_SET_ADDR]
+                v_read = registers[IREG_V_READ_ADDR]
+                i_read = registers[IREG_I_READ_ADDR]
+                reset_counter = registers[IREG_3KV_RESET_COUNT_ADDR]
 
-                    reset_state_1kV = int(bool(input_registers.registers[DINPUT_RESET_STATE_1KV_ADDR]))
+                hv_enable = int(bool(registers[DINPUT_HVENABLE_ADDR]))
 
-                    nomop_flag = int(bool(input_registers.registers[DINPUT_NOMOP_FLAG_ADDR]))
-                    hvenable_flag = int(bool(input_registers.registers[DINPUT_3K_HVENABLE_FLAG_ADDR]))
-                    armbeams_flag = int(bool(input_registers.registers[DINPUT_ARMBEAMS_FLAG_ADDR]))
-                    ccspower_flag = int(bool(input_registers.registers[DINPUT_CCSPOWER_FLAG_ADDR]))
-                    arm80kv_flag = int(bool(input_registers.registers[DINPUT_ARM80KV_FLAG_ADDR]))
-                    vcomp_1k_flag = int(bool(input_registers.registers[DINPUT_1K_VCOMP_FLAG_ADDR]))
-                    icomp_1k_flag = int(bool(input_registers.registers[DINPUT_1K_ICOMP_FLAG_ADDR]))
-                    neg_vcomp_1k_flag = int(bool(input_registers.registers[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
-                    neg_icomp_1k_flag = int(bool(input_registers.registers[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
-                    vcomp_20k_flag = int(bool(input_registers.registers[DINPUT_20K_VCOMP_FLAG_ADDR]))
-                    icomp_20k_flag = int(bool(input_registers.registers[DINPUT_20K_ICOMP_FLAG_ADDR]))
-                    vcomp_3k_flag = int(bool(input_registers.registers[DINPUT_3K_VCOMP_FLAG_ADDR]))
-                    icomp_3k_flag = int(bool(input_registers.registers[DINPUT_3K_ICOMP_FLAG_ADDR]))
+                arm_80kV = int(bool(registers[DINPUT_ARM80KV_ADDR]))
+                arm_beams = int(bool(registers[DINPUT_ARMBEAMS_ADDR]))
+                ccs_power = int(bool(registers[DINPUT_CCSPOWER_ADDR]))
+                enable_3kV = int(bool(registers[DINPUT_3KV_ENABLE_ADDR]))
 
-                    logic_alive_flag = int(bool(input_registers.registers[DINPUT_LOGIC_ALIVE_ADDR]))
+                if (unit_id == 4 ):
+                    hv_enable = enable_3kV # for the 3kV Bertan, hv enable comes from logic arduino output
 
-                    new_data = {
-                        "health": health,
-                        "set_voltage_V": float(v_set),
-                        "actual_voltage_V": float(v_read),
-                        "actual_current_mA": float(i_read) / 1000.0, # convert uA to mA    
-                        "3kv_reset_count": reset_counter,
-                        "hv_enable": hv_enable,
-                        "arm_80kV": arm_80kV,
-                        "arm_beams": arm_beams,
-                        "ccs_power": ccs_power,
-                        "3kV_enable": enable_3kV,
-                        "reset_state_1kV": reset_state_1kV,
-                        "nomop_flag": nomop_flag,
-                        "hvenable_flag": hvenable_flag,
-                        "armbeams_flag": armbeams_flag,
-                        "ccspower_flag": ccspower_flag,
-                        "arm80kv_flag": arm80kv_flag,
-                        "vcomp_1k_flag": vcomp_1k_flag,
-                        "icomp_1k_flag": icomp_1k_flag,
-                        "neg_vcomp_1k_flag": neg_vcomp_1k_flag,
-                        "neg_icomp_1k_flag": neg_icomp_1k_flag,
-                        "vcomp_20k_flag": vcomp_20k_flag,
-                        "icomp_20k_flag": icomp_20k_flag,
-                        "vcomp_3k_flag": vcomp_3k_flag,
-                        "icomp_3k_flag": icomp_3k_flag,
-                        "logic_alive": logic_alive_flag
-                    }
+                reset_state_1kV = int(bool(registers[DINPUT_RESET_STATE_1KV_ADDR]))
 
-                    # Success - update data and return
-                    with self.data_lock:
-                        self.data[unit_id] = new_data
-                        self.last_success[unit_id] = time.time()
-                    # Keep UI-thread unsafe logger usage outside shared-state lock
-                    # self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
-                    return
+                nomop_flag = int(bool(registers[DINPUT_NOMOP_FLAG_ADDR]))
+                timer_state_flag = int(bool(registers[DINPUT_3KV_TIMER_FLAG_ADDR]))
+                armbeams_flag = int(bool(registers[DINPUT_ARMBEAMS_FLAG_ADDR]))
+                ccspower_flag = int(bool(registers[DINPUT_CCSPOWER_FLAG_ADDR]))
+                arm80kv_flag = int(bool(registers[DINPUT_ARM80KV_FLAG_ADDR]))
+                vcomp_1k_flag = int(bool(registers[DINPUT_1K_VCOMP_FLAG_ADDR]))
+                icomp_1k_flag = int(bool(registers[DINPUT_1K_ICOMP_FLAG_ADDR]))
+                neg_vcomp_1k_flag = int(bool(registers[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
+                neg_icomp_1k_flag = int(bool(registers[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
+                vcomp_20k_flag = int(bool(registers[DINPUT_20K_VCOMP_FLAG_ADDR]))
+                icomp_20k_flag = int(bool(registers[DINPUT_20K_ICOMP_FLAG_ADDR]))
+                vcomp_3k_flag = int(bool(registers[DINPUT_3K_VCOMP_FLAG_ADDR]))
+                icomp_3k_flag = int(bool(registers[DINPUT_3K_ICOMP_FLAG_ADDR]))
+
+                logic_alive_flag = int(bool(registers[DINPUT_LOGIC_ALIVE_ADDR]))
+
+                new_data = {
+                    "health": health,
+                    "set_voltage_V": float(v_set),
+                    "actual_voltage_V": float(v_read),
+                    "actual_current_mA": float(i_read) / 1000.0, # convert uA to mA
+                    "3kv_reset_count": reset_counter,
+                    "hv_enable": hv_enable,
+                    "arm_80kV": arm_80kV,
+                    "arm_beams": arm_beams,
+                    "ccs_power": ccs_power,
+                    "3kV_enable": enable_3kV,
+                    "reset_state_1kV": reset_state_1kV,
+                    "nomop_flag": nomop_flag,
+                    "timer_state_3kV": timer_state_flag,
+                    "armbeams_flag": armbeams_flag,
+                    "ccspower_flag": ccspower_flag,
+                    "arm80kv_flag": arm80kv_flag,
+                    "vcomp_1k_flag": vcomp_1k_flag,
+                    "icomp_1k_flag": icomp_1k_flag,
+                    "neg_vcomp_1k_flag": neg_vcomp_1k_flag,
+                    "neg_icomp_1k_flag": neg_icomp_1k_flag,
+                    "vcomp_20k_flag": vcomp_20k_flag,
+                    "icomp_20k_flag": icomp_20k_flag,
+                    "vcomp_3k_flag": vcomp_3k_flag,
+                    "icomp_3k_flag": icomp_3k_flag,
+                    "logic_alive": logic_alive_flag
+                }
+
+                # Success - update data and return
+                with self.data_lock:
+                    self.data[unit_id] = new_data
+                    self.last_success[unit_id] = time.time()
+                with self.poll_schedule_lock:
+                    self._unit_poll_backoff_sec[unit_id] = 0.0
+                    self._next_unit_poll_time[unit_id] = 0.0
+                # Keep UI-thread unsafe logger usage outside shared-state lock
+                # self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
+                return
 
             except Exception as e:
                 last_exception = e
@@ -311,6 +339,14 @@ class KnobBoxModbus:
                     self.log(f"[unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
         
         # All retries exhausted, raise the last exception
+        with self.poll_schedule_lock:
+            backoff = self._unit_poll_backoff_sec.get(unit_id, 0.0)
+            if backoff <= 0.0:
+                backoff = self._unit_poll_backoff_base_sec
+            else:
+                backoff = min(backoff * 2, self._unit_poll_backoff_max_sec)
+            self._unit_poll_backoff_sec[unit_id] = backoff
+            self._next_unit_poll_time[unit_id] = time.time() + backoff
         raise last_exception
 
     def get_data_snapshot(self):
