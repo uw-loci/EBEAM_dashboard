@@ -167,7 +167,7 @@ Navigate to your project directory:
 ```
 cd EBEAM_dashboard
 ```
-Create a virtual environment:
+Create a virtual environment (dashboard currently requires python 3.11 due to dependencies):
 ```
 py -3.11 -m venv .venv
 ```
