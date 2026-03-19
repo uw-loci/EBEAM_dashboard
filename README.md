@@ -185,9 +185,20 @@ Run the main application:
 python main.py
 ```
 
-*Note: Due to the nature of the script, Windows may block execution, the following cmd is useful and should be run:
+*Note: Windows PowerShell may block script execution when activating the virtual environment. Before running `.\.venv\Scripts\Activate.ps1`, choose one of the following options:
+```
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```
+Use this to allow scripts only in the current PowerShell session.
+
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+Use this to allow scripts for your user account in future PowerShell sessions.
+
+Then activate the virtual environment:
+```
+.\.venv\Scripts\Activate.ps1
 ```
 
 Create a new branch from develop for your feature or bug fix:
