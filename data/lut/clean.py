@@ -6,15 +6,17 @@ from collections import defaultdict
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-POWER_SUPPLY_RAW_DIR = os.path.join(BASE_DIR, "power_supply", "raw_files")
+POWER_SUPPLY_INPUT_DIR = os.path.join(BASE_DIR, "power_supply")
 POWER_SUPPLY_PLOT_DIR = os.path.join(BASE_DIR, "power_supply", "plots")
 POWER_SUPPLY_OUTPUT_DIR = os.path.join(BASE_DIR, "power_supply")
 
-BEAM_CONTROL_RAW_DIR = os.path.join(BASE_DIR, "beam_control", "raw_files")
+BEAM_CONTROL_INPUT_DIR = os.path.join(BASE_DIR, "beam_control")
 BEAM_CONTROL_PLOT_DIR = os.path.join(BASE_DIR, "beam_control", "plots")
 BEAM_CONTROL_OUTPUT_DIR = os.path.join(BASE_DIR, "beam_control")
 
-RAW_PREFIX = "raw_"
+# Backward-compatible support for legacy raw_files folders.
+POWER_SUPPLY_RAW_DIR = os.path.join(BASE_DIR, "power_supply", "raw_files")
+BEAM_CONTROL_RAW_DIR = os.path.join(BASE_DIR, "beam_control", "raw_files")
 
 def read_csv(filename):
     with open(filename, newline="") as f:
@@ -73,20 +75,21 @@ def clean_power_supply_file(raw_path, clean_path):
     return rows
 
 
-def discover_raw_file_pairs(raw_dir):
-    """Return (raw_name, clean_name) for files named raw_*.csv in raw_dir."""
-    if not os.path.isdir(raw_dir):
+def discover_csv_file_pairs(input_dir):
+    """Return (input_name, clean_name) for CSV files in input_dir."""
+    if not os.path.isdir(input_dir):
         return []
 
     file_pairs = []
-    for name in sorted(os.listdir(raw_dir), key=str.lower):
+    for name in sorted(os.listdir(input_dir), key=str.lower):
         lower_name = name.lower()
         if not lower_name.endswith(".csv"):
             continue
-        if not lower_name.startswith(RAW_PREFIX):
+        # Skip hidden/temp artifacts.
+        if lower_name.startswith(".") or lower_name.startswith("~"):
             continue
 
-        clean_name = name[len(RAW_PREFIX):]
+        clean_name = name
         clean_stem, clean_ext = os.path.splitext(clean_name)
         if not clean_name or clean_ext.lower() != ".csv" or not clean_stem:
             continue
@@ -103,8 +106,8 @@ def plot_power_supply_graphs(rows, name, plot_dir):
     # Plot voltage vs beam current (X: voltage, Y: beam current)
     plt.figure()
     plt.plot(volt, beam, marker='o')
-    plt.xlabel('Voltage')
-    plt.ylabel('Beam Current')
+    plt.xlabel('Voltage (V)')
+    plt.ylabel('Beam Current (mA)')
     plt.title(f'{name}: Beam Current vs Voltage')
     plt.grid(True)
     plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_voltage.png'))
@@ -112,8 +115,8 @@ def plot_power_supply_graphs(rows, name, plot_dir):
     # Plot heater current vs beam current (X: heater current, Y: beam current)
     plt.figure()
     plt.plot(heater, beam, marker='o')
-    plt.xlabel('Heater Current')
-    plt.ylabel('Beam Current')
+    plt.xlabel('Heater Current (A)')
+    plt.ylabel('Beam Current (mA)')
     plt.title(f'{name}: Beam Current vs Heater Current')
     plt.grid(True)
     plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_heater.png'))
@@ -121,13 +124,19 @@ def plot_power_supply_graphs(rows, name, plot_dir):
 
 def process_power_supply_data():
     print("Processing power supply data...")
-    file_pairs = discover_raw_file_pairs(POWER_SUPPLY_RAW_DIR)
+    file_pairs = discover_csv_file_pairs(POWER_SUPPLY_INPUT_DIR)
     if not file_pairs:
-        print("Power Supply: No raw CSV files found matching raw_*.csv")
+        # Fallback for older layout.
+        file_pairs = discover_csv_file_pairs(POWER_SUPPLY_RAW_DIR)
+    if not file_pairs:
+        print("Power Supply: No CSV files found.")
         return
 
     for raw_name, clean_name in file_pairs:
-        raw_path = os.path.join(POWER_SUPPLY_RAW_DIR, raw_name)
+        raw_path = os.path.join(
+            POWER_SUPPLY_INPUT_DIR if os.path.isfile(os.path.join(POWER_SUPPLY_INPUT_DIR, raw_name)) else POWER_SUPPLY_RAW_DIR,
+            raw_name,
+        )
         rows = clean_power_supply_file(raw_path, raw_path)
         plot_name = clean_name.replace('.csv', '')
         plot_power_supply_graphs(rows, plot_name, POWER_SUPPLY_PLOT_DIR)
@@ -273,13 +282,19 @@ def plot_beam_control_graphs(rows, name, plot_dir, file_type):
 
 def process_beam_control_data():
     print("Processing beam control data...")
-    file_pairs = discover_raw_file_pairs(BEAM_CONTROL_RAW_DIR)
+    file_pairs = discover_csv_file_pairs(BEAM_CONTROL_INPUT_DIR)
     if not file_pairs:
-        print("Beam Control: No raw CSV files found matching raw_*.csv")
+        # Fallback for older layout.
+        file_pairs = discover_csv_file_pairs(BEAM_CONTROL_RAW_DIR)
+    if not file_pairs:
+        print("Beam Control: No CSV files found.")
         return
 
     for raw_name, clean_name in file_pairs:
-        raw_path = os.path.join(BEAM_CONTROL_RAW_DIR, raw_name)
+        raw_path = os.path.join(
+            BEAM_CONTROL_INPUT_DIR if os.path.isfile(os.path.join(BEAM_CONTROL_INPUT_DIR, raw_name)) else BEAM_CONTROL_RAW_DIR,
+            raw_name,
+        )
         raw_lower = raw_name.lower()
         if "bd" in raw_lower:
             file_type = "deflection"
@@ -313,25 +328,23 @@ def _infer_subsystem_from_rows(rows):
     )
 
 
-def _resolve_raw_input_path(filename):
-    """Resolve filename/path to an existing raw CSV path."""
+def _resolve_input_path(filename):
+    """Resolve filename/path to an existing CSV path."""
     if not filename:
         raise ValueError("Filename is required.")
 
     candidate_paths = []
     # Direct path support (absolute or relative)
     candidate_paths.append(filename)
+    candidate_paths.append(os.path.join(BASE_DIR, filename))
 
-    # Bare filename support against known raw directories.
+    # Bare filename support against known data directories.
     basename = os.path.basename(filename)
+    candidate_paths.append(os.path.join(POWER_SUPPLY_INPUT_DIR, basename))
+    candidate_paths.append(os.path.join(BEAM_CONTROL_INPUT_DIR, basename))
+    # Legacy support.
     candidate_paths.append(os.path.join(POWER_SUPPLY_RAW_DIR, basename))
     candidate_paths.append(os.path.join(BEAM_CONTROL_RAW_DIR, basename))
-
-    # Convenience: allow omission of raw_ prefix.
-    if not basename.lower().startswith(RAW_PREFIX):
-        prefixed = f"{RAW_PREFIX}{basename}"
-        candidate_paths.append(os.path.join(POWER_SUPPLY_RAW_DIR, prefixed))
-        candidate_paths.append(os.path.join(BEAM_CONTROL_RAW_DIR, prefixed))
 
     existing = []
     for path in candidate_paths:
@@ -343,7 +356,7 @@ def _resolve_raw_input_path(filename):
     if not existing:
         raise FileNotFoundError(
             f"Could not find CSV file '{filename}'. "
-            f"Checked direct path and raw folders under {BASE_DIR}."
+            f"Checked direct path and data folders under {BASE_DIR}."
         )
     if len(existing) > 1:
         raise ValueError(
@@ -356,21 +369,21 @@ def _resolve_raw_input_path(filename):
 
 def process_single_file(filename):
     """Process one CSV file identified by filename/path."""
-    raw_path = _resolve_raw_input_path(filename)
+    raw_path = _resolve_input_path(filename)
     raw_name = os.path.basename(raw_path)
 
-    clean_name = raw_name[len(RAW_PREFIX):] if raw_name.lower().startswith(RAW_PREFIX) else raw_name
+    clean_name = raw_name
     clean_stem, clean_ext = os.path.splitext(clean_name)
     if clean_ext.lower() != ".csv" or not clean_stem:
         raise ValueError(
             f"Invalid input filename '{raw_name}'. "
-            "Expected a CSV with a non-empty name, typically starting with raw_."
+            "Expected a CSV with a non-empty name."
         )
 
     normalized_raw_path = os.path.normcase(os.path.abspath(raw_path))
-    if normalized_raw_path.startswith(os.path.normcase(os.path.abspath(POWER_SUPPLY_RAW_DIR))):
+    if normalized_raw_path.startswith(os.path.normcase(os.path.abspath(POWER_SUPPLY_INPUT_DIR))) or normalized_raw_path.startswith(os.path.normcase(os.path.abspath(POWER_SUPPLY_RAW_DIR))):
         subsystem = "power_supply"
-    elif normalized_raw_path.startswith(os.path.normcase(os.path.abspath(BEAM_CONTROL_RAW_DIR))):
+    elif normalized_raw_path.startswith(os.path.normcase(os.path.abspath(BEAM_CONTROL_INPUT_DIR))) or normalized_raw_path.startswith(os.path.normcase(os.path.abspath(BEAM_CONTROL_RAW_DIR))):
         subsystem = "beam_control"
     else:
         rows_for_inference = read_csv(raw_path)
@@ -399,7 +412,7 @@ def main():
     parser.add_argument(
         'filename',
         nargs='?',
-        help='Raw CSV filename (or path). Example: raw_powersupply_A.csv'
+        help='CSV filename (or path). Example: Cbmark_Beam_A_07_2025.csv'
     )
     args = parser.parse_args()
 
