@@ -62,10 +62,9 @@ class EBEAMSystemDashboard:
         "safetyInputStatusFlags"
     ]}
 
-    def __init__(self, root, com_ports, logger=None, cathode_datasets=None):
+    def __init__(self, root, com_ports, logger=None):
         self.root = root
         self.com_ports = com_ports
-        self.cathode_datasets = cathode_datasets
         self.logger = logger
         self.root.title("EBEAM Control System Dashboard")
 
@@ -344,7 +343,6 @@ class EBEAMSystemDashboard:
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
-                cathode_datasets=self.cathode_datasets,
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
             )

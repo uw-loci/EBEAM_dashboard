@@ -1,5 +1,4 @@
 import sys
-import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
@@ -38,12 +37,11 @@ def create_dummy_ports(subsystems):
     """
     return {subsystem: f"DUMMY_COM{i+1}" for i, subsystem in enumerate(subsystems)}
 
-def start_main_app(com_ports, cathode_datasets=None, logger=None):
+def start_main_app(com_ports, logger=None):
     """
     Create and start the main EBEAM System Dashboard application.
 
     :param com_ports: Dict mapping subsystems to their selected COM ports.
-    :param cathode_datasets: Dict mapping cathode names to selected dataset files.
     """
     if logger is None:
         logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
@@ -175,7 +173,7 @@ def start_main_app(com_ports, cathode_datasets=None, logger=None):
     root.bind('<Control-m>', toggle_maximize)   # Toggle maximize  
     root.bind('<Control-s>', save_logs)         # Save log file
 
-    app = EBEAMSystemDashboard(root, com_ports, cathode_datasets=cathode_datasets, logger=logger)
+    app = EBEAMSystemDashboard(root, com_ports, logger=logger)
     root.mainloop()
 
 def config_com_ports(saved_com_ports, logger=None):
@@ -210,13 +208,9 @@ def config_com_ports(saved_com_ports, logger=None):
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
 
-    # Single-column layout for COM port configuration only
-    left_frame = ttk.Frame(main_frame)
-    left_frame.grid(row=0, column=0, sticky='n')
-
-    # COM port dropdowns (left column)
+    # Create a dropdown for each subsystem
     for subsystem in SUBSYSTEMS:
-        frame = ttk.Frame(left_frame)
+        frame = ttk.Frame(main_frame)
         frame.pack(pady=5, anchor='center')
 
         label = tk.Label(
@@ -246,7 +240,6 @@ def config_com_ports(saved_com_ports, logger=None):
         selected. If not, offers to fill those with dummy ports. If the user
         refuses, they remain in the config window.
         """
-
         selected_ports = {key: value.get() for key, value in selections.items()}
         
         # check that all COM ports are selected
