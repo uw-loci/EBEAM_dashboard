@@ -167,16 +167,17 @@ Navigate to your project directory:
 ```
 cd EBEAM_dashboard
 ```
-Create a virtual environment:
+Create a virtual environment (dashboard currently requires python 3.11 due to dependencies):
 ```
-python -m venv venv
+py -3.11 -m venv .venv
 ```
 Activate the virtual environment (assuming on Windows)*:
 ```
-venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 ```
 Install the requirements:
 ```
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 Run the main application:
@@ -184,9 +185,20 @@ Run the main application:
 python main.py
 ```
 
-*Note: Due to the nature of the script, Windows may block execution, the following cmd is useful and should be run:
+*Note: Windows PowerShell may block script execution when activating the virtual environment. Before running `.\.venv\Scripts\Activate.ps1`, choose one of the following options:
+```
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```
+Use this to allow scripts only in the current PowerShell session.
+
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+Use this to allow scripts for your user account in future PowerShell sessions.
+
+Then activate the virtual environment:
+```
+.\.venv\Scripts\Activate.ps1
 ```
 
 Create a new branch from develop for your feature or bug fix:
