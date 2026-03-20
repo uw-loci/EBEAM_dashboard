@@ -79,8 +79,7 @@ class PowerSupply9104:
                     response = f"{response}\r{additional}"
 
                 if not response or not response.strip():
-                    # Timeout with no data — device is likely gone
-                    self._mark_disconnected()
+                    # Keep connection open on transient empty reads; callers can retry.
                     return None
                 if 'OK' not in response:
                     self.log(f"Acknowledgement not in 9104 supply response")
