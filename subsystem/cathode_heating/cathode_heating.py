@@ -102,20 +102,19 @@ class CathodeHeatingSubsystem:
                     file_path = os.path.join(lut_dir, filename)
                     try:
                         df = pd.read_csv(file_path)
-                        key = 'Default' if filename.lower() == 'default.csv' else filename
-                        self.current_options[key] = df if validate_lut(df) else None
+                        self.current_options[filename] = df if validate_lut(df) else None
                     except Exception as e:
                         if self.logger:
                             self.logger.log(f"Failed to load LUT {filename}: {e}", LogLevel.ERROR)
-                        key = 'Default' if filename.lower() == 'default.csv' else filename
-                        self.current_options[key] = None
+                        self.current_options[filename] = None
         else:
             if self.logger:
                 self.logger.log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
 
         self.selected_lut_files = [None, None, None]
-        default_lut = self.current_options.get("Default", None)
-        self.lookup_table_setting = [default_lut, default_lut, default_lut]
+        initial_lut_key = sorted(self.current_options.keys(), key=str.lower)[0] if self.current_options else None
+        initial_lut = self.current_options.get(initial_lut_key, None) if initial_lut_key else None
+        self.lookup_table_setting = [initial_lut, initial_lut, initial_lut]
 
         # Power supply state tracking
         self.power_supply_status = [False, False, False]
@@ -509,31 +508,24 @@ class CathodeHeatingSubsystem:
             lookup_table_label = ttk.Label(lut_selector_frame, text='Lookup Table Dataset:', style='RightAlign.TLabel')
             lookup_table_label.grid(row=0, column=0, sticky='w')
 
-            # Build options: all loaded LUT keys, with 'Default' first if present
-            lookup_table_options = list(self.current_options.keys())
-            if 'Default' in lookup_table_options:
-                lookup_table_options.remove('Default')
-                lookup_table_options.insert(0, 'Default')
+            # Build options from loaded LUT CSV filenames.
+            lookup_table_options = sorted(self.current_options.keys(), key=str.lower)
 
             lookup_table_box = ttk.Combobox(lut_selector_frame, values=lookup_table_options, state='readonly', width=19)
             lookup_table_box.grid(row=0, column=1, sticky='w', padx=(8, 0))
 
-            # use any dataset specified by cathode_datasets; fall back to Default
+            # Use any dataset specified by cathode_datasets; otherwise use first option.
             cfg_key = f'Cathode{cathode_labels[i]} PS'
             preferred = None
             if cfg_key in self.cathode_datasets:
                 pref_path = self.cathode_datasets.get(cfg_key)
                 if pref_path:
                     basename = os.path.basename(pref_path)
-                    if basename.lower() == 'default.csv':
-                        preferred = 'Default'
-                    elif basename in lookup_table_options:
+                    if basename in lookup_table_options:
                         preferred = basename
                     else:
                         # try matching the absolute path
                         for opt in lookup_table_options:
-                            if opt == 'Default':
-                                continue
                             candidate = os.path.join(self.lut_dir, opt)
                             try:
                                 if os.path.normcase(os.path.abspath(candidate)) == \
@@ -546,9 +538,6 @@ class CathodeHeatingSubsystem:
             if preferred:
                 lookup_table_box.set(preferred)
                 self.selected_lut_files[i] = preferred
-            elif 'Default' in lookup_table_options:
-                lookup_table_box.set('Default')
-                self.selected_lut_files[i] = 'Default'
             else:
                 first = lookup_table_options[0] if lookup_table_options else ''
                 lookup_table_box.set(first)
