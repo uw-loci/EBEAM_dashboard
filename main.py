@@ -2,9 +2,6 @@ import sys
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
-import tkinter.filedialog as filedialog
-import shutil
-import csv
 import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
@@ -21,15 +18,6 @@ SUBSYSTEMS = [
     'Interlocks', 
     'ProcessMonitors'
 ]
-
-
-def resource_path(relative_path):
-    """Resolve resource paths for both source and PyInstaller bundled execution."""
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        base_path = sys._MEIPASS  # type: ignore[attr-defined]
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
 
 def create_dummy_port_labels(subsystems):
     """
@@ -215,34 +203,16 @@ def config_com_ports(saved_com_ports, logger=None):
     combined_port_options = real_ports + dummy_port_labels
 
     config_root = tk.Tk()
-    config_root.title("Configure COM Ports and Lookup Tables")
+    config_root.title("Configure COM Ports")
 
     selections = {}
-    dataset_selections = {}
 
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
 
-    # Create a two-column layout: left for COM ports, right for datasets
+    # Single-column layout for COM port configuration only
     left_frame = ttk.Frame(main_frame)
     left_frame.grid(row=0, column=0, sticky='n')
-    right_frame = ttk.Frame(main_frame)
-    right_frame.grid(row=0, column=1, sticky='n', padx=(30,0))
-
-    # Dataset files for cathodes (resolved from application/resource root)
-    lut_dir = resource_path(os.path.join('data', 'lut', 'power_supply'))
-    if os.path.isdir(lut_dir):
-        cathode_files = [
-            f for f in os.listdir(lut_dir)
-            if f.lower().endswith('.csv') and f.lower() != 'default.csv'
-        ]
-    else:
-        cathode_files = []
-        if logger is not None:
-            logger.warning(f"LUT directory not found: {lut_dir}")
-    # Add 'Default' option at the top, do not show 'default.csv' in the dropdown
-    dataset_options = ['Default'] + cathode_files
-    cathode_map = {'CathodeA PS': 'A', 'CathodeB PS': 'B', 'CathodeC PS': 'C'}
 
     # COM port dropdowns (left column)
     for subsystem in SUBSYSTEMS:
@@ -270,115 +240,6 @@ def config_com_ports(saved_com_ports, logger=None):
         combobox.pack(side=tk.LEFT)
         selections[subsystem] = selected_port
 
-    def add_lut_dataset():
-        def validate_lut_csv(csv_path):
-            required_cols = {'beam_current', 'voltage', 'heater_current'}
-            try:
-                with open(csv_path, newline='', encoding='utf-8') as fh:
-                    reader = csv.DictReader(fh)
-                    if not reader.fieldnames:
-                        return False, "CSV has no header row."
-
-                    headers = {h.strip() for h in reader.fieldnames if h is not None}
-                    missing = required_cols - headers
-                    if missing:
-                        return False, f"CSV is missing required columns: {', '.join(sorted(missing))}"
-
-                    has_row = False
-                    for row in reader:
-                        has_row = True
-                        for col in required_cols:
-                            cell = row.get(col, "")
-                            if cell is None or str(cell).strip() == "":
-                                return False, f"CSV contains empty values in required column '{col}'."
-
-                    if not has_row:
-                        return False, "CSV contains no data rows."
-            except Exception as e:
-                return False, f"Could not validate CSV: {e}"
-
-            return True, ""
-
-        file_path = filedialog.askopenfilename(
-            title="Select LUT CSV File",
-            filetypes=[("CSV Files", "*.csv")],
-        )
-        if file_path:
-            try:
-                os.makedirs(lut_dir, exist_ok=True)
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not create LUT directory:\n{e}")
-                return
-            source_name = os.path.basename(file_path)
-
-            if source_name.lower() == 'default.csv':
-                messagebox.showerror("Invalid Dataset Name", "'default.csv' is reserved and cannot be imported as a custom LUT.")
-                return
-
-            is_valid, validation_msg = validate_lut_csv(file_path)
-            if not is_valid:
-                messagebox.showerror("Invalid LUT CSV", validation_msg)
-                return
-
-            dest_file = os.path.join(lut_dir, source_name)
-            try:
-                if os.path.exists(dest_file):
-                    overwrite = messagebox.askyesno(
-                        "Dataset Exists",
-                        f"A dataset named '{source_name}' already exists.\nDo you want to overwrite it?"
-                    )
-                    if not overwrite:
-                        return
-
-                shutil.copy(file_path, dest_file)
-
-                # Update the cathode_files and dataset_options list and all dataset dropdowns
-                if source_name not in cathode_files:
-                    cathode_files.append(source_name)
-                dataset_options.clear()
-                dataset_options.extend(['Default'] + sorted(cathode_files, key=str.lower))
-                for cb in dataset_comboboxes:
-                    cb['values'] = dataset_options
-
-                messagebox.showinfo("LUT Added", f"Dataset '{source_name}' is now available.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to add LUT file:\n{e}")
-
-    # Add the button to the right_frame
-    add_lut_btn = ttk.Button(right_frame, text="Add new LUT Dataset", command=add_lut_dataset)
-    add_lut_btn.pack(pady=(0, 10))
-
-    # Store references to dataset comboboxes for updating
-    dataset_comboboxes = []
-
-    # Dataset dropdowns (right column, only for cathodes)
-    for cathode, suffix in cathode_map.items():
-        frame = ttk.Frame(right_frame)
-        frame.pack(pady=18, anchor='center')
-
-        label = tk.Label(
-            frame,
-            text=f"{cathode} Dataset:",
-            width=18,
-            anchor='e'
-        )
-        label.pack(side=tk.LEFT, padx=(0, 10))
-
-        # Default to 'Default' option
-        selected_dataset = tk.StringVar(value='Default')
-
-        dataset_combobox = ttk.Combobox(
-            frame,
-            values=dataset_options,
-            textvariable=selected_dataset,
-            state='readonly',
-            width=20
-        )
-        dataset_combobox.pack(side=tk.LEFT)
-        dataset_selections[cathode] = selected_dataset
-        dataset_comboboxes.append(dataset_combobox)
-
-
     def on_submit():
         """
         Handler for the 'Submit' button. Checks if all subsystems have a port
@@ -387,13 +248,6 @@ def config_com_ports(saved_com_ports, logger=None):
         """
 
         selected_ports = {key: value.get() for key, value in selections.items()}
-        selected_datasets = {}
-        for key, value in dataset_selections.items():
-            v = value.get()
-            if v == 'Default':
-                selected_datasets[key] = os.path.join(lut_dir, 'default.csv')
-            else:
-                selected_datasets[key] = os.path.join(lut_dir, v)
         
         # check that all COM ports are selected
         if not all(selected_ports.values()):
@@ -419,7 +273,7 @@ def config_com_ports(saved_com_ports, logger=None):
         config_root.destroy()
         
         # Launch the main application
-        start_main_app(selected_ports, cathode_datasets=selected_datasets, logger=logger)
+        start_main_app(selected_ports, logger=logger)
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
