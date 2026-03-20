@@ -86,6 +86,11 @@ class CathodeHeatingSubsystem:
         self.lut_dir = lut_dir
         self.current_options = {}
 
+        def has_valid_lut_columns(columns):
+            required_cols = ['beam_current', 'voltage', 'heater_current']
+            normalized = [str(col).strip() for col in columns]
+            return len(normalized) == len(required_cols) and set(normalized) == set(required_cols)
+
         def validate_lut(df):
             required_cols = ['beam_current', 'voltage', 'heater_current']
             if not all(col in df.columns for col in required_cols):
@@ -101,6 +106,12 @@ class CathodeHeatingSubsystem:
                 if filename.lower().endswith('.csv'):
                     file_path = os.path.join(lut_dir, filename)
                     try:
+                        # Fast eligibility check at startup from header/first row shape.
+                        preview_df = pd.read_csv(file_path, nrows=1)
+                        if not has_valid_lut_columns(preview_df.columns):
+                            self.current_options[filename] = None
+                            continue
+
                         df = pd.read_csv(file_path)
                         self.current_options[filename] = df if validate_lut(df) else None
                     except Exception as e:
@@ -111,8 +122,16 @@ class CathodeHeatingSubsystem:
             if self.logger:
                 self.logger.log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
 
+        self.valid_lut_keys = sorted(
+            [name for name, table in self.current_options.items() if isinstance(table, pd.DataFrame)],
+            key=str.lower,
+        )
+
         self.selected_lut_files = [None, None, None]
-        initial_lut_key = sorted(self.current_options.keys(), key=str.lower)[0] if self.current_options else None
+        if self.valid_lut_keys:
+            initial_lut_key = self.valid_lut_keys[0]
+        else:
+            initial_lut_key = sorted(self.current_options.keys(), key=str.lower)[0] if self.current_options else None
         initial_lut = self.current_options.get(initial_lut_key, None) if initial_lut_key else None
         self.lookup_table_setting = [initial_lut, initial_lut, initial_lut]
 
@@ -163,6 +182,22 @@ class CathodeHeatingSubsystem:
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
         self.update_data()                          # Start the data update loop
+
+    def _style_lut_dropdown_items(self, combobox, options, retries=4):
+        """Dim invalid LUT filenames in dropdown when Tk listbox styling is available."""
+        try:
+            popdown = combobox.tk.eval(f'ttk::combobox::PopdownWindow {str(combobox)}')
+            listbox = f"{popdown}.f.l"
+            if int(combobox.tk.call('winfo', 'exists', listbox)) != 1:
+                raise RuntimeError("Combobox popdown listbox not ready")
+            valid_set = set(self.valid_lut_keys)
+            for idx, name in enumerate(options):
+                color = '#404040' if name in valid_set else '#9a9a9a'
+                combobox.tk.call(listbox, 'itemconfigure', idx, '-foreground', color)
+        except Exception:
+            if retries > 0:
+                # First open can race popdown creation; retry shortly.
+                combobox.after(30, lambda: self._style_lut_dropdown_items(combobox, options, retries=retries - 1))
 
     def _init_prediction_variables(self):
         """
@@ -511,8 +546,20 @@ class CathodeHeatingSubsystem:
             # Build options from loaded LUT CSV filenames.
             lookup_table_options = sorted(self.current_options.keys(), key=str.lower)
 
-            lookup_table_box = ttk.Combobox(lut_selector_frame, values=lookup_table_options, state='readonly', width=30)
+            lookup_table_box = ttk.Combobox(
+                lut_selector_frame,
+                values=lookup_table_options,
+                state='readonly',
+                width=30,
+                postcommand=lambda box=None: self._style_lut_dropdown_items(lookup_table_box, lookup_table_options, retries=4)
+            )
             lookup_table_box.grid(row=0, column=1, sticky='w', padx=(8, 0))
+            self._style_lut_dropdown_items(lookup_table_box, lookup_table_options, retries=4)
+            lookup_table_box.bind(
+                '<Button-1>',
+                lambda event, box=lookup_table_box, opts=lookup_table_options: self._style_lut_dropdown_items(box, opts, retries=4),
+                add='+'
+            )
 
             # Use any dataset specified by cathode_datasets; otherwise use first option.
             cfg_key = f'Cathode{cathode_labels[i]} PS'
@@ -521,7 +568,7 @@ class CathodeHeatingSubsystem:
                 pref_path = self.cathode_datasets.get(cfg_key)
                 if pref_path:
                     basename = os.path.basename(pref_path)
-                    if basename in lookup_table_options:
+                    if basename in lookup_table_options and self.current_options.get(basename) is not None:
                         preferred = basename
                     else:
                         # try matching the absolute path
@@ -530,8 +577,9 @@ class CathodeHeatingSubsystem:
                             try:
                                 if os.path.normcase(os.path.abspath(candidate)) == \
                                    os.path.normcase(os.path.abspath(pref_path)):
-                                    preferred = opt
-                                    break
+                                    if self.current_options.get(opt) is not None:
+                                        preferred = opt
+                                        break
                             except Exception:
                                 pass
 
@@ -539,7 +587,7 @@ class CathodeHeatingSubsystem:
                 lookup_table_box.set(preferred)
                 self.selected_lut_files[i] = preferred
             else:
-                first = lookup_table_options[0] if lookup_table_options else ''
+                first = self.valid_lut_keys[0] if self.valid_lut_keys else (lookup_table_options[0] if lookup_table_options else '')
                 lookup_table_box.set(first)
                 self.selected_lut_files[i] = first or None
 
@@ -549,6 +597,20 @@ class CathodeHeatingSubsystem:
             # Bind LUT combobox to centralized class method
             def lut_selection_callback(event, idx=i, box=lookup_table_box):
                 selected = box.get()
+                if self.current_options.get(selected) is None:
+                    previous = self.selected_lut_files[idx]
+                    fallback = previous if previous and self.current_options.get(previous) is not None else (self.valid_lut_keys[0] if self.valid_lut_keys else '')
+                    if fallback:
+                        box.set(fallback)
+                        self.selected_lut_files[idx] = fallback
+                        self.lookup_table_setting[idx] = self.current_options.get(fallback, None)
+                        if self.logger:
+                            self.logger.log(
+                                f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
+                                LogLevel.WARNING,
+                            )
+                        self.refresh_predictions(idx)
+                    return
                 self.selected_lut_files[idx] = selected
                 self.lookup_table_setting[idx] = self.current_options.get(selected, None)
                 self.refresh_predictions(idx)
