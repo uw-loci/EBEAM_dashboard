@@ -101,16 +101,18 @@ def plot_power_supply_graphs(rows, name, plot_dir):
     beam = [float(r["beam_current"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
     volt = [float(r["voltage"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
     heater = [float(r["heater_current"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
+    if not beam:
+        return
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
-    # Plot voltage vs beam current (X: voltage, Y: beam current)
+    # Plot voltage vs heater current (X: voltage, Y: heater current)
     plt.figure()
-    plt.plot(volt, beam, marker='o')
+    plt.plot(volt, heater, marker='o')
     plt.xlabel('Voltage (V)')
-    plt.ylabel('Beam Current (mA)')
-    plt.title(f'{name}: Beam Current vs Voltage')
+    plt.ylabel('Heater Current (A)')
+    plt.title(f'{name}: Heater Current vs Voltage')
     plt.grid(True)
-    plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_voltage.png'))
+    plt.savefig(os.path.join(plot_dir, f'{name}_heater_vs_voltage.png'))
     plt.close()
     # Plot heater current vs beam current (X: heater current, Y: beam current)
     plt.figure()
@@ -120,6 +122,18 @@ def plot_power_supply_graphs(rows, name, plot_dir):
     plt.title(f'{name}: Beam Current vs Heater Current')
     plt.grid(True)
     plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_heater.png'))
+    plt.close()
+
+    # Plot voltage vs beam current with heater current encoded as color.
+    plt.figure()
+    scatter = plt.scatter(volt, beam, c=heater, cmap='viridis', edgecolors='k', linewidths=0.3)
+    cbar = plt.colorbar(scatter)
+    cbar.set_label('Heater Current (A)')
+    plt.xlabel('Voltage (V)')
+    plt.ylabel('Beam Current (mA)')
+    plt.title(f'{name}: Beam Current vs Voltage (colored by Heater Current)')
+    plt.grid(True)
+    plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_voltage_colored_by_heater.png'))
     plt.close()
 
 def process_power_supply_data():
