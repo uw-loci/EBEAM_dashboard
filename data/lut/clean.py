@@ -128,9 +128,9 @@ def process_power_supply_data():
 
     for raw_name, clean_name in file_pairs:
         raw_path = os.path.join(POWER_SUPPLY_RAW_DIR, raw_name)
-        clean_path = os.path.join(POWER_SUPPLY_OUTPUT_DIR, clean_name)
-        rows = clean_power_supply_file(raw_path, clean_path)
-        plot_power_supply_graphs(rows, clean_name.replace('.csv',''), POWER_SUPPLY_PLOT_DIR)
+        rows = clean_power_supply_file(raw_path, raw_path)
+        plot_name = clean_name.replace('.csv', '')
+        plot_power_supply_graphs(rows, plot_name, POWER_SUPPLY_PLOT_DIR)
 
     print(f"Power Supply: Processed {len(file_pairs)} files and generated plots.")
 
@@ -280,7 +280,6 @@ def process_beam_control_data():
 
     for raw_name, clean_name in file_pairs:
         raw_path = os.path.join(BEAM_CONTROL_RAW_DIR, raw_name)
-        clean_path = os.path.join(BEAM_CONTROL_OUTPUT_DIR, clean_name)
         raw_lower = raw_name.lower()
         if "bd" in raw_lower:
             file_type = "deflection"
@@ -288,22 +287,128 @@ def process_beam_control_data():
             file_type = "scan_speed"
         else:
             file_type = None
-        rows = clean_beam_control_file(raw_path, clean_path, file_type=file_type)
-        plot_beam_control_graphs(rows, clean_name.replace('.csv',''), BEAM_CONTROL_PLOT_DIR, file_type)
+        rows = clean_beam_control_file(raw_path, raw_path, file_type=file_type)
+        plot_name = clean_name.replace('.csv', '')
+        plot_beam_control_graphs(rows, plot_name, BEAM_CONTROL_PLOT_DIR, file_type)
 
     print(f"Beam Control: Processed {len(file_pairs)} files and generated plots.")
 
+
+def _infer_subsystem_from_rows(rows):
+    """Infer subsystem from CSV headers when path does not identify it."""
+    if not rows:
+        raise ValueError("CSV file is empty; cannot infer subsystem.")
+    headers = set(rows[0].keys())
+    if {"beam_current", "voltage", "heater_current"}.issubset(headers):
+        return "power_supply"
+    if (
+        {"current_amplitude_A", "deflection_cm"}.issubset(headers)
+        or {"frequency_hz", "scan_speed_mps"}.issubset(headers)
+    ):
+        return "beam_control"
+    raise ValueError(
+        "Could not infer subsystem from CSV headers. "
+        "Expected power supply columns (beam_current, voltage, heater_current) "
+        "or beam control columns (current_amplitude_A/deflection_cm or frequency_hz/scan_speed_mps)."
+    )
+
+
+def _resolve_raw_input_path(filename):
+    """Resolve filename/path to an existing raw CSV path."""
+    if not filename:
+        raise ValueError("Filename is required.")
+
+    candidate_paths = []
+    # Direct path support (absolute or relative)
+    candidate_paths.append(filename)
+
+    # Bare filename support against known raw directories.
+    basename = os.path.basename(filename)
+    candidate_paths.append(os.path.join(POWER_SUPPLY_RAW_DIR, basename))
+    candidate_paths.append(os.path.join(BEAM_CONTROL_RAW_DIR, basename))
+
+    # Convenience: allow omission of raw_ prefix.
+    if not basename.lower().startswith(RAW_PREFIX):
+        prefixed = f"{RAW_PREFIX}{basename}"
+        candidate_paths.append(os.path.join(POWER_SUPPLY_RAW_DIR, prefixed))
+        candidate_paths.append(os.path.join(BEAM_CONTROL_RAW_DIR, prefixed))
+
+    existing = []
+    for path in candidate_paths:
+        if os.path.isfile(path):
+            abs_path = os.path.abspath(path)
+            if abs_path not in existing:
+                existing.append(abs_path)
+
+    if not existing:
+        raise FileNotFoundError(
+            f"Could not find CSV file '{filename}'. "
+            f"Checked direct path and raw folders under {BASE_DIR}."
+        )
+    if len(existing) > 1:
+        raise ValueError(
+            "Filename is ambiguous across directories. "
+            f"Please pass an explicit path. Matches: {existing}"
+        )
+
+    return existing[0]
+
+
+def process_single_file(filename):
+    """Process one CSV file identified by filename/path."""
+    raw_path = _resolve_raw_input_path(filename)
+    raw_name = os.path.basename(raw_path)
+
+    clean_name = raw_name[len(RAW_PREFIX):] if raw_name.lower().startswith(RAW_PREFIX) else raw_name
+    clean_stem, clean_ext = os.path.splitext(clean_name)
+    if clean_ext.lower() != ".csv" or not clean_stem:
+        raise ValueError(
+            f"Invalid input filename '{raw_name}'. "
+            "Expected a CSV with a non-empty name, typically starting with raw_."
+        )
+
+    normalized_raw_path = os.path.normcase(os.path.abspath(raw_path))
+    if normalized_raw_path.startswith(os.path.normcase(os.path.abspath(POWER_SUPPLY_RAW_DIR))):
+        subsystem = "power_supply"
+    elif normalized_raw_path.startswith(os.path.normcase(os.path.abspath(BEAM_CONTROL_RAW_DIR))):
+        subsystem = "beam_control"
+    else:
+        rows_for_inference = read_csv(raw_path)
+        subsystem = _infer_subsystem_from_rows(rows_for_inference)
+
+    if subsystem == "power_supply":
+        rows = clean_power_supply_file(raw_path, raw_path)
+        plot_power_supply_graphs(rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
+        print(f"Power Supply: Processed in place {raw_name}")
+        return
+
+    raw_lower = raw_name.lower()
+    if "bd" in raw_lower:
+        file_type = "deflection"
+    elif "ss" in raw_lower:
+        file_type = "scan_speed"
+    else:
+        file_type = None
+
+    rows = clean_beam_control_file(raw_path, raw_path, file_type=file_type)
+    plot_beam_control_graphs(rows, clean_stem, BEAM_CONTROL_PLOT_DIR, file_type)
+    print(f"Beam Control: Processed in place {raw_name}")
+
 def main():
     parser = argparse.ArgumentParser(description='Clean and process EBEAM lookup table data')
-    parser.add_argument('--subsystem', choices=['power_supply', 'beam_control', 'all'], 
-                       default='all', help='Which subsystem data to process')
+    parser.add_argument(
+        'filename',
+        nargs='?',
+        help='Raw CSV filename (or path). Example: raw_powersupply_A.csv'
+    )
     args = parser.parse_args()
-    
-    if args.subsystem in ['power_supply', 'all']:
-        process_power_supply_data()
-    
-    if args.subsystem in ['beam_control', 'all']:
-        process_beam_control_data()
+
+    if args.filename:
+        process_single_file(args.filename)
+        return
+
+    process_power_supply_data()
+    process_beam_control_data()
 
 if __name__ == "__main__":
     main()
