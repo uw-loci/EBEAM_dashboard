@@ -5,7 +5,7 @@ Lookup Tables for EBEAM System GUI
 
 ### Power Supply Lookup Tables
 > **Note on the origin of the current Raw Data:**
-> - The data for `raw_default.csv` was taken directly from handwritten measurements recorded during our experiment on July 11, 2025.
+> - The data for `raw_default.csv` was taken directly from handwritten measurements recorded during our experiment on July 11, 2025 (https://docs.google.com/spreadsheets/d/1T73CYgSkFAcI7QR085y3sOdtns9vNCIwv82ZkwADaoQ/edit?usp=sharing).
 > - The raw data for `raw_A.csv`, `raw_B.csv`, and `raw_C.csv` were AI-generated to test lookup table functionality in the dashboard. These datasets were made intentionally different to allow for effective testing of switching between lookup tables.
 
 ### Beam Control Lookup Tables
