@@ -100,7 +100,15 @@ class G9Driver:
         self.ser = None
 
     def _update_queue(self, response=None):
-        data = response if response else ([0] * 13, [0] * 13, 0)
+        data = response if response else (
+            [0] * self.NUMIN,                    # sitsf_bits
+            [0] * self.NUMIN,                    # sitdf_bits
+            0,                                   # g9_active
+            {},                                  # unit_status
+            bytearray(10),                       # input_terms
+            bytearray(10),                       # output_terms
+            {'sotdf': [0] * 7, 'sitdf': [0] * self.NUMIN}  # debug_data
+        )
         if self._response_queue.full():
             self._response_queue.get_nowait()
         self._response_queue.put(data)
