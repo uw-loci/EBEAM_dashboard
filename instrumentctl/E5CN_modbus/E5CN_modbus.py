@@ -84,8 +84,6 @@ class E5CNModbus:
                 if self.stop_event.is_set():
                     break
                 temperature = self.read_temperature(unit)
-                if self.stop_event.is_set():
-                    break
                 if temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature

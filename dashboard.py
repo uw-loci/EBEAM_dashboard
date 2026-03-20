@@ -3,8 +3,6 @@ import sys
 import os
 import subsystem
 import tkinter as tk
-import threading
-import datetime
 from tkinter import ttk
 from tkinter import messagebox
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus

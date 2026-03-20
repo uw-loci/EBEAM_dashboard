@@ -216,7 +216,6 @@ def config_com_ports(saved_com_ports, logger=None):
     config_root.title("Configure COM Ports")
 
     selections = {}
-    selected_ports = None
 
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
@@ -248,7 +247,6 @@ def config_com_ports(saved_com_ports, logger=None):
         selections[subsystem] = selected_port
 
     def on_submit():
-        nonlocal selected_ports
         """
         Handler for the 'Submit' button. Checks if all subsystems have a port
         selected. If not, offers to fill those with dummy ports. If the user
