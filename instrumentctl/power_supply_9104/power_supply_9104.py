@@ -8,6 +8,7 @@ class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display reading attempts
     CURRENT_SETTLE_TOLERANCE = 0.10  # 9104 current resolution is 100 mA
     VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
+    RAMP_STOP_WAIT_TIMEOUT = 1.5
 
     def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
         self.port = port
@@ -15,7 +16,7 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
-        # self.serial_lock = threading.Lock()
+        self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
@@ -30,19 +31,24 @@ class PowerSupply9104:
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
-        
-        # Close existing serial connection if it exists
-        if self.ser is not None:
-            self.ser.close()
-            self.ser = None
 
-        self.port = new_port
-        self.setup_serial()
+        # Stop any active ramp before swapping serial handles.
+        self.stop_event.set()
+        self._wait_for_ramp_stop(timeout=self.RAMP_STOP_WAIT_TIMEOUT)
 
-        if self.ser is not None:
-            self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
-        else:
-            self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
+        with self.serial_lock:
+            # Close existing serial connection if it exists.
+            if self.ser is not None:
+                self.ser.close()
+                self.ser = None
+
+            self.port = new_port
+            self.setup_serial()
+
+            if self.ser is not None:
+                self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
+            else:
+                self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
 
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
@@ -55,46 +61,52 @@ class PowerSupply9104:
             self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
 
     def send_command(self, command):
-        """Send a command to the power supply and read the response."""
-        try:
-            if not self.is_connected():
-                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
-                return None # return immediately to prevent blocking GUI on serial read
-            
-            self.flush_serial()
-            
-            self.log(f"Sending command: {command}", LogLevel.DEBUG)
-            self.ser.write(f"{command}\r\n".encode())
-            
-            response = self.ser.read_until(b'\r').decode()
-
-            if 'OK' not in response:
-                additional = self.ser.read_until(b'\r').decode().strip()
-                response = f"{response}\r{additional}"
-
-            if not response:
-                raise ValueError("No response received from 9104 supply")
-            if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
-
-            self.log(f"Response: {response}", LogLevel.DEBUG)
-                
-            return response.strip()
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            # Mark port as dead so subsequent calls in this cycle fail fast
+        with self.serial_lock:
             try:
-                if self.ser:
-                    self.ser.close()
-            except Exception:
-                pass
-            self.ser = None
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
-        except Exception as e:
-            self.log(f"Critical Error", LogLevel.ERROR)
+                if not self.is_connected():
+                    self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                    return None # return immediately to prevent blocking GUI on serial read
+
+                self.flush_serial()
+
+                self.log(f"Sending command: {command}", LogLevel.DEBUG)
+                self.ser.write(f"{command}\r\n".encode())
+
+                response = self.ser.read_until(b'\r').decode()
+
+                if 'OK' not in response:
+                    additional = self.ser.read_until(b'\r').decode().strip()
+                    response = f"{response}\r{additional}"
+
+                if not response or not response.strip():
+                    # Timeout with no data — device is likely gone
+                    self._mark_disconnected()
+                    return None
+                if 'OK' not in response:
+                    self.log(f"Acknowledgement not in 9104 supply response")
+
+                self.log(f"Response: {response}", LogLevel.DEBUG)
+
+                return response.strip()
+            except serial.SerialException as e:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                self._mark_disconnected()
+                return None
+            except ValueError as e:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                return None
+            except Exception as e:
+                self.log(f"CCS - Critical Error on send_command: {str(e)}", LogLevel.ERROR)
+                return None
+
+    def _mark_disconnected(self):
+        """Close the serial port and set to None so is_connected() fails fast."""
+        try:
+            if self.ser:
+                self.ser.close()
+        except Exception:
+            pass
+        self.ser = None
 
     def set_output(self, state):
         """Set the output on/off."""
@@ -115,6 +127,7 @@ class PowerSupply9104:
             if self.ramp_thread and self.ramp_thread.is_alive():
                 self.log("Ramping thread is running, stopping it before changing output state", LogLevel.INFO)
                 self.stop_event.set()
+                self._wait_for_ramp_stop(timeout=self.RAMP_STOP_WAIT_TIMEOUT)
 
             command = f"SOUT{state}"
             response = self.send_command(command)
@@ -449,7 +462,21 @@ class PowerSupply9104:
         Signal any active ramp thread to exit cleanly.
         Safe to call even if no ramp is running.
         """
-        self.stop_event.set()    
+        self.stop_event.set()
+        return self._wait_for_ramp_stop(timeout=self.RAMP_STOP_WAIT_TIMEOUT)
+
+    def _wait_for_ramp_stop(self, timeout):
+        """Wait for the active ramp thread to stop, with a bounded timeout."""
+        if not (self.ramp_thread and self.ramp_thread.is_alive()):
+            return True
+
+        self.ramp_thread.join(timeout=timeout)
+        stopped = not self.ramp_thread.is_alive()
+        if stopped:
+            self.log("Ramping thread terminated.", LogLevel.INFO)
+        else:
+            self.log(f"Timed out waiting {timeout:.1f}s for ramping thread to stop.", LogLevel.WARNING)
+        return stopped
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
@@ -505,7 +532,10 @@ class PowerSupply9104:
         Returns:
         (voltage, current, mode)
         """
-        for attempt in range(self.MAX_RETRIES):
+        # When ramping, avoid extra probe traffic to reduce lock contention.
+        max_retries = 1 if (self.ramp_thread and self.ramp_thread.is_alive()) else self.MAX_RETRIES
+
+        for attempt in range(max_retries):
             try:
                 if not self.is_connected():
                     break
@@ -520,7 +550,7 @@ class PowerSupply9104:
                 self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
                 if voltage is not None and current is not None:
-                    if abs(voltage) < 0.001:
+                    if abs(voltage) < 0.001 and max_retries > 1:
                         second_read = self.get_display_readings()
                         v2, c2, m2 = self.parse_getd_response(second_read)
                         if v2 is not None and abs(v2) > 0.001:
@@ -734,17 +764,16 @@ class PowerSupply9104:
         # Signal threads to stop
         self.stop_event.set()
 
-        # Wait for the ramping thread to finish
-        if self.ramp_thread and self.ramp_thread.is_alive():
-            self.ramp_thread.join()
-            self.log("Ramping thread terminated.", LogLevel.INFO)
+        # Wait for the ramping thread to finish (bounded).
+        self._wait_for_ramp_stop(timeout=self.RAMP_STOP_WAIT_TIMEOUT)
 
-        # Close the serial connection
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-            self.log(f"Closed serial port {self.port}", LogLevel.INFO)
-        else:
-            self.log(f"{self.port} port already closed", LogLevel.INFO)
+        # Close the serial connection under the same lock used for transactions.
+        with self.serial_lock:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+                self.log(f"Closed serial port {self.port}", LogLevel.INFO)
+            else:
+                self.log(f"{self.port} port already closed", LogLevel.INFO)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger:
