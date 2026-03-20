@@ -496,21 +496,90 @@ class CathodeHeatingSubsystem:
             # Predicted Values
             predictions_frame = ttk.LabelFrame(main_tab, text='Predicted Output', padding=(6, 4), style='Subpanel.TLabelframe')
             predictions_frame.grid(row=1, column=0, sticky='ew', pady=(4, 0), padx=2)
+            predictions_frame.columnconfigure(0, weight=0)
+            predictions_frame.columnconfigure(1, weight=1)
+            predictions_frame.columnconfigure(2, weight=0)
+            predictions_frame.columnconfigure(3, weight=1)
+
+            # LUT selector moved to Main tab so dataset toggling stays near predicted values.
+            lut_selector_frame = ttk.Frame(predictions_frame)
+            lut_selector_frame.grid(row=0, column=0, columnspan=4, sticky='ew', pady=(0, 4))
+            lut_selector_frame.columnconfigure(1, weight=1)
+
+            lookup_table_label = ttk.Label(lut_selector_frame, text='Lookup Table Dataset:', style='RightAlign.TLabel')
+            lookup_table_label.grid(row=0, column=0, sticky='w')
+
+            # Build options: all loaded LUT keys, with 'Default' first if present
+            lookup_table_options = list(self.current_options.keys())
+            if 'Default' in lookup_table_options:
+                lookup_table_options.remove('Default')
+                lookup_table_options.insert(0, 'Default')
+
+            lookup_table_box = ttk.Combobox(lut_selector_frame, values=lookup_table_options, state='readonly', width=19)
+            lookup_table_box.grid(row=0, column=1, sticky='w', padx=(8, 0))
+
+            # use any dataset specified by cathode_datasets; fall back to Default
+            cfg_key = f'Cathode{cathode_labels[i]} PS'
+            preferred = None
+            if cfg_key in self.cathode_datasets:
+                pref_path = self.cathode_datasets.get(cfg_key)
+                if pref_path:
+                    basename = os.path.basename(pref_path)
+                    if basename.lower() == 'default.csv':
+                        preferred = 'Default'
+                    elif basename in lookup_table_options:
+                        preferred = basename
+                    else:
+                        # try matching the absolute path
+                        for opt in lookup_table_options:
+                            if opt == 'Default':
+                                continue
+                            candidate = os.path.join(self.lut_dir, opt)
+                            try:
+                                if os.path.normcase(os.path.abspath(candidate)) == \
+                                   os.path.normcase(os.path.abspath(pref_path)):
+                                    preferred = opt
+                                    break
+                            except Exception:
+                                pass
+
+            if preferred:
+                lookup_table_box.set(preferred)
+                self.selected_lut_files[i] = preferred
+            elif 'Default' in lookup_table_options:
+                lookup_table_box.set('Default')
+                self.selected_lut_files[i] = 'Default'
+            else:
+                first = lookup_table_options[0] if lookup_table_options else ''
+                lookup_table_box.set(first)
+                self.selected_lut_files[i] = first or None
+
+            # finally record the active DataFrame
+            self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
+
+            # Bind LUT combobox to centralized class method
+            def lut_selection_callback(event, idx=i, box=lookup_table_box):
+                selected = box.get()
+                self.selected_lut_files[idx] = selected
+                self.lookup_table_setting[idx] = self.current_options.get(selected, None)
+                self.refresh_predictions(idx)
+            lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
+            self.lookup_table_comboboxes.append(lookup_table_box)
 
             pred_emission_label = ttk.Label(predictions_frame, text='Emission (mA):', style='RightAlign.TLabel')
-            pred_emission_label.grid(row=0, column=0, sticky='w')
-            ttk.Label(predictions_frame, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=0, column=1, sticky='w', padx=(2, 8))
+            pred_emission_label.grid(row=1, column=0, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w', padx=(2, 8))
 
             set_grid_label = ttk.Label(predictions_frame, text='Grid (mA):', style='RightAlign.TLabel')
-            set_grid_label.grid(row=1, column=0, sticky='w')
+            set_grid_label.grid(row=2, column=0, sticky='w')
             ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
-            ttk.Label(predictions_frame, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w', padx=(2, 8))
+            ttk.Label(predictions_frame, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w', padx=(2, 8))
 
-            ttk.Label(predictions_frame, text='Heater Voltage (V):', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w')
-            ttk.Label(predictions_frame, textvariable=self.predicted_heater_voltage_vars[i], style='Bold.TLabel').grid(row=0, column=3, sticky='w', padx=(2, 0))
+            ttk.Label(predictions_frame, text='Heater Voltage (V):', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_heater_voltage_vars[i], style='Bold.TLabel').grid(row=1, column=3, sticky='w', padx=(2, 0))
 
-            ttk.Label(predictions_frame, text='Heater Current (A):', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w')
-            ttk.Label(predictions_frame, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=1, column=3, sticky='w', padx=(2, 0))
+            ttk.Label(predictions_frame, text='Heater Current (A):', style='RightAlign.TLabel').grid(row=2, column=2, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=2, column=3, sticky='w', padx=(2, 0))
 
             # Measured/Actual values
             measured_frame = ttk.LabelFrame(main_tab, text='', padding=(6, 4))
@@ -873,72 +942,6 @@ class CathodeHeatingSubsystem:
             if not hasattr(self, '_sync_vsr_funcs'):
                 self._sync_vsr_funcs = []
             self._sync_vsr_funcs.append(sync_vsr)
-
-
-            # Add dropdown for lookup table dataset selection in its own frame
-            lut_frame = ttk.Frame(config_tab)
-            lut_frame.grid(row=7, column=0, columnspan=3, sticky='w', pady=(2, 2))
-
-            lookup_table_label = ttk.Label(lut_frame, text='Select Lookup Table Dataset:', style='LeftAlign.TLabel')
-            lookup_table_label.pack(side='left')
-
-            # Build options: all loaded LUT keys, with 'Default' first if present
-            lookup_table_options = list(self.current_options.keys())
-            if 'Default' in lookup_table_options:
-                lookup_table_options.remove('Default')
-                lookup_table_options.insert(0, 'Default')
-
-            lookup_table_box = ttk.Combobox(lut_frame, values=lookup_table_options, state='readonly', width=19)
-            lookup_table_box.pack(side='left', padx=(8, 0))
-
-            # use any dataset specified by cathode_datasets; fall back to Default
-            cfg_key = f'Cathode{cathode_labels[i]} PS'
-            preferred = None
-            if cfg_key in self.cathode_datasets:
-                pref_path = self.cathode_datasets.get(cfg_key)
-                if pref_path:
-                    basename = os.path.basename(pref_path)
-                    if basename.lower() == 'default.csv':
-                        preferred = 'Default'
-                    elif basename in lookup_table_options:
-                        preferred = basename
-                    else:
-                        # try matching the absolute path
-                        for opt in lookup_table_options:
-                            if opt == 'Default':
-                                continue
-                            candidate = os.path.join(self.lut_dir, opt)
-                            try:
-                                if os.path.normcase(os.path.abspath(candidate)) == \
-                                   os.path.normcase(os.path.abspath(pref_path)):
-                                    preferred = opt
-                                    break
-                            except Exception:
-                                pass
-
-            if preferred:
-                lookup_table_box.set(preferred)
-                self.selected_lut_files[i] = preferred
-            elif 'Default' in lookup_table_options:
-                lookup_table_box.set('Default')
-                self.selected_lut_files[i] = 'Default'
-            else:
-                first = lookup_table_options[0] if lookup_table_options else ''
-                lookup_table_box.set(first)
-                self.selected_lut_files[i] = first or None
-
-            # finally record the active DataFrame
-            self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
-
-            # Bind LUT combobox to centralized class method
-            def lut_selection_callback(event, idx=i, box=lookup_table_box):
-                selected = box.get()
-                self.selected_lut_files[idx] = selected
-                self.lookup_table_setting[idx] = self.current_options.get(selected, None)
-                self.refresh_predictions(idx)
-            lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
-            self.lookup_table_comboboxes.append(lookup_table_box)
-
             # Add label for Temperature Controller
             ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
 
