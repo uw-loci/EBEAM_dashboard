@@ -346,7 +346,7 @@ class DP16ProcessMonitor:
             pass
 
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=3)
+            self._thread.join(timeout=0.3)
             if self._thread.is_alive():
                 self.log("Warning: Polling thread did not terminate in time", LogLevel.WARNING)
         self._thread = None

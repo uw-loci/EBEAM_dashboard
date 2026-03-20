@@ -109,7 +109,7 @@ class E5CNModbus:
         
         # Wait for threads to finish
         for thread in self.threads:
-            thread.join(timeout=4)
+            thread.join(timeout=0.3)
             if thread.is_alive():
                 self.log(f"Warning: Thread {thread.name} did not terminate in time", LogLevel.WARNING)
             else:
