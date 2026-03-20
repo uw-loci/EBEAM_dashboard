@@ -511,7 +511,7 @@ class CathodeHeatingSubsystem:
             # Build options from loaded LUT CSV filenames.
             lookup_table_options = sorted(self.current_options.keys(), key=str.lower)
 
-            lookup_table_box = ttk.Combobox(lut_selector_frame, values=lookup_table_options, state='readonly', width=19)
+            lookup_table_box = ttk.Combobox(lut_selector_frame, values=lookup_table_options, state='readonly', width=30)
             lookup_table_box.grid(row=0, column=1, sticky='w', padx=(8, 0))
 
             # Use any dataset specified by cathode_datasets; otherwise use first option.
