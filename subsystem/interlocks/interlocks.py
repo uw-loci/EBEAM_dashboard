@@ -328,11 +328,8 @@ class InterlocksSubsystem:
                 else:
                     self.update_interlock(self.INPUTS[11], True, False)
 
-                # make sure that the data output indicates button and been pressed and the input is not off/error
-                if g9_active == sitsf_bits[12] == 1:
-                    self.update_interlock("G9SP Active", True, all_good)
-                else:
-                    self.update_interlock("G9SP Active", False, all_good)
+                # G9SP Active is determined solely by the output terminal state
+                self.update_interlock("G9SP Active", True, g9_active)
 
                 self._adjust_update_interval(success=True)
 
