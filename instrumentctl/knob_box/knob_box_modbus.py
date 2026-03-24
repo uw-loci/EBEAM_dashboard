@@ -12,36 +12,39 @@ IREG_V_READ_ADDR =          2   # integer volts
 IREG_I_READ_ADDR =          3   # integer microamps
 IREG_3KV_RESET_COUNT_ADDR = 4   # count of reset events for 3kV Bertan
 
-"""Discrete Inputs (Function Code 02)"""
-DINPUT_HVENABLE_ADDR =          5
-# below are just reported by the matsusada monitoring arduinos
-DINPUT_RESET_STATE_1KV_ADDR =   6
-# below are just reported by the 3kV monitoring arduino
-# (raw switch states)
-DINPUT_ARM80KV_ADDR =           7
-# (logic arduino outputs)
-DINPUT_ARMBEAMS_ADDR =          8
-DINPUT_CCSPOWER_ADDR =          9 
-DINPUT_3KV_ENABLE_ADDR =        10
-# (logic arduino flags)
-DINPUT_NOMOP_FLAG_ADDR =        11
-DINPUT_3KV_TIMER_FLAG_ADDR =    12
-DINPUT_ARMBEAMS_FLAG_ADDR =     13
-DINPUT_CCSPOWER_FLAG_ADDR =     14
-DINPUT_ARM80KV_FLAG_ADDR =      15
-DINPUT_1K_VCOMP_FLAG_ADDR =     16
-DINPUT_1K_ICOMP_FLAG_ADDR =     17
-DINPUT_NEG_1K_VCOMP_FLAG_ADDR = 18
-DINPUT_NEG_1K_ICOMP_FLAG_ADDR = 19
-DINPUT_20K_VCOMP_FLAG_ADDR =    20
-DINPUT_20K_ICOMP_FLAG_ADDR =    21
-DINPUT_3K_VCOMP_FLAG_ADDR =     22
-DINPUT_3K_ICOMP_FLAG_ADDR =     23 
-DINPUT_LOGIC_ALIVE_ADDR =       24
+"""
+Packed DINPUT words (also read with Function Code 04):
+    5 = unlatched signals
+    6 = latched flags
+"""
+DINPUT_UNLATCHED_SIGNALS_ADDR = 5
+DINPUT_LATCHED_FLAGS_ADDR =     6
+
+UNLATCHED_SIGNAL_MASK_HVENABLE =        1 << 0
+UNLATCHED_SIGNAL_MASK_RESET_STATE_1KV = 1 << 1
+UNLATCHED_SIGNAL_MASK_ARM80KV_ENABLE =  1 << 2
+UNLATCHED_SIGNAL_MASK_CCSPOWER_ENABLE = 1 << 3
+UNLATCHED_SIGNAL_MASK_ARMBEAMS_ENABLE = 1 << 4
+UNLATCHED_SIGNAL_MASK_3KV_ENABLE =      1 << 5
+UNLATCHED_SIGNAL_MASK_NOMOP =           1 << 6
+UNLATCHED_SIGNAL_MASK_LOGIC_ALIVE =     1 << 7
+
+LATCHED_FLAG_MASK_3KV_TIMER =       1 << 4
+LATCHED_FLAG_MASK_ARMBEAMS_SWITCH = 1 << 5
+LATCHED_FLAG_MASK_CCSPOWER_ALLOW =  1 << 6
+LATCHED_FLAG_MASK_ARM80KV_SWITCH =  1 << 7
+LATCHED_FLAG_MASK_1K_VCOMP =        1 << 8
+LATCHED_FLAG_MASK_1K_ICOMP =        1 << 9
+LATCHED_FLAG_MASK_NEG_1K_VCOMP =    1 << 10
+LATCHED_FLAG_MASK_NEG_1K_ICOMP =    1 << 11
+LATCHED_FLAG_MASK_20K_VCOMP =       1 << 12
+LATCHED_FLAG_MASK_20K_ICOMP =       1 << 13
+LATCHED_FLAG_MASK_3K_VCOMP =        1 << 14
+LATCHED_FLAG_MASK_3K_ICOMP =        1 << 15
 
 # as the Modbus Map is updated, update these counts:
 IREG_COUNT = 5
-DINPUT_COUNT = 20
+DINPUT_COUNT = 2
 TOTAL_REG_COUNT = IREG_COUNT + DINPUT_COUNT
 #===========================================================
 #============= END MODBUS MAP ==============================
@@ -51,14 +54,15 @@ DATA_TEMPLATE = {
     "set_voltage_V": 0.0,
     "actual_voltage_V": 0.0,
     "actual_current_mA": 0.0,
+    "3kv_reset_count": 0,
     "hv_enable": 0,
     "arm_80kv": 0,
     "arm_beams": 0,
     "ccs_power": 0,
+    "3kV_enable": 0,
     "timer_state_3kV": 0,
     "reset_state_1kV": 0,
     "nomop_flag": 0,
-    "hvenable_flag": 0,
     "armbeams_flag": 0,
     "ccspower_flag": 0,
     "arm80kv_flag": 0,
@@ -90,8 +94,8 @@ class KnobBoxModbus:
         MAX_ATTEMPTS (int): Maximum retry attempts for failed reads
     """
     # Identifiers for power supplies:
-    #      - 1: -1kV Matsusada
-    #      - 2: +1kV Matsusada
+    #      - 1: +1kV Matsusada
+    #      - 2: -1kV Matsusada
     #      - 3: +20kV Bertan
     #      - 4: +3kV Bertan
     UNIT_IDS = [1,2,3,4] # for testing, just using one slave
@@ -242,8 +246,8 @@ class KnobBoxModbus:
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             try:
                 with self.modbus_lock:
-                    # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ, 3kv reset count, and flags
-                    # Continuous block starting at address 0 (count=25)
+                    # Read the full packed input-register block:
+                    # health, V set/read, I read, 3kV reset count, unlatched signals, latched flags
                     input_registers = self.client.read_input_registers(
                         address=IREG_HEALTH_ADDR,
                         count=TOTAL_REG_COUNT,
@@ -262,34 +266,32 @@ class KnobBoxModbus:
                 v_read = registers[IREG_V_READ_ADDR]
                 i_read = registers[IREG_I_READ_ADDR]
                 reset_counter = registers[IREG_3KV_RESET_COUNT_ADDR]
+                unlatched_signals = registers[DINPUT_UNLATCHED_SIGNALS_ADDR]
+                flags = registers[DINPUT_LATCHED_FLAGS_ADDR]
 
-                hv_enable = int(bool(registers[DINPUT_HVENABLE_ADDR]))
+                raw_hv_enable = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_HVENABLE))
+                reset_state_1kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_RESET_STATE_1KV))
+                arm_80kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_ARM80KV_ENABLE))
+                ccs_power = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_CCSPOWER_ENABLE))
+                arm_beams = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_ARMBEAMS_ENABLE))
+                enable_3kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_3KV_ENABLE))
+                nomop_flag = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_NOMOP))
+                logic_alive_flag = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_LOGIC_ALIVE))
 
-                arm_80kV = int(bool(registers[DINPUT_ARM80KV_ADDR]))
-                arm_beams = int(bool(registers[DINPUT_ARMBEAMS_ADDR]))
-                ccs_power = int(bool(registers[DINPUT_CCSPOWER_ADDR]))
-                enable_3kV = int(bool(registers[DINPUT_3KV_ENABLE_ADDR]))
+                hv_enable = enable_3kV if unit_id == 4 else raw_hv_enable
 
-                if (unit_id == 4 ):
-                    hv_enable = enable_3kV # for the 3kV Bertan, hv enable comes from logic arduino output
-
-                reset_state_1kV = int(bool(registers[DINPUT_RESET_STATE_1KV_ADDR]))
-
-                nomop_flag = int(bool(registers[DINPUT_NOMOP_FLAG_ADDR]))
-                timer_state_flag = int(bool(registers[DINPUT_3KV_TIMER_FLAG_ADDR]))
-                armbeams_flag = int(bool(registers[DINPUT_ARMBEAMS_FLAG_ADDR]))
-                ccspower_flag = int(bool(registers[DINPUT_CCSPOWER_FLAG_ADDR]))
-                arm80kv_flag = int(bool(registers[DINPUT_ARM80KV_FLAG_ADDR]))
-                vcomp_1k_flag = int(bool(registers[DINPUT_1K_VCOMP_FLAG_ADDR]))
-                icomp_1k_flag = int(bool(registers[DINPUT_1K_ICOMP_FLAG_ADDR]))
-                neg_vcomp_1k_flag = int(bool(registers[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
-                neg_icomp_1k_flag = int(bool(registers[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
-                vcomp_20k_flag = int(bool(registers[DINPUT_20K_VCOMP_FLAG_ADDR]))
-                icomp_20k_flag = int(bool(registers[DINPUT_20K_ICOMP_FLAG_ADDR]))
-                vcomp_3k_flag = int(bool(registers[DINPUT_3K_VCOMP_FLAG_ADDR]))
-                icomp_3k_flag = int(bool(registers[DINPUT_3K_ICOMP_FLAG_ADDR]))
-
-                logic_alive_flag = int(bool(registers[DINPUT_LOGIC_ALIVE_ADDR]))
+                timer_state_flag = int(bool(flags & LATCHED_FLAG_MASK_3KV_TIMER))
+                armbeams_flag = int(bool(flags & LATCHED_FLAG_MASK_ARMBEAMS_SWITCH))
+                ccspower_flag = int(bool(flags & LATCHED_FLAG_MASK_CCSPOWER_ALLOW))
+                arm80kv_flag = int(bool(flags & LATCHED_FLAG_MASK_ARM80KV_SWITCH))
+                vcomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_1K_VCOMP))
+                icomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_1K_ICOMP))
+                neg_vcomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_NEG_1K_VCOMP))
+                neg_icomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_NEG_1K_ICOMP))
+                vcomp_20k_flag = int(bool(flags & LATCHED_FLAG_MASK_20K_VCOMP))
+                icomp_20k_flag = int(bool(flags & LATCHED_FLAG_MASK_20K_ICOMP))
+                vcomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_VCOMP))
+                icomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_ICOMP))
 
                 new_data = {
                     "health": health,
