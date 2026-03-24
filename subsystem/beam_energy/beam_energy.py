@@ -488,8 +488,7 @@ class BeamEnergySubsystem:
                 reset_state = data.get('reset_state_1kV', False)
                 nomop_flag = data.get('nomop_flag', False)
                 logic_alive = data.get('logic_alive', False)
-                reset_counter = data.get('reset_counter', False)
-                timer_state_3k = data.get('timer_state_3kV', False)
+                reset_counter_3kv = data.get('3kv_reset_count', 0)
                 # TODO rest of flags for interlocks?
                 # TODO use mode bit for ddvice health
 
@@ -517,7 +516,7 @@ class BeamEnergySubsystem:
                 self.update_output_status(index, hv_enable)
                 self.update_reset_status(index, reset_state)
                 self.update_connection_status(index, comms)
-                self.update_forced_off_status(index, timer_state_3k)
+                self.update_forced_off_status(index, reset_counter_3kv > 0)
 
         except Exception as e:  
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
