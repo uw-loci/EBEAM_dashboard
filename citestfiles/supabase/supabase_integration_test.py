@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from db.supabase_client import SupabaseClient
 from utils import Logger, LogLevel
 
-TEST_TMP_ROOT = os.path.join(os.path.dirname(__file__), "_tmp")
+TEST_TMP_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_tmp")
 os.makedirs(TEST_TMP_ROOT, exist_ok=True)
 
 EXPECTED_DICT_LOGGER_KEYS = {
