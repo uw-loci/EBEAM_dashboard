@@ -30,6 +30,7 @@ class Logger:
         self.log_to_file = log_to_file
         self.log_file = None
         self.log_start_time = None
+        self.webMonitor_log_start_time = None
         self.log_filepath = None
         self.webMonitor_log_file = None
         self.webMonitor_log_filepath = None
@@ -97,17 +98,30 @@ class Logger:
             print(f"Error creating log file: {str(e)}")
 
     def setup_wm_logfile(self):
-        """Setup the web monitor log file (append mode, no rotation)."""
+        """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
         try:
-            base_path = os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
-            wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
+            wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
             os.makedirs(wm_log_dir, exist_ok=True)
-            if self.webMonitor_log_file is not None:
+
+            # Create the web monitor log file with the old naming pattern
+            webMonitor_log_file_name = f"webMonitor_log.txt"
+            if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
-            wm_log_path = os.path.join(wm_log_dir, "webMonitor_log.txt")
-            self.webMonitor_log_filepath = wm_log_path
-            self.webMonitor_log_file = open(wm_log_path, 'a')
-            self.info(f"WebMonitor log file created at {wm_log_path}")
+            self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
+            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
+            self.webMonitor_log_start_time = datetime.datetime.now()
+            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+        except Exception as e:
+            print(f"Error creating web monitor log file: {str(e)}")
+
+    def _reopen_wm_logfile_append(self):
+        """Reopen the current web monitor log file without resetting its rotation window."""
+        try:
+            if self.webMonitor_log_filepath is None:
+                wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
+                os.makedirs(wm_log_dir, exist_ok=True)
+                self.webMonitor_log_filepath = os.path.join(wm_log_dir, "webMonitor_log.txt")
+            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
         except Exception as e:
             print(f"Error opening web monitor log file: {str(e)}")
 
@@ -166,8 +180,12 @@ class Logger:
                     print(f"Supabase write error: {e}")
 
         if self.log_to_file:
-            if self.webMonitor_log_file is None:
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4 * 60 * 60:
+                if self.webMonitor_log_file:
+                    self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
+            elif self.webMonitor_log_file is None:
+                self._reopen_wm_logfile_append()
             if self.webMonitor_log_file:
                 entry = {
                     "timestamp": timestamp,
@@ -183,7 +201,10 @@ class Logger:
                         pass
                     self.webMonitor_log_file = None
                     try:
-                        self.setup_wm_logfile()
+                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4 * 60 * 60:
+                            self.setup_wm_logfile()
+                        else:
+                            self._reopen_wm_logfile_append()
                         if self.webMonitor_log_file:
                             self.webMonitor_log_file.write(json.dumps(entry) + "\n")
                             self.webMonitor_log_file.flush()

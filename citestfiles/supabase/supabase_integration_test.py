@@ -189,6 +189,7 @@ class TestSupabaseRateLimiting(unittest.TestCase):
         self.logger = Logger(text_widget=None, log_to_file=True)
         # Inject a mock webMonitor_log_file so the file-write branch doesn't crash
         self.logger.webMonitor_log_file = MagicMock()
+        self.logger.webMonitor_log_start_time = datetime.datetime.now()
 
     def tearDown(self):
         self.sb_patcher.stop()
@@ -246,6 +247,7 @@ class TestWebMonitorLogFormat(unittest.TestCase):
         # Inject StringIO so log_dict_update writes to it
         self.buf = io.StringIO()
         self.logger.webMonitor_log_file = self.buf
+        self.logger.webMonitor_log_start_time = datetime.datetime.now()
         self.logger.log_to_file = True
 
     def tearDown(self):
@@ -286,7 +288,98 @@ class TestWebMonitorLogFormat(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 5: dict_logger field management
+# Class 5: WebMonitor rotation
+# ---------------------------------------------------------------------------
+
+class TestWebMonitorRotation(unittest.TestCase):
+    """Tests for 4-hour web monitor rollover and retry behavior."""
+
+    def setUp(self):
+        self.sb_patcher = patch("utils.SupabaseClient")
+        mock_sb_class = self.sb_patcher.start()
+        mock_sb_class.return_value = MagicMock()
+
+        self.test_root = os.path.join(TEST_TMP_ROOT, f"wm_rotation_{uuid.uuid4().hex}")
+        os.makedirs(self.test_root, exist_ok=True)
+        self.base_path_patcher = patch.object(Logger, "_get_dashboard_base_path", return_value=self.test_root)
+        self.base_path_patcher.start()
+
+        self.logger = Logger(text_widget=None, log_to_file=False)
+        self.logger.supabase_client = None
+        self.logger.setup_wm_logfile()
+        self.logger.log_to_file = True
+
+    def tearDown(self):
+        try:
+            self.logger.close()
+        finally:
+            self.base_path_patcher.stop()
+            self.sb_patcher.stop()
+            shutil.rmtree(self.test_root, ignore_errors=True)
+
+    def _read_wm_lines(self):
+        with open(self.logger.webMonitor_log_filepath, "r", encoding="utf-8") as fh:
+            return [line.rstrip("\n") for line in fh]
+
+    def test_webmonitor_log_rotates_after_four_hours(self):
+        seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
+        self.logger.webMonitor_log_file.write(seed_entry + "\n")
+        self.logger.webMonitor_log_file.flush()
+        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=4, seconds=1)
+
+        self.logger.log_dict_update({"pressure": 1.0})
+
+        lines = self._read_wm_lines()
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual(entry["status"]["pressure"], 1.0)
+        datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S")
+
+    def test_webmonitor_log_does_not_rotate_before_four_hours(self):
+        seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
+        self.logger.webMonitor_log_file.write(seed_entry + "\n")
+        self.logger.webMonitor_log_file.flush()
+        original_start_time = datetime.datetime.now() - datetime.timedelta(hours=3, minutes=59, seconds=59)
+        self.logger.webMonitor_log_start_time = original_start_time
+
+        self.logger.log_dict_update({"pressure": 2.0})
+
+        lines = self._read_wm_lines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0], seed_entry)
+        self.assertEqual(self.logger.webMonitor_log_start_time, original_start_time)
+        entry = json.loads(lines[1])
+        self.assertEqual(entry["status"]["pressure"], 2.0)
+
+    def test_webmonitor_retry_reopens_in_append_mode_within_window(self):
+        seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
+        self.logger.webMonitor_log_file.write(seed_entry + "\n")
+        self.logger.webMonitor_log_file.flush()
+        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+
+        class FailingWriter:
+            def write(self, _message):
+                raise OSError("simulated write failure")
+
+            def flush(self):
+                pass
+
+            def close(self):
+                pass
+
+        self.logger.webMonitor_log_file = FailingWriter()
+
+        self.logger.log_dict_update({"pressure": 3.0})
+
+        lines = self._read_wm_lines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0], seed_entry)
+        entry = json.loads(lines[1])
+        self.assertEqual(entry["status"]["pressure"], 3.0)
+
+
+# ---------------------------------------------------------------------------
+# Class 6: dict_logger field management
 # ---------------------------------------------------------------------------
 
 class TestDictLoggerFieldManagement(unittest.TestCase):
