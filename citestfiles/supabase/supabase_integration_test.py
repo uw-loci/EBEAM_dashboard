@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import unittest
 import uuid
 from unittest.mock import MagicMock, patch
@@ -292,7 +293,7 @@ class TestWebMonitorLogFormat(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestWebMonitorRotation(unittest.TestCase):
-    """Tests for 4-hour web monitor rollover and retry behavior."""
+    """Tests for 4-hour web monitor rollover with timestamped filenames."""
 
     def setUp(self):
         self.sb_patcher = patch("utils.SupabaseClient")
@@ -317,19 +318,37 @@ class TestWebMonitorRotation(unittest.TestCase):
             self.sb_patcher.stop()
             shutil.rmtree(self.test_root, ignore_errors=True)
 
-    def _read_wm_lines(self):
-        with open(self.logger.webMonitor_log_filepath, "r", encoding="utf-8") as fh:
+    def _read_wm_lines(self, filepath=None):
+        target = filepath or self.logger.webMonitor_log_filepath
+        with open(target, "r", encoding="utf-8") as fh:
             return [line.rstrip("\n") for line in fh]
 
-    def test_webmonitor_log_rotates_after_four_hours(self):
+    def _list_wm_files(self):
+        wm_dir = os.path.dirname(self.logger.webMonitor_log_filepath)
+        return sorted(
+            entry for entry in os.listdir(wm_dir)
+            if entry.startswith("webMonitor_log_") and entry.endswith(".txt")
+        )
+
+    def test_setup_wm_logfile_uses_timestamped_filename(self):
+        filename = os.path.basename(self.logger.webMonitor_log_filepath)
+        self.assertRegex(filename, r"^webMonitor_log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$")
+
+    def test_webmonitor_log_rotates_after_four_hours_into_new_file(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
+        first_path = self.logger.webMonitor_log_filepath
         self.logger.webMonitor_log_file.write(seed_entry + "\n")
         self.logger.webMonitor_log_file.flush()
         self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=4, seconds=1)
+        time.sleep(1.1)
 
         self.logger.log_dict_update({"pressure": 1.0})
 
-        lines = self._read_wm_lines()
+        second_path = self.logger.webMonitor_log_filepath
+        self.assertNotEqual(second_path, first_path)
+        self.assertEqual(len(self._list_wm_files()), 2)
+        self.assertEqual(self._read_wm_lines(first_path), [seed_entry])
+        lines = self._read_wm_lines(second_path)
         self.assertEqual(len(lines), 1)
         entry = json.loads(lines[0])
         self.assertEqual(entry["status"]["pressure"], 1.0)
@@ -341,9 +360,11 @@ class TestWebMonitorRotation(unittest.TestCase):
         self.logger.webMonitor_log_file.flush()
         original_start_time = datetime.datetime.now() - datetime.timedelta(hours=3, minutes=59, seconds=59)
         self.logger.webMonitor_log_start_time = original_start_time
+        original_path = self.logger.webMonitor_log_filepath
 
         self.logger.log_dict_update({"pressure": 2.0})
 
+        self.assertEqual(self.logger.webMonitor_log_filepath, original_path)
         lines = self._read_wm_lines()
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0], seed_entry)
@@ -356,6 +377,7 @@ class TestWebMonitorRotation(unittest.TestCase):
         self.logger.webMonitor_log_file.write(seed_entry + "\n")
         self.logger.webMonitor_log_file.flush()
         self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+        original_path = self.logger.webMonitor_log_filepath
 
         class FailingWriter:
             def write(self, _message):
@@ -371,6 +393,7 @@ class TestWebMonitorRotation(unittest.TestCase):
 
         self.logger.log_dict_update({"pressure": 3.0})
 
+        self.assertEqual(self.logger.webMonitor_log_filepath, original_path)
         lines = self._read_wm_lines()
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0], seed_entry)

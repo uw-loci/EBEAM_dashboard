@@ -103,8 +103,8 @@ class Logger:
             wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
             os.makedirs(wm_log_dir, exist_ok=True)
 
-            # Create the web monitor log file with the old naming pattern
-            webMonitor_log_file_name = f"webMonitor_log.txt"
+            # Create the web monitor log file with the same timestamped pattern used by the main log.
+            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
             self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
@@ -118,9 +118,8 @@ class Logger:
         """Reopen the current web monitor log file without resetting its rotation window."""
         try:
             if self.webMonitor_log_filepath is None:
-                wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
-                os.makedirs(wm_log_dir, exist_ok=True)
-                self.webMonitor_log_filepath = os.path.join(wm_log_dir, "webMonitor_log.txt")
+                self.setup_wm_logfile()
+                return
             self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
         except Exception as e:
             print(f"Error opening web monitor log file: {str(e)}")
