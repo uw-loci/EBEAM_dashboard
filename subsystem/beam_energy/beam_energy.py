@@ -477,7 +477,6 @@ class BeamEnergySubsystem:
                     self.set_default_values(index)
                     continue
 
-                health = data.get('health', 'unknown')
                 v_set = data.get('set_voltage_V', None)
                 v_read = data.get('actual_voltage_V', None)
                 i_read = data.get('actual_current_mA', None)
@@ -490,7 +489,6 @@ class BeamEnergySubsystem:
                 logic_alive = data.get('logic_alive', False)
                 reset_counter_3kv = data.get('3kv_reset_count', 0)
                 # TODO rest of flags for interlocks?
-                # TODO use mode bit for ddvice health
 
                 # self.update_connection_status(index, True)
 

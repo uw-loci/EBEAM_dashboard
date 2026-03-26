@@ -6,19 +6,18 @@ from utils import LogLevel  # Ensure this module is correctly implemented
 
 # ============= MODBUS MAP =================================
 """Input Registers (Function Code 04)"""
-IREG_HEALTH_ADDR = 0  # track health/error mode
-IREG_V_SET_ADDR = 1  # integer volts
-IREG_V_READ_ADDR = 2  # integer volts
-IREG_I_READ_ADDR = 3  # integer microamps
-IREG_3KV_RESET_COUNT_ADDR = 4   # count of reset events for 3kV Bertan
+IREG_V_SET_ADDR = 0  # integer volts
+IREG_V_READ_ADDR = 1  # integer volts
+IREG_I_READ_ADDR = 2  # integer microamps
+IREG_3KV_RESET_COUNT_ADDR = 3   # count of reset events for 3kV Bertan
 
 """
 Packed DINPUT words (also read with Function Code 04):
-    5 = unlatched signals
-    6 = latched flags
+    4 = unlatched signals
+    5 = latched flags
 """
-DINPUT_UNLATCHED_SIGNALS_ADDR = 5
-DINPUT_LATCHED_FLAGS_ADDR = 6
+DINPUT_UNLATCHED_SIGNALS_ADDR = 4
+DINPUT_LATCHED_FLAGS_ADDR = 5
 
 UNLATCHED_SIGNAL_MASK_HVENABLE        = 1 << 0
 UNLATCHED_SIGNAL_MASK_RESET_STATE_1KV = 1 << 1
@@ -43,13 +42,12 @@ LATCHED_FLAG_MASK_3K_VCOMP        = 1 << 14
 LATCHED_FLAG_MASK_3K_ICOMP        = 1 << 15
 
 # As the Modbus map is updated, update these counts.
-IREG_COUNT = 5
+IREG_COUNT = 4
 DINPUT_COUNT = 2
 TOTAL_REG_COUNT = IREG_COUNT + DINPUT_COUNT
 # ============= END MODBUS MAP =============================
 
 DATA_TEMPLATE = {
-    "health": 255,
     "set_voltage_V": 0.0,
     "actual_voltage_V": 0.0,
     "actual_current_mA": 0.0,
@@ -259,9 +257,9 @@ class KnobBoxModbus:
             try:
                 with self.modbus_lock:
                     # Read the full packed input-register block:
-                    # health, V set/read, I read, 3kV reset count, unlatched signals, latched flags
+                    # V set/read, I read, 3kV reset count, unlatched signals, latched flags
                     input_registers = self.client.read_input_registers(
-                        address=IREG_HEALTH_ADDR,
+                        address=IREG_V_SET_ADDR,
                         count=TOTAL_REG_COUNT,
                         slave=unit_id
                     )
@@ -273,7 +271,6 @@ class KnobBoxModbus:
 
                 registers = input_registers.registers
 
-                health = registers[IREG_HEALTH_ADDR]
                 v_set = registers[IREG_V_SET_ADDR]
                 v_read = registers[IREG_V_READ_ADDR]
                 i_read = registers[IREG_I_READ_ADDR]
@@ -306,7 +303,6 @@ class KnobBoxModbus:
                 icomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_ICOMP))
 
                 new_data = {
-                    "health": health,
                     "set_voltage_V": float(v_set),
                     "actual_voltage_V": float(v_read),
                     "actual_current_mA": float(i_read) / 1000.0,  # convert uA to mA
