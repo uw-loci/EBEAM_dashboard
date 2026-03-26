@@ -293,7 +293,7 @@ class TestWebMonitorLogFormat(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestWebMonitorRotation(unittest.TestCase):
-    """Tests for 4-hour web monitor rollover with timestamped filenames."""
+    """Tests for 1-hour web monitor rollover with timestamped filenames."""
 
     def setUp(self):
         self.sb_patcher = patch("utils.SupabaseClient")
@@ -334,12 +334,12 @@ class TestWebMonitorRotation(unittest.TestCase):
         filename = os.path.basename(self.logger.webMonitor_log_filepath)
         self.assertRegex(filename, r"^webMonitor_log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$")
 
-    def test_webmonitor_log_rotates_after_four_hours_into_new_file(self):
+    def test_webmonitor_log_rotates_after_one_hour_into_new_file(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
         first_path = self.logger.webMonitor_log_filepath
         self.logger.webMonitor_log_file.write(seed_entry + "\n")
         self.logger.webMonitor_log_file.flush()
-        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=4, seconds=1)
+        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=1, seconds=1)
         time.sleep(1.1)
 
         self.logger.log_dict_update({"pressure": 1.0})
@@ -354,11 +354,11 @@ class TestWebMonitorRotation(unittest.TestCase):
         self.assertEqual(entry["status"]["pressure"], 1.0)
         datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S")
 
-    def test_webmonitor_log_does_not_rotate_before_four_hours(self):
+    def test_webmonitor_log_does_not_rotate_before_one_hour(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
         self.logger.webMonitor_log_file.write(seed_entry + "\n")
         self.logger.webMonitor_log_file.flush()
-        original_start_time = datetime.datetime.now() - datetime.timedelta(hours=3, minutes=59, seconds=59)
+        original_start_time = datetime.datetime.now() - datetime.timedelta(minutes=59, seconds=59)
         self.logger.webMonitor_log_start_time = original_start_time
         original_path = self.logger.webMonitor_log_filepath
 
@@ -376,7 +376,7 @@ class TestWebMonitorRotation(unittest.TestCase):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
         self.logger.webMonitor_log_file.write(seed_entry + "\n")
         self.logger.webMonitor_log_file.flush()
-        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(minutes=30)
         original_path = self.logger.webMonitor_log_filepath
 
         class FailingWriter:

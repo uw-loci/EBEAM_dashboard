@@ -179,7 +179,7 @@ class Logger:
                     print(f"Supabase write error: {e}")
 
         if self.log_to_file:
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4 * 60 * 60:
+            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
@@ -200,7 +200,7 @@ class Logger:
                         pass
                     self.webMonitor_log_file = None
                     try:
-                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 4 * 60 * 60:
+                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                             self.setup_wm_logfile()
                         else:
                             self._reopen_wm_logfile_append()
