@@ -152,7 +152,16 @@ EBEAM_DASHBOARD/
 └── utils.py
 ```
 
-### 7. Development Workflow
+### 7. Configuration
+
+Create a `.env` file in the project root with the following variables:
+
+```
+SUPABASE_API_URL=https://your-project-id.supabase.co
+SUPABASE_API_KEY=your-api-key-here
+```
+
+### 8. Development Workflow
 ![branching](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/branching_diagram.png)
 #### Branching strategy
 All code development intended to impact a future release is done on the latest `develop` branch. This applies to new instrument features, bug fixes, etc. The `develop` branch is **not stable**.
@@ -225,7 +234,7 @@ Fill in the PR template with a description of your changes, any related issues, 
 
 Assign reviewers to your PR. Merge.
 
-### 6. Executable Build Instructions
+### 9. Executable Build Instructions
 ```
 python -m PyInstaller EBEAM_DASHBOARD.spec
 ```

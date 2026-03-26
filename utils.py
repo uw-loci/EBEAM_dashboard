@@ -10,6 +10,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
 import json
 from collections import deque
+from db.supabase_client import SupabaseClient
 
 class LogLevel(enum.IntEnum):
     VERBOSE = 0
@@ -28,12 +29,18 @@ class Logger:
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
-        self.webMonitor_log_file = None
         self.log_start_time = None
         self.webMonitor_log_start_time = None
         self.log_filepath = None
+        self.webMonitor_log_file = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
+        self.supabase_client = None
+        self.last_supabase_write = None
+        try:
+            self.supabase_client = SupabaseClient()
+        except Exception as e:
+            print(f"Warning: Supabase client failed to initialize: {e}")
         self.dict_logger = {
             "pressure": None,
             "safetyOutputDataFlags": None,
@@ -95,9 +102,9 @@ class Logger:
         try:
             wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
             os.makedirs(wm_log_dir, exist_ok=True)
-            
-            # Create the web monitor log file with the old naming pattern
-            webMonitor_log_file_name = f"webMonitor_log.txt"
+
+            # Create the web monitor log file with the same timestamped pattern used by the main log.
+            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
             self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
@@ -106,6 +113,16 @@ class Logger:
             self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
+
+    def _reopen_wm_logfile_append(self):
+        """Reopen the current web monitor log file without resetting its rotation window."""
+        try:
+            if self.webMonitor_log_filepath is None:
+                self.setup_wm_logfile()
+                return
+            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
+        except Exception as e:
+            print(f"Error opening web monitor log file: {str(e)}")
 
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
@@ -146,28 +163,54 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
-        # return early if file logging is disabled
-        if not self.log_to_file:
-                return
-        try:
-            now = datetime.datetime.now()
-            # overwrite logs on the same webMonitor file every hour
+        now = datetime.datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Write to Supabase if 2 seconds have passed since last write
+        if self.supabase_client and self.log_to_file:
+            if self.last_supabase_write is None or (now - self.last_supabase_write).total_seconds() >= 2:
+                try:
+                    write_ok = self.supabase_client.insert_status_log(update_dict)
+                    if write_ok:
+                        self.last_supabase_write = now
+                    else:
+                        self.warning("Supabase write failed; will retry on next interval.")
+                except Exception as e:
+                    print(f"Supabase write error: {e}")
+
+        if self.log_to_file:
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
-            if self.webMonitor_log_file is None:
-                return
-            entry = {
-                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": update_dict
-            }
-            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-            self.webMonitor_log_file.flush()
-
-        except Exception as e:
-            print(f"Error writing web monitor updates: {e}")
-
+            elif self.webMonitor_log_file is None:
+                self._reopen_wm_logfile_append()
+            if self.webMonitor_log_file:
+                entry = {
+                    "timestamp": timestamp,
+                    "status": update_dict
+                }
+                try:
+                    self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                    self.webMonitor_log_file.flush()
+                except Exception as e:
+                    try:
+                        self.webMonitor_log_file.close()
+                    except Exception:
+                        pass
+                    self.webMonitor_log_file = None
+                    try:
+                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
+                            self.setup_wm_logfile()
+                        else:
+                            self._reopen_wm_logfile_append()
+                        if self.webMonitor_log_file:
+                            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                            self.webMonitor_log_file.flush()
+                        else:
+                            print(f"Error writing web monitor updates: {e}")
+                    except Exception as retry_error:
+                        print(f"Error writing web monitor updates: {retry_error}")
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
@@ -199,7 +242,7 @@ class Logger:
                 self.webMonitor_log_file.close()
                 self.webMonitor_log_file = None
             except Exception as e:
-                print(f"Error closing web monitor log file {str(e)}")
+                print(f"Error closing web monitor log file: {str(e)}")
 
 import tkinter as tk
 import sys
@@ -262,6 +305,9 @@ class MessagesFrame:
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
 
+        # Ensure that the log directory exists
+        self.ensure_log_directory()
+
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
@@ -285,7 +331,6 @@ class MessagesFrame:
                 except Exception as e:
                     print(f"Error closing web monitor log file: {e}")
                 self.logger.webMonitor_log_file = None
-
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
@@ -342,24 +387,6 @@ class MessagesFrame:
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
     
-    def ensure_wm_log_directory(self):
-        ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
-        try:
-            # For PyInstaller, _MEIPASS is the path to the temporary folder where the app is unpacked.
-            # os.path.abspath(".") gives the path to the current directory when running the script normally.
-            if hasattr(sys, '_MEIPASS'):
-                # If running as a bundled executable
-                base_path = os.path.expanduser("~")  # Gets the home directory
-            else:
-                # If running as a script (e.g., python main.py)
-                base_path = os.path.abspath(".")
-
-            self.wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
-            if not os.path.exists(self.wm_log_dir):
-                os.makedirs(self.wm_log_dir)
-        except Exception as e:
-            print(f"Failed to create wm log directory: {str(e)}")
-
     def export_log(self):
         """ Export the current log contents to a user-specified file. """
         try:
