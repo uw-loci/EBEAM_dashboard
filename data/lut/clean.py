@@ -3,6 +3,7 @@ import os
 import argparse
 import matplotlib.pyplot as plt
 from collections import defaultdict
+from statistics import median
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -18,6 +19,17 @@ BEAM_CONTROL_OUTPUT_DIR = os.path.join(BASE_DIR, "beam_control")
 POWER_SUPPLY_RAW_DIR = os.path.join(BASE_DIR, "power_supply", "raw_files")
 BEAM_CONTROL_RAW_DIR = os.path.join(BASE_DIR, "beam_control", "raw_files")
 
+POWER_SUPPLY_POLICIES = (
+    "max_beam",
+    "min_current_95pct_beam",
+    "median_top_band",
+)
+
+# Rows below these thresholds are treated as non-operational/off-state points.
+MIN_OPERATIONAL_BEAM_CURRENT_MA = 0.001
+MIN_OPERATIONAL_VOLTAGE_V = 0.001
+MIN_OPERATIONAL_HEATER_CURRENT_A = 0.001
+
 def read_csv(filename):
     with open(filename, newline="") as f:
         reader = csv.DictReader(f)
@@ -32,24 +44,129 @@ def write_csv(filename, rows):
         for row in rows:
             writer.writerow(row)
 
-def average_duplicates(rows):
-    grouped = defaultdict(list)
+def _try_float(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _to_numeric_power_rows(rows):
+    """Parse power-supply rows and keep only complete operational numeric triples."""
+    numeric = []
     for row in rows:
-        hc = row["heater_current"]
-        if hc:
-            grouped[hc].append(row)
-    result = []
-    for hc, group in grouped.items():
-        beam_vals = [float(r["beam_current"]) for r in group if r["beam_current"]]
-        volt_vals = [float(r["voltage"]) for r in group if r["voltage"]]
-        avg_beam = sum(beam_vals)/len(beam_vals) if beam_vals else ""
-        avg_volt = sum(volt_vals)/len(volt_vals) if volt_vals else ""
-        result.append({
-            "beam_current": f"{avg_beam:.3f}" if avg_beam != "" else "",
-            "voltage": f"{avg_volt:.2f}" if avg_volt != "" else "",
-            "heater_current": hc
-        })
-    return result
+        beam = _try_float(row.get("beam_current"))
+        voltage = _try_float(row.get("voltage"))
+        heater = _try_float(row.get("heater_current"))
+        if beam is None or voltage is None or heater is None:
+            continue
+        if beam < 0 or voltage < 0 or heater < 0:
+            continue
+
+        # Drop non-operational/off-state points that otherwise appear as LUT outliers.
+        # Examples: (0, 0, 0), (0, 1.04, 0), and similar startup/transient records.
+        if beam <= MIN_OPERATIONAL_BEAM_CURRENT_MA:
+            continue
+        if voltage <= MIN_OPERATIONAL_VOLTAGE_V:
+            continue
+        if heater <= MIN_OPERATIONAL_HEATER_CURRENT_A:
+            continue
+
+        numeric.append(
+            {
+                "beam_current": beam,
+                "voltage": round(voltage, 2),
+                "heater_current": round(heater, 2),
+            }
+        )
+    return numeric
+
+
+def _select_row_for_voltage_bin(group, policy):
+    """Choose one representative row for a voltage bin according to policy."""
+    if policy == "max_beam":
+        # Practical default: best measured beam at this voltage.
+        return max(group, key=lambda r: (r["beam_current"], r["heater_current"]))
+
+    if policy == "min_current_95pct_beam":
+        max_beam = max(r["beam_current"] for r in group)
+        threshold = 0.95 * max_beam
+        candidates = [r for r in group if r["beam_current"] >= threshold]
+        return min(candidates, key=lambda r: (r["heater_current"], -r["beam_current"]))
+
+    # median_top_band: robust against noisy clusters in a voltage bin.
+    beams = [r["beam_current"] for r in group]
+    beam_median = median(beams)
+    top_band = [r for r in group if r["beam_current"] >= beam_median]
+    hc_median = median(r["heater_current"] for r in top_band)
+    return min(top_band, key=lambda r: (abs(r["heater_current"] - hc_median), -r["beam_current"]))
+
+
+def _apply_power_supply_policy(rows, policy="max_beam"):
+    """
+    Clean raw power-supply rows into a single-valued LUT by voltage.
+
+    Steps:
+    1) Parse complete numeric rows only.
+    2) Sort rows for deterministic grouping/selection.
+    3) Deduplicate each voltage bin using selected policy.
+    """
+    numeric_rows = _to_numeric_power_rows(rows)
+    if not numeric_rows:
+        return []
+
+    sorted_rows = sorted(
+        numeric_rows,
+        key=lambda r: (r["heater_current"], r["voltage"], r["beam_current"]),
+    )
+
+    by_voltage = defaultdict(list)
+    for row in sorted_rows:
+        by_voltage[row["voltage"]].append(row)
+
+    cleaned_rows = []
+    for voltage in sorted(by_voltage.keys()):
+        selected = _select_row_for_voltage_bin(by_voltage[voltage], policy)
+        cleaned_rows.append(selected)
+
+    return sorted(cleaned_rows, key=lambda r: r["voltage"])
+
+
+def _validate_power_supply_rows(rows, min_points=10):
+    if len(rows) < min_points:
+        raise ValueError(
+            f"Power supply LUT contains only {len(rows)} usable points after cleaning; expected at least {min_points}."
+        )
+
+    voltages = [r["voltage"] for r in rows]
+    if len(voltages) != len(set(voltages)):
+        raise ValueError("Power supply LUT is not a function of voltage after cleaning (duplicate voltage bins remain).")
+
+    by_heater = sorted(rows, key=lambda r: r["heater_current"])
+    inversions = 0
+    for prev, cur in zip(by_heater, by_heater[1:]):
+        if cur["beam_current"] + 1e-9 < prev["beam_current"]:
+            inversions += 1
+    if inversions > 0:
+        print(
+            f"Warning: cleaned LUT has {inversions} beam-current inversions vs heater current; check data quality."
+        )
+
+
+def _format_power_supply_rows(rows):
+    return [
+        {
+            "beam_current": f"{r['beam_current']:.3f}",
+            "voltage": f"{r['voltage']:.2f}",
+            "heater_current": f"{r['heater_current']:.2f}",
+        }
+        for r in rows
+    ]
 
 def fill_missing_voltages(rows):
     hc_to_volt = {float(r["heater_current"]): float(r["voltage"]) for r in rows if r["voltage"]}
@@ -67,12 +184,13 @@ def fill_missing_voltages(rows):
             row["voltage"] = f"{hc_to_volt[nearest]:.2f}"
     return rows
 
-def clean_power_supply_file(raw_path, clean_path):
+def clean_power_supply_file(raw_path, clean_path, policy="max_beam"):
     rows = read_csv(raw_path)
-    rows = average_duplicates(rows)
-    rows = fill_missing_voltages(rows)
-    write_csv(clean_path, rows)
-    return rows
+    cleaned_numeric = _apply_power_supply_policy(rows, policy=policy)
+    _validate_power_supply_rows(cleaned_numeric)
+    cleaned_rows = _format_power_supply_rows(cleaned_numeric)
+    write_csv(clean_path, cleaned_rows)
+    return rows, cleaned_rows
 
 
 def discover_csv_file_pairs(input_dir):
@@ -98,10 +216,11 @@ def discover_csv_file_pairs(input_dir):
     return file_pairs
 
 def plot_power_supply_graphs(rows, name, plot_dir):
-    beam = [float(r["beam_current"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
-    volt = [float(r["voltage"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
-    heater = [float(r["heater_current"]) for r in rows if r["beam_current"] and r["voltage"] and r["heater_current"]]
-    if not beam:
+    numeric_rows = _to_numeric_power_rows(rows)
+    beam = [r["beam_current"] for r in numeric_rows]
+    volt = [r["voltage"] for r in numeric_rows]
+    heater = [r["heater_current"] for r in numeric_rows]
+    if not numeric_rows:
         return
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
@@ -136,7 +255,86 @@ def plot_power_supply_graphs(rows, name, plot_dir):
     plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_voltage_colored_by_heater.png'))
     plt.close()
 
-def process_power_supply_data():
+
+def plot_power_supply_comparison(raw_rows, cleaned_rows, name, plot_dir, policy):
+    """Create raw vs cleaned comparison plots for documentation and review."""
+    raw_numeric = _to_numeric_power_rows(raw_rows)
+    clean_numeric = _to_numeric_power_rows(cleaned_rows)
+    if not raw_numeric or not clean_numeric:
+        return
+
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+
+    raw_v = [r["voltage"] for r in raw_numeric]
+    raw_b = [r["beam_current"] for r in raw_numeric]
+    clean_sorted_v = sorted(clean_numeric, key=lambda r: r["voltage"])
+    clean_sorted_h = sorted(clean_numeric, key=lambda r: r["heater_current"])
+
+    # Beam current vs heater voltage: raw cloud + cleaned functional approximation.
+    plt.figure(figsize=(8, 6))
+    plt.scatter(raw_v, raw_b, s=18, alpha=0.35, color="gray", label="Raw")
+    plt.plot(
+        [r["voltage"] for r in clean_sorted_v],
+        [r["beam_current"] for r in clean_sorted_v],
+        marker="o",
+        linewidth=2.0,
+        label=f"Cleaned ({policy})",
+    )
+    plt.xlabel("Voltage (V)")
+    plt.ylabel("Beam Current (mA)")
+    plt.title(f"{name}: Raw vs Cleaned Beam Current (mA) vs Heater Voltage (V)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(plot_dir, f"{name}_{policy}_raw_vs_clean_beam_vs_voltage.png"), dpi=150)
+    plt.close()
+
+    # Heater current vs heater voltage: raw cloud + cleaned representative curve.
+    plt.figure(figsize=(8, 6))
+    plt.scatter(
+        [r["voltage"] for r in raw_numeric],
+        [r["heater_current"] for r in raw_numeric],
+        s=18,
+        alpha=0.35,
+        color="gray",
+        label="Raw",
+    )
+    plt.plot(
+        [r["voltage"] for r in clean_sorted_v],
+        [r["heater_current"] for r in clean_sorted_v],
+        marker="o",
+        linewidth=2.0,
+        label=f"Cleaned ({policy})",
+    )
+    plt.xlabel("Voltage (V)")
+    plt.ylabel("Heater Current (A)")
+    plt.title(f"{name}: Raw vs Cleaned Heater Current (A) vs Heater Voltage (V)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(plot_dir, f"{name}_{policy}_raw_vs_clean_heater_vs_voltage.png"), dpi=150)
+    plt.close()
+
+    # Beam current vs heater current for cleaned result only.
+    plt.figure(figsize=(8, 6))
+    plt.plot(
+        [r["heater_current"] for r in clean_sorted_h],
+        [r["beam_current"] for r in clean_sorted_h],
+        marker="o",
+        linewidth=2.0,
+        label=f"Cleaned ({policy})",
+    )
+    plt.xlabel("Heater Current (A)")
+    plt.ylabel("Beam Current (mA)")
+    plt.title(f"{name}: Cleaned Beam Current (mA) vs Heater Current (A)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(plot_dir, f"{name}_{policy}_clean_beam_vs_heater.png"), dpi=150)
+    plt.close()
+
+def process_power_supply_data(policy="max_beam"):
     print("Processing power supply data...")
     file_pairs = discover_csv_file_pairs(POWER_SUPPLY_INPUT_DIR)
     if not file_pairs:
@@ -151,9 +349,10 @@ def process_power_supply_data():
             POWER_SUPPLY_INPUT_DIR if os.path.isfile(os.path.join(POWER_SUPPLY_INPUT_DIR, raw_name)) else POWER_SUPPLY_RAW_DIR,
             raw_name,
         )
-        rows = clean_power_supply_file(raw_path, raw_path)
+        raw_rows, cleaned_rows = clean_power_supply_file(raw_path, raw_path, policy=policy)
         plot_name = clean_name.replace('.csv', '')
-        plot_power_supply_graphs(rows, plot_name, POWER_SUPPLY_PLOT_DIR)
+        plot_power_supply_graphs(cleaned_rows, plot_name, POWER_SUPPLY_PLOT_DIR)
+        plot_power_supply_comparison(raw_rows, cleaned_rows, plot_name, POWER_SUPPLY_PLOT_DIR, policy)
 
     print(f"Power Supply: Processed {len(file_pairs)} files and generated plots.")
 
@@ -381,7 +580,7 @@ def _resolve_input_path(filename):
     return existing[0]
 
 
-def process_single_file(filename):
+def process_single_file(filename, ps_policy="max_beam", all_ps_policies=False):
     """Process one CSV file identified by filename/path."""
     raw_path = _resolve_input_path(filename)
     raw_name = os.path.basename(raw_path)
@@ -404,9 +603,28 @@ def process_single_file(filename):
         subsystem = _infer_subsystem_from_rows(rows_for_inference)
 
     if subsystem == "power_supply":
-        rows = clean_power_supply_file(raw_path, raw_path)
-        plot_power_supply_graphs(rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
-        print(f"Power Supply: Processed in place {raw_name}")
+        policies = POWER_SUPPLY_POLICIES if all_ps_policies else (ps_policy,)
+
+        # If using one explicit policy, preserve backward-compatible in-place behavior.
+        if len(policies) == 1:
+            raw_rows, cleaned_rows = clean_power_supply_file(raw_path, raw_path, policy=policies[0])
+            plot_power_supply_graphs(cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
+            plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR, policies[0])
+            print(f"Power Supply: Processed in place {raw_name} with policy '{policies[0]}'")
+            return
+
+        # If comparing policies, keep raw untouched and write one output per policy.
+        raw_rows = read_csv(raw_path)
+        for policy in policies:
+            output_name = f"{clean_stem}__{policy}.csv"
+            output_path = os.path.join(os.path.dirname(raw_path), output_name)
+            cleaned_numeric = _apply_power_supply_policy(raw_rows, policy=policy)
+            _validate_power_supply_rows(cleaned_numeric)
+            cleaned_rows = _format_power_supply_rows(cleaned_numeric)
+            write_csv(output_path, cleaned_rows)
+            plot_power_supply_graphs(cleaned_rows, f"{clean_stem}__{policy}", POWER_SUPPLY_PLOT_DIR)
+            plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR, policy)
+            print(f"Power Supply: Wrote {output_name} using policy '{policy}'")
         return
 
     raw_lower = raw_name.lower()
@@ -428,13 +646,24 @@ def main():
         nargs='?',
         help='CSV filename (or path). Example: Cbmark_Beam_A_07_2025.csv'
     )
+    parser.add_argument(
+        '--ps-policy',
+        choices=POWER_SUPPLY_POLICIES,
+        default='max_beam',
+        help='Power-supply LUT approximation policy (default: max_beam).'
+    )
+    parser.add_argument(
+        '--all-ps-policies',
+        action='store_true',
+        help='For a single power-supply file, generate one cleaned CSV per policy instead of in-place overwrite.'
+    )
     args = parser.parse_args()
 
     if args.filename:
-        process_single_file(args.filename)
+        process_single_file(args.filename, ps_policy=args.ps_policy, all_ps_policies=args.all_ps_policies)
         return
 
-    process_power_supply_data()
+    process_power_supply_data(policy=args.ps_policy)
     process_beam_control_data()
 
 if __name__ == "__main__":

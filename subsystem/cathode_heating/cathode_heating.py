@@ -2380,8 +2380,10 @@ class CathodeHeatingSubsystem:
 
     def _max_current_at_voltage(self, index: int, voltage: float):
         """
-        Data lookup helper to return the largest heater current listed for the exact
-        voltage in the active lookup table, or None if the voltage does not appear
+        Return the unique heater current for an exact voltage match.
+
+        LUT data is treated as a function. If one voltage maps to multiple heater
+        current values, this returns None and logs an error.
         """
         table = self.lookup_table_setting[index]
         if table is None or table.empty:
@@ -2389,12 +2391,22 @@ class CathodeHeatingSubsystem:
         rows = table[table["voltage"].round(2) == round(voltage, 2)]
         if rows.empty:
             return None
-        return rows["heater_current"].max()
+        unique_currents = pd.to_numeric(rows["heater_current"], errors="coerce").dropna().unique()
+        if len(unique_currents) != 1:
+            self.log(
+                f"Ambiguous LUT mapping for Cathode {['A', 'B', 'C'][index]} at {voltage:.2f}V: "
+                f"expected one heater current, found {len(unique_currents)}.",
+                LogLevel.ERROR,
+            )
+            return None
+        return float(unique_currents[0])
     
     def _max_voltage_for_current(self, index: int, current: float):
         """
-        Data lookup helper to return the largest heater voltage listed for the exact
-        current in the active lookup table, or None if current does not appear
+        Return the unique heater voltage for an exact current match.
+
+        LUT data is treated as a function. If one current maps to multiple heater
+        voltage values, this returns None and logs an error.
         """
         table = self.lookup_table_setting[index]
         if table is None or table.empty:
@@ -2402,21 +2414,28 @@ class CathodeHeatingSubsystem:
         rows = table[table["heater_current"].round(2) == round(current, 2)]
         if rows.empty:
             return None
-        return rows["voltage"].max()
+        unique_voltages = pd.to_numeric(rows["voltage"], errors="coerce").dropna().unique()
+        if len(unique_voltages) != 1:
+            self.log(
+                f"Ambiguous LUT mapping for Cathode {['A', 'B', 'C'][index]} at {current:.2f}A: "
+                f"expected one heater voltage, found {len(unique_voltages)}.",
+                LogLevel.ERROR,
+            )
+            return None
+        return float(unique_voltages[0])
 
     def emission_cur_vlt_converter(self, index, val, target_heater_current=None):
         """
         Convert between voltage and current using the DataFrame lookup.
 
-        When multiple LUT rows share the same voltage, choose the row that best
-        matches the active heater-current constraint (if provided). Otherwise,
-        use a deterministic fallback to avoid file-order-dependent behavior.
+        LUT data is treated as a function for voltage->(heater current, beam current)
+        lookups. For a given voltage, there must be exactly one output pair.
         
         Args:
             index (int): Index of the cathode (0-2)
             val (float): Input value (voltage or current)
-            target_heater_current (float | None): Preferred heater current used to
-                disambiguate duplicate-voltage rows
+            target_heater_current (float | None): Unused; retained for call-site
+                compatibility.
             
         Returns:
             tuple: (heater_voltage, heater_current, beam_current)
@@ -2431,32 +2450,22 @@ class CathodeHeatingSubsystem:
                 beam_current = -1
                 return (heater_voltage, heater_current, beam_current)
 
-            match_row = None
-            candidates = exact_match.copy()
-            candidates['_heater_current_num'] = pd.to_numeric(candidates['heater_current'], errors='coerce')
+            unique_pairs = (
+                exact_match[['heater_current', 'beam_current']]
+                .drop_duplicates()
+            )
+            if len(unique_pairs) != 1:
+                self.log(
+                    f"Ambiguous LUT mapping for Cathode {['A', 'B', 'C'][index]} at {val:.2f}V: "
+                    f"expected one output pair, found {len(unique_pairs)}.",
+                    LogLevel.ERROR,
+                )
+                return (val, -1, -1)
 
-            # Prefer row closest to the active heater-current constraint.
-            if target_heater_current is not None:
-                numeric_rows = candidates.dropna(subset=['_heater_current_num']).copy()
-                if not numeric_rows.empty:
-                    target = float(target_heater_current)
-                    numeric_rows['_delta'] = (numeric_rows['_heater_current_num'] - target).abs()
-                    match_row = numeric_rows.sort_values(
-                        by=['_delta', '_heater_current_num'],
-                        ascending=[True, False]
-                    ).iloc[0]
-
-            # Deterministic fallback: highest heater current at this voltage.
-            if match_row is None:
-                numeric_rows = candidates.dropna(subset=['_heater_current_num'])
-                if not numeric_rows.empty:
-                    match_row = numeric_rows.sort_values(by=['_heater_current_num'], ascending=[False]).iloc[0]
-                else:
-                    match_row = exact_match.iloc[0]
-
-            heater_voltage = match_row['voltage']
-            heater_current = match_row['heater_current']  # This is the heater current
-            beam_current = match_row['beam_current']     # This is the beam current
+            match_row = exact_match.iloc[0]
+            heater_voltage = float(match_row['voltage'])
+            heater_current = float(match_row['heater_current'])  # This is the heater current
+            beam_current = float(match_row['beam_current'])      # This is the beam current
             return (heater_voltage, heater_current, beam_current)
         else:
             self.log("Lookup table not properly configured as DataFrame", LogLevel.ERROR)
