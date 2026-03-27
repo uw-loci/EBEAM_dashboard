@@ -1,64 +1,65 @@
 import threading
 import time
+
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
-#============= MODBUS MAP ==================================
-#===========================================================
+# ============= MODBUS MAP =================================
 """Input Registers (Function Code 04)"""
-IREG_HEALTH_ADDR =          0   # track health/error mode
-IREG_V_SET_ADDR =           1   # integer volts
-IREG_V_READ_ADDR =          2   # integer volts
-IREG_I_READ_ADDR =          3   # integer microamps
-IREG_3KV_RESET_COUNT_ADDR = 4   # count of reset events for 3kV Bertan
+IREG_V_SET_ADDR = 0  # integer volts
+IREG_V_READ_ADDR = 1  # integer volts
+IREG_I_READ_ADDR = 2  # integer microamps
+IREG_3KV_RESET_COUNT_ADDR = 3   # count of reset events for 3kV Bertan
 
-"""Discrete Inputs (Function Code 02)"""
-DINPUT_HVENABLE_ADDR =          5
-# below are just reported by the matsusada monitoring arduinos
-DINPUT_RESET_STATE_1KV_ADDR =   6
-# below are just reported by the 3kV monitoring arduino
-# (raw switch states)
-DINPUT_ARM80KV_ADDR =           7
-# (logic arduino outputs)
-DINPUT_ARMBEAMS_ADDR =          8
-DINPUT_CCSPOWER_ADDR =          9 
-DINPUT_3KV_ENABLE_ADDR =        10
-# (logic arduino flags)
-DINPUT_NOMOP_FLAG_ADDR =        11
-DINPUT_3KV_TIMER_FLAG_ADDR =    12
-DINPUT_ARMBEAMS_FLAG_ADDR =     13
-DINPUT_CCSPOWER_FLAG_ADDR =     14
-DINPUT_ARM80KV_FLAG_ADDR =      15
-DINPUT_1K_VCOMP_FLAG_ADDR =     16
-DINPUT_1K_ICOMP_FLAG_ADDR =     17
-DINPUT_NEG_1K_VCOMP_FLAG_ADDR = 18
-DINPUT_NEG_1K_ICOMP_FLAG_ADDR = 19
-DINPUT_20K_VCOMP_FLAG_ADDR =    20
-DINPUT_20K_ICOMP_FLAG_ADDR =    21
-DINPUT_3K_VCOMP_FLAG_ADDR =     22
-DINPUT_3K_ICOMP_FLAG_ADDR =     23 
-DINPUT_LOGIC_ALIVE_ADDR =       24
+"""
+Packed DINPUT words (also read with Function Code 04):
+    4 = unlatched signals
+    5 = latched flags
+"""
+DINPUT_UNLATCHED_SIGNALS_ADDR = 4
+DINPUT_LATCHED_FLAGS_ADDR = 5
 
-# as the Modbus Map is updated, update these counts:
-IREG_COUNT = 5
-DINPUT_COUNT = 20
+UNLATCHED_SIGNAL_MASK_HVENABLE        = 1 << 0
+UNLATCHED_SIGNAL_MASK_RESET_STATE_1KV = 1 << 1
+UNLATCHED_SIGNAL_MASK_ARM80KV_ENABLE  = 1 << 2
+UNLATCHED_SIGNAL_MASK_CCSPOWER_ENABLE = 1 << 3
+UNLATCHED_SIGNAL_MASK_ARMBEAMS_ENABLE = 1 << 4
+UNLATCHED_SIGNAL_MASK_3KV_ENABLE      = 1 << 5
+UNLATCHED_SIGNAL_MASK_NOMOP           = 1 << 6
+UNLATCHED_SIGNAL_MASK_LOGIC_ALIVE     = 1 << 7
+
+LATCHED_FLAG_MASK_3KV_TIMER       = 1 << 4
+LATCHED_FLAG_MASK_ARMBEAMS_SWITCH = 1 << 5
+LATCHED_FLAG_MASK_CCSPOWER_ALLOW  = 1 << 6
+LATCHED_FLAG_MASK_ARM80KV_SWITCH  = 1 << 7
+LATCHED_FLAG_MASK_1K_VCOMP        = 1 << 8
+LATCHED_FLAG_MASK_1K_ICOMP        = 1 << 9
+LATCHED_FLAG_MASK_NEG_1K_VCOMP    = 1 << 10
+LATCHED_FLAG_MASK_NEG_1K_ICOMP    = 1 << 11
+LATCHED_FLAG_MASK_20K_VCOMP       = 1 << 12
+LATCHED_FLAG_MASK_20K_ICOMP       = 1 << 13
+LATCHED_FLAG_MASK_3K_VCOMP        = 1 << 14
+LATCHED_FLAG_MASK_3K_ICOMP        = 1 << 15
+
+# As the Modbus map is updated, update these counts.
+IREG_COUNT = 4
+DINPUT_COUNT = 2
 TOTAL_REG_COUNT = IREG_COUNT + DINPUT_COUNT
-#===========================================================
-#============= END MODBUS MAP ==============================
+# ============= END MODBUS MAP =============================
 
 DATA_TEMPLATE = {
-    "health": 255,
     "set_voltage_V": 0.0,
     "actual_voltage_V": 0.0,
     "actual_current_mA": 0.0,
+    "3kv_reset_count": 0,
     "hv_enable": 0,
     "arm_80kv": 0,
     "arm_beams": 0,
     "ccs_power": 0,
+    "3kV_enable": 0,
     "timer_state_3kV": 0,
     "reset_state_1kV": 0,
     "nomop_flag": 0,
-    "hvenable_flag": 0,
     "armbeams_flag": 0,
     "ccspower_flag": 0,
     "arm80kv_flag": 0,
@@ -70,17 +71,18 @@ DATA_TEMPLATE = {
     "icomp_20k_flag": 0,
     "vcomp_3k_flag": 0,
     "icomp_3k_flag": 0,
-    "logic_alive": 0
+    "logic_alive": 0,
 }
+
 
 class KnobBoxModbus:
     """
     Modbus RTU driver for multiple power supply monitoring via RS485.
-    
+
     This class manages communication with multiple power supplies through a single
     RS485 connection using the Modbus RTU protocol. It provides thread-safe access
     to power supply data and handles connection management automatically.
-    
+
     Attributes:
         OUTPUT_STATUS_ADDRESS (int): Register address for output status
         SET_VOLTAGE_ADDRESS (int): Register address for set voltage
@@ -90,17 +92,27 @@ class KnobBoxModbus:
         MAX_ATTEMPTS (int): Maximum retry attempts for failed reads
     """
     # Identifiers for power supplies:
-    #      - 1: -1kV Matsusada
-    #      - 2: +1kV Matsusada
+    #      - 1: +1kV Matsusada
+    #      - 2: -1kV Matsusada
     #      - 3: +20kV Bertan
     #      - 4: +3kV Bertan
-    UNIT_IDS = [1,2,3,4] # for testing, just using one slave
+    UNIT_IDS = [1, 2, 3, 4]
     MAX_ATTEMPTS = 3  # Max attempts for reading data
 
-    def __init__(self, port, baudrate=9600, timeout=0.4, parity='N', stopbits=1, bytesize=8, logger=None, debug_mode=True):
+    def __init__(
+        self,
+        port,
+        baudrate=9600,
+        timeout=0.5,
+        parity="N",
+        stopbits=1,
+        bytesize=8,
+        logger=None,
+        debug_mode=True,
+    ):
         """
         Initialize the KnobBoxModbus instance with serial communication parameters and optional logging.
-        
+
         Parameters:
             port (str): Serial port to connect.
             baudrate (int): Communication baud rate (default: 9600).
@@ -113,19 +125,16 @@ class KnobBoxModbus:
         """
         self.logger = logger
         self.debug_mode = debug_mode
-        self.modbus_lock = threading.Lock() # Lock for Modbus communication
+        self.modbus_lock = threading.Lock()  # Lock for Modbus communication
         self.data_lock = threading.Lock()  # Lock for data state updates
         self.poll_schedule_lock = threading.Lock()  # Lock for per-unit poll scheduling/backoff
         self.port = port
         self.connected = False
-        self.last_success = {uid: 0 for uid in self.UNIT_IDS} # Track last successful poll time for each unit
-        # Consider a unit disconnected if no successful poll within this window
-        # Lowered to target ~4s responsiveness
-        self.CONNECTION_TIMEOUT = 4.0 # seconds without successful poll before considering connection lost
-        # Tighter connect backoff to attempt faster reconnects when targeting lower overall timeout
-        self._connect_backoff_sec = 0.25 # initial time between connection attempts
-        self._connect_backoff_max_sec = 2.0 # max backoff between attempts
-        self._next_connect_time = 0.0 # used for backoff timing of connection attempts
+        self.last_success = {uid: 0 for uid in self.UNIT_IDS}  # Track last successful poll time for each unit
+        self.CONNECTION_TIMEOUT = 10.0  # seconds without successful poll before considering connection lost
+        self._connect_backoff_sec = 0.5  # time between connection attempts, will exponentially back off on failures up to a max
+        self._connect_backoff_max_sec = 5.0  # backoff will max out at this duration between attempts
+        self._next_connect_time = 0.0  # used for backoff timing of connection attempts
         self._poll_index = 0  # rotate unit polling order to avoid always lagging the same unit
         # Per-unit backoff on poll failures: reduced to react faster
         self._unit_poll_backoff_base_sec = 0.25  # per-unit backoff after poll failures
@@ -134,11 +143,10 @@ class KnobBoxModbus:
         self._next_unit_poll_time = {uid: 0.0 for uid in self.UNIT_IDS}
 
         # Create data dictionary for each unit in the list of UNIT_IDS
-        self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS} 
+        self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS}
 
         # Initialize Modbus client without 'method' parameter
         self.client = ModbusClient(
-            #method='rtu', # Specify RTU method for serial communication
             port=port,
             baudrate=baudrate,
             parity=parity,
@@ -151,7 +159,7 @@ class KnobBoxModbus:
     def connect(self):
         """
         Connect to the Modbus device. Opens the serial connection if not already open.
-        
+
         Returns:
             bool: True if connected successfully, False otherwise.
         """
@@ -175,7 +183,7 @@ class KnobBoxModbus:
                     # Exponential backoff for next connection attempt
                     self._connect_backoff_sec = min(self._connect_backoff_sec * 2, self._connect_backoff_max_sec)
                     return False
-            except PermissionError as e: # COMx access denied
+            except PermissionError as e:  # COMx access denied
                 self.connected = False
                 try:
                     self.client.close()
@@ -186,14 +194,14 @@ class KnobBoxModbus:
                 self._next_connect_time = now + self._connect_backoff_sec
                 self._connect_backoff_sec = min(self._connect_backoff_sec * 2, self._connect_backoff_max_sec)
                 return False
-            except Exception as e: # general catch-all for errors
+            except Exception as e:  # general catch-all for errors
                 self.connected = False
                 self.log(f"Error connecting to {self.port}: {str(e)}", LogLevel.ERROR)
                 now = time.time()
                 self._next_connect_time = now + self._connect_backoff_sec
                 self._connect_backoff_sec = min(self._connect_backoff_sec * 2, self._connect_backoff_max_sec)
                 return False
-            
+
     def disconnect(self):
         """Disconnect from the Modbus device."""
         with self.modbus_lock:
@@ -214,6 +222,7 @@ class KnobBoxModbus:
         """
         if not self.connect():
             raise RuntimeError("Unable to open Modbus serial port")
+
         # Rotate polling order to distribute latency across units
         if self.UNIT_IDS:
             start_index = self._poll_index % len(self.UNIT_IDS)
@@ -232,13 +241,15 @@ class KnobBoxModbus:
                 self.poll_one(uid)
             except Exception as e:
                 self.log(f"[unit {uid}] poll error: {e}", LogLevel.ERROR)
+
         # Return a copy to avoid external mutation
         with self.data_lock:
             return {uid: values.copy() for uid, values in self.data.items()}
-    
+
     def poll_one(self, unit_id):
         """
         Poll a single power supply unit and update self.data.
+
         Parameters:
             unit_id (int): Unit ID of the power supply to poll.
         """
@@ -246,10 +257,10 @@ class KnobBoxModbus:
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             try:
                 with self.modbus_lock:
-                    # Read Input Registers containing HEALTH, V_SET, V_READ, I_READ, 3kv reset count, and flags
-                    # Continuous block starting at address 0 (count=25)
+                    # Read the full packed input-register block:
+                    # V set/read, I read, 3kV reset count, unlatched signals, latched flags
                     input_registers = self.client.read_input_registers(
-                        address=IREG_HEALTH_ADDR,
+                        address=IREG_V_SET_ADDR,
                         count=TOTAL_REG_COUNT,
                         slave=unit_id
                     )
@@ -261,45 +272,41 @@ class KnobBoxModbus:
 
                 registers = input_registers.registers
 
-                health = registers[IREG_HEALTH_ADDR]
                 v_set = registers[IREG_V_SET_ADDR]
                 v_read = registers[IREG_V_READ_ADDR]
                 i_read = registers[IREG_I_READ_ADDR]
                 reset_counter = registers[IREG_3KV_RESET_COUNT_ADDR]
+                unlatched_signals = registers[DINPUT_UNLATCHED_SIGNALS_ADDR]
+                flags = registers[DINPUT_LATCHED_FLAGS_ADDR]
 
-                hv_enable = int(bool(registers[DINPUT_HVENABLE_ADDR]))
+                raw_hv_enable = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_HVENABLE))
+                reset_state_1kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_RESET_STATE_1KV))
+                arm_80kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_ARM80KV_ENABLE))
+                ccs_power = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_CCSPOWER_ENABLE))
+                arm_beams = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_ARMBEAMS_ENABLE))
+                enable_3kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_3KV_ENABLE))
+                nomop_flag = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_NOMOP))
+                logic_alive_flag = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_LOGIC_ALIVE))
 
-                arm_80kV = int(bool(registers[DINPUT_ARM80KV_ADDR]))
-                arm_beams = int(bool(registers[DINPUT_ARMBEAMS_ADDR]))
-                ccs_power = int(bool(registers[DINPUT_CCSPOWER_ADDR]))
-                enable_3kV = int(bool(registers[DINPUT_3KV_ENABLE_ADDR]))
+                hv_enable = enable_3kV if unit_id == 4 else raw_hv_enable
 
-                if (unit_id == 4 ):
-                    hv_enable = enable_3kV # for the 3kV Bertan, hv enable comes from logic arduino output
-
-                reset_state_1kV = int(bool(registers[DINPUT_RESET_STATE_1KV_ADDR]))
-
-                nomop_flag = int(bool(registers[DINPUT_NOMOP_FLAG_ADDR]))
-                timer_state_flag = int(bool(registers[DINPUT_3KV_TIMER_FLAG_ADDR]))
-                armbeams_flag = int(bool(registers[DINPUT_ARMBEAMS_FLAG_ADDR]))
-                ccspower_flag = int(bool(registers[DINPUT_CCSPOWER_FLAG_ADDR]))
-                arm80kv_flag = int(bool(registers[DINPUT_ARM80KV_FLAG_ADDR]))
-                vcomp_1k_flag = int(bool(registers[DINPUT_1K_VCOMP_FLAG_ADDR]))
-                icomp_1k_flag = int(bool(registers[DINPUT_1K_ICOMP_FLAG_ADDR]))
-                neg_vcomp_1k_flag = int(bool(registers[DINPUT_NEG_1K_VCOMP_FLAG_ADDR]))
-                neg_icomp_1k_flag = int(bool(registers[DINPUT_NEG_1K_ICOMP_FLAG_ADDR]))
-                vcomp_20k_flag = int(bool(registers[DINPUT_20K_VCOMP_FLAG_ADDR]))
-                icomp_20k_flag = int(bool(registers[DINPUT_20K_ICOMP_FLAG_ADDR]))
-                vcomp_3k_flag = int(bool(registers[DINPUT_3K_VCOMP_FLAG_ADDR]))
-                icomp_3k_flag = int(bool(registers[DINPUT_3K_ICOMP_FLAG_ADDR]))
-
-                logic_alive_flag = int(bool(registers[DINPUT_LOGIC_ALIVE_ADDR]))
+                timer_state_flag = int(bool(flags & LATCHED_FLAG_MASK_3KV_TIMER))
+                armbeams_flag = int(bool(flags & LATCHED_FLAG_MASK_ARMBEAMS_SWITCH))
+                ccspower_flag = int(bool(flags & LATCHED_FLAG_MASK_CCSPOWER_ALLOW))
+                arm80kv_flag = int(bool(flags & LATCHED_FLAG_MASK_ARM80KV_SWITCH))
+                vcomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_1K_VCOMP))
+                icomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_1K_ICOMP))
+                neg_vcomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_NEG_1K_VCOMP))
+                neg_icomp_1k_flag = int(bool(flags & LATCHED_FLAG_MASK_NEG_1K_ICOMP))
+                vcomp_20k_flag = int(bool(flags & LATCHED_FLAG_MASK_20K_VCOMP))
+                icomp_20k_flag = int(bool(flags & LATCHED_FLAG_MASK_20K_ICOMP))
+                vcomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_VCOMP))
+                icomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_ICOMP))
 
                 new_data = {
-                    "health": health,
                     "set_voltage_V": float(v_set),
                     "actual_voltage_V": float(v_read),
-                    "actual_current_mA": float(i_read) / 1000.0, # convert uA to mA
+                    "actual_current_mA": float(i_read) / 1000.0,  # convert uA to mA
                     "3kv_reset_count": reset_counter,
                     "hv_enable": hv_enable,
                     "arm_80kV": arm_80kV,
@@ -341,7 +348,7 @@ class KnobBoxModbus:
                     time.sleep(0.05)  # Short delay between retries (reduced for faster recovery)
                 else:
                     self.log(f"[unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
-        
+
         # All retries exhausted, raise the last exception
         with self.poll_schedule_lock:
             backoff = self._unit_poll_backoff_sec.get(unit_id, 0.0)
@@ -356,7 +363,7 @@ class KnobBoxModbus:
     def get_data_snapshot(self):
         """
         Get a snapshot of the current data for all power supplies.
-        
+
         Returns:
             dict: A copy of the current data dictionary.
         """
@@ -366,7 +373,7 @@ class KnobBoxModbus:
     def close(self):
         """Compatibility alias used by subsystem shutdown/reconnect paths."""
         self.disconnect()
-        
+
     def get_unit_connection_status(self, uid):
         now = time.time()
         with self.data_lock:
@@ -376,7 +383,10 @@ class KnobBoxModbus:
     def any_unit_connected(self):
         now = time.time()
         with self.data_lock:
-            return any((now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT for uid in self.UNIT_IDS)
+            return any(
+                (now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT
+                for uid in self.UNIT_IDS
+            )
 
     def check_connection(self):
         """Check if the Modbus client is connected and attempt to reconnect if not."""
