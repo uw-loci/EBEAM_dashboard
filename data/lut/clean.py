@@ -25,6 +25,12 @@ POWER_SUPPLY_POLICIES = (
     "median_top_band",
 )
 
+POLICY_TO_METHOD_LABEL = {
+    "max_beam": "Method 1 (max_beam)",
+    "min_current_95pct_beam": "Method 2 (min_current_95pct_beam)",
+    "median_top_band": "Method 3 (median_top_band)",
+}
+
 # Rows below these thresholds are treated as non-operational/off-state points.
 MIN_OPERATIONAL_BEAM_CURRENT_MA = 0.001
 MIN_OPERATIONAL_VOLTAGE_V = 0.001
@@ -215,7 +221,7 @@ def discover_csv_file_pairs(input_dir):
 
     return file_pairs
 
-def plot_power_supply_graphs(rows, name, plot_dir):
+def plot_power_supply_graphs(rows, name, plot_dir, policy=None):
     numeric_rows = _to_numeric_power_rows(rows)
     beam = [r["beam_current"] for r in numeric_rows]
     volt = [r["voltage"] for r in numeric_rows]
@@ -224,12 +230,15 @@ def plot_power_supply_graphs(rows, name, plot_dir):
         return
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
+    method_label = POLICY_TO_METHOD_LABEL.get(policy)
+    title_prefix = f"{name}: {method_label} - " if method_label else f"{name}: "
+
     # Plot voltage vs heater current (X: voltage, Y: heater current)
     plt.figure()
     plt.plot(volt, heater, marker='o')
     plt.xlabel('Voltage (V)')
     plt.ylabel('Heater Current (A)')
-    plt.title(f'{name}: Heater Current vs Voltage')
+    plt.title(f'{title_prefix}\nHeater Current (A) vs Voltage (V)')
     plt.grid(True)
     plt.savefig(os.path.join(plot_dir, f'{name}_heater_vs_voltage.png'))
     plt.close()
@@ -238,20 +247,26 @@ def plot_power_supply_graphs(rows, name, plot_dir):
     plt.plot(heater, beam, marker='o')
     plt.xlabel('Heater Current (A)')
     plt.ylabel('Beam Current (mA)')
-    plt.title(f'{name}: Beam Current vs Heater Current')
+    plt.title(f'{title_prefix}\nBeam Current (mA) vs Heater Current (A)')
     plt.grid(True)
     plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_heater.png'))
     plt.close()
 
     # Plot voltage vs beam current with heater current encoded as color.
-    plt.figure()
+    plt.figure(figsize=(8, 6.5))
     scatter = plt.scatter(volt, beam, c=heater, cmap='viridis', edgecolors='k', linewidths=0.3)
     cbar = plt.colorbar(scatter)
     cbar.set_label('Heater Current (A)')
     plt.xlabel('Voltage (V)')
     plt.ylabel('Beam Current (mA)')
-    plt.title(f'{name}: Beam Current vs Voltage (colored by Heater Current)')
+    plt.title(
+        f'{title_prefix}\n'
+        'Beam Current (mA) vs Voltage (V)\n'
+        '(colored by Heater Current (A))',
+        pad=14,
+    )
     plt.grid(True)
+    plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.90))
     plt.savefig(os.path.join(plot_dir, f'{name}_beam_vs_voltage_colored_by_heater.png'))
     plt.close()
 
@@ -266,6 +281,8 @@ def plot_power_supply_comparison(raw_rows, cleaned_rows, name, plot_dir, policy)
     if not os.path.exists(plot_dir):
         os.makedirs(plot_dir)
 
+    method_label = POLICY_TO_METHOD_LABEL.get(policy, policy)
+
     raw_v = [r["voltage"] for r in raw_numeric]
     raw_b = [r["beam_current"] for r in raw_numeric]
     clean_sorted_v = sorted(clean_numeric, key=lambda r: r["voltage"])
@@ -279,14 +296,18 @@ def plot_power_supply_comparison(raw_rows, cleaned_rows, name, plot_dir, policy)
         [r["beam_current"] for r in clean_sorted_v],
         marker="o",
         linewidth=2.0,
-        label=f"Cleaned ({policy})",
+        label=f"Cleaned ({method_label})",
     )
     plt.xlabel("Voltage (V)")
     plt.ylabel("Beam Current (mA)")
-    plt.title(f"{name}: Raw vs Cleaned Beam Current (mA) vs Heater Voltage (V)")
+    plt.title(
+        f"{name}: {method_label}\n"
+        "Raw vs Cleaned Beam Current (mA) vs Heater Voltage (V)",
+        pad=14,
+    )
     plt.grid(True, alpha=0.3)
     plt.legend()
-    plt.tight_layout()
+    plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
     plt.savefig(os.path.join(plot_dir, f"{name}_{policy}_raw_vs_clean_beam_vs_voltage.png"), dpi=150)
     plt.close()
 
@@ -305,11 +326,14 @@ def plot_power_supply_comparison(raw_rows, cleaned_rows, name, plot_dir, policy)
         [r["heater_current"] for r in clean_sorted_v],
         marker="o",
         linewidth=2.0,
-        label=f"Cleaned ({policy})",
+        label=f"Cleaned ({method_label})",
     )
     plt.xlabel("Voltage (V)")
     plt.ylabel("Heater Current (A)")
-    plt.title(f"{name}: Raw vs Cleaned Heater Current (A) vs Heater Voltage (V)")
+    plt.title(
+        f"{name}: {method_label}\n"
+        "Raw vs Cleaned Heater Current (A) vs Heater Voltage (V)"
+    )
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -323,11 +347,14 @@ def plot_power_supply_comparison(raw_rows, cleaned_rows, name, plot_dir, policy)
         [r["beam_current"] for r in clean_sorted_h],
         marker="o",
         linewidth=2.0,
-        label=f"Cleaned ({policy})",
+        label=f"Cleaned ({method_label})",
     )
     plt.xlabel("Heater Current (A)")
     plt.ylabel("Beam Current (mA)")
-    plt.title(f"{name}: Cleaned Beam Current (mA) vs Heater Current (A)")
+    plt.title(
+        f"{name}: {method_label}\n"
+        "Cleaned Beam Current (mA) vs Heater Current (A)"
+    )
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -608,7 +635,7 @@ def process_single_file(filename, ps_policy="max_beam", all_ps_policies=False):
         # If using one explicit policy, preserve backward-compatible in-place behavior.
         if len(policies) == 1:
             raw_rows, cleaned_rows = clean_power_supply_file(raw_path, raw_path, policy=policies[0])
-            plot_power_supply_graphs(cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
+            plot_power_supply_graphs(cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR, policy=policies[0])
             plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR, policies[0])
             print(f"Power Supply: Processed in place {raw_name} with policy '{policies[0]}'")
             return
@@ -622,7 +649,7 @@ def process_single_file(filename, ps_policy="max_beam", all_ps_policies=False):
             _validate_power_supply_rows(cleaned_numeric)
             cleaned_rows = _format_power_supply_rows(cleaned_numeric)
             write_csv(output_path, cleaned_rows)
-            plot_power_supply_graphs(cleaned_rows, f"{clean_stem}__{policy}", POWER_SUPPLY_PLOT_DIR)
+            plot_power_supply_graphs(cleaned_rows, f"{clean_stem}__{policy}", POWER_SUPPLY_PLOT_DIR, policy=policy)
             plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR, policy)
             print(f"Power Supply: Wrote {output_name} using policy '{policy}'")
         return
