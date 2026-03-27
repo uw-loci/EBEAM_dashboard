@@ -26,7 +26,6 @@ class TemperatureBar(tk.Canvas):
         self.width = width
         self.bar_width = 15
         self.value = 0
-        
         # Create title
         self.create_text(
             width//2, 
@@ -230,6 +229,8 @@ class ProcessMonitorSubsystem:
                 self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
+                    if self.logger and hasattr(self.logger, "clear_value"):
+                        self.logger.clear_value("temperatures")
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
             else:
@@ -248,10 +249,14 @@ class ProcessMonitorSubsystem:
                         formatted_temps[unit] = str(value)
                         
                 self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
+                if self.logger and hasattr(self.logger, "update_field"):
+                    self.logger.update_field("temperatures", formatted_temps)
 
                 if not temps:
                     if current_time - self.last_error_time > (self.update_interval / 1000):
                         self._set_all_temps_disconnected()
+                        if self.logger and hasattr(self.logger, "clear_value"):
+                            self.logger.clear_value("temperatures")
                         self.active['Environment Pass'] = False
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time

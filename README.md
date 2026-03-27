@@ -152,14 +152,23 @@ EBEAM_DASHBOARD/
 └── utils.py
 ```
 
-### 7. Development Workflow
+### 7. Configuration
+
+Create a `.env` file in the project root with the following variables:
+
+```
+SUPABASE_API_URL=https://your-project-id.supabase.co
+SUPABASE_API_KEY=your-api-key-here
+```
+
+### 8. Development Workflow
 ![branching](https://github.com/mslaffin/EBEAM_dashboard/blob/main/media/branching_diagram.png)
 #### Branching strategy
 All code development intended to impact a future release is done on the latest `develop` branch. This applies to new instrument features, bug fixes, etc. The `develop` branch is **not stable**.
 The `main` branch contains the latest production code.
 
 #### Development Process 
-Clone the repo to your machine.
+Clone the repo to your machine. Current libraries require the use of Python version 3.11.
 ```
 git clone https://github.com/bwalkerMIR/EBEAM_dashboard.git
 ```
@@ -167,16 +176,17 @@ Navigate to your project directory:
 ```
 cd EBEAM_dashboard
 ```
-Create a virtual environment:
+Create a virtual environment (dashboard currently requires python 3.11 due to dependencies):
 ```
-python -m venv venv
+py -3.11 -m venv .venv
 ```
 Activate the virtual environment (assuming on Windows)*:
 ```
-venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 ```
 Install the requirements:
 ```
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 Run the main application:
@@ -184,9 +194,20 @@ Run the main application:
 python main.py
 ```
 
-*Note: Due to the nature of the script, Windows may block execution, the following cmd is useful and should be run:
+*Note: Windows PowerShell may block script execution when activating the virtual environment. Before running `.\.venv\Scripts\Activate.ps1`, choose one of the following options:
+```
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+```
+Use this to allow scripts only in the current PowerShell session.
+
 ```
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+Use this to allow scripts for your user account in future PowerShell sessions.
+
+Then activate the virtual environment:
+```
+.\.venv\Scripts\Activate.ps1
 ```
 
 Create a new branch from develop for your feature or bug fix:
@@ -213,7 +234,7 @@ Fill in the PR template with a description of your changes, any related issues, 
 
 Assign reviewers to your PR. Merge.
 
-### 6. Executable Build Instructions
+### 9. Executable Build Instructions
 ```
 python -m PyInstaller EBEAM_DASHBOARD.spec
 ```

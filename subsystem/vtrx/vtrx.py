@@ -65,13 +65,7 @@ class VTRXSubsystem:
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
         self.last_gui_update_time = time.time()
-        
-        current_time = datetime.datetime.now()
-        self.full_history_x = [current_time]
-        self.full_history_y = [1e3]
-        self.x_data = [current_time]
-        self.y_data = [1e3]
-        
+
         self.setup_serial()
         self.setup_gui()
         
@@ -208,6 +202,11 @@ class VTRXSubsystem:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
 
+        #Clear the webmonitor fields if error state
+        if self.logger and hasattr(self.logger, "clear_value"):
+            self.logger.clear_value("vacuumBits")
+            self.logger.clear_value("pressure")
+
     def handle_serial_data(self, data):
         """
         Parse and handle a single line of raw serial data from the VTRX system.
@@ -238,8 +237,9 @@ class VTRXSubsystem:
             return
         
         try:
-            pressure_value = float(data_parts[0])   # numerical pressure value
             pressure_raw = data_parts[1]            # raw string from 972b sensor
+            pressure_raw = pressure_raw.strip()  # Clean up any whitespace
+            pressure_value = float(pressure_raw)  if pressure_raw else float(data_parts[0]) # use raw value if available for greater precision
             switch_states_binary = data_parts[2]    # binary state switches
             switch_states = [int(bit) for bit in f"{int(switch_states_binary, 2):08b}"] # Ensures it's 8 bits long
 
@@ -448,12 +448,19 @@ class VTRXSubsystem:
             )
             self.update_plot()
 
+            # Refresh switch indicator lights
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
+            
+            # Push state/pressure to logs and external logger
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
+            if self.logger and hasattr(self.logger, "update_field"):
+                self.logger.update_field("vacuumBits", subsystem_bits)
             self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
+            if self.logger and hasattr(self.logger, "update_field"):
+                self.logger.update_field("pressure", pressure_raw)
 
     def update_plot(self):
         """Update plot with current display window data."""
