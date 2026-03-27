@@ -52,6 +52,7 @@ class BeamEnergySubsystem:
         self.connection_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies) )]
         self.reset_status_colors = [tk.StringVar(value="white") for _ in range(2)]
         self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertran
+
         # Indicator Panel -> not power supply specific
         self.glassman_interlock_var = tk.StringVar(value="UNARMED")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
@@ -183,7 +184,6 @@ class BeamEnergySubsystem:
 
         self.connection_status_colors[index].trace_add("write", update_connection_circle)
         connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
-        # TODO store references
 
         # Matsusada reset status indicator (at top right)
         if index < 2:
@@ -494,12 +494,18 @@ class BeamEnergySubsystem:
 
                 # Update display values if data is valid
                 if v_set is not None:
-                    self.set_voltages[index].set(f"{v_set:.1f} V")
+                    if unit_id == 2: # insert minus sign for -1kV Matsusada
+                        self.set_voltages[index].set(f"-{v_set:.1f} V")
+                    else:    
+                        self.set_voltages[index].set(f"{v_set:.1f} V")
                 else:
                     self.set_voltages[index].set("-- V")
 
                 if v_read is not None:
-                    self.actual_voltages[index].set(f"{v_read:.1f} V")
+                    if unit_id == 2: # insert minus sign for -1kV Matsusada
+                        self.actual_voltages[index].set(f"-{v_read:.1f} V")
+                    else:
+                        self.actual_voltages[index].set(f"{v_read:.1f} V")
                 else:
                     self.actual_voltages[index].set("-- V")
 
@@ -586,8 +592,3 @@ class BeamEnergySubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
-
-
-# TODO: Add checks for logic arduino comms
-# TODO: Update for finalized unit ID assignments and expected voltage/current units
-# TODO: Change Overcurrent Handling - we do not want popups. maybe change to some sort of indicator light?

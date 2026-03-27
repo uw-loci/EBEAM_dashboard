@@ -136,8 +136,9 @@ class KnobBoxModbus:
         self._connect_backoff_max_sec = 5.0  # backoff will max out at this duration between attempts
         self._next_connect_time = 0.0  # used for backoff timing of connection attempts
         self._poll_index = 0  # rotate unit polling order to avoid always lagging the same unit
-        self._unit_poll_backoff_base_sec = 0.5  # per-unit backoff after poll failures
-        self._unit_poll_backoff_max_sec = 5.0
+        # Per-unit backoff on poll failures: reduced to react faster
+        self._unit_poll_backoff_base_sec = 0.25  # per-unit backoff after poll failures
+        self._unit_poll_backoff_max_sec = 2.0
         self._unit_poll_backoff_sec = {uid: 0.0 for uid in self.UNIT_IDS}
         self._next_unit_poll_time = {uid: 0.0 for uid in self.UNIT_IDS}
 
@@ -344,7 +345,7 @@ class KnobBoxModbus:
                 last_exception = e
                 if attempt < self.MAX_ATTEMPTS:
                     self.log(f"[unit {unit_id}] Retry attempt {attempt}/{self.MAX_ATTEMPTS}: {str(e)}", LogLevel.WARNING)
-                    time.sleep(0.1)  # Short delay between retries
+                    time.sleep(0.05)  # Short delay between retries (reduced for faster recovery)
                 else:
                     self.log(f"[unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
 
