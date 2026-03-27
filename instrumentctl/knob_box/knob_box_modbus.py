@@ -108,7 +108,7 @@ class KnobBoxModbus:
         stopbits=1,
         bytesize=8,
         logger=None,
-        debug_mode=True,
+        debug_mode=False,
     ):
         """
         Initialize the KnobBoxModbus instance with serial communication parameters and optional logging.
@@ -131,6 +131,8 @@ class KnobBoxModbus:
         self.port = port
         self.connected = False
         self.last_success = {uid: 0 for uid in self.UNIT_IDS}  # Track last successful poll time for each unit
+
+        '''Connection management parameters:'''
         self.CONNECTION_TIMEOUT = 4.0  # seconds without successful poll before considering connection lost
         self._connect_backoff_sec = 0.25  # initial time between connection attempts
         self._connect_backoff_max_sec = 2.0  # max backoff between attempts
@@ -140,6 +142,11 @@ class KnobBoxModbus:
         self._unit_poll_backoff_max_sec = 2.0
         self._unit_poll_backoff_sec = {uid: 0.0 for uid in self.UNIT_IDS}
         self._next_unit_poll_time = {uid: 0.0 for uid in self.UNIT_IDS}
+
+        '''Switch states and flags (to check for an edge each read)'''
+        self.switch_states = [0 for _ in range(7)] # 4 HV enable signals, arm beams, ccs power, arm 80kv
+        self.latched_flags = [0 for _ in range(12)]  # 12 latched flags from DINPUT word
+        self.unlatched_signals = [0 for _ in range(8)]  # 8 unlatched signals from DINPUT word
 
         # Create data dictionary for each unit in the list of UNIT_IDS
         self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS}
@@ -329,15 +336,70 @@ class KnobBoxModbus:
                     "logic_alive": logic_alive_flag
                 }
 
-                # Success - update data and return
+                # Success - update data
                 with self.data_lock:
                     self.data[unit_id] = new_data
                     self.last_success[unit_id] = time.time()
                 with self.poll_schedule_lock:
                     self._unit_poll_backoff_sec[unit_id] = 0.0
                     self._next_unit_poll_time[unit_id] = 0.0
-                # Keep UI-thread unsafe logger usage outside shared-state lock
-                # self.log(f"[unit {unit_id}] polled data: {new_data}", LogLevel.DEBUG)
+
+                # Check for edges on switch states and log them
+                if self.switch_states[unit_id] != hv_enable:
+                    if (self.switch_states[unit_id] == 0 and hv_enable == 1):
+                        self.log(f"[unit {unit_id}] HV enable turned ON", LogLevel.INFO)
+                    else:
+                        self.log(f"[unit {unit_id}] HV enable turned OFF", LogLevel.INFO)
+                if self.switch_states[4] != arm_80kV:
+                    if (self.switch_states[4] == 0 and arm_80kV == 1):
+                        self.log(f"Arm 80kV switch turned ON", LogLevel.INFO)
+                    else:
+                        self.log(f"Arm 80kV switch turned OFF", LogLevel.INFO)
+                if self.switch_states[5] != arm_beams:
+                    if (self.switch_states[5] == 0 and arm_beams == 1):
+                        self.log(f"Arm beams switch turned ON", LogLevel.INFO)
+                    else:
+                        self.log(f"Arm beams switch turned OFF", LogLevel.INFO)
+                if self.switch_states[6] != ccs_power:
+                    if (self.switch_states[6] == 0 and ccs_power == 1):
+                        self.log(f"CCS power switch turned ON", LogLevel.INFO)
+                    else:
+                        self.log(f"CCS power switch turned OFF", LogLevel.INFO)
+
+                # TODO check for edges on all flags and log them
+
+                # Update local switch/flag states for edge detection in future polls
+                self.switch_states[unit_id] = 0 if hv_enable == 0 else 1
+                self.switch_states[4] = 0 if arm_80kV == 0 else 1
+                self.switch_states[5] = 0 if arm_beams == 0 else 1
+                self.switch_states[6] = 0 if ccs_power == 0 else 1
+                self.latched_flags = {
+                    timer_state_flag,
+                    armbeams_flag,
+                    ccspower_flag,
+                    arm80kv_flag,
+                    vcomp_1k_flag,
+                    icomp_1k_flag,
+                    neg_vcomp_1k_flag,
+                    neg_icomp_1k_flag,
+                    vcomp_20k_flag,
+                    icomp_20k_flag,
+                    vcomp_3k_flag,
+                    icomp_3k_flag
+                }
+                self.unlatched_signals = {
+                    raw_hv_enable,
+                    reset_state_1kV,
+                    arm_80kV,
+                    ccs_power,
+                    arm_beams,
+                    enable_3kV,
+                    nomop_flag,
+                    logic_alive_flag
+                }
+
+                self.log(f"[unit {unit_id}] Poll successful: {new_data}", LogLevel.DEBUG if self.debug_mode else LogLevel.INFO)
+
                 return
 
             except Exception as e:
