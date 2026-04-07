@@ -116,9 +116,9 @@ class KnobBoxModbus:
         Parameters:
             port (str): Serial port to connect.
             baudrate (int): Communication baud rate (default: 9600).
-            timeout (int): Timeout duration for Modbus communication (default: 1 second).
-            parity (str): Parity setting for serial communication (default: 'E' for Even).
-            stopbits (int): Number of stop bits (default: 2).
+            timeout (int): Timeout duration for Modbus communication (default: 0.5 seconds).
+            parity (str): Parity setting for serial communication (default: 'N' for No Parity Bit).
+            stopbits (int): Number of stop bits (default: 1).
             bytesize (int): Data bits size (default: 8).
             logger (optional): Logger instance for output messages.
             debug_mode (bool): If True, enables debug logging.
@@ -137,16 +137,19 @@ class KnobBoxModbus:
         self._connect_backoff_sec = 0.25  # initial time between connection attempts
         self._connect_backoff_max_sec = 2.0  # max backoff between attempts
         self._next_connect_time = 0.0  # used for backoff timing of connection attempts
+
+        '''Polling management paramters:'''
         self._poll_index = 0  # rotate unit polling order to avoid always lagging the same unit
         self._unit_poll_backoff_base_sec = 0.25  # per-unit backoff after poll failures
         self._unit_poll_backoff_max_sec = 2.0
         self._unit_poll_backoff_sec = {uid: 0.0 for uid in self.UNIT_IDS}
         self._next_unit_poll_time = {uid: 0.0 for uid in self.UNIT_IDS}
 
-        '''Switch states and flags (to check for an edge each read)'''
+        '''Switch states, flags, 3k counter (to check for changes on each read)'''
         self.switch_states = [0 for _ in range(7)] # 4 HV enable signals, arm beams, ccs power, arm 80kv
         self.latched_flags = [0 for _ in range(12)]  # 12 latched flags from DINPUT word
         self.unlatched_signals = [0 for _ in range(8)]  # 8 unlatched signals from DINPUT word
+        self.reset_counter = 0
 
         # Create data dictionary for each unit in the list of UNIT_IDS
         self.data: dict[int, dict] = {uid: DATA_TEMPLATE.copy() for uid in self.UNIT_IDS}
@@ -275,9 +278,9 @@ class KnobBoxModbus:
 
                 if len(input_registers.registers) < TOTAL_REG_COUNT:
                     raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
-
+                
+                # Unpack all 6 modbus registers received in packet.
                 registers = input_registers.registers
-
                 v_set = registers[IREG_V_SET_ADDR]
                 v_read = registers[IREG_V_READ_ADDR]
                 i_read = registers[IREG_I_READ_ADDR]
@@ -285,6 +288,7 @@ class KnobBoxModbus:
                 unlatched_signals = registers[DINPUT_UNLATCHED_SIGNALS_ADDR]
                 flags = registers[DINPUT_LATCHED_FLAGS_ADDR]
 
+                # Unpack the unlatched signals
                 raw_hv_enable = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_HVENABLE))
                 reset_state_1kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_RESET_STATE_1KV))
                 arm_80kV = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_ARM80KV_ENABLE))
@@ -294,8 +298,10 @@ class KnobBoxModbus:
                 nomop_flag = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_NOMOP))
                 logic_alive_flag = int(bool(unlatched_signals & UNLATCHED_SIGNAL_MASK_LOGIC_ALIVE))
 
+                # HV enable for 3kV comes from the logic arduino output signal.
                 hv_enable = enable_3kV if unit_id == 4 else raw_hv_enable
 
+                # Unpack the latched flags
                 timer_state_flag = int(bool(flags & LATCHED_FLAG_MASK_3KV_TIMER))
                 armbeams_flag = int(bool(flags & LATCHED_FLAG_MASK_ARMBEAMS_SWITCH))
                 ccspower_flag = int(bool(flags & LATCHED_FLAG_MASK_CCSPOWER_ALLOW))
@@ -309,6 +315,7 @@ class KnobBoxModbus:
                 vcomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_VCOMP))
                 icomp_3k_flag = int(bool(flags & LATCHED_FLAG_MASK_3K_ICOMP))
 
+                # Create a full data dict to update this unit's global data dict.
                 new_data = {
                     "set_voltage_V": float(v_set),
                     "actual_voltage_V": float(v_read),
@@ -336,14 +343,24 @@ class KnobBoxModbus:
                     "logic_alive": logic_alive_flag
                 }
 
-                # Success - update data
+                # Update this unit's global data dict with the data lock.
                 with self.data_lock:
                     self.data[unit_id] = new_data
                     self.last_success[unit_id] = time.time()
+
+                # Reset polling timing parameters with lock (successul read).
                 with self.poll_schedule_lock:
                     self._unit_poll_backoff_sec[unit_id] = 0.0
                     self._next_unit_poll_time[unit_id] = 0.0
 
+                # Check for an increment of the 3kV reset counter
+                if self.reset_counter < reset_counter:
+                    self.log(f"3kV Bertan timer state counter incremented.", LogLevel.ERROR)
+                
+                # Check if 3kV forced off
+                if reset_counter > 0 and self.reset_counter == 0:
+                    self.log(f"3kV Bertan enable was forced off.", LogLevel.ERROR)
+                
                 # Check for edges on switch states and log them
                 if self.switch_states[unit_id] != hv_enable:
                     if (self.switch_states[unit_id] == 0 and hv_enable == 1):
@@ -366,14 +383,66 @@ class KnobBoxModbus:
                     else:
                         self.log(f"CCS power switch turned OFF", LogLevel.INFO)
 
-                # TODO check for edges on all flags and log them
+                # Check for edges on all latched flags and log them
+                new_flag_states = [ # just a list of new data to cleanly iterate through
+                    (0, timer_state_flag, "3kV Timer State"),
+                    (1, armbeams_flag, "Arm Beams"),
+                    (2, ccspower_flag, "CCS Power Allow"),
+                    (3, arm80kv_flag, "Arm 80kV"),
+                    (4, vcomp_1k_flag, "1kV Voltage Comp"),
+                    (5, icomp_1k_flag, "1kV Current Comp"),
+                    (6, neg_vcomp_1k_flag, "Negative 1kV Voltage Comp"),
+                    (7, neg_icomp_1k_flag, "Negative 1kV Current Comp"),
+                    (8, vcomp_20k_flag, "20kV Voltage Comp"),
+                    (9, icomp_20k_flag, "20kV Current Comp"),
+                    (10, vcomp_3k_flag, "3kV Voltage Comp"),
+                    (11, icomp_3k_flag, "3kV Current Comp"),
+                ]
+                for idx, new_val, flag_name in new_flag_states:
+                    if self.latched_flags[idx] != new_val:
+                        if self.latched_flags[idx] == 0 and new_val == 1:
+                            # When any flag is tripped, it should be an ERROR.
+                            self.log(f"{flag_name} flag tripped.", LogLevel.ERROR)
+                        else:
+                            # Log as INFO on falling edge.
+                            # TODO unsure if this will cause log overflowing/if it is needed at all.
+                            self.log(f"{flag_name} flag deasserted.", LogLevel.INFO)
+
+                # Check for edges on all unlatched signals and log them.
+                new_signal_states = [
+                    (0, raw_hv_enable, "HV Enable"),
+                    (1, reset_state_1kV, "1kV Overcurrent Reset"),
+                    (2, arm_80kV, "Arm 80kV"),
+                    (3, ccs_power, "CCS Power"),
+                    (4, arm_beams, "Arm Beams"),
+                    (5, enable_3kV, "3kV Enable"),
+                    (6, nomop_flag, "Nomop"),
+                    (7, logic_alive_flag, "Logic Comms")
+                ]
+                for idx, new_val, signal_name in new_signal_states:
+                    if self.unlatched_signals[idx] != new_val:
+                        if self.unlatched_signals[idx] == 0 and new_val == 1:
+                            if idx == 1:
+                                # 1kV Overcurrent Reset
+                                self.log(f"[unit {unit_id}] Entered Overcurrent Reset Mode", LogLevel.ERROR)
+                            else:
+                                self.log(f"{signal_name} signal ON.", LogLevel.INFO)
+                        
+                        elif idx == 6:
+                            # Nomop Signal: 1-->0 transition is an ERROR
+                            self.log(f"Entered INTERLOCKS State.", LogLevel.ERROR)
+                        elif idx == 7:
+                            # Logic Alive Signal: 1-->0 transistion is an ERROR
+                            self.log(f"Lost communication with the Logic Arduino.", LogLevel.ERROR)
+                        else:
+                            self.log(f"{signal_name} signal OFF.", LogLevel.INFO)
 
                 # Update local switch/flag states for edge detection in future polls
                 self.switch_states[unit_id] = 0 if hv_enable == 0 else 1
                 self.switch_states[4] = 0 if arm_80kV == 0 else 1
                 self.switch_states[5] = 0 if arm_beams == 0 else 1
                 self.switch_states[6] = 0 if ccs_power == 0 else 1
-                self.latched_flags = {
+                self.latched_flags = [
                     timer_state_flag,
                     armbeams_flag,
                     ccspower_flag,
@@ -386,8 +455,8 @@ class KnobBoxModbus:
                     icomp_20k_flag,
                     vcomp_3k_flag,
                     icomp_3k_flag
-                }
-                self.unlatched_signals = {
+                ]
+                self.unlatched_signals = [
                     raw_hv_enable,
                     reset_state_1kV,
                     arm_80kV,
@@ -396,9 +465,10 @@ class KnobBoxModbus:
                     enable_3kV,
                     nomop_flag,
                     logic_alive_flag
-                }
+                ]
 
-                self.log(f"[unit {unit_id}] Poll successful: {new_data}", LogLevel.DEBUG if self.debug_mode else LogLevel.INFO)
+                if (self.debug_mode):
+                    self.log(f"[unit {unit_id}] Poll successful: {new_data}", LogLevel.DEBUG)
 
                 return
 
