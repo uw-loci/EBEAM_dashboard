@@ -274,10 +274,10 @@ class KnobBoxModbus:
                         slave=unit_id
                     )
                 if input_registers.isError():
-                    raise RuntimeError(f"FC04 read failed or invalid response (unit {unit_id}): {input_registers}")
+                    raise RuntimeError() # no print, overflows log because read errors are not uncommon and handled with retries/backoff
 
                 if len(input_registers.registers) < TOTAL_REG_COUNT:
-                    raise RuntimeError(f"FC04 read returned insufficient registers (unit {unit_id})")
+                    raise RuntimeError(f"Knob Box Modbus: Expected {TOTAL_REG_COUNT} registers but got {len(input_registers.registers)}")
                 
                 # Unpack all 6 modbus registers received in packet.
                 registers = input_registers.registers
@@ -353,132 +353,160 @@ class KnobBoxModbus:
                     self._unit_poll_backoff_sec[unit_id] = 0.0
                     self._next_unit_poll_time[unit_id] = 0.0
 
-                # Check for an increment of the 3kV reset counter
-                if self.reset_counter < reset_counter:
-                    self.log(f"3kV Bertan timer state counter incremented.", LogLevel.ERROR)
-                
-                # Check if 3kV forced off
-                if reset_counter > 0 and self.reset_counter == 0:
-                    self.log(f"3kV Bertan enable was forced off.", LogLevel.ERROR)
-                
-                # Check for edges on switch states and log them
-                if self.switch_states[unit_id] != hv_enable:
-                    if (self.switch_states[unit_id] == 0 and hv_enable == 1):
-                        self.log(f"[unit {unit_id}] HV enable turned ON", LogLevel.INFO)
-                    else:
-                        self.log(f"[unit {unit_id}] HV enable turned OFF", LogLevel.INFO)
-                if self.switch_states[4] != arm_80kV:
-                    if (self.switch_states[4] == 0 and arm_80kV == 1):
-                        self.log(f"Arm 80kV switch turned ON", LogLevel.INFO)
-                    else:
-                        self.log(f"Arm 80kV switch turned OFF", LogLevel.INFO)
-                if self.switch_states[5] != arm_beams:
-                    if (self.switch_states[5] == 0 and arm_beams == 1):
-                        self.log(f"Arm beams switch turned ON", LogLevel.INFO)
-                    else:
-                        self.log(f"Arm beams switch turned OFF", LogLevel.INFO)
-                if self.switch_states[6] != ccs_power:
-                    if (self.switch_states[6] == 0 and ccs_power == 1):
-                        self.log(f"CCS power switch turned ON", LogLevel.INFO)
-                    else:
-                        self.log(f"CCS power switch turned OFF", LogLevel.INFO)
+                """
+                3kV Specific logging: all flags and signals except for 1kV reset state.
+                """
+                if (unit_id == 4):
+                    # Check for an increment of the 3kV reset counter
+                    if self.reset_counter < reset_counter:
+                        self.log(f"Knob Box: 3kV Bertan timer state counter incremented, counter = {reset_counter}", LogLevel.ERROR)
 
-                # Check for edges on all latched flags and log them
-                new_flag_states = [ # just a list of new data to cleanly iterate through
-                    (0, timer_state_flag, "3kV Timer State"),
-                    (1, armbeams_flag, "Arm Beams"),
-                    (2, ccspower_flag, "CCS Power Allow"),
-                    (3, arm80kv_flag, "Arm 80kV"),
-                    (4, vcomp_1k_flag, "1kV Voltage Comp"),
-                    (5, icomp_1k_flag, "1kV Current Comp"),
-                    (6, neg_vcomp_1k_flag, "Negative 1kV Voltage Comp"),
-                    (7, neg_icomp_1k_flag, "Negative 1kV Current Comp"),
-                    (8, vcomp_20k_flag, "20kV Voltage Comp"),
-                    (9, icomp_20k_flag, "20kV Current Comp"),
-                    (10, vcomp_3k_flag, "3kV Voltage Comp"),
-                    (11, icomp_3k_flag, "3kV Current Comp"),
-                ]
-                for idx, new_val, flag_name in new_flag_states:
-                    if self.latched_flags[idx] != new_val:
-                        if self.latched_flags[idx] == 0 and new_val == 1:
-                            # When any flag is tripped, it should be an ERROR.
-                            self.log(f"{flag_name} flag tripped.", LogLevel.ERROR)
-                        else:
-                            # Log as INFO on falling edge.
-                            # TODO unsure if this will cause log overflowing/if it is needed at all.
-                            self.log(f"{flag_name} flag deasserted.", LogLevel.INFO)
+                    # Check if 3kV forced off
+                    if reset_counter > 0 and self.reset_counter == 0:
+                        self.log(f"Knob Box: 3kV Bertan enable was forced off.", LogLevel.ERROR)
 
-                # Check for edges on all unlatched signals and log them.
-                new_signal_states = [
-                    (0, raw_hv_enable, "HV Enable"),
-                    (1, reset_state_1kV, "1kV Overcurrent Reset"),
-                    (2, arm_80kV, "Arm 80kV"),
-                    (3, ccs_power, "CCS Power"),
-                    (4, arm_beams, "Arm Beams"),
-                    (5, enable_3kV, "3kV Enable"),
-                    (6, nomop_flag, "Nomop"),
-                    (7, logic_alive_flag, "Logic Comms")
-                ]
-                for idx, new_val, signal_name in new_signal_states:
-                    if self.unlatched_signals[idx] != new_val:
-                        if self.unlatched_signals[idx] == 0 and new_val == 1:
-                            if idx == 1:
-                                # 1kV Overcurrent Reset
-                                self.log(f"[unit {unit_id}] Entered Overcurrent Reset Mode", LogLevel.ERROR)
+                    # Update the stored reset counter
+                    self.reset_counter = reset_counter    
+
+                    # Check for edges on switch states
+                    if self.switch_states[4] != arm_80kV:
+                            if (self.switch_states[4] == 0 and arm_80kV == 1):
+                                self.log(f"Knob Box: Arm 80kV switch turned ON", LogLevel.INFO)
                             else:
-                                self.log(f"{signal_name} signal ON.", LogLevel.INFO)
-                        
-                        elif idx == 6:
-                            # Nomop Signal: 1-->0 transition is an ERROR
-                            self.log(f"Entered INTERLOCKS State.", LogLevel.ERROR)
-                        elif idx == 7:
-                            # Logic Alive Signal: 1-->0 transistion is an ERROR
-                            self.log(f"Lost communication with the Logic Arduino.", LogLevel.ERROR)
+                                self.log(f"Knob Box: Arm 80kV switch turned OFF", LogLevel.INFO)
+                    if self.switch_states[5] != arm_beams:
+                            if (self.switch_states[5] == 0 and arm_beams == 1):
+                                self.log(f"Knob Box: Arm beams switch turned ON", LogLevel.INFO)
+                            else:
+                                self.log(f"Knob Box: Arm beams switch turned OFF", LogLevel.INFO)
+                    if self.switch_states[6] != ccs_power:
+                            if (self.switch_states[6] == 0 and ccs_power == 1):
+                                self.log(f"Knob Box: CCS power switch turned ON", LogLevel.INFO)
+                            else:
+                                self.log(f"Knob Box: CCS power switch turned OFF", LogLevel.INFO)
+
+                    # Check for edges on all latched flags and log them
+                    new_flag_states = [ # just a list of new data to cleanly iterate through
+                        (0, timer_state_flag, "3kV Timer State"),
+                        (1, armbeams_flag, "Arm Beams"),
+                        (2, ccspower_flag, "CCS Power Allow"),
+                        (3, arm80kv_flag, "Arm 80kV"),
+                        (4, vcomp_1k_flag, "1kV Voltage Comp"),
+                        (5, icomp_1k_flag, "1kV Current Comp"),
+                        (6, neg_vcomp_1k_flag, "Negative 1kV Voltage Comp"),
+                        (7, neg_icomp_1k_flag, "Negative 1kV Current Comp"),
+                        (8, vcomp_20k_flag, "20kV Voltage Comp"),
+                        (9, icomp_20k_flag, "20kV Current Comp"),
+                        (10, vcomp_3k_flag, "3kV Voltage Comp"),
+                        (11, icomp_3k_flag, "3kV Current Comp"),
+                    ]
+                    for idx, new_val, flag_name in new_flag_states:
+                        if self.latched_flags[idx] != new_val:
+                            if self.latched_flags[idx] == 0 and new_val == 1:
+                                # When any flag is tripped, it should be an ERROR.
+                                self.log(f"Knob Box: {flag_name} flag tripped.", LogLevel.ERROR)
+                            else:
+                                # Log as INFO on falling edge.
+                                # TODO unsure if this will cause log overflowing/if it is needed at all.
+                                self.log(f"Knob Box: {flag_name} flag deasserted.", LogLevel.INFO)
+
+                    # Check for edges on all unlatched signals and log them.
+                    new_signal_states = [
+                        (0, raw_hv_enable, "HV Enable"),
+                        # (1kV reset is sent over by the +-1kV arduinos)
+                        (2, arm_80kV, "Arm 80kV"),
+                        (3, ccs_power, "CCS Power"),
+                        (4, arm_beams, "Arm Beams"),
+                        (5, enable_3kV, "3kV Enable"),
+                        (6, nomop_flag, "Nomop"),
+                        (7, logic_alive_flag, "Logic Comms")
+                    ]
+                    for idx, new_val, signal_name in new_signal_states:
+                        if self.unlatched_signals[idx] != new_val:
+                            if self.unlatched_signals[idx] == 0 and new_val == 1:
+                                self.log(f"Knob Box: {signal_name} signal ON.", LogLevel.INFO)
+                            
+                            elif idx == 6:
+                                # Nomop Signal: 1-->0 transition is an ERROR
+                                self.log(f"Knob Box: Entered INTERLOCKS State.", LogLevel.ERROR)
+                            elif idx == 7:
+                                # Logic Alive Signal: 1-->0 transistion is an ERROR
+                                self.log(f"Knob Box: Lost communication with the Logic Arduino.", LogLevel.ERROR)
+                            else:
+                                self.log(f"Knob Box: {signal_name} signal OFF.", LogLevel.INFO)
+
+                    self.switch_states[unit_id-1] = 0 if hv_enable == 0 else 1
+                    self.switch_states[4] = 0 if arm_80kV == 0 else 1
+                    self.switch_states[5] = 0 if arm_beams == 0 else 1
+                    self.switch_states[6] = 0 if ccs_power == 0 else 1
+                    self.latched_flags = [
+                        timer_state_flag,
+                        armbeams_flag,
+                        ccspower_flag,
+                        arm80kv_flag,
+                        vcomp_1k_flag,
+                        icomp_1k_flag,
+                        neg_vcomp_1k_flag,
+                        neg_icomp_1k_flag,
+                        vcomp_20k_flag,
+                        icomp_20k_flag,
+                        vcomp_3k_flag,
+                        icomp_3k_flag
+                    ]
+                    reset_state = self.unlatched_signals[1]
+                    self.unlatched_signals = [
+                        raw_hv_enable,
+                        reset_state, # this needs to stay unchanged, only units 1 and 2 should update it
+                        arm_80kV,
+                        ccs_power,
+                        arm_beams,
+                        enable_3kV,
+                        nomop_flag,
+                        logic_alive_flag
+                    ]
+
+                """
+                +-1kV Specific logging: just the reset state.
+                """
+                if (unit_id in [1, 2]):
+                    new_reset_state = reset_state_1kV
+                    if self.unlatched_signals[1] != new_reset_state:
+                        if self.unlatched_signals[1] == 0 and new_reset_state == 1:
+                            if (unit_id == 1):
+                                self.log(f"Knob Box: +1kV entered Overcurrent Reset Mode", LogLevel.ERROR)
+                            else:
+                                self.log(f"Knob Box: -1kV entered Overcurrent Reset Mode", LogLevel.ERROR)
                         else:
-                            self.log(f"{signal_name} signal OFF.", LogLevel.INFO)
+                            if (unit_id == 1):
+                                self.log(f"Knob Box: +1kV exited Overcurrent Reset Mode", LogLevel.INFO)
+                            else:   
+                                self.log(f"Knob Box: -1kV exited Overcurrent Reset Mode", LogLevel.INFO)
 
-                # Update local switch/flag states for edge detection in future polls
-                self.switch_states[unit_id] = 0 if hv_enable == 0 else 1
-                self.switch_states[4] = 0 if arm_80kV == 0 else 1
-                self.switch_states[5] = 0 if arm_beams == 0 else 1
-                self.switch_states[6] = 0 if ccs_power == 0 else 1
-                self.latched_flags = [
-                    timer_state_flag,
-                    armbeams_flag,
-                    ccspower_flag,
-                    arm80kv_flag,
-                    vcomp_1k_flag,
-                    icomp_1k_flag,
-                    neg_vcomp_1k_flag,
-                    neg_icomp_1k_flag,
-                    vcomp_20k_flag,
-                    icomp_20k_flag,
-                    vcomp_3k_flag,
-                    icomp_3k_flag
-                ]
-                self.unlatched_signals = [
-                    raw_hv_enable,
-                    reset_state_1kV,
-                    arm_80kV,
-                    ccs_power,
-                    arm_beams,
-                    enable_3kV,
-                    nomop_flag,
-                    logic_alive_flag
-                ]
+                    # Just update the 1kv reset state
+                    self.unlatched_signals[1] = new_reset_state
 
-                if (self.debug_mode):
-                    self.log(f"[unit {unit_id}] Poll successful: {new_data}", LogLevel.DEBUG)
+                
+                """
+                All units: check for HV enable switch state edge and log.
+                """
+                if self.switch_states[unit_id-1] != hv_enable:
+                    unit = "+1kV" if unit_id == 1 else ("-1kV" if unit_id == 2 else ("20kV" if unit_id == 3 else "3kV"))
+                    if (self.switch_states[unit_id-1] == 0 and hv_enable == 1):
+                        self.log(f"Knob Box: {unit} HV enable turned ON", LogLevel.INFO)
+                    else:
+                        self.log(f"Knob Box: {unit} HV enable turned OFF", LogLevel.INFO)
+
+                # Update HV enable switch state
+                self.switch_states[unit_id-1] = 0 if hv_enable == 0 else 1
 
                 return
 
             except Exception as e:
                 last_exception = e
                 if attempt < self.MAX_ATTEMPTS:
-                    self.log(f"[unit {unit_id}] Retry attempt {attempt}/{self.MAX_ATTEMPTS}: {str(e)}", LogLevel.WARNING)
                     time.sleep(0.05)
                 else:
-                    self.log(f"[unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
+                    self.log(f"Knob Box: [unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
 
         # All retries exhausted, raise the last exception
         with self.poll_schedule_lock:
