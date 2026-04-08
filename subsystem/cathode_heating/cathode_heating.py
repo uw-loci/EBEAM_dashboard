@@ -2665,42 +2665,6 @@ class CathodeHeatingSubsystem:
         else:
             print(f"{level.name}: {message}")
 
-    def perform_echoback_test(self, unit):
-        """
-        Perform an echoback test on the specified unit.
-        This method checks if the temperature controllers are connected before proceeding.
-        """
-        try:
-            # Ensure that the unit index is within the range of connected controllers
-            if not self.temperature_controller:
-                raise ValueError(f"Temperature Controller is not connected or initialized.")
-
-            # Perform the echoback test
-            result = self.temperature_controller.perform_echoback_test(unit=unit)
-            self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.INFO)
-        except Exception as e:
-            self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
-
-    def read_and_log_temperature(self, unit):
-        """
-        Read the temperature from the specified unit and log the result.
-        Ensures the unit is connected before attempting to read.
-        """
-        try:
-            if not self.temperature_controller:
-                raise ValueError(f"Temperature Controller is not connected or initialized.")
-
-            temperature = self.temperature_controller.read_temperature(unit=unit)
-            if temperature is not None:
-                message = f"Temperature from Unit {unit}: {temperature:.2f} C"
-                self.log(message, LogLevel.VERBOSE)
-            else:
-                raise Exception("Failed to read temperature")
-        except Exception as e:
-            self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
-
     # Voltage input validation
     def validate_voltage(self, index:int, new_voltage: float):
         """
