@@ -549,7 +549,7 @@ class BeamEnergySubsystem:
         self.update_reset_status(index, False)
         self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, logic_comms=False, interlocks=True)
 
-    def update_com_ports(self, new_com_ports):
+    def update_com_port(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""
         new_port = new_com_ports.get('KnobBox', None)
         if not new_port:
