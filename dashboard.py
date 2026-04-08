@@ -435,7 +435,7 @@ class EBEAMSystemDashboard:
                 elif subsystem_name == 'Cathode Heating':
                     subsystem.update_com_ports(new_com_ports)
                 elif subsystem_name == 'Beam Energy':
-                    subsystem.update_com_ports(new_com_ports)
+                    subsystem.update_com_port(new_com_ports)
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
