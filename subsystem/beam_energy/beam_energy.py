@@ -395,12 +395,10 @@ class BeamEnergySubsystem:
                 if self.knob_box_connected and self.knob_box_controller:
                     self.knob_box_controller.poll_all()
                 elif not self.reconnect_in_progress.is_set():
-                    self.reconnect_in_progress.set()
-                    self.parent_frame.after(0, self._safe_reconnect)
+                    self._schedule_reconnect()
             except Exception:
                 if not self.reconnect_in_progress.is_set():
-                    self.reconnect_in_progress.set()
-                    self.parent_frame.after(0, self._safe_reconnect)
+                    self._schedule_reconnect()
             time.sleep(.2)  # Polling interval
 
     def _safe_reconnect(self):
@@ -412,6 +410,21 @@ class BeamEnergySubsystem:
                 self.reconnect_in_progress.clear()
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _schedule_reconnect(self):
+        """Schedule reconnect on the UI thread and avoid stuck reconnect flags."""
+        with self.data_lock:
+            if self.reconnect_in_progress.is_set():
+                return False
+            self.reconnect_in_progress.set()
+
+        try:
+            self.parent_frame.after(0, self._safe_reconnect)
+            return True
+        except Exception as e:
+            self.reconnect_in_progress.clear()
+            self.log(f"Failed to schedule reconnect: {str(e)}", LogLevel.DEBUG)
+            return False
 
     def update_readings(self):
         """
@@ -435,9 +448,7 @@ class BeamEnergySubsystem:
                     self.knob_box_connected_at = None
                     for index, _ in enumerate(self.power_supplies):
                         self.set_default_values(index)
-                    if not self.reconnect_in_progress.is_set():
-                        self.reconnect_in_progress.set()
-                        self.parent_frame.after(0, self._safe_reconnect)
+                    self._schedule_reconnect()
                     # Schedule next update and exit early
                     self.log(
                         "KnobBox controller unresponsive, using default values.",
@@ -449,9 +460,7 @@ class BeamEnergySubsystem:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
-                if not self.reconnect_in_progress.is_set():
-                    self.reconnect_in_progress.set()
-                    self.parent_frame.after(0, self._safe_reconnect)
+                self._schedule_reconnect()
                 # Schedule next update and exit early
                 self.log(
                     f"KnobBox controller not connected, using default values.",
@@ -526,9 +535,7 @@ class BeamEnergySubsystem:
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
             for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
-            if not self.reconnect_in_progress.is_set():
-                self.reconnect_in_progress.set()
-                self.parent_frame.after(0, self._safe_reconnect)
+            self._schedule_reconnect()
             
         
         # Schedule next update after 500 ms
