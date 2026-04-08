@@ -356,10 +356,6 @@ class CathodeHeatingSubsystem:
             notebook = ttk.Notebook(frame)
             notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
 
-            # toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
-            # toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
-            # self.ramp_toggle_buttons.append(toggle_button)
-
             # Create the main tab
             main_tab = ttk.Frame(notebook)
             notebook.add(main_tab, text='Main')
@@ -852,7 +848,7 @@ class CathodeHeatingSubsystem:
             self.ocl_live_values[i] = None
             update_ocl_live_box()
 
-            # FIXED: Create set function with proper closure
+            # Create set function with proper closure
             def create_ocl_set_function(cathode_idx, update_func, entry_var):
                 def set_and_update_ocl():
                     # First, validate the input value before updating anything
@@ -1002,9 +998,6 @@ class CathodeHeatingSubsystem:
             overtemp_status_label = ttk.Label(overtemp_status_frame, text='Overtemp Status:', style='LeftAlign.TLabel')
             overtemp_status_label.pack(side='left')
             ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
-
-
-
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
@@ -1517,7 +1510,6 @@ class CathodeHeatingSubsystem:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:.2f}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
                 self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {raw_value:.2f}A", LogLevel.INFO)
-                # msgbox.showinfo("Success", f"OCP set to {raw_value:.2f}A for Cathode {['A', 'B', 'C'][index]}")
                 return True  # Return True to indicate success
 
         except ValueError as e:
@@ -1768,7 +1760,6 @@ class CathodeHeatingSubsystem:
                 cathode_label = ['A', 'B', 'C'][i]
                 self.logger.update_field(f"clamp_temperature_{cathode_label}", temperature)
 
-
             if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
             elif isinstance(temperature, str):
@@ -1849,7 +1840,6 @@ class CathodeHeatingSubsystem:
 
                 padding = (temp_max - temp_min) * PADDING_FACTOR
                 ax.set_ylim(temp_min - padding, temp_max + padding)
-
 
         # Adjust plot to new data
         ax.relim()
@@ -2261,8 +2251,8 @@ class CathodeHeatingSubsystem:
         try:
             # If voltage is set we expect one value to limit the other
             if self.voltage_set[index]:
-                limited_voltage = self._max_voltage_for_current(index, current)
-                limited_current = self._max_current_at_voltage(index, self.user_set_voltages[index])
+                limited_voltage = self._voltage_for_current(index, current)
+                limited_current = self._current_for_voltage(index, self.user_set_voltages[index])
                 if limited_voltage is None or limited_current is None:
                     # no data in LUT, return to update output without predictions
                     self.clear_prediction_variables(index)
@@ -2278,7 +2268,7 @@ class CathodeHeatingSubsystem:
                     pred_heater_voltage = min(self.user_set_voltages[index], limited_voltage)
             else:
                 # If no heater voltage is set we will predict the voltage produced by the new current and set it on the power supply
-                pred_heater_voltage = self._max_voltage_for_current(index, current)
+                pred_heater_voltage = self._voltage_for_current(index, current)
                 pred_heater_current = current
             
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
@@ -2328,8 +2318,8 @@ class CathodeHeatingSubsystem:
         try:
             # If current is set we expect one value to limit the other
             if self.current_set[index]:
-                limited_voltage = self._max_voltage_for_current(index, self.user_set_currents[index])
-                limited_current = self._max_current_at_voltage(index, voltage)
+                limited_voltage = self._voltage_for_current(index, self.user_set_currents[index])
+                limited_current = self._current_for_voltage(index, voltage)
                 if limited_voltage is None or limited_current is None:
                     # no data in LUT, return to update output without predictions
                     self.clear_prediction_variables(index)
@@ -2345,7 +2335,7 @@ class CathodeHeatingSubsystem:
                     pred_heater_current = min(self.user_set_currents[index], limited_current)
             else:
                 # If no heater current is set we will predict the current produced by the new voltage and set it on the power supply
-                pred_heater_current = self._max_current_at_voltage(index, voltage)
+                pred_heater_current = self._current_for_voltage(index, voltage)
                 pred_heater_voltage = voltage
             
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
@@ -2378,7 +2368,7 @@ class CathodeHeatingSubsystem:
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             return False
 
-    def _max_current_at_voltage(self, index: int, voltage: float):
+    def _current_for_voltage(self, index: int, voltage: float):
         """
         Return the unique heater current for an exact voltage match.
 
@@ -2401,7 +2391,7 @@ class CathodeHeatingSubsystem:
             return None
         return float(unique_currents[0])
     
-    def _max_voltage_for_current(self, index: int, current: float):
+    def _voltage_for_current(self, index: int, current: float):
         """
         Return the unique heater voltage for an exact current match.
 
