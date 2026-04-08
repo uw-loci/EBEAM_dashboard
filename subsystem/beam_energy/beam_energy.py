@@ -311,22 +311,22 @@ class BeamEnergySubsystem:
             time.sleep(.2)
         
         try:
-            self.logger.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
+            self.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
             knob_box_modbus = KnobBoxModbus(port=port, logger=self.logger)
             if knob_box_modbus.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
-                self.logger.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
+                self.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
                 self.knob_box_controller = knob_box_modbus
                 self.knob_box_connected = True
                 self.knob_box_connected_at = time.time()
                 self.start_polling_thread()  # Start background thread to poll data
                 return True
             else:
-                self.logger.log(f"Failed to connect to KnobBox Modbus controller on port {port}", LogLevel.ERROR)
+                self.log(f"Failed to connect to KnobBox Modbus controller on port {port}", LogLevel.ERROR)
                 self.knob_box_connected = False
                 self.knob_box_connected_at = None
                 return False
         except Exception as e:
-            self.logger.log(f"Exception thrown when trying to connect to KnobBox on port {port}: {str(e)}", LogLevel.ERROR)
+            self.log(f"Exception thrown when trying to connect to KnobBox on port {port}: {str(e)}", LogLevel.ERROR)
             self.knob_box_connected = False
             self.knob_box_connected_at = None
             return False
