@@ -574,22 +574,25 @@ class BeamEnergySubsystem:
         self.initialize_knob_box_modbus()
 
     def close_com_ports(self):
-        """Close any open communication ports and stop all polling threads."""
-        # if self.logger:
-        #     self.logger.info("Beam Energy subsystem: Closing communication ports")
+        # Close any open COM port connections
         if self.knob_box_controller:
             self.knob_box_controller.disconnect()
             self.knob_box_controller = None
             self.knob_box_connected = False
             self.knob_box_connected_at = None
 
-    def close(self):
-        """Close the subsystem and clean up resources."""
+        # Stop polling thread
+        self._stop_polling_thread()
+
+    def _stop_polling_thread(self):
+        """Stop and join the polling thread if it is running."""
         self.stop_polling.set()
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=2)
-            self.poll_thread = None
+        self.poll_thread = None
 
+    def close(self):
+        """Cancel Dashboard updates and close COM ports."""
         self.cancel_updates()
         self.close_com_ports()
 
