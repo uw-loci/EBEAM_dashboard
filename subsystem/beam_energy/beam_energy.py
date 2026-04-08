@@ -304,18 +304,24 @@ class BeamEnergySubsystem:
         port = self.com_ports.get('KnobBox', None)
         if not port:
             return False
-        
-        # Ensure any existing controller is properly closed
-        if hasattr(self, 'knob_box_controller') and self.knob_box_controller:
-            self.knob_box_controller.disconnect()
+
+        controller = self.knob_box_controller
+        if controller and getattr(controller, "port", None) != port:
+            controller.disconnect()
             time.sleep(.2)
-        
+            controller = None
+
+        if controller is None:
+            controller = KnobBoxModbus(port=port, logger=self.logger)
+            self.knob_box_controller = controller
+
+        if time.time() < getattr(controller, "_next_connect_time", 0.0):
+            return False
+
         try:
             self.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
-            knob_box_modbus = KnobBoxModbus(port=port, logger=self.logger)
-            if knob_box_modbus.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
+            if controller.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
                 self.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
-                self.knob_box_controller = knob_box_modbus
                 self.knob_box_connected = True
                 self.knob_box_connected_at = time.time()
                 self.start_polling_thread()  # Start background thread to poll data
