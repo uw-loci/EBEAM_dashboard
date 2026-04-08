@@ -5,9 +5,16 @@ logging.basicConfig()
 logging.getLogger("pymodbus").setLevel(logging.DEBUG)
 logging.getLogger("pymodbus.transaction").setLevel(logging.DEBUG)
 
+"""
+This is a simple test script to read input registers from a Modbus slave device using pymodbus.
+It is used to test the success rate of register reads while varying BAUD, TIMEOUT, and PACKET SIZE.
+"""
+
 PORT = "COM13"      # Change if needed
 BAUDRATE = 9600
 SLAVE_IDS = [1,2,3,4]
+TIMEOUT = 0.3
+REGISTER_COUNT = 6
 
 client = ModbusSerialClient(
     port=PORT,
@@ -15,7 +22,7 @@ client = ModbusSerialClient(
     bytesize=8,
     parity='N',
     stopbits=1,
-    timeout=0.3
+    timeout=TIMEOUT
 )
 
 if not client.connect():
@@ -33,10 +40,10 @@ try:
     total_reads = 10
 
     for i in range(total_reads):
-        # ---- Read 5 Input Registers (0-4) ----
+        # ---- Read Input Registers ----
         rr = client.read_input_registers(
             address=0,
-            count=5,
+            count=REGISTER_COUNT,
             slave=slave_id
         )
 
@@ -51,28 +58,10 @@ try:
 
         time.sleep(0.1)
 
-        # ---- Read 19 Registers (5-23) ----
-        rr = client.read_input_registers(
-            address=5,
-            count=19,
-            slave=slave_id
-        )
-
-        if rr is None:
-            print("No response")
-        elif rr.isError():
-            print("Error response:", rr)
-        else:
-            discretes_ok
-            raw = rr.encode()            # bytes
-            print("Raw bytes:", raw.hex())
-
     input_regs_pct = (input_regs_ok / total_reads) * 100.0
-    discretes_pct = (discretes_ok / total_reads) * 100.0
 
     print("\n--- Read Success Summary ---")
     print(f"Input registers: {input_regs_ok}/{total_reads} ({input_regs_pct:.1f}%)")
-    print(f"Discrete inputs: {discretes_ok}/{total_reads} ({discretes_pct:.1f}%)")
 
 except KeyboardInterrupt:
     print("\nStopped by user")
