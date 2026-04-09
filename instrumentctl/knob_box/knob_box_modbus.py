@@ -435,10 +435,11 @@ class KnobBoxModbus:
                             else:
                                 self.log(f"Knob Box: {signal_name} signal OFF.", LogLevel.INFO)
 
-                    self.switch_states[unit_id-1] = 0 if hv_enable == 0 else 1
+                    # Arm Beams, CCS Power, and Arm 80kV are only recieved by the 3kv arduino.
                     self.switch_states[4] = 0 if arm_80kV == 0 else 1
                     self.switch_states[5] = 0 if arm_beams == 0 else 1
                     self.switch_states[6] = 0 if ccs_power == 0 else 1
+                    # Latched flags are only recieved by the 3kV arduino.
                     self.latched_flags = [
                         timer_state_flag,
                         armbeams_flag,
@@ -453,6 +454,7 @@ class KnobBoxModbus:
                         vcomp_3k_flag,
                         icomp_3k_flag
                     ]
+                    # Unlatched flags are only recieved by the 3kV arduino (exception: 1kV reset state).
                     reset_state = self.unlatched_signals[1]
                     self.unlatched_signals = [
                         raw_hv_enable,
