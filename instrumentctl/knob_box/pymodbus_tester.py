@@ -36,7 +36,6 @@ try:
     print(f"\n--- Polling Slave {slave_id} ---")
 
     input_regs_ok = 0
-    discretes_ok = 0
     total_reads = 10
 
     for i in range(total_reads):
