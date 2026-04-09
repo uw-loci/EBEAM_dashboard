@@ -403,6 +403,9 @@ class BeamEnergySubsystem:
                 elif not self.reconnect_in_progress.is_set():
                     self._schedule_reconnect()
             except Exception:
+                # Disconnect and schedule a reconnect if any polling error.
+                self.knob_box_connected = False
+                self.knob_box_connected_at = None
                 if not self.reconnect_in_progress.is_set():
                     self._schedule_reconnect()
             time.sleep(.2)  # Polling interval
