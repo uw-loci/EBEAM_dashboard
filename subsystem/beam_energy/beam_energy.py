@@ -68,6 +68,7 @@ class BeamEnergySubsystem:
         self.stop_polling = threading.Event()
         self.poll_thread = None
         self.reconnect_in_progress = threading.Event()
+        self.reconnect_requested = threading.Event()
 
         self.power_supply_instances = []  # List of KnobBoxPowerSupply instances
         self.setup_ui()
@@ -429,31 +430,41 @@ class BeamEnergySubsystem:
         next_connect_time = getattr(controller, "_next_connect_time", 0.0) or 0.0
         return max(0.0, next_connect_time - time.time())
 
-    def _schedule_reconnect(self):
-        """Schedule reconnect on the UI thread and avoid stuck reconnect flags."""
+    def _process_reconnect_request(self):
+        """
+        Main-thread reconnect dispatcher; safe place to start reconnect workers.
+        """
+        if not self.reconnect_requested.is_set():
+            return False
+
         wait_time = self._get_reconnect_wait_time()
         if wait_time > 0.0:
-            # Respect controller-level reconnect backoff before spawning a worker thread.
             return False
 
         with self.data_lock:
             if self.reconnect_in_progress.is_set():
                 return False
+            self.reconnect_requested.clear()
             self.reconnect_in_progress.set()
 
-        try:
-            self.parent_frame.after(0, self._safe_reconnect)
-            return True
-        except Exception as e:
-            self.reconnect_in_progress.clear()
-            self.log(f"Failed to schedule reconnect: {str(e)}", LogLevel.DEBUG)
+        self._safe_reconnect()
+        return True
+
+    def _schedule_reconnect(self):
+        """Thread-safe reconnect request; actual dispatch runs on the Tk main loop."""
+        if self.reconnect_in_progress.is_set():
             return False
+        self.reconnect_requested.set()
+        return True
 
     def update_readings(self):
         """
         Update voltage and current readings from hardware.
         This method should be called periodically to refresh displays.
         """
+        # Drain reconnect requests on the Tk main thread.
+        self._process_reconnect_request()
+
         # Update Knob Box data
         try:
             if self.knob_box_connected and self.knob_box_controller:
@@ -472,6 +483,7 @@ class BeamEnergySubsystem:
                     for index, _ in enumerate(self.power_supplies):
                         self.set_default_values(index)
                     self._schedule_reconnect()
+                    self._process_reconnect_request()
                     # Schedule next update and exit early
                     self.log(
                         "KnobBox controller unresponsive, using default values.",
@@ -484,6 +496,7 @@ class BeamEnergySubsystem:
                 for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
                 self._schedule_reconnect()
+                self._process_reconnect_request()
                 # Schedule next update and exit early
                 self.log(
                     f"KnobBox controller not connected, using default values.",
@@ -546,7 +559,7 @@ class BeamEnergySubsystem:
                 else:
                     self.actual_currents[index].set("-- mA")
 
-                # Update indicators based on data
+                # Update indicators based on dataFafter
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
                 self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, logic_alive, interlocks)
                 self.update_output_status(index, hv_enable)
@@ -559,6 +572,7 @@ class BeamEnergySubsystem:
             for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
             self._schedule_reconnect()
+            self._process_reconnect_request()
             
         
         # Schedule next update after 500 ms
