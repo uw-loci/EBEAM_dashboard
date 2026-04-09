@@ -18,5 +18,6 @@ __all__ = [
     'VisualizationGasControlSubsystem',
     'BeamExtractionSubsystem',
     'BeamPulseSubsystem',
-    'DeflectionMonitorSubsystem'
+    'DeflectionMonitorSubsystem',
+    'BeamEnergySubsystem'
 ]
