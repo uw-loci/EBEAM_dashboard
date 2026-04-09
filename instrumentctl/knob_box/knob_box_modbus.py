@@ -97,7 +97,7 @@ class KnobBoxModbus:
     #      - 3: +20kV Bertan
     #      - 4: +3kV Bertan
     UNIT_IDS = [1, 2, 3, 4]
-    MAX_ATTEMPTS = 3  # Max attempts for reading data
+    MAX_ATTEMPTS = 5  # Max attempts for reading data
 
     def __init__(
         self,
@@ -133,7 +133,7 @@ class KnobBoxModbus:
         self.last_success = {uid: 0 for uid in self.UNIT_IDS}  # Track last successful poll time for each unit
 
         '''Connection management parameters:'''
-        self.CONNECTION_TIMEOUT = 4.0  # seconds without successful poll before considering connection lost
+        self.CONNECTION_TIMEOUT = 6.0  # seconds without successful poll before considering connection lost
         self._connect_backoff_sec = 0.25  # initial time between connection attempts
         self._connect_backoff_max_sec = 2.0  # max backoff between attempts
         self._next_connect_time = 0.0  # used for backoff timing of connection attempts
@@ -248,8 +248,9 @@ class KnobBoxModbus:
                 continue
             try:
                 self.poll_one(uid)
-            except Exception as e:
-                self.log(f"[unit {uid}] poll error: {e}", LogLevel.ERROR)
+            except Exception:
+                # poll_one already logs a single ERROR only when all retries are exhausted.
+                pass
 
         # Return a copy to avoid external mutation
         with self.data_lock:
@@ -508,7 +509,7 @@ class KnobBoxModbus:
                 if attempt < self.MAX_ATTEMPTS:
                     time.sleep(0.05)
                 else:
-                    self.log(f"Knob Box: [unit {unit_id}] All {self.MAX_ATTEMPTS} retry attempts failed: {str(e)}", LogLevel.ERROR)
+                    self.log(f"Knob Box: [unit {unit_id}] all {self.MAX_ATTEMPTS} read attempts failed", LogLevel.INFO)
 
         # All retries exhausted, raise the last exception
         with self.poll_schedule_lock:
