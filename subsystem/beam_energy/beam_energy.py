@@ -417,8 +417,22 @@ class BeamEnergySubsystem:
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _get_reconnect_wait_time(self):
+        """Return remaining seconds until the next reconnect is allowed by controller backoff."""
+        controller = self.knob_box_controller
+        if not controller:
+            return 0.0
+
+        next_connect_time = getattr(controller, "_next_connect_time", 0.0) or 0.0
+        return max(0.0, next_connect_time - time.time())
+
     def _schedule_reconnect(self):
         """Schedule reconnect on the UI thread and avoid stuck reconnect flags."""
+        wait_time = self._get_reconnect_wait_time()
+        if wait_time > 0.0:
+            # Respect controller-level reconnect backoff before spawning a worker thread.
+            return False
+
         with self.data_lock:
             if self.reconnect_in_progress.is_set():
                 return False
