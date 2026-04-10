@@ -2051,6 +2051,47 @@ class CathodeHeatingSubsystem:
         self.predicted_heater_voltage_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
 
+    def _get_interpolation_axes(self, index: int, x_col: str, y_col: str):
+        """Return sorted numeric (x, y) arrays for LUT interpolation."""
+        table = self.lookup_table_setting[index]
+        if table is None or table.empty:
+            return None, None
+
+        numeric = pd.DataFrame(
+            {
+                x_col: pd.to_numeric(table[x_col], errors="coerce"),
+                y_col: pd.to_numeric(table[y_col], errors="coerce"),
+            }
+        ).dropna()
+        if numeric.empty:
+            return None, None
+
+        # Collapse duplicate x-values to one functional value before interpolation.
+        collapsed = (
+            numeric.groupby(x_col, as_index=False)[y_col]
+            .median()
+            .sort_values(x_col)
+        )
+
+        x_vals = collapsed[x_col].to_numpy(dtype=float)
+        y_vals = collapsed[y_col].to_numpy(dtype=float)
+        return x_vals, y_vals
+
+    def _interpolate_lut_value(self, index: int, x_value: float, x_col: str, y_col: str):
+        """Linearly interpolate LUT value for x_value; return None when out of range."""
+        x_vals, y_vals = self._get_interpolation_axes(index, x_col, y_col)
+        if x_vals is None or y_vals is None or len(x_vals) == 0:
+            return None
+
+        if len(x_vals) == 1:
+            return float(y_vals[0]) if abs(float(x_value) - float(x_vals[0])) < 1e-12 else None
+
+        # No extrapolation: only interpolate inside LUT domain.
+        if x_value < x_vals[0] or x_value > x_vals[-1]:
+            return None
+
+        return float(np.interp(float(x_value), x_vals, y_vals))
+
     def reset_power_supply(self, index):
         """
         Reset a power supply to zero voltage and current (UVL and UCL)
@@ -2369,50 +2410,12 @@ class CathodeHeatingSubsystem:
             return False
 
     def _current_for_voltage(self, index: int, voltage: float):
-        """
-        Return the unique heater current for an exact voltage match.
-
-        LUT data is treated as a function. If one voltage maps to multiple heater
-        current values, this returns None and logs an error.
-        """
-        table = self.lookup_table_setting[index]
-        if table is None or table.empty:
-            return None
-        rows = table[table["voltage"].round(2) == round(voltage, 2)]
-        if rows.empty:
-            return None
-        unique_currents = pd.to_numeric(rows["heater_current"], errors="coerce").dropna().unique()
-        if len(unique_currents) != 1:
-            self.log(
-                f"Ambiguous LUT mapping for Cathode {['A', 'B', 'C'][index]} at {voltage:.2f}V: "
-                f"expected one heater current, found {len(unique_currents)}.",
-                LogLevel.ERROR,
-            )
-            return None
-        return float(unique_currents[0])
+        """Return heater current for voltage using LUT linear interpolation."""
+        return self._interpolate_lut_value(index, voltage, "voltage", "heater_current")
     
     def _voltage_for_current(self, index: int, current: float):
-        """
-        Return the unique heater voltage for an exact current match.
-
-        LUT data is treated as a function. If one current maps to multiple heater
-        voltage values, this returns None and logs an error.
-        """
-        table = self.lookup_table_setting[index]
-        if table is None or table.empty:
-            return None
-        rows = table[table["heater_current"].round(2) == round(current, 2)]
-        if rows.empty:
-            return None
-        unique_voltages = pd.to_numeric(rows["voltage"], errors="coerce").dropna().unique()
-        if len(unique_voltages) != 1:
-            self.log(
-                f"Ambiguous LUT mapping for Cathode {['A', 'B', 'C'][index]} at {current:.2f}A: "
-                f"expected one heater voltage, found {len(unique_voltages)}.",
-                LogLevel.ERROR,
-            )
-            return None
-        return float(unique_voltages[0])
+        """Return heater voltage for current using LUT linear interpolation."""
+        return self._interpolate_lut_value(index, current, "heater_current", "voltage")
 
     def emission_cur_vlt_converter(self, index, val, target_heater_current=None):
         """
@@ -2431,32 +2434,11 @@ class CathodeHeatingSubsystem:
             tuple: (heater_voltage, heater_current, beam_current)
         """
         if isinstance(self.lookup_table_setting[index], pd.DataFrame):
-            df = self.lookup_table_setting[index]
-            # Look for exact match in voltage column
-            exact_match = df[df['voltage'].round(2) == round(val, 2)]
-            if exact_match.empty:
-                heater_voltage = val
-                heater_current = -1
-                beam_current = -1
-                return (heater_voltage, heater_current, beam_current)
-
-            unique_pairs = (
-                exact_match[['heater_current', 'beam_current']]
-                .drop_duplicates()
-            )
-            if len(unique_pairs) != 1:
-                self.log(
-                    f"Ambiguous LUT mapping for Cathode {['A', 'B', 'C'][index]} at {val:.2f}V: "
-                    f"expected one output pair, found {len(unique_pairs)}.",
-                    LogLevel.ERROR,
-                )
+            heater_current = self._interpolate_lut_value(index, val, "voltage", "heater_current")
+            beam_current = self._interpolate_lut_value(index, val, "voltage", "beam_current")
+            if heater_current is None or beam_current is None:
                 return (val, -1, -1)
-
-            match_row = exact_match.iloc[0]
-            heater_voltage = float(match_row['voltage'])
-            heater_current = float(match_row['heater_current'])  # This is the heater current
-            beam_current = float(match_row['beam_current'])      # This is the beam current
-            return (heater_voltage, heater_current, beam_current)
+            return (float(val), float(heater_current), float(beam_current))
         else:
             self.log("Lookup table not properly configured as DataFrame", LogLevel.ERROR)
             return (val, -1, -1)

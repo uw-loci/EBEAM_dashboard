@@ -28,9 +28,10 @@ To update the power supply lookup tables and generate visualizations:
    python data/lut/clean.py data/lut/power_supply/Cbmark_Beam_A_07_2025.csv
    ```
    - The script cleans the specified file **in place** (overwrites the same CSV).
-   - For each cleaned dataset, two plots are generated:
-     - Beam Current vs Voltage (X: voltage, Y: beam current)
-     - Beam Current vs Heater Current (X: heater current, Y: beam current)
+   - Power-supply cleaning uses a single rule per voltage bin:
+     - Select the point with the **maximum beam current**.
+     - If two or more points have the same beam current, select the one with the **lower heater current**.
+   - For each cleaned dataset, output plots are generated in `power_supply/plots/`.
    - Graphs are saved only in the `power_supply/plots/` directory.
 
 ## Running Cleanup Operations
@@ -50,14 +51,18 @@ python clean.py power_supply/Cbmark_Beam_A_07_2025.csv
 python clean.py power_supply/Test_LUT_Dont_Use.csv
 ```
 
-## Example Output (Power Supply - Last Cleaning)
+## Example Output (Power Supply - Method 1)
 
-Below are the graphs currently generated from the most recent power supply data cleaning:
+Below are the graphs generated for `Cbmark_Beam_A_07_2025.csv` using Method 1 (max beam current per voltage bin, lower heater current on ties):
 
 > **Note:** If you are viewing this README on GitHub, the images and cleaned data shown reflect the last version that was pushed to the repository. For the most up-to-date results, check the `power_supply/plots/` directory and the cleaned CSV files after running `python clean.py`.
 
-| Cbmark Beam A 07 2025: Beam Current vs Voltage | Cbmark Beam A 07 2025: Beam Current vs Heater Current |
-|:-----------------------------------------------:|:------------------------------------------------------:|
-| ![Cbmark_Beam_A_07_2025_beam_vs_voltage](power_supply/plots/Cbmark_Beam_A_07_2025_beam_vs_voltage.png) | ![Cbmark_Beam_A_07_2025_beam_vs_heater](power_supply/plots/Cbmark_Beam_A_07_2025_beam_vs_heater.png) |
+| Beam vs Voltage (colored by Heater) | Raw vs Clean Beam vs Voltage |
+|:-----------------------------------:|:----------------------------:|
+| ![Cbmark_Beam_A_07_2025_beam_vs_voltage_colored_by_heater](power_supply/plots/Cbmark_Beam_A_07_2025_beam_vs_voltage_colored_by_heater.png) | ![Cbmark_Beam_A_07_2025_raw_vs_clean_beam_vs_voltage](power_supply/plots/Cbmark_Beam_A_07_2025_raw_vs_clean_beam_vs_voltage.png) |
+
+| Raw vs Clean Heater vs Voltage | Clean Beam vs Heater |
+|:------------------------------:|:--------------------:|
+| ![Cbmark_Beam_A_07_2025_raw_vs_clean_heater_vs_voltage](power_supply/plots/Cbmark_Beam_A_07_2025_raw_vs_clean_heater_vs_voltage.png) | ![Cbmark_Beam_A_07_2025_clean_beam_vs_heater](power_supply/plots/Cbmark_Beam_A_07_2025_clean_beam_vs_heater.png) |
 
 
