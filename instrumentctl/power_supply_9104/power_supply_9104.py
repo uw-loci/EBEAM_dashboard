@@ -557,18 +557,21 @@ class PowerSupply9104:
         command = "GOVP"
         response = self.send_command(command)
 
-        for attempt in range(self.MAX_RETRIES):
-            if "OK" in response:
-                try:
-                    # split the response and take the part before 'OK'
-                    ovp_str = response.split('\r')[0]
-                    # convert to integer, then to a float
-                    ovp_volts = int(ovp_str) / 100.0
-                    self.log(f"OVP value: {ovp_volts:.2f}")
-                    return ovp_volts
-                except (ValueError, IndexError) as e:
-                    self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
-                    return None
+        if not response:
+            self.log("Failed to get OVP value", LogLevel.ERROR)
+            return None
+
+        if "OK" in response:
+            try:
+                # split the response and take the part before 'OK'
+                ovp_str = response.split('\r')[0]
+                # convert to integer, then to a float
+                ovp_volts = int(ovp_str) / 100.0
+                self.log(f"OVP value: {ovp_volts:.2f}")
+                return ovp_volts
+            except (ValueError, IndexError) as e:
+                self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
+                return None
             
         self.log("Failed to get OVP value", LogLevel.ERROR)
         return None
