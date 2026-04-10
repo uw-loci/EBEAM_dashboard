@@ -2131,8 +2131,20 @@ class CathodeHeatingSubsystem:
             msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
             return
 
+        raw_value = str(target_current.get()).strip()
+        if raw_value == "":
+            # Treat empty entry as a user request to clear the current goal.
+            self.user_set_currents[index] = None
+            self.current_set[index] = False
+            self.heater_current_vars[index].set('--')
+            self.sent_heater_current_vars[index].set('--')
+            self.predicted_heater_current_vars[index].set('--')
+            self.log(f"Cleared current goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            self.refresh_predictions(index)
+            return
+
         try:
-            new_current = float(target_current.get())
+            new_current = float(raw_value)
             valid_input = self.validate_current(index, new_current)
             if not valid_input:
                 # Error message already shown in validate_current
@@ -2169,8 +2181,20 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
                 return
 
+        raw_value = str(target_voltage.get()).strip()
+        if raw_value == "":
+            # Treat empty entry as a user request to clear the voltage goal.
+            self.user_set_voltages[index] = None
+            self.voltage_set[index] = False
+            self.heater_voltage_vars[index].set('--')
+            self.sent_heater_voltage_vars[index].set('--')
+            self.predicted_heater_voltage_vars[index].set('--')
+            self.log(f"Cleared voltage goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            self.refresh_predictions(index)
+            return
+
         try:
-            new_voltage = float(target_voltage.get())
+            new_voltage = float(raw_value)
             valid_input = self.validate_voltage(index, new_voltage)
             if not valid_input:
                 # Error message already shown in validate_voltage
