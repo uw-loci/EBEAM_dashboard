@@ -1,5 +1,6 @@
 ﻿__pycache__/
 usr/usr_data/
+.env
 .venv/
 venv/
 build/
