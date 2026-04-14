@@ -6,7 +6,6 @@ Lookup Tables for EBEAM System GUI
 ### Power Supply Lookup Tables
 > **Note on the origin of the current datasets:**
 > - `Cbmark_Beam_A_07_2025.csv` was taken from the Google Sheet used during the July 11, 2025 experiment (https://docs.google.com/spreadsheets/d/1T73CYgSkFAcI7QR085y3sOdtns9vNCIwv82ZkwADaoQ/edit?usp=sharing).
-> - `Test_LUT_Dont_Use.csv` is AI-generated test data and is not intended for production operation.
 
 ## Workflow for Updating Power Supply Lookup Tables
 
