@@ -89,7 +89,7 @@ class CathodeHeatingSubsystem:
         def has_valid_lut_columns(columns):
             required_cols = ['beam_current', 'voltage', 'heater_current']
             normalized = [str(col).strip() for col in columns]
-            return len(normalized) == len(required_cols) and set(normalized) == set(required_cols)
+            return set(required_cols).issubset(set(normalized))
 
         def validate_lut(df):
             required_cols = ['beam_current', 'voltage', 'heater_current']
