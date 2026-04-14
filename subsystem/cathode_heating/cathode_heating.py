@@ -1,7 +1,6 @@
 # cathode_heating.py
 import tkinter as tk
 from tkinter import ttk
-import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -343,8 +342,6 @@ class CathodeHeatingSubsystem:
         self.ramp_mode_dropdowns = []
         self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
-        heater_labels = ['Output A:', 'Output B', 'Output C:']
-        ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
