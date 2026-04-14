@@ -2335,6 +2335,14 @@ class CathodeHeatingSubsystem:
                 # If no heater voltage is set we will predict the voltage produced by the new current and set it on the power supply
                 pred_heater_voltage = self._voltage_for_current(index, current)
                 pred_heater_current = current
+
+            if pred_heater_voltage is None:
+                self.clear_prediction_variables(index)
+                self.log(
+                    f"No lookup table voltage available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}",
+                    LogLevel.WARNING,
+                )
+                return False
             
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
@@ -2363,9 +2371,11 @@ class CathodeHeatingSubsystem:
             return True
         
         except ValueError as e:
+            self.clear_prediction_variables(index)
             self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
             return False
         except Exception as e:
+            self.clear_prediction_variables(index)
             self.log(f"Unexpected error while processing manual current setting: {str(e)}", LogLevel.ERROR)
             return False
 
@@ -2402,6 +2412,14 @@ class CathodeHeatingSubsystem:
                 # If no heater current is set we will predict the current produced by the new voltage and set it on the power supply
                 pred_heater_current = self._current_for_voltage(index, voltage)
                 pred_heater_voltage = voltage
+
+            if pred_heater_current is None or pred_heater_voltage is None:
+                self.clear_prediction_variables(index)
+                self.log(
+                    f"No lookup table current available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}",
+                    LogLevel.WARNING,
+                )
+                return False
             
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
@@ -2430,6 +2448,7 @@ class CathodeHeatingSubsystem:
             return True
         
         except Exception as e:
+            self.clear_prediction_variables(index)
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
             return False
 
