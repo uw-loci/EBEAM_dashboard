@@ -135,22 +135,6 @@ def _format_power_supply_rows(rows):
         for r in rows
     ]
 
-def fill_missing_voltages(rows):
-    hc_to_volt = {float(r["heater_current"]): float(r["voltage"]) for r in rows if r["voltage"]}
-    # If there are no known voltages to infer from, leave rows unchanged.
-    if not hc_to_volt:
-        return rows
-    for row in rows:
-        if not row["voltage"]:
-            try:
-                hc = float(row["heater_current"])
-            except (ValueError, TypeError):
-                # Skip rows with non-numeric or missing heater_current values.
-                continue
-            nearest = min(hc_to_volt.keys(), key=lambda x: abs(x-hc))
-            row["voltage"] = f"{hc_to_volt[nearest]:.2f}"
-    return rows
-
 def clean_power_supply_file(raw_path, clean_path):
     rows = read_csv(raw_path)
     cleaned_numeric = _clean_power_supply_rows(rows)
