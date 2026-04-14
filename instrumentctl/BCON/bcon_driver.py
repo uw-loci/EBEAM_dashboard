@@ -6,25 +6,27 @@ Provides register-based control, status polling, and telemetry access
 for three independent pulser channels with safety interlocks.
 
 Register map mirrors the firmware Modbus slave implementation:
-  Control registers  0-9   : watchdog, telemetry, command
-  Channel 1 params  10-13  : mode, pulse_ms, count, enable_toggle
-  Channel 2 params  20-23  : (same layout)
-  Channel 3 params  30-33  : (same layout)
-  System status    100-105  : state, reason, fault, interlock, watchdog, error
-  CH1 status       110-118  : mode_st, pulse_ms_st, count_st, remaining, ...
-  CH2 status       120-128
-  CH3 status       130-138
+  Control registers   0-2   : watchdog, telemetry, command
+  Channel 1 params   10-13  : mode, pulse_ms, count, enable_toggle
+  Channel 2 params   20-23  : (same layout)
+  Channel 3 params   30-33  : (same layout)
+  System status     100-109 : state, reason, fault, interlock, watchdog, error, supervisor, cmd status
+  CH1 status        110-118 : mode_st, pulse_ms_st, count_st, remaining, ...
+  CH2 status        120-128
+  CH3 status        130-138
+  CH1 supervisor    140-143 : run_state, stop_reason, complete, aborted
+  CH2 supervisor    144-147
+  CH3 supervisor    148-151
+  Command diagnostics 152-153: last_reject_reason, last_cmd_seq
 """
 
 from __future__ import annotations
 
-import copy
-import logging
 import queue
 import struct
 import threading
 import time
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List
 from enum import IntEnum
 
 # pyserial — used directly for Modbus RTU (bypasses pymodbus v3 framer bug)
@@ -45,6 +47,18 @@ REG_WATCHDOG_MS   = 0
 REG_TELEMETRY_MS  = 1
 REG_COMMAND       = 2     # 0=NOP, 3=ARM/CLEAR_FAULT
 
+COMMAND_NOP                 = 0
+COMMAND_ALL_OFF             = 1
+COMMAND_CLEAR_FAULT         = 3
+COMMAND_APPLY_STAGED_MODES  = 4
+
+COMMAND_CODE_TO_LABEL = {
+    COMMAND_NOP: "NOP",
+    COMMAND_ALL_OFF: "ALL_OFF",
+    COMMAND_CLEAR_FAULT: "CLEAR_FAULT",
+    COMMAND_APPLY_STAGED_MODES: "APPLY_STAGED_MODES",
+}
+
 # --- Per-channel parameter registers ---
 CH_BASE = [10, 20, 30]    # base address for CH1, CH2, CH3
 CH_MODE_OFF          = 0   # offset: requested mode
@@ -59,6 +73,10 @@ REG_FAULT_LATCHED  = 102
 REG_INTERLOCK_OK   = 103
 REG_WATCHDOG_OK    = 104
 REG_LAST_ERROR     = 105
+REG_SUP_STATE      = 106
+REG_CMD_QUEUE_DEPTH = 107
+REG_LAST_CMD_CODE  = 108
+REG_LAST_CMD_RESULT = 109
 
 # --- Per-channel status registers (read-only from master view) ---
 REG_CH_STATUS_BASE   = 110
@@ -73,6 +91,13 @@ REG_CH_STATUS_STRIDE = 10
 #   +6  oc_st
 #   +7  gated_st
 #   +8  output_level
+
+# --- Per-channel supervisor extension status registers (read-only) ---
+REG_CH_SUP_BASE   = 140
+REG_CH_SUP_STRIDE = 4
+
+REG_LAST_REJECT_REASON = 152
+REG_LAST_CMD_SEQ       = 153
 
 
 # ======================== Mode Enumerations ========================
@@ -111,6 +136,108 @@ STATE_LABELS = {
 }
 
 
+class BCONSupervisorState(IntEnum):
+    """Supervisor summary state codes read from REG_SUP_STATE."""
+    IDLE                 = 0
+    ACTIVE               = 1
+    COMMAND_QUEUED       = 2
+    SAFE_INTERLOCK_HOLD  = 3
+    SAFE_WATCHDOG_HOLD   = 4
+    FAULT_HOLD           = 5
+
+
+SUPERVISOR_STATE_LABELS = {
+    BCONSupervisorState.IDLE: "IDLE",
+    BCONSupervisorState.ACTIVE: "ACTIVE",
+    BCONSupervisorState.COMMAND_QUEUED: "COMMAND_QUEUED",
+    BCONSupervisorState.SAFE_INTERLOCK_HOLD: "SAFE_INTERLOCK_HOLD",
+    BCONSupervisorState.SAFE_WATCHDOG_HOLD: "SAFE_WATCHDOG_HOLD",
+    BCONSupervisorState.FAULT_HOLD: "FAULT_HOLD",
+}
+
+
+class BCONChannelRunState(IntEnum):
+    """Per-channel supervisor-visible semantic state."""
+    OFF = 0
+    STAGED = 1
+    RUNNING_DC = 2
+    RUNNING_PULSE = 3
+    RUNNING_TRAIN = 4
+    COMPLETE = 5
+    ABORTED = 6
+
+
+CHANNEL_RUN_STATE_LABELS = {
+    BCONChannelRunState.OFF: "OFF",
+    BCONChannelRunState.STAGED: "STAGED",
+    BCONChannelRunState.RUNNING_DC: "RUNNING_DC",
+    BCONChannelRunState.RUNNING_PULSE: "RUNNING_PULSE",
+    BCONChannelRunState.RUNNING_TRAIN: "RUNNING_TRAIN",
+    BCONChannelRunState.COMPLETE: "COMPLETE",
+    BCONChannelRunState.ABORTED: "ABORTED",
+}
+
+
+class BCONStopReason(IntEnum):
+    """Per-channel stop/abort reason reported by the firmware supervisor."""
+    NONE = 0
+    NORMAL_COMPLETE = 1
+    ALL_OFF_COMMAND = 2
+    SAFE_INTERLOCK = 3
+    SAFE_WATCHDOG = 4
+    FAULT_LATCHED = 5
+    CLEAR_FAULT_COMMAND = 6
+
+
+STOP_REASON_LABELS = {
+    BCONStopReason.NONE: "NONE",
+    BCONStopReason.NORMAL_COMPLETE: "NORMAL_COMPLETE",
+    BCONStopReason.ALL_OFF_COMMAND: "ALL_OFF_COMMAND",
+    BCONStopReason.SAFE_INTERLOCK: "SAFE_INTERLOCK",
+    BCONStopReason.SAFE_WATCHDOG: "SAFE_WATCHDOG",
+    BCONStopReason.FAULT_LATCHED: "FAULT_LATCHED",
+    BCONStopReason.CLEAR_FAULT_COMMAND: "CLEAR_FAULT_COMMAND",
+}
+
+
+class BCONCommandResult(IntEnum):
+    """Last-command execution status reported by the firmware."""
+    NONE = 0
+    QUEUED = 1
+    EXECUTED = 2
+    REJECTED = 3
+
+
+COMMAND_RESULT_LABELS = {
+    BCONCommandResult.NONE: "NONE",
+    BCONCommandResult.QUEUED: "QUEUED",
+    BCONCommandResult.EXECUTED: "EXECUTED",
+    BCONCommandResult.REJECTED: "REJECTED",
+}
+
+
+class BCONRejectReason(IntEnum):
+    """Reason the most recent firmware command was rejected."""
+    NONE = 0
+    INVALID_COMMAND = 1
+    QUEUE_FULL = 2
+    UNSAFE_INTERLOCK = 3
+    UNSAFE_WATCHDOG = 4
+    FAULT_LATCHED = 5
+    CLEAR_FAULT_WHILE_INTERLOCK_OPEN = 6
+
+
+REJECT_REASON_LABELS = {
+    BCONRejectReason.NONE: "NONE",
+    BCONRejectReason.INVALID_COMMAND: "INVALID_COMMAND",
+    BCONRejectReason.QUEUE_FULL: "QUEUE_FULL",
+    BCONRejectReason.UNSAFE_INTERLOCK: "UNSAFE_INTERLOCK",
+    BCONRejectReason.UNSAFE_WATCHDOG: "UNSAFE_WATCHDOG",
+    BCONRejectReason.FAULT_LATCHED: "FAULT_LATCHED",
+    BCONRejectReason.CLEAR_FAULT_WHILE_INTERLOCK_OPEN: "CLEAR_FAULT_WHILE_INTERLOCK_OPEN",
+}
+
+
 # ======================== Utility ========================
 
 def scan_serial_ports() -> List[str]:
@@ -139,10 +266,11 @@ class BCONDriver:
     to control three independent pulser channels with safety interlocks.
 
     Features:
-        - Modbus RTU serial communication (pymodbus)
+        - Raw Modbus RTU serial communication over pyserial
         - Background register polling thread
         - Thread-safe register cache
         - Write queue for non-blocking control
+        - Staged/apply channel control aligned with current firmware
         - Watchdog and fault management
         - Auto-disconnect on repeated poll failures
     """
@@ -155,6 +283,8 @@ class BCONDriver:
     MAX_POLL_ERRORS    = 15      # consecutive failures before auto-disconnect
     SETTLE_TIME        = 4.5     # seconds to wait after opening port (Arduino DTR reset)
     WATCHDOG_HEARTBEAT_S = 1.0   # write watchdog register this often (firmware default: 2000ms)
+    COMMAND_CONFIRM_RETRIES = 4
+    COMMAND_CONFIRM_DELAY_S = 0.02
 
     def __init__(self, port: str, baudrate: int = DEFAULT_BAUD,
                  unit: int = DEFAULT_UNIT, timeout: float = DEFAULT_TIMEOUT,
@@ -197,6 +327,7 @@ class BCONDriver:
 
         self._user_requested_disconnect = False
         self._last_heartbeat_time: float = 0.0  # tracks last watchdog write
+        self._channel_enable_shadow: List[bool] = [False, False, False]
 
     def set_ui_queue(self, q: queue.Queue):
         """Set an optional queue to receive UI notification messages."""
@@ -215,6 +346,159 @@ class BCONDriver:
         """Internal logging helper."""
         if self.debug or level in ("ERROR", "WARNING"):
             print(f"[BCON {level}] {message}")
+
+    def _reset_cached_state(self):
+        """Clear cached registers and best-effort local shadow state."""
+        with self._regs_lock:
+            self._regs = [0] * TOTAL_REGS
+            self._channel_enable_shadow = [False, False, False]
+        self._last_heartbeat_time = 0.0
+
+    def reset_channel_enable_cache(self, enabled: bool = False):
+        """Reset the software-only channel enable shadow used by the dashboard UI."""
+        with self._regs_lock:
+            self._channel_enable_shadow = [bool(enabled)] * 3
+
+    @staticmethod
+    def _command_label(cmd_code: int) -> str:
+        """Map a command register value to a stable label."""
+        return COMMAND_CODE_TO_LABEL.get(int(cmd_code), f"UNKNOWN({int(cmd_code)})")
+
+    def _get_cached_command_snapshot(self) -> Dict[str, int]:
+        """Read the currently cached firmware command-diagnostic registers."""
+        with self._regs_lock:
+            return {
+                'supervisor_state_code': self._regs[REG_SUP_STATE],
+                'cmd_queue_depth': self._regs[REG_CMD_QUEUE_DEPTH],
+                'last_command_code': self._regs[REG_LAST_CMD_CODE],
+                'last_command_result_code': self._regs[REG_LAST_CMD_RESULT],
+                'last_reject_reason_code': self._regs[REG_LAST_REJECT_REASON],
+                'last_cmd_seq': self._regs[REG_LAST_CMD_SEQ],
+            }
+
+    def _read_command_snapshot_raw(self) -> Dict[str, int]:
+        """Read command diagnostics directly after a COMMAND write."""
+        supervisor_block = self._read_holding_registers_raw(REG_SUP_STATE, 4)
+        diag_block = self._read_holding_registers_raw(REG_LAST_REJECT_REASON, 2)
+
+        snapshot = {
+            'supervisor_state_code': supervisor_block[0],
+            'cmd_queue_depth': supervisor_block[1],
+            'last_command_code': supervisor_block[2],
+            'last_command_result_code': supervisor_block[3],
+            'last_reject_reason_code': diag_block[0],
+            'last_cmd_seq': diag_block[1],
+        }
+
+        with self._regs_lock:
+            self._regs[REG_SUP_STATE:REG_SUP_STATE + 4] = supervisor_block
+            self._regs[REG_LAST_REJECT_REASON:REG_LAST_REJECT_REASON + 2] = diag_block
+
+        return snapshot
+
+    def _build_command_result_payload(
+        self,
+        requested_code: int,
+        snapshot: Dict[str, int],
+        baseline: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, object]:
+        """Translate raw command diagnostics into a UI-friendly payload."""
+        result_code = snapshot['last_command_result_code']
+        reject_code = snapshot['last_reject_reason_code']
+        actual_code = snapshot['last_command_code']
+        return {
+            'requested_code': int(requested_code),
+            'requested_label': self._command_label(requested_code),
+            'last_command_code': actual_code,
+            'last_command_label': self._command_label(actual_code),
+            'last_command_result': self._label_from_code(
+                result_code, BCONCommandResult, COMMAND_RESULT_LABELS),
+            'last_command_result_code': result_code,
+            'last_reject_reason': self._label_from_code(
+                reject_code, BCONRejectReason, REJECT_REASON_LABELS),
+            'last_reject_reason_code': reject_code,
+            'last_cmd_seq': snapshot['last_cmd_seq'],
+            'supervisor_state': self._label_from_code(
+                snapshot['supervisor_state_code'], BCONSupervisorState, SUPERVISOR_STATE_LABELS),
+            'supervisor_state_code': snapshot['supervisor_state_code'],
+            'cmd_queue_depth': snapshot['cmd_queue_depth'],
+            'accepted': result_code == int(BCONCommandResult.EXECUTED),
+            'rejected': result_code == int(BCONCommandResult.REJECTED),
+            'fresh_snapshot': baseline is None or snapshot != baseline,
+        }
+
+    def _confirm_command_write(
+        self,
+        cmd_code: int,
+        baseline: Optional[Dict[str, int]] = None,
+    ) -> Optional[Dict[str, object]]:
+        """Confirm a nonzero COMMAND write from LAST_CMD diagnostics."""
+        cmd_code = int(cmd_code)
+        if cmd_code == COMMAND_NOP or not (self._serial and self._connected):
+            return None
+
+        if baseline is None:
+            baseline = self._get_cached_command_snapshot()
+
+        last_error: Optional[Exception] = None
+        last_snapshot: Optional[Dict[str, int]] = None
+
+        for attempt in range(self.COMMAND_CONFIRM_RETRIES):
+            try:
+                snapshot = self._read_command_snapshot_raw()
+                last_snapshot = snapshot
+                if (
+                    snapshot['last_command_code'] == cmd_code
+                    and snapshot['last_command_result_code'] in (
+                        int(BCONCommandResult.EXECUTED),
+                        int(BCONCommandResult.REJECTED),
+                    )
+                ):
+                    payload = self._build_command_result_payload(cmd_code, snapshot, baseline)
+                    if payload['rejected']:
+                        self._log(
+                            f"Command {payload['requested_label']} rejected: "
+                            f"{payload['last_reject_reason']} "
+                            f"(seq={payload['last_cmd_seq']})",
+                            "WARNING",
+                        )
+                    elif self.debug:
+                        self._log(
+                            f"Command {payload['requested_label']} executed "
+                            f"(seq={payload['last_cmd_seq']})",
+                            "INFO",
+                        )
+                    self._ui_put("command_result", payload)
+                    return payload
+            except Exception as exc:
+                last_error = exc
+
+            if attempt < self.COMMAND_CONFIRM_RETRIES - 1:
+                time.sleep(self.COMMAND_CONFIRM_DELAY_S)
+
+        if last_error is not None:
+            message = (
+                f"Command {self._command_label(cmd_code)} write completed, "
+                f"but diagnostics read failed: {last_error}"
+            )
+        elif last_snapshot is not None:
+            message = (
+                f"Command {self._command_label(cmd_code)} write completed, "
+                f"but diagnostics were inconclusive "
+                f"(last_code={last_snapshot['last_command_code']}, "
+                f"result={last_snapshot['last_command_result_code']}, "
+                f"reject={last_snapshot['last_reject_reason_code']}, "
+                f"seq={last_snapshot['last_cmd_seq']})"
+            )
+        else:
+            message = (
+                f"Command {self._command_label(cmd_code)} write completed, "
+                f"but diagnostics were unavailable"
+            )
+
+        self._log(message, "WARNING")
+        self._ui_put("error", message)
+        return None
 
     # ================================================================== #
     #                       Connection Management                          #
@@ -260,6 +544,7 @@ class BCONDriver:
         except Exception as e:
             self._serial = None
             self._connected = False
+            self._reset_cached_state()
             self._log(f"Connect failed: {e}", "ERROR")
             self._ui_put("connected", False)
             return False
@@ -292,6 +577,7 @@ class BCONDriver:
 
         self._connected = ok
         self._poll_errors = 0
+        self._reset_cached_state()
 
         if ok:
             self._user_requested_disconnect = False
@@ -315,6 +601,7 @@ class BCONDriver:
             except Exception:
                 pass
             self._serial = None
+        self._reset_cached_state()
         self._log("Disconnected", "INFO")
         self._ui_put("connected", False)
 
@@ -437,15 +724,27 @@ class BCONDriver:
         Write a register synchronously (blocks until complete).
 
         Use this only when you need confirmation; prefer enqueue_write()
-        for non-blocking UI interaction.
+        for non-blocking UI interaction. Nonzero COMMAND writes are confirmed
+        from LAST_CMD diagnostics rather than queue-depth or register echo timing.
 
         Returns:
-            True if write succeeded, False otherwise.
+            True if the write succeeded. For nonzero COMMAND writes, True means
+            the firmware reported EXECUTED and False means rejected or inconclusive.
         """
         if not self.is_connected():
             return False
+
+        reg = int(reg)
+        value = int(value)
+        baseline = None
+        if reg == REG_COMMAND and value != COMMAND_NOP:
+            baseline = self._get_cached_command_snapshot()
+
         try:
             self._write_register_raw(reg, value)
+            if baseline is not None:
+                result = self._confirm_command_write(value, baseline=baseline)
+                return bool(result and result.get('accepted'))
             return True
         except Exception as e:
             self._log(f"Immediate write reg {reg}: {e}", "ERROR")
@@ -486,9 +785,16 @@ class BCONDriver:
                     cmd = self._cmd_queue.get_nowait()
                     if cmd[0] == "write" and self._serial and self._connected:
                         _, reg, val = cmd
+                        reg = int(reg)
+                        val = int(val)
+                        baseline = None
+                        if reg == REG_COMMAND and val != COMMAND_NOP:
+                            baseline = self._get_cached_command_snapshot()
                         try:
                             self._write_register_raw(reg, val)
                             self._ui_put("wrote", reg, val)
+                            if baseline is not None:
+                                self._confirm_command_write(val, baseline=baseline)
                         except Exception as e:
                             self._log(f"Write reg {reg}: {e}", "ERROR")
                             self._ui_put("error", f"Write reg {reg}: {e}")
@@ -514,18 +820,18 @@ class BCONDriver:
 
                     ok = True
                     # Read only the register addresses that the firmware actually
-                    # defines.  Registers 3-9, 14-19, and 24-29 are gaps in the
-                    # map; requesting them causes the firmware to reply with a
-                    # Modbus "illegal address" exception that aborts the entire
-                    # batch read.
+                    # defines. Registers 3-9, 14-19, and 24-29 are gaps in the
+                    # control map, while channel status omits the +9 stride slot.
                     ok &= read_block(0, 3)       # control: watchdog(0), telemetry(1), command(2)
                     ok &= read_block(10, 4)      # CH1 params: mode, pulse_ms, count, enable_toggle
                     ok &= read_block(20, 4)      # CH2 params
                     ok &= read_block(30, 4)      # CH3 params
-                    ok &= read_block(100, 6)     # system status
+                    ok &= read_block(100, 10)    # system + supervisor status (100-109)
                     ok &= read_block(110, 9)     # CH1 status (110-118)
                     ok &= read_block(120, 9)     # CH2 status (120-128)
                     ok &= read_block(130, 9)     # CH3 status (130-138)
+                    ok &= read_block(140, 12)    # CH1-CH3 supervisor status (140-151)
+                    ok &= read_block(152, 2)     # last reject reason + last cmd seq
 
                     if not ok:
                         self._poll_errors += 1
@@ -568,6 +874,7 @@ class BCONDriver:
                 pass
             self._serial = None
         self._poll_errors = 0
+        self._reset_cached_state()
         self._log("Auto-disconnected after repeated poll failures", "WARNING")
         self._ui_put("connected", False)
 
@@ -606,83 +913,77 @@ class BCONDriver:
     #                     High-Level Channel Control                       #
     # ================================================================== #
 
-    def set_channel_off(self, channel: int) -> None:
-        """
-        Turn off specified channel.
+    def _validate_channel(self, channel: int) -> bool:
+        """Validate a 1-based channel number."""
+        if 1 <= channel <= 3:
+            return True
+        self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
+        return False
 
-        Args:
-            channel: Channel number (1-3).
-        """
-        if not (1 <= channel <= 3):
-            self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return
+    def _stage_channel_mode(self, channel: int, mode_code: int,
+                            duration_ms: Optional[int] = None,
+                            count: Optional[int] = None) -> bool:
+        """Stage parameters plus requested mode without committing them yet."""
+        if not self._validate_channel(channel):
+            return False
+
         base = CH_BASE[channel - 1]
-        self.enqueue_write(base + CH_MODE_OFF, BCONMode.OFF)
+        mode_code = int(mode_code)
+
+        if mode_code not in (int(BCONMode.OFF), int(BCONMode.DC)):
+            if duration_ms is None or not (1 <= int(duration_ms) <= 60000):
+                self._log(f"Invalid pulse duration: {duration_ms}", "ERROR")
+                return False
+            if count is None or not (1 <= int(count) <= 10000):
+                self._log(f"Invalid pulse count: {count}", "ERROR")
+                return False
+            self.enqueue_write(base + CH_PULSE_MS_OFF, int(duration_ms))
+            self.enqueue_write(base + CH_COUNT_OFF, int(count))
+
+        self.enqueue_write(base + CH_MODE_OFF, mode_code)
+        return True
+
+    def apply_staged_modes(self) -> None:
+        """Commit any staged channel mode writes in the firmware."""
+        self.send_command(COMMAND_APPLY_STAGED_MODES)
+
+    def set_channel_off(self, channel: int) -> None:
+        """Stage OFF for one channel and apply it immediately."""
+        if self._stage_channel_mode(channel, BCONMode.OFF):
+            self.apply_staged_modes()
 
     def set_channel_dc(self, channel: int) -> None:
-        """
-        Set channel to DC mode (continuous output).
-
-        Args:
-            channel: Channel number (1-3).
-        """
-        if not (1 <= channel <= 3):
-            self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return
-        base = CH_BASE[channel - 1]
-        self.enqueue_write(base + CH_MODE_OFF, BCONMode.DC)
+        """Stage DC for one channel and apply it immediately."""
+        if self._stage_channel_mode(channel, BCONMode.DC):
+            self.apply_staged_modes()
 
     def set_channel_pulse(self, channel: int, duration_ms: int, count: int = 1) -> None:
-        """
-        Set channel to PULSE mode.
+        """Stage a single pulse request and apply it immediately."""
+        if count < 1:
+            self._log(f"PULSE requires count >= 1, got {count}", "ERROR")
+            return
 
-        Args:
-            channel: Channel number (1-3).
-            duration_ms: Pulse duration in milliseconds (1-60000).
-            count: Number of pulses (default 1).
-        """
-        if not (1 <= channel <= 3):
-            self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return
-        if not (1 <= duration_ms <= 60000):
-            self._log(f"Invalid pulse duration: {duration_ms}", "ERROR")
-            return
-        base = CH_BASE[channel - 1]
-        self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
-        self.enqueue_write(base + CH_COUNT_OFF, count)
-        self.enqueue_write(base + CH_MODE_OFF, BCONMode.PULSE)
+        effective_mode = BCONMode.PULSE if count == 1 else BCONMode.PULSE_TRAIN
+        if count > 1:
+            self._log(
+                f"PULSE request for CH{channel} promoted to PULSE_TRAIN because count={count}",
+                "WARNING",
+            )
+
+        if self._stage_channel_mode(channel, effective_mode, duration_ms=duration_ms, count=count):
+            self.apply_staged_modes()
 
     def set_channel_pulse_train(self, channel: int, duration_ms: int, count: int) -> None:
-        """
-        Set channel to PULSE_TRAIN mode.
-
-        Args:
-            channel: Channel number (1-3).
-            duration_ms: Pulse duration in milliseconds.
-            count: Number of pulses (must be >= 2).
-        """
-        if not (1 <= channel <= 3):
-            self._log(f"Invalid channel: {channel} (must be 1-3)", "ERROR")
-            return
+        """Stage a pulse-train request and apply it immediately."""
         if count < 2:
             self._log(f"PULSE_TRAIN requires count >= 2, got {count}", "ERROR")
             return
-        base = CH_BASE[channel - 1]
-        self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
-        self.enqueue_write(base + CH_COUNT_OFF, count)
-        self.enqueue_write(base + CH_MODE_OFF, BCONMode.PULSE_TRAIN)
+        if self._stage_channel_mode(channel, BCONMode.PULSE_TRAIN, duration_ms=duration_ms, count=count):
+            self.apply_staged_modes()
 
     def set_channel_mode(self, channel: int, mode: str,
                          duration_ms: int = 100, count: int = 1) -> None:
-        """
-        Generic channel mode setter.
-
-        Args:
-            channel: Channel number (1-3).
-            mode: Mode label string ('OFF', 'DC', 'PULSE', 'PULSE_TRAIN').
-            duration_ms: Pulse width for PULSE / PULSE_TRAIN modes.
-            count: Pulse count for PULSE / PULSE_TRAIN modes.
-        """
+        """Generic immediate mode setter built on the firmware stage/apply flow."""
         mode_upper = mode.strip().upper()
         if mode_upper == "OFF":
             self.set_channel_off(channel)
@@ -696,38 +997,33 @@ class BCONDriver:
             self._log(f"Unknown mode '{mode}'", "ERROR")
 
     def set_channel_params(self, channel: int, duration_ms: int, count: int) -> None:
-        """
-        Write pulse parameters without changing the mode register.
-
-        Args:
-            channel: Channel number (1-3).
-            duration_ms: Pulse width in ms.
-            count: Pulse count.
-        """
-        if not (1 <= channel <= 3):
+        """Write pulse parameters without changing staged or active mode."""
+        if not self._validate_channel(channel):
             return
         base = CH_BASE[channel - 1]
         if duration_ms > 0:
-            self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
+            if not (1 <= int(duration_ms) <= 60000):
+                self._log(f"Invalid pulse duration: {duration_ms}", "ERROR")
+                return
+            self.enqueue_write(base + CH_PULSE_MS_OFF, int(duration_ms))
         if count > 0:
-            self.enqueue_write(base + CH_COUNT_OFF, count)
+            if not (1 <= int(count) <= 10000):
+                self._log(f"Invalid pulse count: {count}", "ERROR")
+                return
+            self.enqueue_write(base + CH_COUNT_OFF, int(count))
 
     def toggle_channel_enable(self, channel: int) -> None:
-        """
-        Toggle the enable status of a channel (write 1 to enable_toggle register).
-
-        Args:
-            channel: Channel number (1-3).
-        """
-        if not (1 <= channel <= 3):
+        """Pulse the channel's enable-toggle output and update the UI shadow state."""
+        if not self._validate_channel(channel):
             return
         base = CH_BASE[channel - 1]
+        with self._regs_lock:
+            self._channel_enable_shadow[channel - 1] = not self._channel_enable_shadow[channel - 1]
         self.enqueue_write(base + CH_ENABLE_TOGGLE_OFF, 1)
 
     def stop_all(self) -> None:
-        """Force all three channels to OFF immediately."""
-        for ch in range(3):
-            self.enqueue_write(CH_BASE[ch] + CH_MODE_OFF, BCONMode.OFF)
+        """Force all three channels OFF using the firmware's dedicated command."""
+        self.send_command(COMMAND_ALL_OFF)
 
     # ================================================================== #
     #              Synchronous Multi-Channel Start/Stop                    #
@@ -735,29 +1031,72 @@ class BCONDriver:
 
     def sync_start(self, configs: List[Dict]) -> None:
         """
-        Start multiple channels with minimal inter-channel jitter.
-
-        Phase 1: write duration + count for all channels.
-        Phase 2: write mode for all channels (back-to-back).
+        Stage multiple channel updates, then commit them together with COMMAND=4.
 
         Args:
             configs: List of dicts with keys:
                      ch (int 1-3), mode (str), duration_ms (int), count (int)
         """
-        # Phase 1: parameters
-        for cfg in configs:
-            ch = cfg['ch']
-            mode_code = MODE_LABEL_TO_CODE.get(cfg['mode'].upper(), BCONMode.OFF)
-            if mode_code not in (BCONMode.OFF, BCONMode.DC):
-                base = CH_BASE[ch - 1]
-                self.enqueue_write(base + CH_PULSE_MS_OFF, cfg.get('duration_ms', 100))
-                self.enqueue_write(base + CH_COUNT_OFF, cfg.get('count', 1))
+        if not configs:
+            return
 
-        # Phase 2: modes (close together)
+        normalized = []
         for cfg in configs:
-            ch = cfg['ch']
-            mode_code = MODE_LABEL_TO_CODE.get(cfg['mode'].upper(), BCONMode.OFF)
-            self.enqueue_write(CH_BASE[ch - 1] + CH_MODE_OFF, mode_code)
+            try:
+                ch = int(cfg['ch'])
+            except Exception:
+                self._log(f"Invalid sync config channel: {cfg!r}", "ERROR")
+                return
+
+            if not self._validate_channel(ch):
+                return
+
+            mode_label = str(cfg.get('mode', 'OFF')).strip().upper()
+            if mode_label not in MODE_LABEL_TO_CODE:
+                self._log(f"Unknown sync mode '{mode_label}' for CH{ch}", "ERROR")
+                return
+
+            duration_ms = int(cfg.get('duration_ms', 100) or 100)
+            count = int(cfg.get('count', 1) or 1)
+            mode_code = MODE_LABEL_TO_CODE[mode_label]
+
+            if mode_code == BCONMode.PULSE:
+                if count < 1:
+                    self._log(f"CH{ch}: PULSE requires count >= 1", "ERROR")
+                    return
+                if count > 1:
+                    mode_code = BCONMode.PULSE_TRAIN
+            elif mode_code == BCONMode.PULSE_TRAIN:
+                if count < 2:
+                    self._log(f"CH{ch}: PULSE_TRAIN requires count >= 2", "ERROR")
+                    return
+
+            if mode_code not in (BCONMode.OFF, BCONMode.DC):
+                if not (1 <= duration_ms <= 60000):
+                    self._log(f"CH{ch}: invalid pulse duration {duration_ms}", "ERROR")
+                    return
+                if not (1 <= count <= 10000):
+                    self._log(f"CH{ch}: invalid pulse count {count}", "ERROR")
+                    return
+
+            normalized.append({
+                'ch': ch,
+                'mode_code': int(mode_code),
+                'duration_ms': duration_ms,
+                'count': count,
+            })
+
+        for cfg in normalized:
+            if cfg['mode_code'] in (int(BCONMode.OFF), int(BCONMode.DC)):
+                continue
+            base = CH_BASE[cfg['ch'] - 1]
+            self.enqueue_write(base + CH_PULSE_MS_OFF, cfg['duration_ms'])
+            self.enqueue_write(base + CH_COUNT_OFF, cfg['count'])
+
+        for cfg in normalized:
+            self.enqueue_write(CH_BASE[cfg['ch'] - 1] + CH_MODE_OFF, cfg['mode_code'])
+
+        self.apply_staged_modes()
 
     # ================================================================== #
     #                      System Configuration                            #
@@ -783,24 +1122,21 @@ class BCONDriver:
 
     def send_command(self, cmd_code: int) -> None:
         """
-        Write to the special COMMAND register.
+        Queue a write to the special COMMAND register.
 
-        Known codes:
-            0 = NOP (can be used to trigger a register refresh),
-            3 = ARM / CLEAR_FAULT.
-
-        Args:
-            cmd_code: Command code.
+        Nonzero commands are confirmed from LAST_CMD diagnostics after the
+        write completes; queue-depth and COMMAND echo timing are not used as
+        completion handshakes.
         """
-        self.enqueue_write(REG_COMMAND, cmd_code)
+        self.enqueue_write(REG_COMMAND, int(cmd_code))
 
     # ================================================================== #
     #                     Safety / Fault Management                        #
     # ================================================================== #
 
     def arm(self) -> None:
-        """Send ARM / CLEAR_FAULT command."""
-        self.send_command(3)
+        """Send the firmware clear-fault / re-arm command."""
+        self.send_command(COMMAND_CLEAR_FAULT)
 
     def clear_fault(self) -> None:
         """Alias for arm()."""
@@ -810,22 +1146,33 @@ class BCONDriver:
     #                     Status / Telemetry Access                        #
     # ================================================================== #
 
-    def get_system_state(self) -> str:
-        """
-        Get current system state as a human-readable string.
-
-        Returns:
-            State label (e.g. 'READY', 'FAULT_LATCHED').
-        """
-        code = self.get_register(REG_SYS_STATE)
+    @staticmethod
+    def _label_from_code(code: int, enum_type: type[IntEnum], labels: Dict[IntEnum, str]) -> str:
+        """Map an integer register value to a stable label."""
         try:
-            return STATE_LABELS.get(BCONState(code), "UNKNOWN")
+            return labels.get(enum_type(code), "UNKNOWN")
         except ValueError:
             return "UNKNOWN"
+
+    def get_system_state(self) -> str:
+        """Get current top-level safety state as a human-readable string."""
+        return self._label_from_code(self.get_register(REG_SYS_STATE), BCONState, STATE_LABELS)
 
     def get_system_state_code(self) -> int:
         """Get raw system state register value."""
         return self.get_register(REG_SYS_STATE)
+
+    def get_supervisor_state(self) -> str:
+        """Get the firmware supervisor summary state as a label."""
+        return self._label_from_code(
+            self.get_register(REG_SUP_STATE),
+            BCONSupervisorState,
+            SUPERVISOR_STATE_LABELS,
+        )
+
+    def get_supervisor_state_code(self) -> int:
+        """Get raw supervisor summary state register value."""
+        return self.get_register(REG_SUP_STATE)
 
     def is_interlock_ok(self) -> bool:
         """Check if the hardware interlock is satisfied."""
@@ -843,19 +1190,43 @@ class BCONDriver:
         """Get the last error code from firmware."""
         return self.get_register(REG_LAST_ERROR)
 
+    def get_last_command_code(self) -> int:
+        """Get the raw code of the most recent supervisor command."""
+        return self.get_register(REG_LAST_CMD_CODE)
+
+    def get_last_command_result(self) -> str:
+        """Get the most recent supervisor command result as a label."""
+        return self._label_from_code(
+            self.get_register(REG_LAST_CMD_RESULT),
+            BCONCommandResult,
+            COMMAND_RESULT_LABELS,
+        )
+
+    def get_last_command_result_code(self) -> int:
+        """Get the raw result code for the most recent supervisor command."""
+        return self.get_register(REG_LAST_CMD_RESULT)
+
+    def get_last_reject_reason(self) -> str:
+        """Get the most recent supervisor reject reason as a label."""
+        return self._label_from_code(
+            self.get_register(REG_LAST_REJECT_REASON),
+            BCONRejectReason,
+            REJECT_REASON_LABELS,
+        )
+
+    def get_last_reject_reason_code(self) -> int:
+        """Get the raw reject reason code for the most recent supervisor command."""
+        return self.get_register(REG_LAST_REJECT_REASON)
+
+    def get_last_command_sequence(self) -> int:
+        """Get the firmware sequence number for the most recent accepted command."""
+        return self.get_register(REG_LAST_CMD_SEQ)
+
     # --- Per-channel status ---
 
     def get_channel_mode(self, channel: int) -> str:
-        """
-        Get actual operating mode for a channel (from status registers).
-
-        Args:
-            channel: Channel number (1-3).
-
-        Returns:
-            Mode label string.
-        """
-        if not (1 <= channel <= 3):
+        """Get actual operating mode for a channel (from status registers)."""
+        if not self._validate_channel(channel):
             return "UNKNOWN"
         addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
         code = self.get_register(addr + 0)
@@ -863,114 +1234,167 @@ class BCONDriver:
 
     def get_channel_remaining(self, channel: int) -> int:
         """Get remaining pulse count for a channel."""
-        if not (1 <= channel <= 3):
+        if not self._validate_channel(channel):
             return 0
         addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
         return self.get_register(addr + 3)
 
     def get_channel_output_level(self, channel: int) -> int:
         """Get current output level for a channel (0 or 1)."""
-        if not (1 <= channel <= 3):
+        if not self._validate_channel(channel):
             return 0
         addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
         return self.get_register(addr + 8)
 
-    def get_channel_status(self, channel: int) -> Dict:
-        """
-        Get full status for a channel.
-
-        Args:
-            channel: Channel number (1-3).
-
-        Returns:
-            Dictionary with keys: mode, pulse_ms, count, remaining,
-            en_st, pwr_st, oc_st, gated_st, output_level.
-        """
-        if not (1 <= channel <= 3):
+    def get_channel_supervisor_status(self, channel: int) -> Dict:
+        """Get the semantic supervisor status block for one channel."""
+        if not self._validate_channel(channel):
             return {
-                'mode': 'UNKNOWN', 'pulse_ms': 0, 'count': 0, 'remaining': 0,
-                'en_st': 0, 'pwr_st': 0, 'oc_st': 0, 'gated_st': 0, 'output_level': 0
+                'run_state': 'UNKNOWN',
+                'run_state_code': -1,
+                'stop_reason': 'UNKNOWN',
+                'stop_reason_code': -1,
+                'complete': False,
+                'aborted': False,
             }
-        base = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+
+        base = REG_CH_SUP_BASE + (channel - 1) * REG_CH_SUP_STRIDE
         with self._regs_lock:
             r = self._regs
+            run_state_code = r[base + 0]
+            stop_reason_code = r[base + 1]
             return {
-                'mode':         MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
-                'pulse_ms':     r[base + 1],
-                'count':        r[base + 2],
-                'remaining':    r[base + 3],
-                'en_st':        r[base + 4],
-                'pwr_st':       r[base + 5],
-                'oc_st':        r[base + 6],
-                'gated_st':     r[base + 7],
+                'run_state': self._label_from_code(run_state_code, BCONChannelRunState, CHANNEL_RUN_STATE_LABELS),
+                'run_state_code': run_state_code,
+                'stop_reason': self._label_from_code(stop_reason_code, BCONStopReason, STOP_REASON_LABELS),
+                'stop_reason_code': stop_reason_code,
+                'complete': bool(r[base + 2]),
+                'aborted': bool(r[base + 3]),
+            }
+
+    def get_channel_status(self, channel: int) -> Dict:
+        """Get the combined live + supervisor status for one channel."""
+        if not self._validate_channel(channel):
+            return {
+                'mode': 'UNKNOWN',
+                'pulse_ms': 0,
+                'count': 0,
+                'remaining': 0,
+                'en_st': False,
+                'en_st_raw': 0,
+                'pwr_st': 0,
+                'oc_st': 0,
+                'gated_st': 0,
+                'output_level': 0,
+                'run_state': 'UNKNOWN',
+                'run_state_code': -1,
+                'stop_reason': 'UNKNOWN',
+                'stop_reason_code': -1,
+                'complete': False,
+                'aborted': False,
+            }
+
+        base = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+        sup_base = REG_CH_SUP_BASE + (channel - 1) * REG_CH_SUP_STRIDE
+        with self._regs_lock:
+            r = self._regs
+            enabled_shadow = self._channel_enable_shadow[channel - 1]
+            run_state_code = r[sup_base + 0]
+            stop_reason_code = r[sup_base + 1]
+            return {
+                'mode': MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
+                'pulse_ms': r[base + 1],
+                'count': r[base + 2],
+                'remaining': r[base + 3],
+                'en_st': enabled_shadow,
+                'en_st_raw': r[base + 4],
+                'pwr_st': r[base + 5],
+                'oc_st': r[base + 6],
+                'gated_st': r[base + 7],
                 'output_level': r[base + 8],
+                'run_state': self._label_from_code(run_state_code, BCONChannelRunState, CHANNEL_RUN_STATE_LABELS),
+                'run_state_code': run_state_code,
+                'stop_reason': self._label_from_code(stop_reason_code, BCONStopReason, STOP_REASON_LABELS),
+                'stop_reason_code': stop_reason_code,
+                'complete': bool(r[sup_base + 2]),
+                'aborted': bool(r[sup_base + 3]),
             }
 
     def is_channel_overcurrent(self, channel: int) -> bool:
-        """
-        Check if a channel has an overcurrent condition.
-
-        Args:
-            channel: Channel number (1-3).
-        """
-        if not (1 <= channel <= 3):
+        """Check if a channel has an overcurrent condition."""
+        if not self._validate_channel(channel):
             return False
         addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 6
         return bool(self.get_register(addr))
 
     def is_channel_enabled(self, channel: int) -> bool:
-        """
-        Check if a channel is enabled.
-
-        Args:
-            channel: Channel number (1-3).
-        """
-        if not (1 <= channel <= 3):
+        """Return the dashboard's best-effort software shadow for channel enable state."""
+        if not self._validate_channel(channel):
             return False
-        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 4
-        return bool(self.get_register(addr))
+        with self._regs_lock:
+            return self._channel_enable_shadow[channel - 1]
 
     # --- Legacy-compatible telemetry dict ---
 
     def get_status(self) -> Dict:
-        """
-        Get full system status in a structured dictionary.
-
-        Returns a dict compatible with the old telemetry format:
-            {'system': {state, reason, fault_latched, interlock_ok, watchdog_ok, ...},
-             'channels': [{mode, pulse_ms, count, remaining, en_st, pwr_st, oc_st, ...}, ...]}
-        """
+        """Get full system status in a structured dictionary."""
         with self._regs_lock:
             r = self._regs
             state_code = r[REG_SYS_STATE]
-            try:
-                state_label = STATE_LABELS.get(BCONState(state_code), "UNKNOWN")
-            except ValueError:
-                state_label = "UNKNOWN"
+            supervisor_state_code = r[REG_SUP_STATE]
+            last_result_code = r[REG_LAST_CMD_RESULT]
+            last_reject_code = r[REG_LAST_REJECT_REASON]
 
             system = {
-                'state':         state_label,
-                'reason':        r[REG_SYS_REASON],
+                'state': self._label_from_code(state_code, BCONState, STATE_LABELS),
+                'state_code': state_code,
+                'reason': r[REG_SYS_REASON],
                 'fault_latched': r[REG_FAULT_LATCHED],
-                'interlock_ok':  r[REG_INTERLOCK_OK],
-                'watchdog_ok':   r[REG_WATCHDOG_OK],
-                'last_error':    r[REG_LAST_ERROR],
-                'telemetry_ms':  r[REG_TELEMETRY_MS],
-                'watchdog_ms':   r[REG_WATCHDOG_MS],
+                'interlock_ok': r[REG_INTERLOCK_OK],
+                'watchdog_ok': r[REG_WATCHDOG_OK],
+                'last_error': r[REG_LAST_ERROR],
+                'telemetry_ms': r[REG_TELEMETRY_MS],
+                'watchdog_ms': r[REG_WATCHDOG_MS],
+                'supervisor_state': self._label_from_code(
+                    supervisor_state_code, BCONSupervisorState, SUPERVISOR_STATE_LABELS),
+                'supervisor_state_code': supervisor_state_code,
+                'cmd_queue_depth': r[REG_CMD_QUEUE_DEPTH],
+                'last_command_code': r[REG_LAST_CMD_CODE],
+                'last_command_label': self._command_label(r[REG_LAST_CMD_CODE]),
+                'last_command_result': self._label_from_code(
+                    last_result_code, BCONCommandResult, COMMAND_RESULT_LABELS),
+                'last_command_result_code': last_result_code,
+                'last_reject_reason': self._label_from_code(
+                    last_reject_code, BCONRejectReason, REJECT_REASON_LABELS),
+                'last_reject_reason_code': last_reject_code,
+                'last_cmd_seq': r[REG_LAST_CMD_SEQ],
             }
+
             channels = []
             for ch_idx in range(3):
                 base = REG_CH_STATUS_BASE + ch_idx * REG_CH_STATUS_STRIDE
+                sup_base = REG_CH_SUP_BASE + ch_idx * REG_CH_SUP_STRIDE
+                run_state_code = r[sup_base + 0]
+                stop_reason_code = r[sup_base + 1]
                 channels.append({
-                    'mode':         MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
-                    'pulse_ms':     r[base + 1],
-                    'count':        r[base + 2],
-                    'remaining':    r[base + 3],
-                    'en_st':        r[base + 4],
-                    'pwr_st':       r[base + 5],
-                    'oc_st':        r[base + 6],
-                    'gated_st':     r[base + 7],
+                    'mode': MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
+                    'pulse_ms': r[base + 1],
+                    'count': r[base + 2],
+                    'remaining': r[base + 3],
+                    'en_st': self._channel_enable_shadow[ch_idx],
+                    'en_st_raw': r[base + 4],
+                    'pwr_st': r[base + 5],
+                    'oc_st': r[base + 6],
+                    'gated_st': r[base + 7],
                     'output_level': r[base + 8],
+                    'run_state': self._label_from_code(
+                        run_state_code, BCONChannelRunState, CHANNEL_RUN_STATE_LABELS),
+                    'run_state_code': run_state_code,
+                    'stop_reason': self._label_from_code(
+                        stop_reason_code, BCONStopReason, STOP_REASON_LABELS),
+                    'stop_reason_code': stop_reason_code,
+                    'complete': bool(r[sup_base + 2]),
+                    'aborted': bool(r[sup_base + 3]),
                 })
 
         return {'system': system, 'channels': channels}

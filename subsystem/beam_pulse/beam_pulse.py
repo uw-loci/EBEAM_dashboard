@@ -583,14 +583,8 @@ class BeamPulseSubsystem:
         mode_label = config['mode']
         duration   = config['duration_ms']
         count      = config['count']
-        base       = CH_BASE[ch]
 
-        if mode_label in ('OFF', 'DC'):
-            self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
-        else:
-            self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, duration)
-            self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, count)
-            self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
+        self.bcon_driver.set_channel_mode(ch + 1, mode_label, duration_ms=duration, count=count)
         self._log_event(f"Applied CH{ch+1}: mode={mode_label} dur={duration}ms count={count}")
 
     def _manual_set_mode(self, ch, mode_code):
@@ -599,11 +593,35 @@ class BeamPulseSubsystem:
             return
         if not self.bcon_driver:
             return
-        base = CH_BASE[ch]
-        if mode_code == self.MODE_PULSE:
-            self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, 1)
-        self.bcon_driver.enqueue_write(base + CH_MODE_OFF, mode_code)
+
         label = MODE_CODE_TO_LABEL.get(mode_code, str(mode_code))
+        if mode_code in (self.MODE_OFF, self.MODE_DC):
+            self.bcon_driver.set_channel_mode(ch + 1, label)
+        else:
+            cv = self.channel_vars[ch] if ch < len(self.channel_vars) else None
+            try:
+                duration = int(cv['duration'].get().strip()) if cv else 100
+            except Exception:
+                messagebox.showerror("Invalid Configuration", f"CH{ch+1}: duration must be a whole number of ms")
+                return
+            if duration <= 0:
+                messagebox.showerror("Invalid Configuration", f"CH{ch+1}: duration must be > 0 ms")
+                return
+
+            if mode_code == self.MODE_PULSE:
+                count = 1
+            else:
+                try:
+                    count = int(cv['count'].get().strip()) if cv else 2
+                except Exception:
+                    messagebox.showerror("Invalid Configuration", f"CH{ch+1}: count must be a whole number")
+                    return
+                if count < 2:
+                    messagebox.showerror("Invalid Configuration", f"CH{ch+1}: PULSE_TRAIN requires count >= 2")
+                    return
+
+            self.bcon_driver.set_channel_mode(ch + 1, label, duration_ms=duration, count=count)
+
         self._log_event(f"CH{ch+1} -> {label}")
 
     def _manual_toggle_enable(self, ch):
@@ -832,21 +850,16 @@ class BeamPulseSubsystem:
             # Update progress via queue
             self._ui_queue.put(("seq_status", f"Step {idx+1}/{total} (#{step_num})"))
 
-            # Phase 1: write parameters
-            for row in rows:
-                if row["mode"] in ("OFF", "DC"):
-                    continue
-                ch = row["ch"]  # 0-based
-                base = CH_BASE[ch]
-                self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, row["duration_ms"])
-                self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, row["count"])
-
-            # Phase 2: write modes
-            for row in rows:
-                ch = row["ch"]
-                self.bcon_driver.enqueue_write(
-                    CH_BASE[ch] + CH_MODE_OFF, MODE_LABEL_TO_CODE[row["mode"]]
-                )
+            configs = [
+                {
+                    "ch": row["ch"] + 1,
+                    "mode": row["mode"],
+                    "duration_ms": row["duration_ms"],
+                    "count": row["count"],
+                }
+                for row in rows
+            ]
+            self.bcon_driver.sync_start(configs)
 
             # Dwell
             deadline = time.time() + dwell_ms / 1000.0
@@ -887,7 +900,21 @@ class BeamPulseSubsystem:
             self._update_ui_from_registers(regs)
         elif typ == "wrote":
             reg, val = msg[1], msg[2]
+            if reg == REG_COMMAND and val != 0:
+                return
             self._log_event(f"Wrote R{reg}={val}")
+        elif typ == "command_result":
+            info = msg[1]
+            requested = info.get("requested_label", f"CMD_{info.get('requested_code', '?')}")
+            actual = info.get("last_command_label", requested)
+            cmd_text = requested if actual == requested else f"{requested}->{actual}"
+            seq = info.get("last_cmd_seq", 0)
+            if info.get("rejected"):
+                reason = info.get("last_reject_reason", "UNKNOWN")
+                self._log_event(f"BCON command {cmd_text} rejected: {reason} (seq={seq})")
+            else:
+                result = str(info.get("last_command_result", "UNKNOWN")).lower()
+                self._log_event(f"BCON command {cmd_text} {result} (seq={seq})")
         elif typ == "error":
             self._log_event(f"Error: {msg[1]}")
         elif typ == "seq_status":
@@ -1274,6 +1301,7 @@ class BeamPulseSubsystem:
                 time.sleep(0.3)  # let the write drain
             except Exception:
                 pass
+            self.bcon_driver.reset_channel_enable_cache()
             self.bcon_driver.disconnect()
 
     def is_connected(self) -> bool:
@@ -1334,6 +1362,7 @@ class BeamPulseSubsystem:
         self.set_all_beams_status(False)
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+            self.bcon_driver.reset_channel_enable_cache()
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
         return True
@@ -1475,20 +1504,15 @@ class BeamPulseSubsystem:
         mode_label = config['mode']
         duration   = config['duration_ms']
         count      = config['count']
-        base       = CH_BASE[ch]
 
-        if mode_label in ('OFF', 'DC'):
-            self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
-        else:
-            self.bcon_driver.enqueue_write(base + CH_PULSE_MS_OFF, duration)
-            self.bcon_driver.enqueue_write(base + CH_COUNT_OFF, count)
-            self.bcon_driver.enqueue_write(base + CH_MODE_OFF, MODE_LABEL_TO_CODE[mode_label])
+        self.bcon_driver.set_channel_mode(ch + 1, mode_label, duration_ms=duration, count=count)
 
-        self.beam_on_status[ch] = True
+        is_on = mode_label != 'OFF'
+        self.beam_on_status[ch] = is_on
         self._log_event(f"Sent CH{ch+1}: mode={mode_label} dur={duration}ms count={count}")
         if self._dashboard_beam_callback:
             try:
-                self._dashboard_beam_callback(ch, True)
+                self._dashboard_beam_callback(ch, is_on)
             except Exception:
                 pass
         return True
@@ -1498,8 +1522,7 @@ class BeamPulseSubsystem:
         if not self.bcon_driver:
             self._log("No BCON driver", LogLevel.WARNING)
             return False
-        base = CH_BASE[ch]
-        self.bcon_driver.enqueue_write(base + CH_MODE_OFF, int(BCONMode.OFF))
+        self.bcon_driver.set_channel_off(ch + 1)
         self.beam_on_status[ch] = False
         self._log_event(f"CH{ch+1} -> OFF")
         if self._dashboard_beam_callback:
