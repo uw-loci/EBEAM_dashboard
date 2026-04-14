@@ -8,15 +8,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 POWER_SUPPLY_INPUT_DIR = os.path.join(BASE_DIR, "power_supply")
 POWER_SUPPLY_PLOT_DIR = os.path.join(BASE_DIR, "power_supply", "plots")
-POWER_SUPPLY_OUTPUT_DIR = os.path.join(BASE_DIR, "power_supply")
-
-BEAM_CONTROL_INPUT_DIR = os.path.join(BASE_DIR, "beam_control")
-BEAM_CONTROL_PLOT_DIR = os.path.join(BASE_DIR, "beam_control", "plots")
-BEAM_CONTROL_OUTPUT_DIR = os.path.join(BASE_DIR, "beam_control")
 
 # Backward-compatible support for legacy raw_files folders.
 POWER_SUPPLY_RAW_DIR = os.path.join(BASE_DIR, "power_supply", "raw_files")
-BEAM_CONTROL_RAW_DIR = os.path.join(BASE_DIR, "beam_control", "raw_files")
 
 POWER_SUPPLY_METHOD_LABEL = "Method 1 (max beam; lower heater current on ties)"
 
@@ -330,189 +324,20 @@ def process_power_supply_data():
 
     print(f"Power Supply: Processed {len(file_pairs)} files and generated plots.")
 
-def read_beam_control_csv(filename):
-    """Read beam control CSV files (already in final format)."""
-    with open(filename, newline="") as f:
-        reader = csv.DictReader(f)
-        rows = [row for row in reader]
-    return rows
 
-def write_beam_control_csv(filename, rows, columns):
-    """Write beam control CSV files."""
-    with open(filename, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=columns)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-
-
-def _normalize_beam_control_type(file_type):
-    """Normalize beam-control type aliases to canonical values."""
-    if not file_type:
-        return None
-    ft = str(file_type).strip().lower()
-    if ft in ("deflection", "beam_deflection", "bd"):
-        return "deflection"
-    if ft in ("scan_speed", "scan", "ss"):
-        return "scan_speed"
-    return None
-
-
-def _infer_beam_control_type(rows):
-    """Infer beam-control data type from row headers when filename hints are absent."""
+def _validate_power_supply_input_rows(rows, filename):
+    """Validate that single-file input is a power-supply CSV."""
     if not rows:
-        return None
+        raise ValueError(f"CSV file '{filename}' is empty.")
+
     headers = set(rows[0].keys())
-    if {"current_amplitude_A", "deflection_cm"}.issubset(headers):
-        return "deflection"
-    if {"frequency_hz", "scan_speed_mps"}.issubset(headers):
-        return "scan_speed"
-    return None
-
-
-def _validate_beam_control_rows(rows, filename, file_type=None):
-    """Validate beam-control rows against expected schema before write/plot."""
-    if not rows:
-        return
-
-    normalized_type = _normalize_beam_control_type(file_type) or _infer_beam_control_type(rows)
-    if normalized_type == "deflection":
-        required_columns = ["current_amplitude_A", "deflection_cm"]
-    elif normalized_type == "scan_speed":
-        required_columns = ["frequency_hz", "scan_speed_mps"]
-    else:
+    required = {"beam_current", "voltage", "heater_current"}
+    if not required.issubset(headers):
         found = ", ".join(list(rows[0].keys()))
         raise ValueError(
-            f"Beam control file '{filename}' type could not be inferred. "
-            f"Expected headers for deflection ({'current_amplitude_A, deflection_cm'}) "
-            f"or scan speed ({'frequency_hz, scan_speed_mps'}). Found: {found}."
+            f"File '{filename}' is not a power-supply LUT CSV. "
+            f"Expected headers: beam_current, voltage, heater_current. Found: {found}."
         )
-
-    header_keys = list(rows[0].keys())
-    missing = [col for col in required_columns if col not in header_keys]
-    if missing:
-        raise ValueError(
-            f"Beam control file '{filename}' is missing required columns: "
-            f"{', '.join(missing)}. Expected at least: {', '.join(required_columns)}."
-        )
-
-    for idx, row in enumerate(rows, start=2):
-        # Skip entirely empty lines.
-        if all((val is None or str(val).strip() == "") for val in row.values()):
-            continue
-        for col in required_columns:
-            value = row.get(col)
-            if value is None or str(value).strip() == "":
-                raise ValueError(
-                    f"Beam control file '{filename}' has empty value for required column "
-                    f"'{col}' at CSV row {idx}."
-                )
-            try:
-                float(value)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"Beam control file '{filename}' has non-numeric value for column "
-                    f"'{col}' at CSV row {idx}: {value!r}."
-                )
-
-
-def clean_beam_control_file(raw_path, clean_path, file_type=None):
-    """Clean beam control files (pass-through with validation)."""
-    rows = read_beam_control_csv(raw_path)
-    if not rows:
-        return rows
-
-    _validate_beam_control_rows(rows, os.path.basename(raw_path), file_type=file_type)
-
-    # Determine columns from the first row keys
-    columns = list(rows[0].keys())
-    write_beam_control_csv(clean_path, rows, columns)
-    return rows
-
-def plot_beam_control_graphs(rows, name, plot_dir, file_type):
-    """Generate plots for beam control data."""
-    if not rows:
-        return
-    
-    if not os.path.exists(plot_dir):
-        os.makedirs(plot_dir)
-    
-    normalized_type = _normalize_beam_control_type(file_type) or _infer_beam_control_type(rows)
-
-    # Determine plot type based on file type (with header-based fallback)
-    if normalized_type == "deflection":
-        # Beam deflection plot: current_amplitude_A vs deflection_cm
-        x_data = [float(r['current_amplitude_A']) for r in rows]
-        y_data = [float(r['deflection_cm']) for r in rows]
-        x_label = 'Current Amplitude (A)'
-        y_label = 'Deflection (cm)'
-        title = f'{name.replace("_", " ").title()}'
-    elif normalized_type == "scan_speed":
-        # Scan speed plot: frequency_hz vs scan_speed_mps
-        x_data = [float(r['frequency_hz']) for r in rows]
-        y_data = [float(r['scan_speed_mps']) for r in rows]
-        x_label = 'Frequency (Hz)'
-        y_label = 'Scan Speed (m/s)'
-        title = f'{name.replace("_", " ").title()}'
-    else:
-        return
-    
-    plt.figure(figsize=(8, 6))
-    plt.plot(x_data, y_data, marker='o', linestyle='-', linewidth=2, markersize=6)
-    plt.xlabel(x_label, fontsize=12)
-    plt.ylabel(y_label, fontsize=12)
-    plt.title(title, fontsize=14, fontweight='bold')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(plot_dir, f'{name}.png'), dpi=150)
-    plt.close()
-
-def process_beam_control_data():
-    print("Processing beam control data...")
-    file_pairs = discover_csv_file_pairs(BEAM_CONTROL_INPUT_DIR)
-    if not file_pairs:
-        # Fallback for older layout.
-        file_pairs = discover_csv_file_pairs(BEAM_CONTROL_RAW_DIR)
-    if not file_pairs:
-        print("Beam Control: No CSV files found.")
-        return
-
-    for raw_name, clean_name in file_pairs:
-        raw_path = os.path.join(
-            BEAM_CONTROL_INPUT_DIR if os.path.isfile(os.path.join(BEAM_CONTROL_INPUT_DIR, raw_name)) else BEAM_CONTROL_RAW_DIR,
-            raw_name,
-        )
-        raw_lower = raw_name.lower()
-        if "bd" in raw_lower:
-            file_type = "deflection"
-        elif "ss" in raw_lower:
-            file_type = "scan_speed"
-        else:
-            file_type = None
-        rows = clean_beam_control_file(raw_path, raw_path, file_type=file_type)
-        plot_name = clean_name.replace('.csv', '')
-        plot_beam_control_graphs(rows, plot_name, BEAM_CONTROL_PLOT_DIR, file_type)
-
-    print(f"Beam Control: Processed {len(file_pairs)} files and generated plots.")
-
-
-def _infer_subsystem_from_rows(rows):
-    """Infer subsystem from CSV headers when path does not identify it."""
-    if not rows:
-        raise ValueError("CSV file is empty; cannot infer subsystem.")
-    headers = set(rows[0].keys())
-    if {"beam_current", "voltage", "heater_current"}.issubset(headers):
-        return "power_supply"
-    if (
-        {"current_amplitude_A", "deflection_cm"}.issubset(headers)
-        or {"frequency_hz", "scan_speed_mps"}.issubset(headers)
-    ):
-        return "beam_control"
-    raise ValueError(
-        "Could not infer subsystem from CSV headers. "
-        "Expected power supply columns (beam_current, voltage, heater_current) "
-        "or beam control columns (current_amplitude_A/deflection_cm or frequency_hz/scan_speed_mps)."
-    )
 
 
 def _resolve_input_path(filename):
@@ -525,13 +350,11 @@ def _resolve_input_path(filename):
     candidate_paths.append(filename)
     candidate_paths.append(os.path.join(BASE_DIR, filename))
 
-    # Bare filename support against known data directories.
+    # Bare filename support against power-supply data directories.
     basename = os.path.basename(filename)
     candidate_paths.append(os.path.join(POWER_SUPPLY_INPUT_DIR, basename))
-    candidate_paths.append(os.path.join(BEAM_CONTROL_INPUT_DIR, basename))
     # Legacy support.
     candidate_paths.append(os.path.join(POWER_SUPPLY_RAW_DIR, basename))
-    candidate_paths.append(os.path.join(BEAM_CONTROL_RAW_DIR, basename))
 
     existing = []
     for path in candidate_paths:
@@ -567,36 +390,16 @@ def process_single_file(filename):
             "Expected a CSV with a non-empty name."
         )
 
-    normalized_raw_path = os.path.normcase(os.path.abspath(raw_path))
-    if normalized_raw_path.startswith(os.path.normcase(os.path.abspath(POWER_SUPPLY_INPUT_DIR))) or normalized_raw_path.startswith(os.path.normcase(os.path.abspath(POWER_SUPPLY_RAW_DIR))):
-        subsystem = "power_supply"
-    elif normalized_raw_path.startswith(os.path.normcase(os.path.abspath(BEAM_CONTROL_INPUT_DIR))) or normalized_raw_path.startswith(os.path.normcase(os.path.abspath(BEAM_CONTROL_RAW_DIR))):
-        subsystem = "beam_control"
-    else:
-        rows_for_inference = read_csv(raw_path)
-        subsystem = _infer_subsystem_from_rows(rows_for_inference)
+    rows_for_validation = read_csv(raw_path)
+    _validate_power_supply_input_rows(rows_for_validation, raw_name)
 
-    if subsystem == "power_supply":
-        raw_rows, cleaned_rows = clean_power_supply_file(raw_path, raw_path)
-        plot_power_supply_graphs(cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
-        plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
-        print(f"Power Supply: Processed in place {raw_name} using Method 1")
-        return
-
-    raw_lower = raw_name.lower()
-    if "bd" in raw_lower:
-        file_type = "deflection"
-    elif "ss" in raw_lower:
-        file_type = "scan_speed"
-    else:
-        file_type = None
-
-    rows = clean_beam_control_file(raw_path, raw_path, file_type=file_type)
-    plot_beam_control_graphs(rows, clean_stem, BEAM_CONTROL_PLOT_DIR, file_type)
-    print(f"Beam Control: Processed in place {raw_name}")
+    raw_rows, cleaned_rows = clean_power_supply_file(raw_path, raw_path)
+    plot_power_supply_graphs(cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
+    plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
+    print(f"Power Supply: Processed in place {raw_name} using Method 1")
 
 def main():
-    parser = argparse.ArgumentParser(description='Clean and process EBEAM lookup table data')
+    parser = argparse.ArgumentParser(description='Clean and process power-supply EBEAM lookup table data')
     parser.add_argument(
         'filename',
         nargs='?',
@@ -609,7 +412,6 @@ def main():
         return
 
     process_power_supply_data()
-    process_beam_control_data()
 
 if __name__ == "__main__":
     main()
