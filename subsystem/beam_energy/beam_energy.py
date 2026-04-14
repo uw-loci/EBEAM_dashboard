@@ -559,13 +559,67 @@ class BeamEnergySubsystem:
                 else:
                     self.actual_currents[index].set("-- mA")
 
-                # Update indicators based on dataFafter
+                # Update indicators based on data 
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
                 self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, logic_alive, interlocks)
                 self.update_output_status(index, hv_enable)
                 self.update_reset_status(index, reset_state)
                 self.update_connection_status(index, comms)
                 self.update_forced_off_status(index, reset_counter_3kv > 0)
+            
+            # Build a web monitor log payload
+            if self.logger and hasattr(self.logger, "update_field"):
+                supplies = []
+
+                for supply_index, ps in enumerate(self.power_supplies):
+                    unit_id = supply_index + 1
+                    connected = bool(knob_box.get_unit_connection_status(unit_id))
+                    d = data_snapshot.get(unit_id) if connected else None
+                    sign = -1.0 if unit_id == 2 else 1.0  # make -1kV supply signed
+
+                    set_v = d.get("set_voltage_V") if d else None
+                    meas_v = d.get("actual_voltage_V") if d else None
+                    meas_i = d.get("actual_current_mA") if d else None
+
+                    supplies.append({
+                        "unit_id": unit_id,
+                        "name": ps["name"],
+                        "connected": connected,
+                        "set_V": (sign * float(set_v)) if set_v is not None else None,
+                        "meas_V": (sign * float(meas_v)) if meas_v is not None else None,
+                        "meas_mA": float(meas_i) if meas_i is not None else None,
+                    })
+
+                # All flags come from the 3kV monitoring arduino
+                global_unit_id = 4
+                global_data = (
+                    data_snapshot.get(global_unit_id)
+                    if knob_box.get_unit_connection_status(global_unit_id)
+                    else None
+                )
+                flag_keys = [
+                    "3kV_enable",
+                    "nomop_flag",
+                    "timer_state_3kV",
+                    "ccspower_flag",
+                    "armbeams_flag",
+                    "arm80kv_flag",
+                    "vcomp_1k_flag",
+                    "icomp_1k_flag",
+                    "neg_vcomp_1k_flag",
+                    "neg_icomp_1k_flag",
+                    "vcomp_20k_flag",
+                    "icomp_20k_flag",
+                    "vcomp_3k_flag",
+                    "icomp_3k_flag",
+                ]
+                flags = {
+                    key: (int(bool(global_data.get(key, 0))) if global_data else None)
+                    for key in flag_keys
+                }
+
+                self.logger.update_field("beam_energy", {"supplies": supplies, "flags": flags})
+
 
         except Exception as e:  
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
