@@ -2305,7 +2305,7 @@ class CathodeHeatingSubsystem:
     def update_predictions_from_current(self, index, current):
         """
         Calculate and update predicted values based on a manually set current.
-        
+
         Args:
             index (int): Index of cathode (0-2)
             current (float): Manually entered current value
@@ -2343,20 +2343,20 @@ class CathodeHeatingSubsystem:
                     LogLevel.WARNING,
                 )
                 return False
-            
+
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
                 index,
                 pred_heater_voltage,
                 target_heater_current=pred_heater_current
             )
-            
+
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
                 self.clear_prediction_variables(index)
                 self.log(f"No lookup table data available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return False
-                
+
             # Calculate dependent variables - beam_current is what hits the target, emission is total
             ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
@@ -2369,7 +2369,7 @@ class CathodeHeatingSubsystem:
             self.predicted_temperature_vars[index].set('--')
 
             return True
-        
+
         except ValueError as e:
             self.clear_prediction_variables(index)
             self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
@@ -2420,20 +2420,20 @@ class CathodeHeatingSubsystem:
                     LogLevel.WARNING,
                 )
                 return False
-            
+
             # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
                 index,
                 pred_heater_voltage,
                 target_heater_current=pred_heater_current
             )
-            
+
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
                 self.clear_prediction_variables(index)
                 self.log(f"No lookup table data available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
                 return False
-                
+
             # Calculate dependent variables - beam_current is what hits the target, emission is total
             ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
@@ -2444,9 +2444,9 @@ class CathodeHeatingSubsystem:
             self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
             self.predicted_temperature_vars[index].set('--')
-            
+
             return True
-        
+
         except Exception as e:
             self.clear_prediction_variables(index)
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
@@ -2455,7 +2455,7 @@ class CathodeHeatingSubsystem:
     def _current_for_voltage(self, index: int, voltage: float):
         """Return heater current for voltage using LUT linear interpolation."""
         return self._interpolate_lut_value(index, voltage, "voltage", "heater_current")
-    
+
     def _voltage_for_current(self, index: int, current: float):
         """Return heater voltage for current using LUT linear interpolation."""
         return self._interpolate_lut_value(index, current, "heater_current", "voltage")
@@ -2466,13 +2466,13 @@ class CathodeHeatingSubsystem:
 
         LUT data is treated as a function for voltage->(heater current, beam current)
         lookups. For a given voltage, there must be exactly one output pair.
-        
+
         Args:
             index (int): Index of the cathode (0-2)
             val (float): Input value (voltage or current)
             target_heater_current (float | None): Unused; retained for call-site
                 compatibility.
-            
+
         Returns:
             tuple: (heater_voltage, heater_current, beam_current)
         """
