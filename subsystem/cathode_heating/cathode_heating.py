@@ -1446,6 +1446,7 @@ class CathodeHeatingSubsystem:
             # Verify the set value
             ovp_get_response = self.power_supplies[index].get_over_voltage_protection()
             if ovp_get_response is None:
+                self.ovl_live_values[index] = None
                 self.ovl_readback_vars[index].set("N/A")
                 self.log("OVP readback is None--possible comm issue", LogLevel.WARNING)
             else:
@@ -1505,6 +1506,7 @@ class CathodeHeatingSubsystem:
                 self.overcurrent_limit_vars[index].set(float(ocp_get_response))
                 self.ocl_readback_vars[index].set(f"{float(ocp_get_response):.2f}")
             else:
+                self.ocl_live_values[index] = None
                 self.ocl_readback_vars[index].set("N/A")
             if ocp_get_response is None or abs(ocp_get_response - raw_value) > 0.01:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:.2f}, Got: {ocp_get_response}", LogLevel.WARNING)
