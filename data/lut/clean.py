@@ -5,14 +5,11 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 POWER_SUPPLY_INPUT_DIR = os.path.join(BASE_DIR, "power_supply")
 POWER_SUPPLY_PLOT_DIR = os.path.join(BASE_DIR, "power_supply", "plots")
-
 # Backward-compatible support for legacy raw_files folders.
 POWER_SUPPLY_RAW_DIR = os.path.join(BASE_DIR, "power_supply", "raw_files")
-
-POWER_SUPPLY_METHOD_LABEL = "Method 1 (max beam; lower heater current on ties)"
+POWER_SUPPLY_METHOD_LABEL = "Max beam; lower heater current on ties"
 
 def read_csv(filename):
     with open(filename, newline="") as f:
@@ -65,7 +62,6 @@ def _to_numeric_power_rows(rows):
 def _select_row_for_voltage_bin(group):
     """Choose one representative row for a voltage bin.
 
-    Method 1:
     1) Select rows with the maximum beam current in the bin.
     2) If tied, choose the row with the lower heater current.
     """
@@ -81,7 +77,7 @@ def _clean_power_supply_rows(rows):
     Steps:
     1) Parse complete numeric rows only.
     2) Sort rows for deterministic grouping/selection.
-    3) Deduplicate each voltage bin using Method 1.
+    3) Deduplicate each voltage bin using max-beam + lower-heater tie-break.
     """
     numeric_rows = _to_numeric_power_rows(rows)
     if not numeric_rows:
@@ -380,7 +376,7 @@ def process_single_file(filename):
     raw_rows, cleaned_rows = clean_power_supply_file(raw_path, raw_path)
     plot_power_supply_graphs(cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
     plot_power_supply_comparison(raw_rows, cleaned_rows, clean_stem, POWER_SUPPLY_PLOT_DIR)
-    print(f"Power Supply: Processed in place {raw_name} using Method 1")
+    print(f"Power Supply: Processed in place {raw_name}")
 
 def main():
     parser = argparse.ArgumentParser(description='Clean and process power-supply EBEAM lookup table data')
