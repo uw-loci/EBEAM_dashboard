@@ -57,7 +57,8 @@ class Logger:
             "Cathode C - Heater Voltage:": None,
             "clamp_temperature_A" : None,
             "clamp_temperature_B" : None,
-            "clamp_temperature_C" : None
+            "clamp_temperature_C" : None,
+            "beam_energy": None
             }
         if log_to_file:
             self.setup_log_file()

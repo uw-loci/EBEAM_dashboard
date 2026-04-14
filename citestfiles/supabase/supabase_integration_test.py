@@ -35,6 +35,7 @@ EXPECTED_DICT_LOGGER_KEYS = {
     "clamp_temperature_A",
     "clamp_temperature_B",
     "clamp_temperature_C",
+    "beam_energy",
 }
 
 
