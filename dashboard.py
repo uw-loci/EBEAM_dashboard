@@ -69,6 +69,7 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
+        self.ports_after_id = None
         
         
         if self.load_saved_pane_state():
@@ -117,9 +118,10 @@ class EBEAMSystemDashboard:
             if hasattr(subsystem, 'cancel_updates'):
                 subsystem.cancel_updates()
         # Now cancel com port checks
-        if self.ports_after_id:
+        if self.ports_after_id is not None:
             try:
                 self.root.after_cancel(self.ports_after_id)
+                self.ports_after_id = None
                 self.logger.debug("Cancelled scheduled com port checks.")
             except Exception as e:
                 self.logger.debug("Failed to cancel scheduled com port checks.")
