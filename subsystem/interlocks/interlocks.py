@@ -49,6 +49,7 @@ class InterlocksSubsystem:
         self.update_interval = 500  # Default update interval (ms)
         self.max_interval = 5000   # Maximum update interval (ms)
         self._last_status = None
+        self.after_id = None
         self.setup_gui()
 
         try:
@@ -68,7 +69,7 @@ class InterlocksSubsystem:
             self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
             self._set_all_indicators('red')
         
-        self.parent.after(self.update_interval, self.update_data)
+        self._schedule_update()
 
     def update_com_port(self, com_port):
         """
@@ -104,6 +105,15 @@ class InterlocksSubsystem:
             # On communication failure, use exponential backoff with a cap
             self.error_count = min(self.error_count + 1, 5)  # Cap error count
             self.update_interval = min(500 * (2 ** self.error_count), self.max_interval)
+
+    def _schedule_update(self):
+        """Schedule the next update and keep only one pending callback."""
+        if self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+            except Exception:
+                pass
+        self.after_id = self.parent.after(self.update_interval, self.update_data)
 
     def setup_gui(self):
         """Setup the GUI for the interlocks subsystem"""
@@ -269,7 +279,6 @@ class InterlocksSubsystem:
                         self.log("No data available from G9", LogLevel.CRITICAL)
                         self.last_error_time = current_time
                         self._adjust_update_interval(success=False)
-                        self.parent.after(self.update_interval, self.update_data)
                         return
                 
                 sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms, debug_data = status
@@ -346,13 +355,14 @@ class InterlocksSubsystem:
         finally:
             # Schedule next update
             if self.driver:
-                self.after_id = self.parent.after(self.update_interval, self.update_data)
+                self._schedule_update()
     
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
         if hasattr(self, 'after_id') and self.after_id:
             try:
                 self.parent.after_cancel(self.after_id)
+                self.after_id = None
                 self.log('Canceled scheduled interlock status update.', LogLevel.DEBUG)
             except Exception as e:
                 self.log('Failed to cancel scheduled interlock status update.', LogLevel.DEBUG)
