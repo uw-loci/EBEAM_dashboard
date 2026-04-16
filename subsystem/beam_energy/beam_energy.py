@@ -598,8 +598,8 @@ class BeamEnergySubsystem:
             # Build a web monitor log payload
             if self.logger and hasattr(self.logger, "update_field"):
 
-                # Use helper to build a "supplies" dict for all 4 power suplies
-                supplies = self._build_supplies_payload(knob_box, data_snapshot)
+                # Build keyed per-supply payload entries.
+                supply_payload = self._build_supplies_payload(knob_box, data_snapshot)
 
                 # All flags come from the 3kV monitoring arduino
                 global_unit_id = 4
@@ -629,7 +629,7 @@ class BeamEnergySubsystem:
                     for key in flag_keys
                 }
 
-                self.logger.update_field("beam_energy", {"supplies": supplies, "flags": flags})
+                self.logger.update_field("beam_energy", {**supply_payload, "flags": flags})
 
 
         except Exception as e:  
