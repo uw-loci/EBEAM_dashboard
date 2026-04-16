@@ -457,6 +457,34 @@ class BeamEnergySubsystem:
         self.reconnect_requested.set()
         return True
 
+    def _build_supplies_payload(self, knob_box, data_snapshot):
+        """Build a stable keyed supplies payload with exactly four entries."""
+        supplies = {}
+        supply_map = [
+            ("pos1kv", 1),
+            ("neg1kv", 2),
+            ("20kv", 3),
+            ("3kv", 4),
+        ]
+
+        for supply_key, unit_id in supply_map:
+            connected = bool(knob_box.get_unit_connection_status(unit_id))
+            data = data_snapshot.get(unit_id) if connected else None
+            sign = -1.0 if unit_id == 2 else 1.0  # make -1kV supply signed
+
+            set_v = data.get("set_voltage_V") if data else None
+            meas_v = data.get("actual_voltage_V") if data else None
+            meas_i = data.get("actual_current_mA") if data else None
+
+            supplies[supply_key] = {
+                "connected": connected,
+                "set_v": (sign * float(set_v)) if set_v is not None else None,
+                "meas_v": (sign * float(meas_v)) if meas_v is not None else None,
+                "meas_i": float(meas_i) if meas_i is not None else None,
+            }
+
+        return supplies
+
     def update_readings(self):
         """
         Update voltage and current readings from hardware.
@@ -569,26 +597,9 @@ class BeamEnergySubsystem:
             
             # Build a web monitor log payload
             if self.logger and hasattr(self.logger, "update_field"):
-                supplies = []
 
-                for supply_index, ps in enumerate(self.power_supplies):
-                    unit_id = supply_index + 1
-                    connected = bool(knob_box.get_unit_connection_status(unit_id))
-                    d = data_snapshot.get(unit_id) if connected else None
-                    sign = -1.0 if unit_id == 2 else 1.0  # make -1kV supply signed
-
-                    set_v = d.get("set_voltage_V") if d else None
-                    meas_v = d.get("actual_voltage_V") if d else None
-                    meas_i = d.get("actual_current_mA") if d else None
-
-                    supplies.append({
-                        "unit_id": unit_id,
-                        "name": ps["name"],
-                        "connected": connected,
-                        "set_V": (sign * float(set_v)) if set_v is not None else None,
-                        "meas_V": (sign * float(meas_v)) if meas_v is not None else None,
-                        "meas_mA": float(meas_i) if meas_i is not None else None,
-                    })
+                # Use helper to build a "supplies" dict for all 4 power suplies
+                supplies = self._build_supplies_payload(knob_box, data_snapshot)
 
                 # All flags come from the 3kV monitoring arduino
                 global_unit_id = 4
