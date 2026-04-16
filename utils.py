@@ -2,6 +2,7 @@
 import sys
 import subprocess
 import os
+import threading
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
 import datetime
@@ -73,8 +74,16 @@ class Logger:
             self.text_widget.insert(tk.END, formatted_message, ("log",))
             self.text_widget.tag_config("log", font=("Helvetica", 9))
             self.text_widget.see(tk.END)
-        except tk.TclError:
-            # Widget has been destroyed (application shutting down)
+        except tk.TclError as exc:
+            # Widget has been destroyed or is being torn down during shutdown.
+            current_thread = threading.current_thread()
+            try:
+                sys.__stderr__.write(
+                    f"WARNING: thread {current_thread.name} still running during shutdown "
+                )
+                sys.__stderr__.flush()
+            except Exception:
+                pass
             self.text_widget = None
 
     def attach_text_widget(self, text_widget):
@@ -420,8 +429,19 @@ class TextRedirector:
         self.tag = tag
 
     def write(self, msg):
-        self.widget.insert(tk.END, msg, (self.tag,))
-        self.widget.see(tk.END)  # Scroll to the end
+        if self.widget is None:
+            return
+        try:
+            self.widget.insert(tk.END, msg, (self.tag,))
+            self.widget.see(tk.END)  # Scroll to the end
+        except tk.TclError:
+            # Widget has been destroyed or is being torn down during shutdown.
+            self.widget = None
+            try:
+                sys.__stderr__.write(msg)
+                sys.__stderr__.flush()
+            except Exception:
+                pass
 
     def flush(self):
         pass  # Needed for compatibility
