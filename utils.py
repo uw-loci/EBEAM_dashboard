@@ -69,9 +69,13 @@ class Logger:
     def _write_to_text_widget(self, formatted_message):
         if self.text_widget is None:
             return
-        self.text_widget.insert(tk.END, formatted_message, ("log",))
-        self.text_widget.tag_config("log", font=("Helvetica", 9))
-        self.text_widget.see(tk.END)
+        try:
+            self.text_widget.insert(tk.END, formatted_message, ("log",))
+            self.text_widget.tag_config("log", font=("Helvetica", 9))
+            self.text_widget.see(tk.END)
+        except tk.TclError:
+            # Widget has been destroyed (application shutting down)
+            self.text_widget = None
 
     def attach_text_widget(self, text_widget):
         self.text_widget = text_widget
