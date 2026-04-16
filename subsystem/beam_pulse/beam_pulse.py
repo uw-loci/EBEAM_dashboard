@@ -59,6 +59,8 @@ class BeamPulseSubsystem:
     MODE_DC          = int(BCONMode.DC)
     MODE_PULSE       = int(BCONMode.PULSE)
     MODE_PULSE_TRAIN = int(BCONMode.PULSE_TRAIN)
+    DEFAULT_WATCHDOG_MS = BCONDriver.DEFAULT_WATCHDOG_MS
+    DEFAULT_TELEMETRY_MS = BCONDriver.DEFAULT_TELEMETRY_MS
 
     def __init__(self, parent_frame=None, port=None, unit=1, baudrate=115200,
                  logger=None, debug: bool = False):
@@ -101,6 +103,8 @@ class BeamPulseSubsystem:
 
         # Dashboard integration callback
         self._dashboard_beam_callback = None
+        self._host_toplevel = None
+        self._shutdown_in_progress = False
 
         # CSV sequence player state
         self._seq_steps: list = []
@@ -147,6 +151,7 @@ class BeamPulseSubsystem:
         # Create GUI if parent frame is provided
         if parent_frame:
             self.setup_ui()
+            self._register_host_close_hook()
 
         # Auto-connect in background if a port was supplied
         if self.bcon_driver:
@@ -182,6 +187,38 @@ class BeamPulseSubsystem:
         self.start_bcon_connection_monitoring()
         self.start_pulser_status_monitoring()
 
+    def _register_host_close_hook(self) -> None:
+        """Disconnect BCON when the owning Tk toplevel is destroyed."""
+        if not self.parent_frame:
+            return
+        try:
+            toplevel = self.parent_frame.winfo_toplevel()
+        except Exception:
+            return
+        if toplevel is self._host_toplevel:
+            return
+        self._host_toplevel = toplevel
+        try:
+            toplevel.bind("<Destroy>", self._on_host_destroy, add="+")
+        except Exception:
+            self._host_toplevel = None
+
+    def _shutdown_for_host_close(self) -> None:
+        """One-shot shutdown path used when the dashboard window is closing."""
+        if self._shutdown_in_progress:
+            return
+        self._shutdown_in_progress = True
+        try:
+            self.disconnect()
+        except Exception:
+            pass
+
+    def _on_host_destroy(self, event) -> None:
+        """Tear down BCON when the dashboard toplevel is being destroyed."""
+        if self._host_toplevel is None or event.widget is not self._host_toplevel:
+            return
+        self._shutdown_for_host_close()
+
     # ----------------------------- Status bar ----------------------------- #
 
     def _build_status_bar(self):
@@ -209,7 +246,7 @@ class BeamPulseSubsystem:
         sys_frame.pack(fill=tk.X, padx=5, pady=(2, 0))
         ttk.Label(sys_frame, text="Watchdog (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
         self.watchdog_entry = ttk.Entry(sys_frame, width=7)
-        self.watchdog_entry.insert(0, "2000")  # safe default
+        self.watchdog_entry.insert(0, str(self.DEFAULT_WATCHDOG_MS))
         self.watchdog_entry.pack(side=tk.LEFT, padx=2)
         ttk.Button(sys_frame, text="Set", width=4, command=self._set_watchdog).pack(side=tk.LEFT, padx=(0, 8))
 
@@ -1128,11 +1165,34 @@ class BeamPulseSubsystem:
     #               Safety / System Settings Actions                       #
     # ================================================================== #
 
+    def _apply_default_bcon_settings(self) -> None:
+        """Apply the dashboard's preferred runtime settings after connect."""
+        if not self.bcon_driver or not self.bcon_driver.is_connected():
+            return
+        self.bcon_driver.set_watchdog(self.DEFAULT_WATCHDOG_MS)
+        self.bcon_driver.set_telemetry(self.DEFAULT_TELEMETRY_MS)
+
+    def _stop_sequence_worker(self) -> None:
+        """Stop any active CSV sequence worker before disconnecting hardware."""
+        self._seq_stop.set()
+        if (
+            self._seq_thread
+            and self._seq_thread.is_alive()
+            and threading.current_thread() is not self._seq_thread
+        ):
+            self._seq_thread.join(timeout=1.0)
+        self._seq_thread = None
+
     def _auto_connect(self):
         """Background thread: open the serial port and connect to BCON."""
         port = self.bcon_driver.port
         self._ui_queue.put(("seq_status", f"Connecting to BCON on {port}…"))
         ok = self.bcon_driver.connect()
+        if self._shutdown_in_progress:
+            self.bcon_driver.disconnect()
+            return
+        if ok:
+            self._apply_default_bcon_settings()
         msg = f"BCON connected on {port}" if ok else f"BCON connect failed on {port} — check port & firmware"
         # Route via the UI queue so Messages & Errors is updated on the main
         # thread (direct self._log() from a background thread is not safe).
@@ -1140,12 +1200,14 @@ class BeamPulseSubsystem:
 
     def _manual_connect(self):
         """Button handler: disconnect when connected, reconnect when disconnected."""
+        if self._shutdown_in_progress:
+            return
         if not self.bcon_driver:
             messagebox.showwarning("Connect", "No port configured for BCON.")
             return
         if self.bcon_driver.is_connected():
             # User clicked "Disconnect" — only tear down, do NOT reconnect.
-            self.bcon_driver.disconnect()
+            self.disconnect()
             if hasattr(self, 'connect_btn'):
                 self.connect_btn.configure(text="Reconnect", state="normal")
             self._log_event("BCON disconnected by user")
@@ -1156,8 +1218,16 @@ class BeamPulseSubsystem:
             self.parent_frame.after(100, lambda: None)  # force redraw
         def _do():
             ok = self.bcon_driver.connect()
+            if self._shutdown_in_progress:
+                self.bcon_driver.disconnect()
+                return
+            if ok:
+                self._apply_default_bcon_settings()
             if self.parent_frame:
-                self.parent_frame.after(0, lambda: self._on_connect_done(ok))
+                try:
+                    self.parent_frame.after(0, lambda: self._on_connect_done(ok))
+                except Exception:
+                    pass
         threading.Thread(target=_do, daemon=True).start()
 
     def _on_connect_done(self, ok: bool):
@@ -1305,23 +1375,32 @@ class BeamPulseSubsystem:
     # --- Hardware driver interface ---
 
     def connect(self) -> bool:
+        if self._shutdown_in_progress:
+            return False
         if self.bcon_driver:
             success = self.bcon_driver.connect()
+            if self._shutdown_in_progress:
+                self.bcon_driver.disconnect()
+                return False
             if success:
-                self.bcon_driver.set_watchdog(2000)
-                self.bcon_driver.set_telemetry(500)
+                self._apply_default_bcon_settings()
             return success
         return False
 
     def disconnect(self) -> None:
+        self._stop_sequence_worker()
+        self.bcon_connection_status = False
+        self.beams_armed_status = False
+        self.beam_on_status = [False, False, False]
+        self._active_channels.clear()
+        self._update_armed_button_states(False)
         if self.bcon_driver:
-            try:
-                self.bcon_driver.stop_all()
-                time.sleep(0.3)  # let the write drain
-            except Exception:
-                pass
             self.bcon_driver.reset_channel_enable_cache()
             self.bcon_driver.disconnect()
+
+    def close_com_ports(self) -> None:
+        """Dashboard cleanup hook."""
+        self._shutdown_for_host_close()
 
     def is_connected(self) -> bool:
         if self.bcon_driver:

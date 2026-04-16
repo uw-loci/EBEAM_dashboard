@@ -280,10 +280,14 @@ class BCONDriver:
     DEFAULT_BAUD       = 115200
     DEFAULT_UNIT       = 1
     DEFAULT_TIMEOUT    = 1.0
+    DEFAULT_WATCHDOG_MS = 1500
+    DEFAULT_TELEMETRY_MS = 500
+    WATCHDOG_MIN_MS   = 50
+    WATCHDOG_MAX_MS   = 60000
     POLL_INTERVAL      = 0.5     # seconds between register polls
     MAX_POLL_ERRORS    = 15      # consecutive failures before auto-disconnect
     SETTLE_TIME        = 4.5     # seconds to wait after opening port (Arduino DTR reset)
-    WATCHDOG_HEARTBEAT_S = 1.0   # write watchdog register this often (firmware default: 2000ms)
+    WATCHDOG_HEARTBEAT_S = 0.5   # refresh at least once per poll cycle
     COMMAND_CONFIRM_RETRIES = 4
     COMMAND_CONFIRM_DELAY_S = 0.02
 
@@ -327,6 +331,7 @@ class BCONDriver:
         self._ui_queue: Optional[queue.Queue] = None
 
         self._user_requested_disconnect = False
+        self._watchdog_timeout_ms = self.DEFAULT_WATCHDOG_MS
         self._last_heartbeat_time: float = 0.0  # tracks last watchdog write
 
     def set_ui_queue(self, q: queue.Queue):
@@ -351,7 +356,16 @@ class BCONDriver:
         """Clear cached registers."""
         with self._regs_lock:
             self._regs = [0] * TOTAL_REGS
+        self._watchdog_timeout_ms = self.DEFAULT_WATCHDOG_MS
         self._last_heartbeat_time = 0.0
+
+    def _clear_cmd_queue(self) -> None:
+        """Drop any queued writes so reconnects never replay stale commands."""
+        while True:
+            try:
+                self._cmd_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def _set_cached_channel_enabled(self, channel: int, enabled: bool) -> None:
         """Update cached enable-related registers for one channel."""
@@ -535,6 +549,10 @@ class BCONDriver:
         if settle_s is None:
             settle_s = self.SETTLE_TIME
 
+        self._user_requested_disconnect = False
+        self._stop_poll_thread()
+        self._clear_cmd_queue()
+
         if self._serial:
             try:
                 self._serial.close()
@@ -573,7 +591,7 @@ class BCONDriver:
 
             # Validate communication with a test write + read
             try:
-                self._write_register_raw(REG_WATCHDOG_MS, 2000)
+                self._write_register_raw(REG_WATCHDOG_MS, self.DEFAULT_WATCHDOG_MS)
                 self._log("Watchdog heartbeat sent", "INFO")
             except Exception as e:
                 self._log(f"Post-settle watchdog write failed: {e}", "WARNING")
@@ -584,6 +602,15 @@ class BCONDriver:
             except Exception as e:
                 self._log(f"Test read failed: {e}", "ERROR")
                 ok = False
+
+        if self._user_requested_disconnect:
+            ok = False
+            if self._serial:
+                try:
+                    self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
 
         self._connected = ok
         self._poll_errors = 0
@@ -603,6 +630,15 @@ class BCONDriver:
         """Disconnect from BCON hardware."""
         self._user_requested_disconnect = True
         self._stop_poll_thread()
+        self._clear_cmd_queue()
+        if self._serial and self._connected:
+            try:
+                if self.write_register_immediate(REG_COMMAND, COMMAND_ALL_OFF):
+                    self._log("ALL_OFF sent before disconnect", "INFO")
+                else:
+                    self._log("ALL_OFF before disconnect was inconclusive; relying on watchdog", "WARNING")
+            except Exception as e:
+                self._log(f"ALL_OFF before disconnect failed: {e}", "WARNING")
         self._connected = False
         self._poll_errors = 0
         if self._serial:
@@ -784,7 +820,7 @@ class BCONDriver:
                     and self._cmd_queue.empty()
                     and (now - self._last_heartbeat_time) >= self.WATCHDOG_HEARTBEAT_S):
                 try:
-                    self._write_register_raw(REG_WATCHDOG_MS, 2000)
+                    self._write_register_raw(REG_WATCHDOG_MS, self._watchdog_timeout_ms)
                     self._last_heartbeat_time = now
                 except Exception as e:
                     self._log(f"Watchdog heartbeat failed: {e}", "WARNING")
@@ -877,6 +913,7 @@ class BCONDriver:
         """Called from poll thread when too many consecutive errors."""
         self._connected = False
         self._poll_running = False   # tell the poll thread to exit cleanly
+        self._clear_cmd_queue()
         if self._serial:
             try:
                 self._serial.close()
@@ -1128,6 +1165,15 @@ class BCONDriver:
         Args:
             timeout_ms: Watchdog timeout in milliseconds.
         """
+        timeout_ms = int(timeout_ms)
+        if not (self.WATCHDOG_MIN_MS <= timeout_ms <= self.WATCHDOG_MAX_MS):
+            self._log(
+                f"Invalid watchdog timeout: {timeout_ms} "
+                f"(must be {self.WATCHDOG_MIN_MS}-{self.WATCHDOG_MAX_MS} ms)",
+                "ERROR",
+            )
+            return
+        self._watchdog_timeout_ms = timeout_ms
         self.enqueue_write(REG_WATCHDOG_MS, timeout_ms)
 
     def set_telemetry(self, interval_ms: int) -> None:
