@@ -7,7 +7,7 @@ for three independent pulser channels with safety interlocks.
 
 Register map mirrors the firmware Modbus slave implementation:
   Control registers   0-2   : watchdog, telemetry, command
-  Channel 1 params   10-13  : mode, pulse_ms, count, enable_toggle
+  Channel 1 params   10-13  : mode, pulse_ms, count, enable_state
   Channel 2 params   20-23  : (same layout)
   Channel 3 params   30-33  : (same layout)
   System status     100-109 : state, reason, fault, interlock, watchdog, error, supervisor, cmd status
@@ -64,7 +64,8 @@ CH_BASE = [10, 20, 30]    # base address for CH1, CH2, CH3
 CH_MODE_OFF          = 0   # offset: requested mode
 CH_PULSE_MS_OFF      = 1   # offset: pulse duration (ms)
 CH_COUNT_OFF         = 2   # offset: pulse count
-CH_ENABLE_TOGGLE_OFF = 3   # offset: write 1 to toggle enable
+CH_ENABLE_SET_OFF    = 3   # offset: explicit enable state (0=disabled, 1=enabled)
+CH_ENABLE_TOGGLE_OFF = CH_ENABLE_SET_OFF  # backwards-compatible alias
 
 # --- System status registers (read-only from master view) ---
 REG_SYS_STATE      = 100
@@ -327,7 +328,6 @@ class BCONDriver:
 
         self._user_requested_disconnect = False
         self._last_heartbeat_time: float = 0.0  # tracks last watchdog write
-        self._channel_enable_shadow: List[bool] = [False, False, False]
 
     def set_ui_queue(self, q: queue.Queue):
         """Set an optional queue to receive UI notification messages."""
@@ -348,16 +348,26 @@ class BCONDriver:
             print(f"[BCON {level}] {message}")
 
     def _reset_cached_state(self):
-        """Clear cached registers and best-effort local shadow state."""
+        """Clear cached registers."""
         with self._regs_lock:
             self._regs = [0] * TOTAL_REGS
-            self._channel_enable_shadow = [False, False, False]
         self._last_heartbeat_time = 0.0
 
-    def reset_channel_enable_cache(self, enabled: bool = False):
-        """Reset the software-only channel enable shadow used by the dashboard UI."""
+    def _set_cached_channel_enabled(self, channel: int, enabled: bool) -> None:
+        """Update cached enable-related registers for one channel."""
+        if not (1 <= channel <= 3):
+            return
+        base = CH_BASE[channel - 1]
+        status_base = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
+        value = 1 if enabled else 0
         with self._regs_lock:
-            self._channel_enable_shadow = [bool(enabled)] * 3
+            self._regs[base + CH_ENABLE_SET_OFF] = value
+            self._regs[status_base + 4] = value
+
+    def reset_channel_enable_cache(self, enabled: bool = False):
+        """Reset cached enable state used by the dashboard UI."""
+        for channel in range(1, 4):
+            self._set_cached_channel_enabled(channel, enabled)
 
     @staticmethod
     def _command_label(cmd_code: int) -> str:
@@ -1012,14 +1022,23 @@ class BCONDriver:
                 return
             self.enqueue_write(base + CH_COUNT_OFF, int(count))
 
-    def toggle_channel_enable(self, channel: int) -> None:
-        """Pulse the channel's enable-toggle output and update the UI shadow state."""
+    def set_channel_enable(self, channel: int, enabled: bool) -> bool:
+        """Set the channel enable state explicitly (0=disabled, 1=enabled)."""
         if not self._validate_channel(channel):
-            return
+            return False
+
         base = CH_BASE[channel - 1]
-        with self._regs_lock:
-            self._channel_enable_shadow[channel - 1] = not self._channel_enable_shadow[channel - 1]
-        self.enqueue_write(base + CH_ENABLE_TOGGLE_OFF, 1)
+        desired = 1 if enabled else 0
+        ok = self.write_register_immediate(base + CH_ENABLE_SET_OFF, desired)
+        if ok:
+            self._set_cached_channel_enabled(channel, enabled)
+        return ok
+
+    def toggle_channel_enable(self, channel: int) -> bool:
+        """Compatibility wrapper that flips the current firmware-backed enable state."""
+        if not self._validate_channel(channel):
+            return False
+        return self.set_channel_enable(channel, not self.is_channel_enabled(channel))
 
     def stop_all(self) -> None:
         """Force all three channels OFF using the firmware's dedicated command."""
@@ -1298,15 +1317,15 @@ class BCONDriver:
         sup_base = REG_CH_SUP_BASE + (channel - 1) * REG_CH_SUP_STRIDE
         with self._regs_lock:
             r = self._regs
-            enabled_shadow = self._channel_enable_shadow[channel - 1]
             run_state_code = r[sup_base + 0]
             stop_reason_code = r[sup_base + 1]
+            enabled = bool(r[base + 4])
             return {
                 'mode': MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
                 'pulse_ms': r[base + 1],
                 'count': r[base + 2],
                 'remaining': r[base + 3],
-                'en_st': enabled_shadow,
+                'en_st': enabled,
                 'en_st_raw': r[base + 4],
                 'pwr_st': r[base + 5],
                 'oc_st': r[base + 6],
@@ -1328,11 +1347,11 @@ class BCONDriver:
         return bool(self.get_register(addr))
 
     def is_channel_enabled(self, channel: int) -> bool:
-        """Return the dashboard's best-effort software shadow for channel enable state."""
+        """Return the firmware-backed cached enable state for a channel."""
         if not self._validate_channel(channel):
             return False
-        with self._regs_lock:
-            return self._channel_enable_shadow[channel - 1]
+        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 4
+        return bool(self.get_register(addr))
 
     # --- Legacy-compatible telemetry dict ---
 
@@ -1381,7 +1400,7 @@ class BCONDriver:
                     'pulse_ms': r[base + 1],
                     'count': r[base + 2],
                     'remaining': r[base + 3],
-                    'en_st': self._channel_enable_shadow[ch_idx],
+                    'en_st': bool(r[base + 4]),
                     'en_st_raw': r[base + 4],
                     'pwr_st': r[base + 5],
                     'oc_st': r[base + 6],

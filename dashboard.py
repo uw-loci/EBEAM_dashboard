@@ -395,7 +395,7 @@ class EBEAMSystemDashboard:
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
         self.enable_toggle_buttons = []
-        self._ch_enable_states = [False, False, False]  # local tracked enable state
+        self._ch_enable_states = [False, False, False]  # dashboard mirror of firmware enable state
         for i in range(3):
             btn = tk.Button(
                 enable_toggle_frame,
@@ -671,25 +671,17 @@ class EBEAMSystemDashboard:
                 self.logger.warning("Cannot toggle enable — beams not armed")
                 return
             if beam_pulse.bcon_driver:
-                # Use local tracked state as the primary source of truth so the
-                # toggle is always reliable regardless of hardware query timing.
-                was_enabled = self._ch_enable_states[ch_index]
+                was_enabled = beam_pulse.bcon_driver.is_channel_enabled(ch_index + 1)
                 new_enabled = not was_enabled
-                self._ch_enable_states[ch_index] = new_enabled
-                beam_pulse.bcon_driver.toggle_channel_enable(ch_index + 1)
+                if not beam_pulse.bcon_driver.set_channel_enable(ch_index + 1, new_enabled):
+                    self.logger.warning(
+                        f"Failed to set CH{ch_index + 1} enable -> "
+                        f"{'Enabled' if new_enabled else 'Disabled'}"
+                    )
+                    return
+                self._on_channel_enable_status_update(ch_index, new_enabled)
                 self.logger.info(
                     f"CH{ch_index + 1} enable -> {'Enabled' if new_enabled else 'Disabled'}")
-                # Update enable button appearance
-                if ch_index < len(self.enable_toggle_buttons):
-                    btn = self.enable_toggle_buttons[ch_index]
-                    if new_enabled:
-                        btn.config(bg="#2e7d32", text=f"CH{ch_index+1}: Enabled")   # dark green
-                    else:
-                        btn.config(bg="#888888", text=f"CH{ch_index+1}: Disabled")  # gray
-                # Enable/disable the beam ON/OFF button to match channel enable state
-                if ch_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[ch_index].config(
-                        state="normal" if new_enabled else "disabled")
                 # If we just disabled the channel, force it OFF
                 if was_enabled:
                     beam_pulse.send_channel_off(ch_index)
@@ -842,6 +834,32 @@ class EBEAMSystemDashboard:
         except Exception:
             pass
 
+    def _on_channel_enable_status_update(self, ch: int, enabled: bool):
+        """Mirror firmware-backed channel enable state onto dashboard controls."""
+        try:
+            if hasattr(self, '_ch_enable_states') and ch < len(self._ch_enable_states):
+                self._ch_enable_states[ch] = bool(enabled)
+
+            if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
+                self.enable_toggle_buttons[ch].config(
+                    bg="#2e7d32" if enabled else "#888888",
+                    text=f"CH{ch+1}: {'Enabled' if enabled else 'Disabled'}",
+                )
+
+            beam_pulse = self.subsystems.get('Beam Pulse')
+            armed = bool(
+                beam_pulse
+                and hasattr(beam_pulse, 'get_beams_armed_status')
+                and beam_pulse.get_beams_armed_status()
+            )
+
+            if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
+                self.enable_toggle_buttons[ch].config(state="normal" if armed else "disabled")
+
+            self.update_beam_toggle_states(enabled=armed)
+        except Exception as e:
+            self.logger.error(f"Error updating CH{ch + 1} enable status: {str(e)}")
+
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
         try:
@@ -878,7 +896,8 @@ class EBEAMSystemDashboard:
 
     def _update_enable_toggle_states(self, enabled=True):
         """Enable or disable the CH Enable toggle buttons based on armed status.
-        When disabling (disarmed / E-STOP), also resets all buttons to OFF appearance.
+        When disabling (disarmed / E-STOP), preserve the last hardware-backed
+        Enabled/Disabled appearance but prevent interaction.
         """
         try:
             if not hasattr(self, 'enable_toggle_buttons'):
@@ -886,12 +905,9 @@ class EBEAMSystemDashboard:
             for i, btn in enumerate(self.enable_toggle_buttons):
                 if enabled:
                     btn.config(state="normal")
-                    # Keep current Enabled/Disabled appearance; don't forcibly reset visual
                 else:
                     # Disarmed — force all to Disabled appearance and reset tracking
-                    btn.config(state="disabled", bg="#888888", text=f"CH{i+1}: Disabled")
-                    if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
-                        self._ch_enable_states[i] = False
+                    btn.config(state="disabled")
         except Exception as e:
             self.logger.error(f"Error updating enable toggle states: {str(e)}")
 
@@ -965,6 +981,9 @@ class EBEAMSystemDashboard:
                 # Mirror live BCON register state onto the Beam toggle buttons
                 beam_pulse_subsystem.set_channel_status_callback(
                     self._on_channel_status_update
+                )
+                beam_pulse_subsystem.set_channel_enable_status_callback(
+                    self._on_channel_enable_status_update
                 )
 
                 # Let Sync Start know which channels are hardware-enabled

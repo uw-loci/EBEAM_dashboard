@@ -20,7 +20,7 @@ from instrumentctl.BCON import (
     CH_MODE_OFF,
     CH_PULSE_MS_OFF,
     CH_COUNT_OFF,
-    CH_ENABLE_TOGGLE_OFF,
+    CH_ENABLE_SET_OFF,
     REG_WATCHDOG_MS,
     REG_TELEMETRY_MS,
     REG_COMMAND,
@@ -110,6 +110,10 @@ class BeamPulseSubsystem:
         # Channel status callback — set_channel_status_callback(cb) registers
         # a function cb(ch, mode_code, remaining) called from register polling.
         self._channel_status_callback = None
+
+        # Channel enable status callback — set_channel_enable_status_callback(cb)
+        # registers a function cb(ch, enabled) called from register polling.
+        self._channel_enable_status_callback = None
 
         # Channel enable getter — set_channel_enable_getter(fn) registers a
         # zero-argument callable that returns list[bool] (one entry per channel).
@@ -630,8 +634,12 @@ class BeamPulseSubsystem:
             return
         if not self.bcon_driver:
             return
-        self.bcon_driver.toggle_channel_enable(ch + 1)
-        self._log_event(f"CH{ch+1} ENABLE_TOGGLE")
+        current = self.bcon_driver.is_channel_enabled(ch + 1)
+        enabled = not current
+        if self.bcon_driver.set_channel_enable(ch + 1, enabled):
+            self._log_event(f"CH{ch+1} -> {'ENABLED' if enabled else 'DISABLED'}")
+        else:
+            self._log_event(f"CH{ch+1} enable write failed")
 
     # ================================================================== #
     #                    Sync Tab Actions                                   #
@@ -938,6 +946,7 @@ class BeamPulseSubsystem:
 
             mode_code = regs[status_base + 0]
             remaining = regs[status_base + 3]
+            enabled_state = bool(regs[status_base + 4])
             output_level = regs[status_base + 8]
 
             st_text = MODE_CODE_TO_LABEL.get(mode_code, "unknown")
@@ -961,6 +970,12 @@ class BeamPulseSubsystem:
             if callable(getattr(self, '_channel_status_callback', None)):
                 try:
                     self._channel_status_callback(ch, mode_code, remaining)
+                except Exception:
+                    pass
+
+            if callable(getattr(self, '_channel_enable_status_callback', None)):
+                try:
+                    self._channel_enable_status_callback(ch, enabled_state)
                 except Exception:
                     pass
 
@@ -1273,6 +1288,10 @@ class BeamPulseSubsystem:
         """
         self._ch_enable_getter = getter
 
+    def set_channel_enable_status_callback(self, callback):
+        """Register callback(ch, enabled) invoked on every register poll."""
+        self._channel_enable_status_callback = callback
+
     def set_dashboard_beam_callback(self, callback):
         self._dashboard_beam_callback = callback
         self._log("Dashboard beam callback registered", LogLevel.DEBUG)
@@ -1362,7 +1381,6 @@ class BeamPulseSubsystem:
         self.set_all_beams_status(False)
         if self.bcon_driver:
             self.bcon_driver.stop_all()
-            self.bcon_driver.reset_channel_enable_cache()
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
         return True

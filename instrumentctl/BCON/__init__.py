@@ -17,6 +17,7 @@ from .bcon_driver import (
     CH_MODE_OFF,
     CH_PULSE_MS_OFF,
     CH_COUNT_OFF,
+    CH_ENABLE_SET_OFF,
     CH_ENABLE_TOGGLE_OFF,
     REG_SYS_STATE,
     REG_SYS_REASON,
