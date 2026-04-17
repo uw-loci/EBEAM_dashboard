@@ -31,24 +31,25 @@ def resource_path(relative_path):
 
 frames_config = [
     # Row 0
-    ("Interlocks", 0, 1920, 30),
+    ("Interlocks", 0, 1916, 41),
 
     # Row 1
-    ("Oil System", 1, 520, 120),
-    ("Beam Energy", 1, 1400, 120),
+    ("Oil System", 1, 604, 130),
+    ("Beam Steering", 1, 778, 130),
+    ("Beam Energy", 1, 528, 130),
 
     # Row 2
-    ("Vacuum System", 2, 550, 410),
-    ("Beam Pulse", 2, 1020, 410),
-    ("Main Control", 2, 350, 410),
+    ("Vacuum System", 2, 604, 438),
+    ("Beam Pulse", 2, 777, 438),
+    ("Main Control", 2, 529, 438),
 
     # Row 4
-    ("Process Monitor", 3, 280, 465),
-    ("Cathode Heating", 3, 1200, 465),
-    ("Messages Frame", 3, 440, 465),
+    ("Process Monitor", 3, 339, 458),
+    ("Cathode Heating", 3, 1041, 458),
+    ("Messages Frame", 3, 539, 458),
 
     # Row 5
-    ("Machine Status", 4, 1920, 35)
+    ("Machine Status", 4, 1916, 38)
 ]
 
 class EBEAMSystemDashboard:
@@ -148,15 +149,14 @@ class EBEAMSystemDashboard:
         print("Cleaned up com ports.")
 
     def setup_main_pane(self):
-        """Initialize the main container for absolute layout using place()."""
-        self.main_pane = tk.Frame(self.root)
+        """Initialize the main layout pane and its rows for subsystem organization."""
+        self.main_pane = tk.PanedWindow(self.root, orient='vertical', sashrelief=tk.RAISED)
         self.main_pane.grid(row=0, column=0, sticky='nsew')
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-        # No self.rows in absolute layout
-        # Sash and grip overlays
-        self._sashes = []  # list of dicts with widgets and placement meta
-        self._grips = []   # bottom resize grips per frame
+        self.rows = [tk.PanedWindow(self.main_pane, orient='horizontal', sashrelief=tk.RAISED) for _ in range(5)]
+        for row_pane in self.rows:
+            self.main_pane.add(row_pane, stretch='always')
 
     def _compute_row_layout(self):
         """Return structures for layout: row_max_heights, sorted_rows, row_to_y, row_x_offsets."""
@@ -311,35 +311,32 @@ class EBEAMSystemDashboard:
         self._reflow_all()
 
     def create_frames(self):
-        """Create and place frames absolutely using frames_config (title, row, width, height)."""
+        """
+        Create and configure frames for all subsystems based on frames_config.
+        Each frame is added to its designated row in the main pane.
+        """
         global frames_config
-        # Initial creation of frame widgets and titles
+
         for title, row, width, height in frames_config:
-            # Skip creating a real frame for spacer entries (still used for layout math)
             if title == "Beam Pulse Spacer":
                 continue
 
             if width and height and title:
-                frame = tk.Frame(self.main_pane, borderwidth=1, relief="solid", width=width, height=height)
+                frame = tk.Frame(borderwidth=1, relief="solid", width=width, height=height)
                 frame.pack_propagate(False)
             else:
-                frame = tk.Frame(self.main_pane, borderwidth=1, relief="solid")
-
-            # Skip adding title for certain frames
-            if title not in ["Interlocks", "Machine Status", "Messages Frame"]:
+                frame = tk.Frame(borderwidth=1, relief="solid")
+            if title not in ["Interlocks", "Machine Status"]:
                 self.add_title(frame, title)
-
-            # Adopt the Messages Frame container, else use created frame
-            if title == 'Messages Frame' and hasattr(self, 'messages_frame') and hasattr(self.messages_frame, 'frame'):
-                self.frames[title] = self.messages_frame.frame
-            else:
-                self.frames[title] = frame
-
+            if title == "Messages Frame":
+                continue
+            self.frames[title] = frame
+            self.rows[row].add(frame, stretch='always')
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
-        # Place frames and create overlays
-        self._place_frames_and_overlays()
+        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        self.frames['Messages Frame'] = self.messages_frame.frame
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -1046,16 +1043,7 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        # Determine configured width/height for the Messages Frame from frames_config
-        msg_width = 440
-        msg_height = 465
-        for title, _row, w, h in frames_config:
-            if title == 'Messages Frame':
-                msg_width = w
-                msg_height = h
-                break
-        # Parent to main_pane in absolute layout; placement handled in create_frames
-        self.messages_frame = MessagesFrame(self.main_pane, width=msg_width, height=msg_height)
+        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
