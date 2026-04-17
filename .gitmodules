@@ -1,3 +1,0 @@
-[submodule "usr/usr_data/EBEAM_dashboard_LUT"]
-	path = usr/usr_data/EBEAM_dashboard_LUT
-	url = https://github.com/uw-loci/EBEAM_dashboard_LUT.git
