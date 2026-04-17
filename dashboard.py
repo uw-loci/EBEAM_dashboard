@@ -98,9 +98,7 @@ class EBEAMSystemDashboard:
             self.toggle_off_image = None
             print(f"Could not load toggle images: {e}")
         
-        # if save file exists call it and open it
-        if saveFileExists():
-            self.load_saved_pane_state()
+        # Restore saved pane state if one exists.
         if self.load_saved_pane_state():
             if self.logger is not None:
                 self.logger.info("Pane-state restore result: restored saved pane state")
