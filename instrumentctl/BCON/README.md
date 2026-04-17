@@ -6,9 +6,9 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 
 ## Hardware
 
-**Device:** Arduino Mega running BCON firmware  
-**Interface:** RS-485 serial communication  
-**Baud Rate:** 115200 (configurable)  
+**Device:** Arduino Mega running BCON firmware
+**Interface:** RS-485 serial communication
+**Baud Rate:** 115200 (configurable)
 **Line Termination:** `\n` (newline)
 
 ## Features
@@ -45,33 +45,33 @@ bcon = BCONDriver(port='COM3', baudrate=115200, timeout=1.0, debug=True)
 # Connect to hardware
 if bcon.connect():
     print("Connected to BCON")
-    
+
     # Ping device
     if bcon.ping():
         print("BCON responding")
-    
+
     # Get status
     status = bcon.get_status()
     print(f"System state: {status['system']['state']}")
-    
+
     # Configure watchdog (1 second)
     bcon.set_watchdog(1000)
-    
+
     # Enable telemetry (500ms interval)
     bcon.set_telemetry(500)
-    
+
     # Set channel 1 to DC mode
     if bcon.set_channel_dc(1):
         print("Channel 1 in DC mode")
-    
+
     # Pulse channel 2 for 250ms
     if bcon.set_channel_pulse(2, 250):
         print("Channel 2 pulsing")
-    
+
     # Get real-time telemetry
     telemetry = bcon.get_latest_telemetry()
     print(f"Channel 1 mode: {telemetry['channels'][0]['mode']}")
-    
+
     # Stop all channels
     bcon.stop_all()
     

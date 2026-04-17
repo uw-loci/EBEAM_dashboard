@@ -32,16 +32,16 @@ def resource_path(relative_path):
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1920, 30),
-    
+
     # Row 1
     ("Oil System", 1, 520, 120),
     ("Beam Energy", 1, 1400, 120),
-    
+
     # Row 2
     ("Vacuum System", 2, 550, 410),
     ("Beam Pulse", 2, 1020, 410),
     ("Main Control", 2, 350, 410),
-    
+
     # Row 4
     ("Process Monitor", 3, 280, 465),
     ("Cathode Heating", 3, 1200, 465),
@@ -88,7 +88,7 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
-        
+
         # Load toggle images
         try:
             self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
@@ -97,7 +97,7 @@ class EBEAMSystemDashboard:
             self.toggle_on_image = None
             self.toggle_off_image = None
             print(f"Could not load toggle images: {e}")
-        
+
         # Restore saved pane state if one exists.
         if self.load_saved_pane_state():
             if self.logger is not None:
@@ -116,7 +116,7 @@ class EBEAMSystemDashboard:
         self._bp_future_len = 30
         self._bp_stats = {}
         self._bp_update_interval_ms = 1000
-        
+
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
@@ -427,11 +427,11 @@ class EBEAMSystemDashboard:
         # Add beams armed toggle
         beams_armed_control_frame = tk.Frame(main_frame)
         beams_armed_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
-        
+
         beams_armed_label_frame = ttk.Frame(beams_armed_control_frame)
         beams_armed_label_frame.pack(pady=(0, 2))
         ttk.Label(beams_armed_label_frame, text="BEAMS ARMED", font=("Helvetica", 12, "bold")).pack()
-        
+
         if self.toggle_on_image and self.toggle_off_image:
             self.beams_ready_button = tk.Button(
                 beams_armed_control_frame,
@@ -490,7 +490,7 @@ class EBEAMSystemDashboard:
         """Create a button to launch the standalone post-processor application"""
         post_processor_frame = ttk.Frame(parent_frame)
         post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        
+
         ttk.Button(
             post_processor_frame,
             text="Launch Log Post-processor",
@@ -514,22 +514,22 @@ class EBEAMSystemDashboard:
             # Launch the post-processor script
             if sys.platform.startswith('win'):
                 # On Windows, use pythonw to avoid console window
-                subprocess.Popen([sys.executable, post_processor_path], 
+                subprocess.Popen([sys.executable, post_processor_path],
                             creationflags=subprocess.CREATE_NO_WINDOW)
             else:
                 # On other platforms
                 subprocess.Popen([sys.executable, post_processor_path])
-                
+
             self.logger.info("Log post-processor launched successfully")
         except Exception as e:
             self.logger.error(f"Failed to launch log post-processor: {str(e)}")
-            messagebox.showerror("Error", 
+            messagebox.showerror("Error",
                             f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
         """
         Add a formatted title label to a frame.
-        
+
         Args:
             frame: Frame to add title to
             title: Title text to display
@@ -559,16 +559,16 @@ class EBEAMSystemDashboard:
         self.log_level_var = tk.StringVar()
         log_levels = [level.name for level in LogLevel]
         log_level_dropdown = ttk.Combobox(
-            log_level_frame, 
-            textvariable=self.log_level_var, 
-            values=log_levels, 
-            state="readonly", 
+            log_level_frame,
+            textvariable=self.log_level_var,
+            values=log_levels,
+            state="readonly",
             width=15
         )
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
+
         current_level = self.messages_frame.get_log_level()
-        log_level_dropdown.set(current_level.name) 
+        log_level_dropdown.set(current_level.name)
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
     def file_create_log_level_dropdown(self, parent_frame):
@@ -579,16 +579,16 @@ class EBEAMSystemDashboard:
         self.file_log_level_var = tk.StringVar()
         file_log_levels = ["DEBUG", "VERBOSE"]
         self.file_log_level_dropdown = ttk.Combobox(
-            file_log_frame, 
-            textvariable=self.file_log_level_var, 
-            values=file_log_levels, 
-            state="readonly", 
+            file_log_frame,
+            textvariable=self.file_log_level_var,
+            values=file_log_levels,
+            state="readonly",
             width=15
         )
         self.file_log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
+
         current_file_level = self.messages_frame.get_file_log_level()
-        self.file_log_level_dropdown.set(current_file_level.name) 
+        self.file_log_level_dropdown.set(current_file_level.name)
         self.file_log_level_dropdown.bind("<<ComboboxSelected>>", self.on_file_log_level_change)
 
     def on_log_level_change(self, event):
@@ -610,9 +610,9 @@ class EBEAMSystemDashboard:
                 self.logger.error("Beam Pulse subsystem not available")
                 messagebox.showerror("Error", "Beam Pulse subsystem not available")
                 return
-            
+
             beam_pulse = self.subsystems['Beam Pulse']
-            
+
             # Check current armed state
             if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
                 # Beams are already armed, so disarm them
@@ -650,7 +650,7 @@ class EBEAMSystemDashboard:
                 else:
                     self.logger.error("Failed to arm beams")
                     messagebox.showerror("Error", "Failed to arm beams")
-                    
+
         except Exception as e:
             self.logger.error(f"Error in handle_arm_beams: {str(e)}")
             messagebox.showerror("Error", f"Error handling beam arming: {str(e)}")
@@ -672,7 +672,7 @@ class EBEAMSystemDashboard:
                 if hasattr(cathode, 'turn_off_all_beams'):
                     cathode.turn_off_all_beams()
                     self.logger.info("Cathode heating turned off via Beams E-stop button")
-            
+
             # Disarm beams
             if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                 beam_pulse = self.subsystems['Beam Pulse']
@@ -744,10 +744,10 @@ class EBEAMSystemDashboard:
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
                 self.logger.error("Beam Pulse subsystem not available")
                 return
-            
+
             beam_pulse = self.subsystems['Beam Pulse']
             beam_names = ["A", "B", "C"]
-            
+
             # Get current beam status
             current_status = beam_pulse.get_beam_status(beam_index)
             btn = self.beam_toggle_buttons[beam_index]
@@ -765,10 +765,10 @@ class EBEAMSystemDashboard:
                     self.logger.info(f"Beam {beam_names[beam_index]} config sent to BCON")
                 else:
                     self.logger.error(f"Failed to send Beam {beam_names[beam_index]} config")
-                    
+
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
-    
+
     def toggle_individual_beam(self, beam_index):
         """Legacy method - redirects to new method with status bar."""
         self.toggle_individual_beam_with_status(beam_index)
@@ -778,9 +778,9 @@ class EBEAMSystemDashboard:
         try:
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
                 return 0
-            
+
             beam_pulse = self.subsystems['Beam Pulse']
-            
+
             # Get duration from the beam pulse subsystem
             if beam_index == 0 and hasattr(beam_pulse, 'beam_a_duration'):
                 return beam_pulse.beam_a_duration.get()
@@ -788,7 +788,7 @@ class EBEAMSystemDashboard:
                 return beam_pulse.beam_b_duration.get()
             elif beam_index == 2 and hasattr(beam_pulse, 'beam_c_duration'):
                 return beam_pulse.beam_c_duration.get()
-            
+
             return 100.0  # Default fallback
         except Exception as e:
             self.logger.error(f"Error getting beam {beam_index} duration: {str(e)}")
@@ -799,38 +799,38 @@ class EBEAMSystemDashboard:
         try:
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
                 return
-            
+
             beam_pulse = self.subsystems['Beam Pulse']
             beam_names = ["A", "B", "C"]
-            
+
             # Check if beam is still on before turning off
             if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(beam_index):
                 # Turn off the beam
                 if hasattr(beam_pulse, 'set_beam_status'):
                     beam_pulse.set_beam_status(beam_index, False)
-                    
+
                     # Update button appearance
                     btn = self.beam_toggle_buttons[beam_index]
                     btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                    
+
                     self.logger.info(f"Beam {beam_names[beam_index]} automatically turned OFF after pulse duration")
-                    
+
         except Exception as e:
             self.logger.error(f"Error auto-turning off beam {beam_index}: {str(e)}")
-    
+
     def handle_beam_pulse_callback(self, beam_index, status, duration=0):
         """Handle beam pulse callback for button updates.
-        
+
         This method is called by the beam pulse subsystem when beam status changes.
         """
         try:
             beam_names = ["A", "B", "C"]
-            
+
             if status:
                 # Beam turned ON - update button display
                 if beam_index < len(self.beam_toggle_buttons):
                     self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-                
+
                 if duration > 0:
                     self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
                     # Schedule auto turn-off after pulse duration
@@ -841,7 +841,7 @@ class EBEAMSystemDashboard:
                 # Beam turned OFF - update button display
                 if beam_index < len(self.beam_toggle_buttons):
                     self.beam_toggle_buttons[beam_index].config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                
+
         except Exception as e:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
 
@@ -905,9 +905,9 @@ class EBEAMSystemDashboard:
         try:
             if not hasattr(self, 'beam_toggle_buttons'):
                 return
-                
+
             beam_names = ["A", "B", "C"]
-            
+
             for i, btn in enumerate(self.beam_toggle_buttons):
                 if enabled:
                     # Only allow beam ON/OFF when the channel hardware enable is also ON
@@ -930,7 +930,7 @@ class EBEAMSystemDashboard:
                             beam_pulse = self.subsystems['Beam Pulse']
                             if hasattr(beam_pulse, 'set_beam_status'):
                                 beam_pulse.set_beam_status(i, False)
-                                
+
         except Exception as e:
             self.logger.error(f"Error updating beam toggle states: {str(e)}")
 
@@ -959,11 +959,11 @@ class EBEAMSystemDashboard:
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
-                serial_port=self.com_ports['VTRXSubsystem'], 
+                serial_port=self.com_ports['VTRXSubsystem'],
                 logger=self.logger
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
-                self.frames['Process Monitor'], 
+                self.frames['Process Monitor'],
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
@@ -978,7 +978,7 @@ class EBEAMSystemDashboard:
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
                 logger=self.logger,
-            ), 
+            ),
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
@@ -1000,7 +1000,7 @@ class EBEAMSystemDashboard:
                     baudrate=115200,
                     logger=self.logger
                 )
-                
+
                 # Set up dashboard callback for pulse animations
                 beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
 
@@ -1167,7 +1167,7 @@ class EBEAMSystemDashboard:
             self.com_port_menu.pack_forget()
             self.com_port_button.config(text="Configure COM Ports")
         else:
-            self.update_available_ports() 
+            self.update_available_ports()
             self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
             self.com_port_button.config(text="Hide COM Port Configuration")
 
