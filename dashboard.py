@@ -7,7 +7,7 @@ from tkinter import ttk
 from tkinter import messagebox
 import time
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
-from usr.panel_config import save_pane_states, load_pane_states, saveFileExists
+from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 try:
     from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
@@ -73,9 +73,18 @@ class EBEAMSystemDashboard:
         "AG0KLEQ8A" : "Interlocks"
     }
 
-    def __init__(self, root, com_ports):
+    CLEAR_MAP = {
+        "Interlocks": [
+        "safetyOutputDataFlags",
+        "safetyInputDataFlags",
+        "safetyOutputStatusFlags",
+        "safetyInputStatusFlags"
+    ]}
+
+    def __init__(self, root, com_ports, logger=None):
         self.root = root
         self.com_ports = com_ports
+        self.logger = logger
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
@@ -89,10 +98,14 @@ class EBEAMSystemDashboard:
             self.toggle_off_image = None
             print(f"Could not load toggle images: {e}")
         
-        
         # if save file exists call it and open it
         if saveFileExists():
             self.load_saved_pane_state()
+        if self.load_saved_pane_state():
+            if self.logger is not None:
+                self.logger.info("Pane-state restore result: restored saved pane state")
+        elif self.logger is not None:
+            self.logger.info("Pane-state restore result: no saved pane state applied")
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
@@ -119,9 +132,13 @@ class EBEAMSystemDashboard:
         self.create_machine_status_frame()
 
         # Set up different subsystems within their respective frames
+        if self.logger is not None:
+            self.logger.info("Subsystem initialization start")
         self.create_subsystems()
 
         self._check_ports()
+        if self.logger is not None:
+            self.logger.info("Dashboard ready")
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -457,6 +474,7 @@ class EBEAMSystemDashboard:
 
         # 4. Log Level dropdown
         self.create_log_level_dropdown(config_frame)
+        self.file_create_log_level_dropdown(config_frame)
 
         # Add F1 help hint
         help_label = ttk.Label(
@@ -527,15 +545,13 @@ class EBEAMSystemDashboard:
 
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
-        savedData = load_pane_states()
+        savedData = load_pane_states(logger=self.logger)
         if not savedData:
-            return
+            return False
         for i in range(len(frames_config)):
-            title = frames_config[i][0]
-            if title in savedData and savedData[title]:
-                dims = savedData[title]
-                if isinstance(dims, (list, tuple)) and len(dims) >= 2:
-                    frames_config[i] = (title, frames_config[i][1], dims[0], dims[1])
+            if frames_config[i][0] in savedData:
+                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
+        return True
 
     def create_log_level_dropdown(self, parent_frame):
         log_level_frame = ttk.Frame(parent_frame)
@@ -557,10 +573,36 @@ class EBEAMSystemDashboard:
         log_level_dropdown.set(current_level.name) 
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
+    def file_create_log_level_dropdown(self, parent_frame):
+        file_log_frame = ttk.Frame(parent_frame)
+        file_log_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        ttk.Label(file_log_frame, text="File Log Level:").pack(side=tk.LEFT)
+
+        self.file_log_level_var = tk.StringVar()
+        file_log_levels = ["DEBUG", "VERBOSE"]
+        self.file_log_level_dropdown = ttk.Combobox(
+            file_log_frame, 
+            textvariable=self.file_log_level_var, 
+            values=file_log_levels, 
+            state="readonly", 
+            width=15
+        )
+        self.file_log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
+        
+        current_file_level = self.messages_frame.get_file_log_level()
+        self.file_log_level_dropdown.set(current_file_level.name) 
+        self.file_log_level_dropdown.bind("<<ComboboxSelected>>", self.on_file_log_level_change)
+
     def on_log_level_change(self, event):
         selected_level = LogLevel[self.log_level_var.get()]
         self.messages_frame.set_log_level(selected_level)
-        print(f"Log level changed to: {selected_level.name}")
+
+    def on_file_log_level_change(self, event):
+        selected_level = self.file_log_level_var.get()
+        if selected_level == "DEBUG":
+            self.messages_frame.logger.file_log_level = LogLevel.DEBUG
+        elif selected_level == "VERBOSE":
+            self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
 
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
@@ -1181,9 +1223,11 @@ class EBEAMSystemDashboard:
             # Process removed ports
             for port in dif:
                 if port.serial_number in self.PORT_INFO:
+                    subsystem_name = self.PORT_INFO[port.serial_number]
                     self.logger.warning(
-                        f"Lost connection to {self.PORT_INFO[port.serial_number]} on {port}")
-                    self._update_com_ports(self.PORT_INFO[port.serial_number], None)
+                        f"Lost connection to {subsystem_name} on {port}"
+                    )
+                    self._update_com_ports(subsystem_name, None)
 
             # Process added ports
             for port in added_ports:
@@ -1210,5 +1254,11 @@ class EBEAMSystemDashboard:
             if subsystem_str == "Interlocks":
                 self.subsystems[subsystem_str].update_com_port(str_port)
             #TODO: Need to add Vacuum system and Cathode Heating
+        if str_port is None:
+            for comp in self.CLEAR_MAP.get(subsystem_str, []):
+                try:
+                    self.logger.clear_value(comp)
+                except KeyError:
+                    self.logger.debug(f"Key {comp} not found in dict_logger (already cleared?)")
 
         self.logger.info(f"COM ports updated: {self.com_ports}")
