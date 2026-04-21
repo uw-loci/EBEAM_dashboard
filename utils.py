@@ -49,16 +49,12 @@ class Logger:
             "safetyInputStatusFlags": None,
             "temperatures": None,
             "vacuumBits": None,
-            "Cathode A - Heater Current:": None,
-            "Cathode B - Heater Current:": None,
-            "Cathode C - Heater Current:": None,
-            "Cathode A - Heater Voltage:": None,
-            "Cathode B - Heater Voltage:": None,
-            "Cathode C - Heater Voltage:": None,
-            "clamp_temperature_A" : None,
-            "clamp_temperature_B" : None,
-            "clamp_temperature_C" : None
+            "cathode": {
+                "A": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+                "B": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+                "C": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
             }
+        }
         if log_to_file:
             self.setup_log_file()
             self.setup_wm_logfile()
@@ -156,6 +152,9 @@ class Logger:
             self.log_dict_update(self.dict_logger)
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
+    def update_cathode_field(self, cathode_label, subfield, value):
+        self.dict_logger["cathode"][cathode_label][subfield] = value
+        self.log_dict_update(self.dict_logger)
     def clear_value(self, field):
         if field in self.dict_logger:
             self.dict_logger[field] = None

@@ -26,15 +26,7 @@ EXPECTED_DICT_LOGGER_KEYS = {
     "safetyInputStatusFlags",
     "temperatures",
     "vacuumBits",
-    "Cathode A - Heater Current:",
-    "Cathode B - Heater Current:",
-    "Cathode C - Heater Current:",
-    "Cathode A - Heater Voltage:",
-    "Cathode B - Heater Voltage:",
-    "Cathode C - Heater Voltage:",
-    "clamp_temperature_A",
-    "clamp_temperature_B",
-    "clamp_temperature_C",
+    "cathode",
 }
 
 
@@ -421,16 +413,34 @@ class TestDictLoggerFieldManagement(unittest.TestCase):
     def test_dict_logger_has_all_expected_keys_on_init(self):
         self.assertEqual(set(self.logger.dict_logger.keys()), EXPECTED_DICT_LOGGER_KEYS)
 
-    def test_dict_logger_all_values_none_on_init(self):
-        self.assertTrue(all(v is None for v in self.logger.dict_logger.values()))
+    def test_dict_logger_flat_values_none_on_init(self):
+        flat_keys = EXPECTED_DICT_LOGGER_KEYS - {"cathode"}
+        self.assertTrue(all(self.logger.dict_logger[k] is None for k in flat_keys))
 
-    def test_update_field_sets_value_for_all_valid_keys(self):
-        for key in EXPECTED_DICT_LOGGER_KEYS:
+    def test_dict_logger_cathode_initialized_on_init(self):
+        cathode = self.logger.dict_logger["cathode"]
+        self.assertIsInstance(cathode, dict)
+        for label in ("A", "B", "C"):
+            self.assertIn(label, cathode)
+            self.assertIsNone(cathode[label]["heater_current"])
+            self.assertIsNone(cathode[label]["heater_voltage"])
+            self.assertIsNone(cathode[label]["clamp_temperature"])
+
+    def test_update_field_sets_value_for_flat_keys(self):
+        flat_keys = EXPECTED_DICT_LOGGER_KEYS - {"cathode"}
+        for key in flat_keys:
             with self.subTest(key=key):
                 self.logger.update_field(key, "test_value")
                 self.assertEqual(self.logger.dict_logger[key], "test_value")
-                # Reset for next iteration
                 self.logger.dict_logger[key] = None
+
+    def test_update_cathode_field_sets_value(self):
+        for label in ("A", "B", "C"):
+            for subfield in ("heater_current", "heater_voltage", "clamp_temperature"):
+                with self.subTest(label=label, subfield=subfield):
+                    self.logger.update_cathode_field(label, subfield, 1.23)
+                    self.assertEqual(self.logger.dict_logger["cathode"][label][subfield], 1.23)
+                    self.logger.dict_logger["cathode"][label][subfield] = None
 
     def test_update_field_raises_key_error_for_invalid_key(self):
         with self.assertRaises(KeyError) as ctx:
