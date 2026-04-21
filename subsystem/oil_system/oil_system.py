@@ -55,6 +55,7 @@ class OilSubsystem:
         if hasattr(self, 'after_id') and self.after_id:
             try:
                 self.parent.after_cancel(self.after_id)
+                self.after_id = None
                 if self.logger:
                     self.logger.debug('Canceled scheduled oil system display update.')
             except Exception as e:

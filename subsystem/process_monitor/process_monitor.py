@@ -311,9 +311,12 @@ class ProcessMonitorSubsystem:
         if hasattr(self, 'after_id') and self.after_id:
             try:
                 self.parent.after_cancel(self.after_id)
-                self.log('Canceled scheduled temperature update.', LogLevel.DEBUG)
+                self.after_id = None
+                if self.logger:
+                    self.log('Canceled scheduled temperature update.', LogLevel.DEBUG)
             except Exception as e:
-                self.log('Failed to cancel scheduled temperature update.', LogLevel.DEBUG)
+                if self.logger:
+                    self.log('Failed to cancel scheduled temperature update.', LogLevel.DEBUG)
 
     def _set_all_temps_error(self):
         """Set all temperature bars to error state"""

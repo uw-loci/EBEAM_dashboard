@@ -1352,9 +1352,12 @@ class CathodeHeatingSubsystem:
         if hasattr(self, 'after_id') and self.after_id:
             try:
                 self.parent.after_cancel(self.after_id)
-                self.log('Canceled scheduled cathode heating display update.', LogLevel.DEBUG)
+                self.after_id = None
+                if self.logger:
+                    self.log('Canceled scheduled cathode heating display update.', LogLevel.DEBUG)
             except Exception as e:
-                self.log('Failed to cancel scheduled cathode heating display update.', LogLevel.DEBUG)
+                if self.logger:
+                    self.log('Failed to cancel scheduled cathode heating display update.', LogLevel.DEBUG)
 
     def update_plot(self, index):
         if len(self.time_data[index]) == 0:
