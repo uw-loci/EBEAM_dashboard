@@ -79,7 +79,7 @@ class Logger:
             current_thread = threading.current_thread()
             try:
                 sys.__stderr__.write(
-                    f"WARNING: thread {current_thread.name} still running during shutdown "
+                    f"WARNING: thread {current_thread.name} still running during shutdown\n"
                 )
                 sys.__stderr__.flush()
             except Exception:
