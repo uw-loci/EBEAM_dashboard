@@ -204,6 +204,7 @@ def config_com_ports(saved_com_ports, logger=None):
     config_root.title("Configure COM Ports")
 
     selections = {}
+    submitted_ports = {}
 
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
@@ -263,16 +264,18 @@ def config_com_ports(saved_com_ports, logger=None):
         save_com_ports(selected_ports, logger=logger)
         if logger is not None:
             logger.info(f"COM-port selection submitted: {selected_ports}")
-        config_root.destroy()
-        
-        # Launch the main application
-        start_main_app(selected_ports, logger=logger)
+        submitted_ports.clear()
+        submitted_ports.update(selected_ports)
+        config_root.quit()
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
     
     config_root.bind('<Return>', lambda event: on_submit())
     config_root.mainloop()
+    config_root.destroy()
+
+    return dict(submitted_ports)
 
 
 if __name__ == "__main__":
@@ -284,4 +287,6 @@ if __name__ == "__main__":
     bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available")
 
     # Prompt the user to confirm or change COM ports
-    config_com_ports(saved_com_ports, logger=bootstrap_logger)
+    selected_ports = config_com_ports(saved_com_ports, logger=bootstrap_logger)
+    if selected_ports:
+        start_main_app(selected_ports, logger=bootstrap_logger)
