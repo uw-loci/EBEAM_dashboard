@@ -1196,18 +1196,6 @@ class BCONDriver:
         self.enqueue_write(REG_COMMAND, int(cmd_code))
 
     # ================================================================== #
-    #                     Safety / Fault Management                        #
-    # ================================================================== #
-
-    def arm(self) -> None:
-        """Send the firmware clear-fault / re-arm command."""
-        self.send_command(COMMAND_CLEAR_FAULT)
-
-    def clear_fault(self) -> None:
-        """Alias for arm()."""
-        self.arm()
-
-    # ================================================================== #
     #                     Status / Telemetry Access                        #
     # ================================================================== #
 
@@ -1518,8 +1506,7 @@ def main():
                 print("5. Stop All")
                 print("6. Set Watchdog (1000ms)")
                 print("7. Set Telemetry (500ms)")
-                print("8. ARM / Clear Fault")
-                print("9. Show Latest Registers")
+                print("8. Show Latest Registers")
                 print("0. Exit")
 
                 choice = input("\nSelect option: ").strip()
@@ -1548,9 +1535,6 @@ def main():
                     bcon.set_telemetry(500)
                     print("Enqueued: Telemetry = 500ms")
                 elif choice == "8":
-                    bcon.arm()
-                    print("Enqueued: ARM command")
-                elif choice == "9":
                     regs = bcon.get_registers()
                     print(f"Control regs [0-33]: {regs[0:34]}")
                     print(f"System regs [100-105]: {regs[100:106]}")

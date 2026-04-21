@@ -1238,13 +1238,10 @@ class BeamPulseSubsystem:
         self._log_event("BCON connected" if ok else "BCON connect failed — check port & firmware")
 
     def _arm_beam(self):
-        """Send ARM / CLEAR_FAULT command."""
-        if not self.bcon_driver:
-            messagebox.showwarning("Arm", "No BCON driver available")
-            return
-        self.bcon_driver.arm()
+        """Arm beams in software only (no hardware ARM command)."""
         self.beams_armed_status = True
-        self._log_event("ARM command sent")
+        self._update_armed_button_states(True)
+        self._log_event("Beams armed (software-only)")
 
     def _set_watchdog(self):
         """Write the watchdog timeout register."""
@@ -1445,13 +1442,8 @@ class BeamPulseSubsystem:
     # --- Safety ---
 
     def arm_beams(self) -> bool:
-        if self.bcon_driver:
-            self.bcon_driver.arm()
-            self.beams_armed_status = True
-            self._log("Beams ARMED", LogLevel.INFO)
-            self._update_armed_button_states(True)
-            return True
         self.beams_armed_status = True
+        self._log("Beams ARMED (software-only)", LogLevel.INFO)
         self._update_armed_button_states(True)
         return True
 
