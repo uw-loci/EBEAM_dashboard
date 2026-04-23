@@ -10,7 +10,7 @@ Register map mirrors the firmware Modbus slave implementation:
   Channel 1 params   10-13  : mode, pulse_ms, count, enable_state
   Channel 2 params   20-23  : (same layout)
   Channel 3 params   30-33  : (same layout)
-  System status     100-109 : state, reason, fault, interlock, watchdog, error, supervisor, cmd status
+  System status     100-109 : state, reason, reserved fault slot, interlock, watchdog, error, supervisor, cmd status
   CH1 status        110-118 : mode_st, pulse_ms_st, count_st, remaining, ...
   CH2 status        120-128
   CH3 status        130-138
@@ -45,17 +45,15 @@ TOTAL_REGS = 160
 # --- Control registers (written by master) ---
 REG_WATCHDOG_MS   = 0
 REG_TELEMETRY_MS  = 1
-REG_COMMAND       = 2     # 0=NOP, 3=ARM/CLEAR_FAULT
+REG_COMMAND       = 2     # 0=NOP, 1=ALL_OFF, 4=APPLY_STAGED_MODES
 
 COMMAND_NOP                 = 0
 COMMAND_ALL_OFF             = 1
-COMMAND_CLEAR_FAULT         = 3
 COMMAND_APPLY_STAGED_MODES  = 4
 
 COMMAND_CODE_TO_LABEL = {
     COMMAND_NOP: "NOP",
     COMMAND_ALL_OFF: "ALL_OFF",
-    COMMAND_CLEAR_FAULT: "CLEAR_FAULT",
     COMMAND_APPLY_STAGED_MODES: "APPLY_STAGED_MODES",
 }
 
@@ -70,7 +68,7 @@ CH_ENABLE_TOGGLE_OFF = CH_ENABLE_SET_OFF  # backwards-compatible alias
 # --- System status registers (read-only from master view) ---
 REG_SYS_STATE      = 100
 REG_SYS_REASON     = 101
-REG_FAULT_LATCHED  = 102
+REG_FAULT_LATCHED  = 102  # Reserved compatibility slot; current firmware always reports 0.
 REG_INTERLOCK_OK   = 103
 REG_WATCHDOG_OK    = 104
 REG_LAST_ERROR     = 105
@@ -125,14 +123,12 @@ class BCONState(IntEnum):
     READY          = 0
     SAFE_INTERLOCK = 1
     SAFE_WATCHDOG  = 2
-    FAULT_LATCHED  = 3
     UNKNOWN        = 255
 
 STATE_LABELS = {
     BCONState.READY:          "READY",
     BCONState.SAFE_INTERLOCK: "SAFE_INTERLOCK",
     BCONState.SAFE_WATCHDOG:  "SAFE_WATCHDOG",
-    BCONState.FAULT_LATCHED:  "FAULT_LATCHED",
     BCONState.UNKNOWN:        "UNKNOWN",
 }
 
@@ -144,7 +140,6 @@ class BCONSupervisorState(IntEnum):
     COMMAND_QUEUED       = 2
     SAFE_INTERLOCK_HOLD  = 3
     SAFE_WATCHDOG_HOLD   = 4
-    FAULT_HOLD           = 5
 
 
 SUPERVISOR_STATE_LABELS = {
@@ -153,7 +148,6 @@ SUPERVISOR_STATE_LABELS = {
     BCONSupervisorState.COMMAND_QUEUED: "COMMAND_QUEUED",
     BCONSupervisorState.SAFE_INTERLOCK_HOLD: "SAFE_INTERLOCK_HOLD",
     BCONSupervisorState.SAFE_WATCHDOG_HOLD: "SAFE_WATCHDOG_HOLD",
-    BCONSupervisorState.FAULT_HOLD: "FAULT_HOLD",
 }
 
 
@@ -186,8 +180,6 @@ class BCONStopReason(IntEnum):
     ALL_OFF_COMMAND = 2
     SAFE_INTERLOCK = 3
     SAFE_WATCHDOG = 4
-    FAULT_LATCHED = 5
-    CLEAR_FAULT_COMMAND = 6
 
 
 STOP_REASON_LABELS = {
@@ -196,8 +188,6 @@ STOP_REASON_LABELS = {
     BCONStopReason.ALL_OFF_COMMAND: "ALL_OFF_COMMAND",
     BCONStopReason.SAFE_INTERLOCK: "SAFE_INTERLOCK",
     BCONStopReason.SAFE_WATCHDOG: "SAFE_WATCHDOG",
-    BCONStopReason.FAULT_LATCHED: "FAULT_LATCHED",
-    BCONStopReason.CLEAR_FAULT_COMMAND: "CLEAR_FAULT_COMMAND",
 }
 
 
@@ -224,8 +214,6 @@ class BCONRejectReason(IntEnum):
     QUEUE_FULL = 2
     UNSAFE_INTERLOCK = 3
     UNSAFE_WATCHDOG = 4
-    FAULT_LATCHED = 5
-    CLEAR_FAULT_WHILE_INTERLOCK_OPEN = 6
 
 
 REJECT_REASON_LABELS = {
@@ -234,8 +222,6 @@ REJECT_REASON_LABELS = {
     BCONRejectReason.QUEUE_FULL: "QUEUE_FULL",
     BCONRejectReason.UNSAFE_INTERLOCK: "UNSAFE_INTERLOCK",
     BCONRejectReason.UNSAFE_WATCHDOG: "UNSAFE_WATCHDOG",
-    BCONRejectReason.FAULT_LATCHED: "FAULT_LATCHED",
-    BCONRejectReason.CLEAR_FAULT_WHILE_INTERLOCK_OPEN: "CLEAR_FAULT_WHILE_INTERLOCK_OPEN",
 }
 
 
@@ -272,7 +258,7 @@ class BCONDriver:
         - Thread-safe register cache
         - Write queue for non-blocking control
         - Staged/apply channel control aligned with current firmware
-        - Watchdog and fault management
+        - Watchdog and interlock-aware safety behavior
         - Auto-disconnect on repeated poll failures
     """
 
@@ -1236,8 +1222,8 @@ class BCONDriver:
         return bool(self.get_register(REG_WATCHDOG_OK))
 
     def is_fault_latched(self) -> bool:
-        """Check if a latched fault condition exists."""
-        return bool(self.get_register(REG_FAULT_LATCHED))
+        """Compatibility shim: the reserved fault register always reads false."""
+        return False
 
     def get_last_error(self) -> int:
         """Get the last error code from firmware."""
@@ -1402,7 +1388,7 @@ class BCONDriver:
                 'state': self._label_from_code(state_code, BCONState, STATE_LABELS),
                 'state_code': state_code,
                 'reason': r[REG_SYS_REASON],
-                'fault_latched': r[REG_FAULT_LATCHED],
+                'fault_latched': 0,
                 'interlock_ok': r[REG_INTERLOCK_OK],
                 'watchdog_ok': r[REG_WATCHDOG_OK],
                 'last_error': r[REG_LAST_ERROR],

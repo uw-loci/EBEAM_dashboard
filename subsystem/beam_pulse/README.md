@@ -40,14 +40,12 @@ The subsystem communicates with BCON hardware through RS-485 serial commands (no
 | `SET CH OFF` | `SET CH 1 OFF\n` | Turn off channel 1 |
 | `SET CH DC` | `SET CH 2 DC\n` | Set channel 2 to DC mode |
 | `SET CH PULSE` | `SET CH 3 PULSE 250\n` | Pulse channel 3 for 250ms |
-| `ARM` / `CLEAR FAULT` | `ARM\n` | Clear latched faults |
 
 ### System States
 
 - **READY** - System ready for commands, outputs can be enabled
 - **SAFE_INTERLOCK** - Interlock signal low, all outputs forced OFF
 - **SAFE_WATCHDOG** - Communication watchdog expired, all outputs forced OFF
-- **FAULT_LATCHED** - Overcurrent or other fault latched, outputs disabled
 
 ### Channel Modes
 
@@ -60,7 +58,7 @@ The subsystem communicates with BCON hardware through RS-485 serial commands (no
 BCON periodically transmits telemetry:
 
 ```
-SYS state=READY reason=NONE fault_latched=0 telemetry_ms=500
+SYS state=READY reason=READY fault_latched=0 telemetry_ms=500
 CH1 mode=DC pulse_ms=0 en_st=1 pwr_st=1 oc_st=0 gated_st=0
 CH2 mode=OFF pulse_ms=0 en_st=0 pwr_st=1 oc_st=0 gated_st=0
 CH3 mode=PULSE pulse_ms=250 en_st=1 pwr_st=1 oc_st=0 gated_st=0
@@ -76,10 +74,8 @@ stateDiagram-v2
     READY --> SAFE_WATCHDOG: Watchdog Expired
     DC --> READY: SET CH n OFF
     PULSE --> READY: Pulse Complete
-    SAFE_INTERLOCK --> READY: Interlock High + ARM
-    SAFE_WATCHDOG --> READY: Command Received + ARM
-    READY --> FAULT_LATCHED: Overcurrent Detected
-    FAULT_LATCHED --> READY: CLEAR FAULT (after OC cleared)
+    SAFE_INTERLOCK --> READY: Interlock High
+    SAFE_WATCHDOG --> READY: Command Received
 ```
 
 ## GUI Controls
@@ -235,7 +231,7 @@ print(f"Dashboard integration: {status}")
 
 ### Safety Features
 
-- `arm_beams() -> bool` - Enable beam operations (arms BCON hardware)
+- `arm_beams() -> bool` - Enable beam operations through the dashboard's software interlock
 - `disarm_beams() -> bool` - Disable beam operations (stops all channels)
 - `safe_shutdown(reason: Optional[str] = None) -> bool` - Safe shutdown of all beams
 - `get_beams_armed_status() -> bool` - Check if beams are armed
@@ -277,7 +273,7 @@ print(f"Dashboard integration: {status}")
 - If commands return `False`, check system state with `get_system_status()`
 - System must be in **READY** state to accept channel control commands
 - If in SAFE_INTERLOCK, check hardware interlock signal
-- If in FAULT_LATCHED, use `arm_beams()` to clear fault after resolving issue
+- If commands are blocked, check the external interlock input and watchdog health
 
 ### GUI Issues
 - If GUI doesn't appear, verify `parent_frame` is a valid tkinter widget

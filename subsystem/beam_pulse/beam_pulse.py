@@ -25,7 +25,6 @@ from instrumentctl.BCON import (
     REG_TELEMETRY_MS,
     REG_COMMAND,
     REG_SYS_STATE,
-    REG_FAULT_LATCHED,
     REG_INTERLOCK_OK,
     REG_WATCHDOG_OK,
     REG_CH_STATUS_BASE,
@@ -1030,12 +1029,10 @@ class BeamPulseSubsystem:
         # Interlock / watchdog / state
         interlock_ok = regs[REG_INTERLOCK_OK]
         watchdog_ok = regs[REG_WATCHDOG_OK]
-        fault = regs[REG_FAULT_LATCHED]
         if hasattr(self, 'safety_label'):
-            fault_txt = "  FAULT" if fault else ""
             self.safety_label.configure(
                 text=f"Interlock: {'ok' if interlock_ok else 'locked'} | "
-                     f"Watchdog: {'ok' if watchdog_ok else 'expired'}{fault_txt}")
+                     f"Watchdog: {'ok' if watchdog_ok else 'expired'}")
 
         # Watchdog entry
         if hasattr(self, 'watchdog_entry'):

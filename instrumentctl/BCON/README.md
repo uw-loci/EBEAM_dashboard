@@ -15,9 +15,9 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 
 - **Command Interface:** Full support for all BCON firmware commands (PING, STATUS, SET CH, etc.)
 - **Telemetry Monitoring:** Automatic parsing of system and channel telemetry
-- **State Tracking:** Real-time monitoring of system state (READY, SAFE_INTERLOCK, SAFE_WATCHDOG, FAULT_LATCHED)
+- **State Tracking:** Real-time monitoring of system state (READY, SAFE_INTERLOCK, SAFE_WATCHDOG)
 - **Channel Control:** Independent control of 3 pulser channels (OFF, DC, PULSE modes)
-- **Safety Features:** Watchdog configuration, fault management, interlock monitoring
+- **Safety Features:** Watchdog configuration, dashboard software arming, and external interlock monitoring
 - **Status Monitoring:** Per-channel status inputs (enable, power, overcurrent, gated)
 
 ## Supported Commands
@@ -32,7 +32,6 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 | `SET CH OFF` | `set_channel_off(channel)` | Turn off specific channel |
 | `SET CH DC` | `set_channel_dc(channel)` | Set channel to DC mode |
 | `SET CH PULSE` | `set_channel_pulse(channel, duration_ms)` | Pulse channel for duration |
-| `CLEAR FAULT` / `ARM` | `clear_fault()` or `arm()` | Clear latched faults |
 
 ## Usage Example
 
@@ -85,13 +84,13 @@ else:
 
 ### System Telemetry (`SYS` line)
 ```
-SYS state=READY reason=NONE fault_latched=0 telemetry_ms=1000
+SYS state=READY reason=READY fault_latched=0 telemetry_ms=1000
 ```
 
 Fields:
-- `state`: READY, SAFE_INTERLOCK, SAFE_WATCHDOG, FAULT_LATCHED
-- `reason`: NONE, INTERLOCK_LOW, WATCHDOG_EXPIRED, FAULT_LATCHED
-- `fault_latched`: 0 or 1
+- `state`: READY, SAFE_INTERLOCK, SAFE_WATCHDOG
+- `reason`: Mirrors the current firmware state code
+- `fault_latched`: Reserved compatibility field; current firmware always reports 0
 - `telemetry_ms`: Configured interval (0 = disabled)
 
 ### Channel Telemetry (`CHn` line)
@@ -150,13 +149,12 @@ Set channel (1-3) to DC mode (continuous output). Only works in READY state.
 #### `set_channel_pulse(channel: int, duration_ms: int) -> bool`
 Pulse channel (1-3) for specified duration (1-60000 ms). Channel automatically returns to OFF after pulse completes. Only works in READY state.
 
-### Safety & Fault Management
+### Safety Behavior
 
-#### `clear_fault() -> bool`
-Clear latched fault condition. Alias: `arm()`. Fails if overcurrent still active or interlock not satisfied.
-
-#### `arm() -> bool`
-Alias for `clear_fault()`.
+Current firmware does not expose a clear-fault / arm command. The dashboard's
+"Arm Beams" control is a frontend software interlock, while the external
+hardware interlock and communication watchdog remain the firmware-level safety
+mechanisms that can force outputs off.
 
 ### Status & Telemetry
 
@@ -164,7 +162,7 @@ Alias for `clear_fault()`.
 Return most recently received telemetry data without sending a command.
 
 #### `get_system_state() -> str`
-Return current system state: READY, SAFE_INTERLOCK, SAFE_WATCHDOG, or FAULT_LATCHED.
+Return current system state: READY, SAFE_INTERLOCK, or SAFE_WATCHDOG.
 
 #### `get_channel_mode(channel: int) -> str`
 Return current mode for channel (1-3): OFF, DC, or PULSE.
