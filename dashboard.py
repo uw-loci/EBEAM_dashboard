@@ -29,6 +29,22 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+
+CHANNEL_LABELS = ("A", "B", "C")
+
+
+def channel_label(index: int) -> str:
+    """Return the UI-facing pulser channel label for a 0-based index."""
+    if 0 <= index < len(CHANNEL_LABELS):
+        return CHANNEL_LABELS[index]
+    return str(index + 1)
+
+
+def channel_name(index: int) -> str:
+    """Return a verbose UI-facing pulser channel name for a 0-based index."""
+    return f"Channel {channel_label(index)}"
+
+
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1916, 41),
@@ -411,7 +427,7 @@ class EBEAMSystemDashboard:
         for i in range(3):
             btn = tk.Button(
                 enable_toggle_frame,
-                text=f"CH{i+1}: Disabled",
+                text=f"CH {channel_label(i)}: Disabled",
                 bg="#888888",
                 fg="white",
                 font=("Helvetica", 9),
@@ -712,24 +728,23 @@ class EBEAMSystemDashboard:
                 new_enabled = not was_enabled
                 if not beam_pulse.bcon_driver.set_channel_enable(ch_index + 1, new_enabled):
                     self.logger.warning(
-                        f"Failed to set CH{ch_index + 1} enable -> "
+                        f"Failed to set {channel_name(ch_index)} enable -> "
                         f"{'Enabled' if new_enabled else 'Disabled'}"
                     )
                     return
                 self._on_channel_enable_status_update(ch_index, new_enabled)
                 self.logger.info(
-                    f"CH{ch_index + 1} enable -> {'Enabled' if new_enabled else 'Disabled'}")
+                    f"{channel_name(ch_index)} enable -> {'Enabled' if new_enabled else 'Disabled'}")
                 # If we just disabled the channel, force it OFF
                 if was_enabled:
                     beam_pulse.send_channel_off(ch_index)
-                    beam_names = ["A", "B", "C"]
                     if ch_index < len(self.beam_toggle_buttons):
                         self.beam_toggle_buttons[ch_index].config(
-                            bg="gray", text=f"Beam {beam_names[ch_index]} OFF")
+                            bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
             else:
                 self.logger.warning("BCON driver not available for enable toggle")
         except Exception as e:
-            self.logger.error(f"Error toggling CH{ch_index + 1} enable: {e}")
+            self.logger.error(f"Error toggling {channel_name(ch_index)} enable: {e}")
 
     def toggle_individual_beam_with_status(self, beam_index):
         """Toggle individual beam on/off.
@@ -743,7 +758,6 @@ class EBEAMSystemDashboard:
                 return
 
             beam_pulse = self.subsystems['Beam Pulse']
-            beam_names = ["A", "B", "C"]
 
             # Get current beam status
             current_status = beam_pulse.get_beam_status(beam_index)
@@ -752,16 +766,16 @@ class EBEAMSystemDashboard:
             if current_status:
                 # Currently ON -> turn OFF
                 beam_pulse.send_channel_off(beam_index)
-                btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                self.logger.info(f"Beam {beam_names[beam_index]} turned OFF")
+                btn.config(bg="gray", text=f"Beam {channel_label(beam_index)} OFF")
+                self.logger.info(f"Beam {channel_label(beam_index)} turned OFF")
             else:
                 # Currently OFF -> send channel config to BCON
                 ok = beam_pulse.send_channel_config(beam_index)
                 if ok:
-                    btn.config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-                    self.logger.info(f"Beam {beam_names[beam_index]} config sent to BCON")
+                    btn.config(bg="green", text=f"Beam {channel_label(beam_index)} ON")
+                    self.logger.info(f"Beam {channel_label(beam_index)} config sent to BCON")
                 else:
-                    self.logger.error(f"Failed to send Beam {beam_names[beam_index]} config")
+                    self.logger.error(f"Failed to send Beam {channel_label(beam_index)} config")
 
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
@@ -848,7 +862,6 @@ class EBEAMSystemDashboard:
         Called on every register-poll cycle by BeamPulseSubsystem.
         mode_code=0 means OFF; remaining=0 means all pulses delivered.
         """
-        beam_names = ["A", "B", "C"]
         if not hasattr(self, 'beam_toggle_buttons') or ch >= len(self.beam_toggle_buttons):
             return
         btn = self.beam_toggle_buttons[ch]
@@ -858,14 +871,14 @@ class EBEAMSystemDashboard:
         is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
         try:
             if is_running:
-                btn.config(bg="green", text=f"Beam {beam_names[ch]} ON")
+                btn.config(bg="green", text=f"Beam {channel_label(ch)} ON")
                 if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                     self.subsystems['Beam Pulse'].beam_on_status[ch] = True
             else:
                 # Only reset to gray when the button is currently green
                 # (avoids overwriting a manually-initiated OFF state)
                 if str(btn.cget('bg')) == 'green':
-                    btn.config(bg="gray", text=f"Beam {beam_names[ch]} OFF")
+                    btn.config(bg="gray", text=f"Beam {channel_label(ch)} OFF")
                     if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                         self.subsystems['Beam Pulse'].beam_on_status[ch] = False
         except Exception:
@@ -880,7 +893,7 @@ class EBEAMSystemDashboard:
             if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
                 self.enable_toggle_buttons[ch].config(
                     bg="#2e7d32" if enabled else "#888888",
-                    text=f"CH{ch+1}: {'Enabled' if enabled else 'Disabled'}",
+                    text=f"CH {channel_label(ch)}: {'Enabled' if enabled else 'Disabled'}",
                 )
 
             beam_pulse = self.subsystems.get('Beam Pulse')
@@ -895,15 +908,13 @@ class EBEAMSystemDashboard:
 
             self.update_beam_toggle_states(enabled=armed)
         except Exception as e:
-            self.logger.error(f"Error updating CH{ch + 1} enable status: {str(e)}")
+            self.logger.error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
 
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
         try:
             if not hasattr(self, 'beam_toggle_buttons'):
                 return
-
-            beam_names = ["A", "B", "C"]
 
             for i, btn in enumerate(self.beam_toggle_buttons):
                 if enabled:
@@ -915,13 +926,13 @@ class EBEAMSystemDashboard:
                     )
                     btn.config(state="normal" if ch_enabled else "disabled")
                     if reset:
-                        btn.config(bg="gray", text=f"Beam {beam_names[i]} OFF")
+                        btn.config(bg="gray", text=f"Beam {channel_label(i)} OFF")
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']
                             if hasattr(beam_pulse, 'set_beam_status'):
                                 beam_pulse.set_beam_status(i, False)
                 else:
-                    btn.config(state="disabled", bg="gray", text=f"Beam {beam_names[i]} OFF")
+                    btn.config(state="disabled", bg="gray", text=f"Beam {channel_label(i)} OFF")
                     if reset:
                         if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                             beam_pulse = self.subsystems['Beam Pulse']

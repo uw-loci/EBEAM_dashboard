@@ -42,6 +42,9 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+CHANNEL_LABELS = ("A", "B", "C")
+
+
 class BeamPulseSubsystem:
     """Beam Pulse subsystem (BCON) with tabbed GUI interface for pulser controls.
 
@@ -155,6 +158,16 @@ class BeamPulseSubsystem:
         # Auto-connect in background if a port was supplied
         if self.bcon_driver:
             threading.Thread(target=self._auto_connect, daemon=True).start()
+
+    def _channel_label(self, ch: int) -> str:
+        """Return the UI-facing channel label for a 0-based channel index."""
+        if 0 <= ch < len(CHANNEL_LABELS):
+            return CHANNEL_LABELS[ch]
+        return str(ch + 1)
+
+    def _channel_name(self, ch: int) -> str:
+        """Return a verbose UI-facing channel name for a 0-based channel index."""
+        return f"Channel {self._channel_label(ch)}"
 
     # ================================================================== #
     #                          GUI Setup                                   #
@@ -275,7 +288,7 @@ class BeamPulseSubsystem:
 
         self.channel_vars = []
         for ch in range(3):
-            frame = ttk.LabelFrame(cards_frame, text=f"Channel {ch+1}", padding="5")
+            frame = ttk.LabelFrame(cards_frame, text=self._channel_name(ch), padding="5")
             frame.grid(row=0, column=ch, sticky="nsew", pady=4, padx=4)
 
             # Row 1: Mode selector
@@ -347,7 +360,7 @@ class BeamPulseSubsystem:
         table.pack(fill=tk.X)
 
         # Header
-        for col, hdr in enumerate(("CH", "Duration (ms)", "Count", "Mode", "Include")):
+        for col, hdr in enumerate(("Channel", "Duration (ms)", "Count", "Mode", "Include")):
             ttk.Label(table, text=hdr, font=("Arial", 9, "bold")).grid(row=0, column=col, padx=6, pady=(0, 4))
 
         self.sync_ch_vars = [tk.BooleanVar(value=True) for _ in range(3)]
@@ -355,7 +368,7 @@ class BeamPulseSubsystem:
 
         for ch in range(3):
             r = ch + 1
-            ttk.Label(table, text=f"CH{ch+1}", font=("Arial", 9, "bold")).grid(row=r, column=0, padx=6, pady=3, sticky="w")
+            ttk.Label(table, text=self._channel_label(ch), font=("Arial", 9, "bold")).grid(row=r, column=0, padx=6, pady=3, sticky="w")
 
             dur_e = ttk.Entry(table, width=10)
             dur_e.insert(0, "100")
@@ -475,7 +488,7 @@ class BeamPulseSubsystem:
                       font=("Arial", 9, "bold")).pack(fill=tk.X, pady=(0, 2))
             for ch in range(3):
                 btn = ttk.Button(
-                    outer, text=f"Apply CH{ch + 1}", state="disabled",
+                    outer, text=f"Apply {self._channel_name(ch)}", state="disabled",
                     command=lambda c=ch: self._manual_apply(
                         c,
                         self.channel_vars[c]['duration'],
@@ -625,7 +638,7 @@ class BeamPulseSubsystem:
         count      = config['count']
 
         self.bcon_driver.set_channel_mode(ch + 1, mode_label, duration_ms=duration, count=count)
-        self._log_event(f"Applied CH{ch+1}: mode={mode_label} dur={duration}ms count={count}")
+        self._log_event(f"Applied {self._channel_name(ch)}: mode={mode_label} dur={duration}ms count={count}")
 
     def _manual_set_mode(self, ch, mode_code):
         """Quick mode button for a single channel."""
@@ -642,10 +655,10 @@ class BeamPulseSubsystem:
             try:
                 duration = int(cv['duration'].get().strip()) if cv else 100
             except Exception:
-                messagebox.showerror("Invalid Configuration", f"CH{ch+1}: duration must be a whole number of ms")
+                messagebox.showerror("Invalid Configuration", f"{self._channel_name(ch)}: duration must be a whole number of ms")
                 return
             if duration <= 0:
-                messagebox.showerror("Invalid Configuration", f"CH{ch+1}: duration must be > 0 ms")
+                messagebox.showerror("Invalid Configuration", f"{self._channel_name(ch)}: duration must be > 0 ms")
                 return
 
             if mode_code == self.MODE_PULSE:
@@ -654,15 +667,15 @@ class BeamPulseSubsystem:
                 try:
                     count = int(cv['count'].get().strip()) if cv else 2
                 except Exception:
-                    messagebox.showerror("Invalid Configuration", f"CH{ch+1}: count must be a whole number")
+                    messagebox.showerror("Invalid Configuration", f"{self._channel_name(ch)}: count must be a whole number")
                     return
                 if count < 2:
-                    messagebox.showerror("Invalid Configuration", f"CH{ch+1}: PULSE_TRAIN requires count >= 2")
+                    messagebox.showerror("Invalid Configuration", f"{self._channel_name(ch)}: PULSE_TRAIN requires count >= 2")
                     return
 
             self.bcon_driver.set_channel_mode(ch + 1, label, duration_ms=duration, count=count)
 
-        self._log_event(f"CH{ch+1} -> {label}")
+        self._log_event(f"{self._channel_name(ch)} -> {label}")
 
     def _manual_toggle_enable(self, ch):
         """Toggle enable for a single channel."""
@@ -673,9 +686,9 @@ class BeamPulseSubsystem:
         current = self.bcon_driver.is_channel_enabled(ch + 1)
         enabled = not current
         if self.bcon_driver.set_channel_enable(ch + 1, enabled):
-            self._log_event(f"CH{ch+1} -> {'ENABLED' if enabled else 'DISABLED'}")
+            self._log_event(f"{self._channel_name(ch)} -> {'ENABLED' if enabled else 'DISABLED'}")
         else:
-            self._log_event(f"CH{ch+1} enable write failed")
+            self._log_event(f"{self._channel_name(ch)} enable write failed")
 
     # ================================================================== #
     #                    Sync Tab Actions                                   #
@@ -727,7 +740,7 @@ class BeamPulseSubsystem:
             if ch >= len(self.channel_vars):
                 continue
             if not enable_states[ch] if ch < len(enable_states) else False:
-                self._log_event(f"Sync Start: CH{ch+1} skipped (not enabled)")
+                self._log_event(f"Sync Start: {self._channel_name(ch)} skipped (not enabled)")
                 continue
             config = self._validate_and_get_config(ch)
             if config is None:
@@ -743,7 +756,10 @@ class BeamPulseSubsystem:
             self.bcon_driver.sync_start(configs)
             self._log_event(
                 "Sync Start: " +
-                ", ".join(f"CH{c['ch']}={c['mode']}({c['duration_ms']}ms x{c['count']})" for c in configs)
+                ", ".join(
+                    f"{self._channel_label(c['ch'] - 1)}={c['mode']}({c['duration_ms']}ms x{c['count']})"
+                    for c in configs
+                )
             )
 
     def _sync_stop_all(self):
@@ -815,7 +831,7 @@ class BeamPulseSubsystem:
             for sn, rows, dwell in self._seq_steps:
                 for row in rows:
                     self.seq_preview_text.insert(tk.END,
-                        f"Step {sn}: CH{row['ch']+1} {row['mode']} "
+                        f"Step {sn}: {self._channel_name(row['ch'])} {row['mode']} "
                         f"dur={row['duration_ms']}ms cnt={row['count']}  dwell={dwell}ms\n")
             self.seq_preview_text.configure(state="disabled")
 
@@ -1523,7 +1539,7 @@ class BeamPulseSubsystem:
           PULSE         — duration > 0 ms required; count is always forced to 1.
           PULSE_TRAIN   — duration > 0 ms and count ≥ 2 required.
         """
-        channel = ch + 1  # 1-based for display
+        channel_name = self._channel_name(ch)
         if ch >= len(self.channel_vars):
             return self.get_channel_config(ch)  # fallback to defaults
 
@@ -1532,7 +1548,7 @@ class BeamPulseSubsystem:
 
         if mode_label not in MODE_LABEL_TO_CODE:
             messagebox.showerror("Invalid Configuration",
-                                 f"CH{channel}: unknown mode '{mode_label}'")
+                                 f"{channel_name}: unknown mode '{mode_label}'")
             return None
 
         if mode_label in ('OFF', 'DC'):
@@ -1545,11 +1561,11 @@ class BeamPulseSubsystem:
             duration = int(dur_str)
         except (ValueError, TypeError):
             messagebox.showerror("Invalid Configuration",
-                                 f"CH{channel}: duration must be a whole number of ms")
+                                 f"{channel_name}: duration must be a whole number of ms")
             return None
         if duration <= 0:
             messagebox.showerror("Invalid Configuration",
-                                 f"CH{channel}: duration must be > 0 ms")
+                                 f"{channel_name}: duration must be > 0 ms")
             return None
 
         # ---- PULSE: count is always 1 ------------------------------------
@@ -1562,11 +1578,11 @@ class BeamPulseSubsystem:
             count = int(cnt_str)
         except (ValueError, TypeError):
             messagebox.showerror("Invalid Configuration",
-                                 f"CH{channel}: count must be a whole number")
+                                 f"{channel_name}: count must be a whole number")
             return None
         if count < 2:
             messagebox.showerror("Invalid Configuration",
-                                 f"CH{channel}: PULSE_TRAIN requires count \u2265 2")
+                                 f"{channel_name}: PULSE_TRAIN requires count \u2265 2")
             return None
 
         return {'mode': mode_label, 'duration_ms': duration, 'count': count}
@@ -1595,7 +1611,7 @@ class BeamPulseSubsystem:
 
         is_on = mode_label != 'OFF'
         self.beam_on_status[ch] = is_on
-        self._log_event(f"Sent CH{ch+1}: mode={mode_label} dur={duration}ms count={count}")
+        self._log_event(f"Sent {self._channel_name(ch)}: mode={mode_label} dur={duration}ms count={count}")
         if self._dashboard_beam_callback:
             try:
                 self._dashboard_beam_callback(ch, is_on)
@@ -1610,7 +1626,7 @@ class BeamPulseSubsystem:
             return False
         self.bcon_driver.set_channel_off(ch + 1)
         self.beam_on_status[ch] = False
-        self._log_event(f"CH{ch+1} -> OFF")
+        self._log_event(f"{self._channel_name(ch)} -> OFF")
         if self._dashboard_beam_callback:
             try:
                 self._dashboard_beam_callback(ch, False)
@@ -1669,6 +1685,6 @@ if __name__ == "__main__":
             status = b.get_system_status()
             print(f"\nSystem: {status['system']}")
             for i, ch in enumerate(status['channels'], 1):
-                print(f"Channel {i}: {ch}")
+                print(f"Channel {CHANNEL_LABELS[i - 1]}: {ch}")
 
         b.disconnect()
