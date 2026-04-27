@@ -12,17 +12,17 @@ import serial.tools.list_ports
 frames_config = [
     # Row 0
     ("Interlocks", 0, 1916, 41),
-    
+
     # Row 1
     ("Oil System", 1, 604, 130),
     ("Beam Steering", 1, 778, 130),
     ("Beam Energy", 1, 528, 130),
-    
+
     # Row 2
     ("Vacuum System", 2, 604, 438),
     ("Beam Pulse", 2, 777, 438),
     ("Main Control", 2, 529, 438),
-    
+
     # Row 4
     ("Process Monitor", 3, 339, 458),
     ("Cathode Heating", 3, 1041, 458),
@@ -69,8 +69,8 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
-        
-        
+
+
         if self.load_saved_pane_state():
             if self.logger is not None:
                 self.logger.info("Pane-state restore result: restored saved pane state")
@@ -79,7 +79,7 @@ class EBEAMSystemDashboard:
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
-        
+
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
@@ -200,7 +200,7 @@ class EBEAMSystemDashboard:
         """Create a button to launch the standalone post-processor application"""
         post_processor_frame = ttk.Frame(parent_frame)
         post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        
+
         ttk.Button(
             post_processor_frame,
             text="Launch Log Post-processor",
@@ -224,22 +224,22 @@ class EBEAMSystemDashboard:
             # Launch the post-processor script
             if sys.platform.startswith('win'):
                 # On Windows, use pythonw to avoid console window
-                subprocess.Popen([sys.executable, post_processor_path], 
+                subprocess.Popen([sys.executable, post_processor_path],
                             creationflags=subprocess.CREATE_NO_WINDOW)
             else:
                 # On other platforms
                 subprocess.Popen([sys.executable, post_processor_path])
-                
+
             self.logger.info("Log post-processor launched successfully")
         except Exception as e:
             self.logger.error(f"Failed to launch log post-processor: {str(e)}")
-            messagebox.showerror("Error", 
+            messagebox.showerror("Error",
                             f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
         """
         Add a formatted title label to a frame.
-        
+
         Args:
             frame: Frame to add title to
             title: Title text to display
@@ -269,16 +269,16 @@ class EBEAMSystemDashboard:
         self.log_level_var = tk.StringVar()
         log_levels = [level.name for level in LogLevel]
         log_level_dropdown = ttk.Combobox(
-            log_level_frame, 
-            textvariable=self.log_level_var, 
-            values=log_levels, 
-            state="readonly", 
+            log_level_frame,
+            textvariable=self.log_level_var,
+            values=log_levels,
+            state="readonly",
             width=15
         )
         log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
+
         current_level = self.messages_frame.get_log_level()
-        log_level_dropdown.set(current_level.name) 
+        log_level_dropdown.set(current_level.name)
         log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
 
     def file_create_log_level_dropdown(self, parent_frame):
@@ -289,16 +289,16 @@ class EBEAMSystemDashboard:
         self.file_log_level_var = tk.StringVar()
         file_log_levels = ["DEBUG", "VERBOSE"]
         self.file_log_level_dropdown = ttk.Combobox(
-            file_log_frame, 
-            textvariable=self.file_log_level_var, 
-            values=file_log_levels, 
-            state="readonly", 
+            file_log_frame,
+            textvariable=self.file_log_level_var,
+            values=file_log_levels,
+            state="readonly",
             width=15
         )
         self.file_log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
+
         current_file_level = self.messages_frame.get_file_log_level()
-        self.file_log_level_dropdown.set(current_file_level.name) 
+        self.file_log_level_dropdown.set(current_file_level.name)
         self.file_log_level_dropdown.bind("<<ComboboxSelected>>", self.on_file_log_level_change)
 
     def on_log_level_change(self, event):
@@ -320,11 +320,11 @@ class EBEAMSystemDashboard:
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
-                serial_port=self.com_ports['VTRXSubsystem'], 
+                serial_port=self.com_ports['VTRXSubsystem'],
                 logger=self.logger
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
-                self.frames['Process Monitor'], 
+                self.frames['Process Monitor'],
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
@@ -339,7 +339,7 @@ class EBEAMSystemDashboard:
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
                 logger=self.logger,
-            ), 
+            ),
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
@@ -395,7 +395,7 @@ class EBEAMSystemDashboard:
             self.com_port_menu.pack_forget()
             self.com_port_button.config(text="Configure COM Ports")
         else:
-            self.update_available_ports() 
+            self.update_available_ports()
             self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
             self.com_port_button.config(text="Hide COM Port Configuration")
 

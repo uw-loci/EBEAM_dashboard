@@ -283,62 +283,62 @@ In short:
 flowchart TB
     Start([Start]) --> InitArrays[Initialize power_supplies and status arrays]
     InitArrays --> LoopStart{For each cathode PS}
-    
+
     LoopStart --> HasPort{Port exists?}
     HasPort -- No --> SetNull[Set PS to null & status false]
     HasPort -- Yes --> TryInit[Try initialization]
-    
+
     TryInit --> PSExists{PS exists?}
     PSExists -- No --> CreatePS[Create new PowerSupply9104]
     PSExists -- Yes --> CheckConnection{Is connected?}
-    
+
     CheckConnection -- No --> UpdatePort[Update COM port]
     CheckConnection -- Yes --> SetPreset[Normal mode]
     CreatePS --> SetPreset
     UpdatePort --> SetPreset
-    
+
     SetPreset --> ConfirmPreset{Preset == 3?}
     ConfirmPreset -- No --> LogPresetWarning[Log preset warning]
     ConfirmPreset -- Yes --> SetOVP[Set overvoltage protection]
     LogPresetWarning --> SetOVP
-    
+
     SetOVP --> OVPSuccess{OVP set?}
     OVPSuccess -- No --> LogOVPFail[Log OVP failure]
     OVPSuccess -- Yes --> ConfirmOVP{OVP matches?}
-    
+
     ConfirmOVP -- No --> LogOVPMismatch[Log OVP mismatch]
     ConfirmOVP -- Yes --> SetOCP[Set overcurrent protection]
     LogOVPMismatch --> SetOCP
     LogOVPFail --> SetOCP
-    
+
     SetOCP --> OCPSuccess{OCP set?}
     OCPSuccess -- No --> LogOCPFail[Log OCP failure]
     OCPSuccess -- Yes --> ConfirmOCP{OCP matches?}
-    
+
     ConfirmOCP -- No --> LogOCPMismatch[Log OCP mismatch]
     ConfirmOCP -- Yes --> SetSuccess[Set PS status true]
     LogOCPMismatch --> SetSuccess
     LogOCPFail --> SetSuccess
-    
+
     SetSuccess --> NextPS{More PS?}
     SetNull --> NextPS
-    
+
     NextPS -- Yes --> LoopStart
     NextPS -- No --> UpdateButtons[Update button states
     enabled/disabled]
-    
+
     UpdateButtons --> CheckAnyInit{Any PS initialized?}
     CheckAnyInit -- Yes --> SetInitTrue[Set initialized flag true]
     CheckAnyInit -- No --> LogNoInit[Log no PS initialized]
-    
+
     SetInitTrue --> UpdateSettings[Update query settings]
     LogNoInit --> UpdateSettings
-    
+
     UpdateSettings --> End([to idle state])
-    
+
     Error[Handle Exception] --> SetErrorState[Set PS null & status false]
     SetErrorState --> NextPS
-    
+
     TryInit -- Exception --> Error
 ```
 
@@ -349,12 +349,12 @@ flowchart TB
     Start["Start Update Cycle
     (500ms)"] --> ParallelCheck["Check Each Cathode
     (A, B, C)"]
-    
+
     ParallelCheck --> PSCheck{"Power Supply
     Connected?"}
     ParallelCheck --> TempCheck{"Temperature
     Controller Connected?"}
-    
+
     PSCheck -->|Yes| PSResume
     PSCheck -->|No| PSRetry["Retry Connection
     1. Log Warning
@@ -362,7 +362,7 @@ flowchart TB
     3. 500ms Delay"]
     PSRetry --> PSSuccess{"Reconnection
     Successful?"}
-    
+
     PSSuccess -->|Yes| PSResume["Continue
     1. Update Status
     2. Enable Controls
@@ -372,19 +372,19 @@ flowchart TB
     1. Disable Controls
     2. Clear Readings
     3. Log Error"]
-    
+
     TempCheck -->|No| TempFail["Temp Read Failure
     1. Set Plot Alert (Red)
     2. Display '--' °C
     3. Log Error"]
     TempCheck -->|Yes| ReadTemp["Read Temperature"]
-    
+
     ReadTemp --> ValidateTemp{"Temperature
     Valid?"}
     ValidateTemp -->|No| TempFail
     ValidateTemp -->|Yes| CheckOT{"Temperature >
     Overtemp Limit?"}
-    
+
     CheckOT -->|Yes| OTActions[" Set Status 'OVERTEMP!'
     1. Update Plot (Red)
     2. Log Critical Error
@@ -392,7 +392,7 @@ flowchart TB
     CheckOT -->|No| NormalTemp["Set Status 'Normal'
     1. Update Plot (Blue)
     2. Update Display"]
-    
+
     PSResume --> UpdateDisplay["Update GUI Display
     1. Voltage & Current
     2. Operation Mode
@@ -401,12 +401,12 @@ flowchart TB
     OTActions --> UpdateDisplay
     NormalTemp --> UpdateDisplay
     TempFail --> UpdateDisplay
-    
+
     UpdateDisplay --> NextCycle["Schedule Next
     Update (500ms)"]
-    
+
     NextCycle --> Start
-    
+
     subgraph GUI_Updates["GUI Status Updates"]
         direction TB
         UpdateLabels["Update Display Labels:
@@ -414,13 +414,13 @@ flowchart TB
         - Target Current
         - Temperature
         - Operation Mode"]
-        
+
         UpdatePlot["Update Temperature Plot:
         - Add New Data Point
         - Adjust Color (Red/Blue)
         - Update Axes
         - Redraw"]
-        
+
         UpdateControls["Update Control States:
         - Toggle Buttons
         - Query Settings
@@ -429,7 +429,7 @@ flowchart TB
 ```
 
 # Setting current output via dashboard
- 
+
 ```mermaid
 flowchart TB
     Input["User enters new current using textbox or nudge buttons"] --> ActiveRamp{"Active ramp process?"}
@@ -465,8 +465,8 @@ flowchart TB
     RampVoltage --> End
 ```
 
-# Setting voltage output via dashboard 
- 
+# Setting voltage output via dashboard
+
 ```mermaid
 flowchart TB
     Input["User enters new voltage using textbox or nudge buttons"] --> ActiveRamp{"Active ramp process?"}
