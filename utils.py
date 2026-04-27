@@ -84,7 +84,8 @@ class Logger:
                 sys.__stderr__.flush()
             except Exception:
                 pass
-            self.text_widget = None
+            # Do not set self.text_widget to None here (all warnings can print)
+            # self.text_widget = None
 
     def attach_text_widget(self, text_widget):
         self.text_widget = text_widget

@@ -111,7 +111,7 @@ class EBEAMSystemDashboard:
             if hasattr(subsystem, 'close_com_ports'):
                 subsystem.close_com_ports()
         print("Cleaned up com ports.")
-        self._dump_threads("after close_com_ports")
+        # self._dump_threads("after close_com_ports")
 
     def _dump_threads(self, label):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
