@@ -38,6 +38,7 @@ class Logger:
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
         self.supabase_client = None
         self.last_supabase_write = None
+        self.tracked_alive_threads = []
         try:
             self.supabase_client = SupabaseClient()
         except Exception as e:
@@ -77,13 +78,16 @@ class Logger:
         except tk.TclError as exc:
             # Widget has been destroyed or is being torn down during shutdown.
             current_thread = threading.current_thread()
-            try:
-                sys.__stderr__.write(
-                    f"WARNING: thread {current_thread.name} still running during shutdown\n"
-                )
-                sys.__stderr__.flush()
-            except Exception:
-                pass
+            if not current_thread.ident in self.tracked_alive_threads:
+                # only allow one WARNING per thread
+                self.tracked_alive_threads.append(current_thread.ident)
+                try:
+                    sys.__stderr__.write(
+                        f"WARNING: thread {current_thread.name} still running during shutdown\n"
+                    )
+                    sys.__stderr__.flush()
+                except Exception:
+                    pass
             # Do not set self.text_widget to None here (all warnings can print)
             # self.text_widget = None
 
