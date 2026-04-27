@@ -30,7 +30,7 @@ class PowerSupply9104:
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
-        
+
         # Close existing serial connection if it exists
         if self.ser is not None:
             self.ser.close()
@@ -60,12 +60,12 @@ class PowerSupply9104:
             if not self.is_connected():
                 self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
                 return None # return immediately to prevent blocking GUI on serial read
-            
+
             self.flush_serial()
-            
+
             self.log(f"Sending command: {command}", LogLevel.DEBUG)
             self.ser.write(f"{command}\r\n".encode())
-            
+
             response = self.ser.read_until(b'\r').decode()
 
             if 'OK' not in response:
@@ -78,7 +78,7 @@ class PowerSupply9104:
                 self.log(f"Acknowledgement not in 9104 supply response")
 
             self.log(f"Response: {response}", LogLevel.DEBUG)
-                
+
             return response.strip()
         except serial.SerialException as e:
             self.log(f"Serial error: {e}", LogLevel.ERROR)
@@ -99,14 +99,14 @@ class PowerSupply9104:
     def set_output(self, state):
         """Set the output on/off."""
         """ Expected return value: OK[CR] """
-        
+
         voltage, _ = self.get_settings(3)
- 
+
         # Verify valid value is returned
         if voltage is None:
             self.log(f"Cannot switch on output. Could not read voltage setting", LogLevel.ERROR)
             return False
-        
+
         if not self.validate_voltage(voltage):
             self.log(f"Cannot switch on output. Check voltage vs. OVP", LogLevel.ERROR)
             return False
@@ -131,18 +131,18 @@ class PowerSupply9104:
         """Set the output voltage. Assumes input voltage is in a form such as: 5.00"""
         """ Expected return value: OK[CR] """
         formatted_voltage = round(voltage * 100)
-        
+
         # Voltage must be less than OVP!
         is_voltage_valid = self.validate_voltage(voltage)
-        
+
         # If voltage is not valid, do not set the voltage. Could lead to errors otherwise.
         if not is_voltage_valid:
             self.log(f"Voltage not set. Voltage must be less than OVP!", LogLevel.ERROR)
             return False
         command = f"VOLT {preset}{formatted_voltage:04d}"
-    
+
         response = self.send_command(command)
-        
+
         self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip().startswith("OK"):
             self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
@@ -156,7 +156,7 @@ class PowerSupply9104:
             error_message = "No response" if response is None else response
             self.log(f"Error setting voltage: {error_message}", LogLevel.ERROR)
             return False
-        
+
     def validate_voltage(self, voltage):
         """Check if the voltage is less than the OVP."""
         ovp = self.get_over_voltage_protection()
@@ -167,7 +167,7 @@ class PowerSupply9104:
             self.log(f"Voltage {voltage:.2f}V is greater than OVP {ovp:.2f}V", LogLevel.ERROR)
             return False
         return True
-    
+
     def set_current(self, preset, current, sent_callback=None):
         """Set the output current."""
         """ Expected return value: OK[CR] """
@@ -191,7 +191,7 @@ class PowerSupply9104:
         """
         Slowly ramp the current to the target current at the specified ramp rate.
         Runs in a separate thread to avoid blocking the GUI
-        
+
         Args:
             target_current (float): The target current to reach in amps.
             step_size (float): The amount to increase/decrease current each step in amps.
@@ -317,17 +317,17 @@ class PowerSupply9104:
             self.log(f"Error during current ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
-                
+
     def ramp_voltage(self, target_voltage, step_size=0.02, step_delay=2.0, preset=3, callback=None, sent_callback=None):
         """
         Slowly ramp the voltage to the target voltage at the specified ramp rate.
         Runs in a separate thread to avoid blocking the GUI
-        
+
         Args:
             target_voltage (float): The target voltage to reach in volts.
             ramp_rate (float): The rate at which to change the voltage in volts per second.
             callback (function): Optional function to call when ramping is complete.
-        """        
+        """
         if self.ramp_thread and self.ramp_thread.is_alive():
             self.log("Ramping already in progress. Aborting new ramp request.", LogLevel.WARNING)
             return False
@@ -358,16 +358,16 @@ class PowerSupply9104:
                 if callback:
                     callback(False)
                 return
-                
+
             current_voltage = voltage
 
             self.log(f"Starting ramp from {current_voltage:.2f}V to {target_voltage:.2f}V", LogLevel.INFO)
-            
+
             # Calculate steps
             voltage_difference = target_voltage - current_voltage
             num_steps = max(1, math.ceil(abs(voltage_difference) / step_size))
             voltage_step = voltage_difference / num_steps
-            
+
             # Simple ramping loop
             for step in range(num_steps):
                 if self.stop_event.is_set():  # Check if stop is requested
@@ -375,19 +375,19 @@ class PowerSupply9104:
                     if callback:
                         callback(False)
                     return
-            
+
                 if not self.is_connected():
                     self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
                     return
-            
+
                 next_voltage = current_voltage + voltage_step
                 if voltage_step > 0:
                     next_voltage = min(next_voltage, target_voltage)
                 else:
                     next_voltage = max(next_voltage, target_voltage)
-                
+
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
                     try:
@@ -408,18 +408,18 @@ class PowerSupply9104:
 
                 # Update tracking voltage without querying device
                 current_voltage = next_voltage
-                
+
                 # Only log every few steps
                 if step % 5 == 0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
-                    
+
                 # Longer delay between steps
                 time.sleep(step_delay)
-            
+
             # Final verification after settling
             time.sleep(1.0)  # Extra settling time
             final_voltage, _, _ = self.get_voltage_current_mode()
-            
+
             if final_voltage is None:
                 self.log("Ramp complete but could not verify final voltage", LogLevel.WARNING)
                 if callback:
@@ -438,18 +438,18 @@ class PowerSupply9104:
             self.log(f"Ramp complete. Target: {target_voltage:.2f}V, Final: {final_voltage:.2f}V", LogLevel.INFO)
             if callback:
                 callback(True)
-                
+
         except Exception as e:
             self.log(f"Error during voltage ramp: {str(e)}", LogLevel.ERROR)
             if callback:
                 callback(False)
-    
+
     def stop_ramp(self):
         """
         Signal any active ramp thread to exit cleanly.
         Safe to call even if no ramp is running.
         """
-        self.stop_event.set()    
+        self.stop_event.set()
 
     def get_display_readings(self):
         """Get the display readings for voltage and current mode."""
@@ -458,33 +458,33 @@ class PowerSupply9104:
         command = "GETD"
         self.log(f"Sent command:{command}", LogLevel.DEBUG)
         return self.send_command(command)
-    
+
     def parse_getd_response(self, response):
         try:
             # Remove whitespace and split by 'OK'
             parts = response.replace('\r', '').replace('\n', '').split('OK')
-            
+
             # Check if 'OK' is present in the response
             if len(parts) < 2:
                 raise ValueError(f"Missing 'OK' in response: {response}")
-            
+
             # The data should be in the first part
             data = parts[0].strip()
             data = data.lstrip('r')
-            
+
             if len(data) != 9:
                 raise ValueError(f"Invalid GETD data format: {data}")
-                
+
             voltage = float(data[:4]) / 100.0
             current = float(data[4:8]) / 100.0
             mode = "CV Mode" if data[8] == "0" else "CC Mode"
-            
+
             self.log(f"Parsed GETD response: {voltage:.2f}V, {current:.2f}A, {mode}", LogLevel.DEBUG)
             return voltage, current, mode
         except Exception as e:
             self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
             return 0.0, 0.0, "Err"
-    
+
     def set_over_voltage_protection(self, ovp_volts):
         """Set the over voltage protection value."""
         """ Expected response: OK[CR] """
@@ -501,7 +501,7 @@ class PowerSupply9104:
     def get_voltage_current_mode(self):
         """
         Extract voltage and current from the power supply reading.
-        
+
         Returns:
         (voltage, current, mode)
         """
@@ -541,9 +541,9 @@ class PowerSupply9104:
         """Set the over current protection value."""
         """ Expected response: OK[CR] """
         ocp_centiamps = int(ocp_amps * 100)
-        
+
         command = f"SOCP{ocp_centiamps:04d}"
-        response = self.send_command(command) 
+        response = self.send_command(command)
         if response and "OK" in response:
             return True
         else:
@@ -572,7 +572,7 @@ class PowerSupply9104:
             except (ValueError, IndexError) as e:
                 self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
                 return None
-            
+
         self.log("Failed to get OVP value", LogLevel.ERROR)
         return None
 
@@ -712,7 +712,7 @@ class PowerSupply9104:
         """Configure presets for voltage, current, and SW time."""
         command = f"SETM{setv1:04}{seti1:04}{swtime1:03}{setv2:04}{seti2:04}{swtime2:03}{setv3:04}{seti3:04}{swtime3:03}"
         return self.send_command(command)
-    
+
     def disable_output(self):
         """Disable the power supply output unconditionally (no OVP validation)."""
         if not self.is_connected():

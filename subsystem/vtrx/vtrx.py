@@ -24,7 +24,7 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
-class VTRXSubsystem: 
+class VTRXSubsystem:
     ERROR_CODES = {
         0: "VALVE CONTENTION",
         1: "COLD CATHODE FAILURE",
@@ -51,7 +51,7 @@ class VTRXSubsystem:
         self.baud_rate = baud_rate
         self.logger = logger
         self.data_queue = queue.Queue()
-        
+
         self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
         self.full_history_y = []    # Complete pressure history
@@ -68,13 +68,13 @@ class VTRXSubsystem:
 
         self.setup_serial()
         self.setup_gui()
-        
+
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
-        
+
         # stop the existing serial thread
         self.stop_serial_thread()
 
@@ -97,12 +97,12 @@ class VTRXSubsystem:
         """
         Attempt to establish serial connection with the VTRX hardware using the specified port and baud rate.
 
-        Tries to open the serial port configured in `self.serial_port`. If successful, 
-        updates the internal `self.ser` reference. If it fails, logs an error and sets 
+        Tries to open the serial port configured in `self.serial_port`. If successful,
+        updates the internal `self.ser` reference. If it fails, logs an error and sets
         `self.ser` to None.
 
         Raises:
-            serial.SerialException: If opening the serial port fails unexpectedly 
+            serial.SerialException: If opening the serial port fails unexpectedly
         """
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
@@ -118,7 +118,7 @@ class VTRXSubsystem:
         Continuously read data from the serial port and push it to the queue.
 
         This method runs in the dedicated "serial" thread. It checks if the serial port is open,
-        reads a line of data, decodes it, and places the resulting string onto 
+        reads a line of data, decodes it, and places the resulting string onto
         `self.data_queue`. If any serial-related error occurs, logs the error once.
 
         This method exits if `self.stop_event` is set.
@@ -170,8 +170,8 @@ class VTRXSubsystem:
         """
         Process all items in the data queue and update the GUI.
 
-        This method is scheduled every 500ms. It fetches new items from 
-        self.data_queue. If an item is None, it indicates no data is currently 
+        This method is scheduled every 500ms. It fetches new items from
+        self.data_queue. If an item is None, it indicates no data is currently
         available. If the item is valid data, it invokes the serial handler.
 
         After processing all items, reschedules itself to run again after 500 ms.
@@ -191,7 +191,7 @@ class VTRXSubsystem:
     def update_gui_with_error_state(self):
         """
         Update GUI elements to reflect error state.
-        
+
         Sets indicators to red, updates pressure label, and changes plot appearance
         to indicate error condition.
         """
@@ -211,14 +211,14 @@ class VTRXSubsystem:
         """
         Parse and handle a single line of raw serial data from the VTRX system.
 
-        The serial data is expected to be a semicolon-separated string containing 
+        The serial data is expected to be a semicolon-separated string containing
         at least three fields:
             1) pressure value (float)
             2) raw pressure string (scientific notation)
             3) switch states in binary format
             4+) optional error messages
 
-        If parsing is successful, updates the GUI with the new pressure value and 
+        If parsing is successful, updates the GUI with the new pressure value and
         switch states, or sets the error state if anything is invalid.
 
         Args:
@@ -235,7 +235,7 @@ class VTRXSubsystem:
             self.error_state = True
             self.update_gui_with_error_state()
             return
-        
+
         try:
             pressure_raw = data_parts[1]            # raw string from 972b sensor
             pressure_raw = pressure_raw.strip()  # Clean up any whitespace
@@ -251,14 +251,14 @@ class VTRXSubsystem:
                         error_code, error_message = error.split(":")[1:]
                         self.log(f"VTRX Err {error_code}: Actual:{error_message}", LogLevel.ERROR)
                         self.error_state = True
-            
-            if not self.error_state:    
+
+            if not self.error_state:
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
             self.error_logged = False # reset error flag on successful data processing
 
-        except ValueError as e:    
+        except ValueError as e:
             self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
             self.error_state = True
         except IndexError as e:
@@ -274,7 +274,7 @@ class VTRXSubsystem:
     def setup_gui(self):
         """
         Initializes and configures the GUI components including status indicators and plot.
-        
+
         Creates:
         - Status indicator frame with switch state indicators
         - Pressure label and control buttons
@@ -290,17 +290,17 @@ class VTRXSubsystem:
         # Distribute vertical space
         switches_frame.grid_rowconfigure(tuple(range(10)), weight=1)
         switches_frame.grid_columnconfigure(0, weight=3) # Label colunm
-        switches_frame.grid_columnconfigure(1, weight=1) # indicator column 
+        switches_frame.grid_columnconfigure(1, weight=1) # indicator column
 
         # Setup labels for each switch
         switch_labels = [
-            "Pumps Power ON", 
-            "Turbo Rotor ON", 
+            "Pumps Power ON",
+            "Turbo Rotor ON",
             "Turbo Vent OPEN",
-            "972b Power ON", 
+            "972b Power ON",
             "Turbo Gate CLOSED",
-            "Turbo Gate OPEN", 
-            "Argon Gate OPEN", 
+            "Turbo Gate OPEN",
+            "Argon Gate OPEN",
             "Argon Gate CLOSED"
         ]
         label_width = 15
@@ -308,7 +308,7 @@ class VTRXSubsystem:
         for idx, switch in enumerate(switch_labels):
             label = tk.Label(switches_frame, text=switch, anchor='center', width=label_width)
             label.grid(row=idx, column=0, sticky='nsew', pady=2, padx=(0, 1))
-            
+
             canvas, oval_id = self._create_indicator_circle(switches_frame, color='grey')
             canvas.grid(row=idx, column=1, sticky='nsew', pady=2, padx=(0, 1))
             self.circle_indicators.append((canvas, oval_id))
@@ -317,18 +317,18 @@ class VTRXSubsystem:
         pressure_frame = tk.Frame(switches_frame)
         pressure_frame.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
         # Configure columns to center the label
-        pressure_frame.grid_columnconfigure(0, weight=1) 
-        pressure_frame.grid_columnconfigure(2, weight=1) 
-        pressure_frame.grid_columnconfigure(1, weight=0) 
+        pressure_frame.grid_columnconfigure(0, weight=1)
+        pressure_frame.grid_columnconfigure(2, weight=1)
+        pressure_frame.grid_columnconfigure(1, weight=0)
 
         self.label_pressure = tk.Label(
             pressure_frame,
-            text="No data...", 
+            text="No data...",
             anchor='center',
-            font=('Helvetica', 11, 'bold'), 
-            relief='ridge', 
+            font=('Helvetica', 11, 'bold'),
+            relief='ridge',
             bg='white',
-            fg='black', 
+            fg='black',
             padx=3, pady=2
         )
         self.label_pressure.grid(row=0, column=1, ipady=2, pady=(0,2))
@@ -339,10 +339,10 @@ class VTRXSubsystem:
         button_frame.bind("<Configure>", self._on_button_frame_resize)
 
         self.button_frame = button_frame
-    
+
         timeframe_frame = tk.Frame(button_frame)
         timeframe_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
-        
+
         times = [
             ("5 min", 300),
             ("15 min", 900),
@@ -358,35 +358,35 @@ class VTRXSubsystem:
             ("6 days", 518400),
             ("Max", self.MAX_HISTORY_SECONDS)
         ]
-        
+
         self.time_window_var = tk.StringVar(value="5 min")
         time_dropdown = ttk.Combobox(
-            timeframe_frame, 
+            timeframe_frame,
             textvariable=self.time_window_var,
             values=[t[0] for t in times],
             state='readonly',
             width=6
         )
         time_dropdown.pack(fill=tk.X)
-        time_dropdown.bind('<<ComboboxSelected>>', 
+        time_dropdown.bind('<<ComboboxSelected>>',
             lambda _: self.update_time_window(dict(times)[self.time_window_var.get()]))
-        
+
         self.save_button = tk.Button(button_frame, text="Save Plot", command=self.save_plot)
         self.save_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1)
         self.fig, self.ax = plt.subplots()
         self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.05)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        self.fig.autofmt_xdate()  
+        self.fig.autofmt_xdate()
         self.ax.set_title('')
         self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
-        self.ax.set_ylim(1e-7, 1e3)  
+        self.ax.set_ylim(1e-7, 1e3)
         self.ax.tick_params(axis='x', labelsize=6, pad=1)
         self.ax.grid(True)
 
@@ -394,11 +394,11 @@ class VTRXSubsystem:
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
-     
+
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """
         Update GUI labels, indicators, and plot with new pressure/switch data.
-    
+
         Args:
             pressure_value (float): Current pressure reading
             pressure_raw (str): Raw pressure string from sensor (e.g. "1.23E-04)
@@ -406,24 +406,24 @@ class VTRXSubsystem:
         """
         if self.error_state:
             return
-        
+
         current_time = datetime.datetime.now()
-        
+
         # Update full history
         self.full_history_x.append(current_time)
         self.full_history_y.append(pressure_value)
-        
+
         # Trim history older than MAX_HISTORY_SECONDS
         cutoff_time = current_time - datetime.timedelta(seconds=self.MAX_HISTORY_SECONDS)
         while self.full_history_x and self.full_history_x[0] < cutoff_time:
             self.full_history_x.pop(0)
             self.full_history_y.pop(0)
-        
+
         # Update display window data
         display_cutoff = current_time - datetime.timedelta(seconds=self.display_window)
         self.x_data = [x for x in self.full_history_x if x >= display_cutoff]
         self.y_data = self.full_history_y[-len(self.x_data):]
-        
+
         if time.time() - self.last_gui_update_time > 0.5:
             self.last_gui_update_time = time.time()
             if not self.error_state:
@@ -452,7 +452,7 @@ class VTRXSubsystem:
             for idx, state in enumerate(switch_states):
                 canvas, oval_id = self.circle_indicators[idx]
                 canvas.itemconfig(oval_id, fill='#00FF24' if state == 1 else 'grey')
-            
+
             # Push state/pressure to logs and external logger
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
             self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
@@ -493,16 +493,16 @@ class VTRXSubsystem:
         self.stop_event.set()
         if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
             self.serial_thread.join()
-    
+
     def update_time_window(self, seconds):
         current_time = datetime.datetime.now()
         self.display_window = seconds
-        
+
         # Update display data from full history
         display_cutoff = current_time - datetime.timedelta(seconds=seconds)
         self.x_data = [x for x in self.full_history_x if x >= display_cutoff]
         self.y_data = self.full_history_y[-len(self.x_data):]
-        
+
         self.update_plot()
 
     def save_plot(self):
@@ -514,11 +514,11 @@ class VTRXSubsystem:
             log_dir = "EBEAM-Dashboard-Logs"
             if not os.path.exists(log_dir):
                 os.makedirs(log_dir)
-            
+
             # Generate timestamp for filename
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = os.path.join(log_dir, f"pressure_plot_{timestamp}.png")
-            
+
             # Save the figure
             self.fig.savefig(filename, dpi=300, bbox_inches='tight')
             self.log(f"Plot saved to {filename}", LogLevel.INFO)
@@ -533,7 +533,7 @@ class VTRXSubsystem:
         Callback to adjust the font size of the Reset/Save buttons
         based on the current height of the parent frame.
         """
-        base_height = 300 
+        base_height = 300
         base_font_size = 16
         current_height = event.height
 
@@ -557,4 +557,3 @@ class VTRXSubsystem:
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
         else:
             self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
-          

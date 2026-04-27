@@ -8,7 +8,7 @@ class G9Driver:
     NUMIN = 13
 
     # Constants for protocol
-    SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
+    SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01'
     SNDDATA = b'\x00\x00\x00\x00'
     SNDRES = b'\x00\x00'
     RECHEADER = b'\x40\x00\x00'
@@ -19,25 +19,25 @@ class G9Driver:
 
     # Offsets for data extraction
     OCTD_OFFSET = 7     # Optional Communications Transmission Data
-    US_OFFSET = 73      # Unit Status 
+    US_OFFSET = 73      # Unit Status
     SITDF_OFFSET = 11   # Safety Input Terminal Data Flags
     SOTDF_OFFSET = 17   # Safety Output Terminal Data Flags
     SITSF_OFFSET = 21   # Safety Input Terminal Status Flags
     SOTSF_OFFSET = 27   # Safety Output Terminal Status Flags
     SOTEC_OFFSET = 55   # Safety Output Terminal Error Causes
     SITEC_OFFSET = 31   # Safety Input Terminal Error Causes
-    CHECKSUM_HIGH = 195 # G9 Response Checksum 
+    CHECKSUM_HIGH = 195 # G9 Response Checksum
     CHECKSUM_LOW = 196  # G9 Response Checksum
 
     # Status dictionaries
-    IN_STATUS = {  
-        0: "No error",  
-        1: "Invalid configuration",  
-        2: 'External test signal failure',  
-        3: 'Internal circuit error',  
-        4: 'Discrepancy error',  
-        5: 'Failure of the associated dual-channel input'  
-    }  
+    IN_STATUS = {
+        0: "No error",
+        1: "Invalid configuration",
+        2: 'External test signal failure',
+        3: 'Internal circuit error',
+        4: 'Discrepancy error',
+        5: 'Failure of the associated dual-channel input'
+    }
 
     OUT_STATUS = {
         0: 'No error',
@@ -86,7 +86,7 @@ class G9Driver:
                     stopbits=serial.STOPBITS_ONE,
                     bytesize=serial.EIGHTBITS,
                     timeout=timeout
-                    )   
+                    )
             except serial.SerialException:
                 self._close_serial()
         else:
@@ -185,7 +185,7 @@ class G9Driver:
 
         Catch:
             SerialException: If reading messages throws an error
-        
+
         Raise:
             ConnectionError: If serial port is not open
             ValueError: For various validation failures
@@ -260,7 +260,7 @@ class G9Driver:
         return (binary_data['sitsf'], binary_data['sitdf'],                 # sitsf_bits , sitdf_bits
                     binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_active
                     unit_flags,                                             # unit_status
-                    data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input 
+                    data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input
                     data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:],   # output
                     debug_data)                                             # debug data for terminal flags
 
@@ -288,7 +288,7 @@ class G9Driver:
             data (bytes): The complete message bytes
             start (int): Starting index for checksum calculation (default 0)
             end (int): Ending index for checksum calculation (default 194) pg. 115
-            
+
         Return:
             bytes: Two-byte checksum value
         """
@@ -300,7 +300,7 @@ class G9Driver:
     def _validate_checksum(self, data):
         """
         Validate checksum of received data
-        
+
         Raise:
             ValueError: Calculated check sum does not match
         """
@@ -331,9 +331,9 @@ class G9Driver:
 
     def _extract_flags(self, byte_string, num_bits):
         """Extracts num_bits from the data
-        the bytes are order in big-endian meaning the first 8 are on top 
+        the bytes are order in big-endian meaning the first 8 are on top
         but the bits in the bye are ordered in little-endian 7 MSB and 0 LSB
-        
+
         Raise:
             ValueError: When called requesting more bits than in the bytes
         Return:

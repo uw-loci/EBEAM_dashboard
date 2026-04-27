@@ -49,16 +49,12 @@ class Logger:
             "safetyInputStatusFlags": None,
             "temperatures": None,
             "vacuumBits": None,
-            "Cathode A - Heater Current:": None,
-            "Cathode B - Heater Current:": None,
-            "Cathode C - Heater Current:": None,
-            "Cathode A - Heater Voltage:": None,
-            "Cathode B - Heater Voltage:": None,
-            "Cathode C - Heater Voltage:": None,
-            "clamp_temperature_A" : None,
-            "clamp_temperature_B" : None,
-            "clamp_temperature_C" : None
+            "cathode": {
+                "A": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+                "B": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+                "C": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
             }
+        }
         if log_to_file:
             self.setup_log_file()
             self.setup_wm_logfile()
@@ -83,7 +79,7 @@ class Logger:
         try:
             log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-Logs")
             os.makedirs(log_dir, exist_ok=True)
-            
+
             # Create the log file with the old naming pattern
             log_file_name = f"log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             # close the existing log file at intervals of 8 hours and create a new one
@@ -149,13 +145,21 @@ class Logger:
                 self.log_file.write(file_formatted_message)
                 self.log_file.flush()
             except Exception as e:
-                print(f"Error writing to log file: {str(e)}")   
+                print(f"Error writing to log file: {str(e)}")
     def update_field(self, field, value):
         if field in self.dict_logger:
             self.dict_logger[field] = value
             self.log_dict_update(self.dict_logger)
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
+    def update_cathode_field(self, cathode_label, subfield, value):
+        cathode = self.dict_logger["cathode"]
+        if cathode_label not in cathode:
+            raise KeyError(f"'{cathode_label}' is not a valid cathode label. Expected one of {list(cathode.keys())}.")
+        if subfield not in cathode[cathode_label]:
+            raise KeyError(f"'{subfield}' is not a valid cathode subfield. Expected one of {list(cathode[cathode_label].keys())}.")
+        cathode[cathode_label][subfield] = value
+        self.log_dict_update(self.dict_logger)
     def clear_value(self, field):
         if field in self.dict_logger:
             self.dict_logger[field] = None
@@ -220,7 +224,7 @@ class Logger:
 
     def warning(self, message):
         self.log(message, LogLevel.WARNING)
-    
+
     def error(self, message):
         self.log(message, LogLevel.ERROR)
 
@@ -253,13 +257,13 @@ class MessagesFrame:
     def __init__(self, parent, width=300, height=200, logger=None):
         # Create the frame with a strict size
         self.frame = tk.Frame(parent, borderwidth=2, relief="solid", width=width, height=height)
-        
+
         # Prevent resizing of frame contents
         self.frame.pack_propagate(False)
         self.frame.grid_propagate(False)
 
         # Pack the frame into the parent
-        self.frame.pack(fill=tk.NONE)  
+        self.frame.pack(fill=tk.NONE)
 
         # Add a title to the Messages & Errors frame
         label = tk.Label(self.frame, text="Messages & Errors", font=("Helvetica", 8, "bold"))
@@ -337,14 +341,14 @@ class MessagesFrame:
             # Currently OFF, turn it ON
             self.file_logging_enabled = True
             self.logger.log_to_file = True
-            
+
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
             if not self.logger.webMonitor_log_file:
                 self.logger.setup_wm_logfile()
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
-                self.logging_indicator_circle, 
+                self.logging_indicator_circle,
                 fill="#00FF24"
             )
             self.logger.info("Log recording has been turned ON.")
@@ -354,7 +358,7 @@ class MessagesFrame:
 
     def get_log_level(self):
         return self.logger.log_level
-    
+
     def get_file_log_level(self):
         return self.logger.file_log_level
 
@@ -386,7 +390,7 @@ class MessagesFrame:
                 os.makedirs(self.log_dir)
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
-    
+
     def export_log(self):
         """ Export the current log contents to a user-specified file. """
         try:
@@ -490,7 +494,7 @@ class ToolTip(object):
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        
+
         if self.plot_data:
             fig, ax = plt.subplots(figsize=(2, 1.25))
             fig.patch.set_facecolor('#ffffe0')
@@ -531,13 +535,13 @@ class ToolTip(object):
             self.tip_window = None
 
 class MachineStatus():
-     
+
     MACHINE_STATUS = {
         'Machine Status': False,
         'Script Status' : False,
         'Environment Pass': False,
         'Interlocks Pass': False,
-        'High Voltage Permitted': False, 
+        'High Voltage Permitted': False,
         'Solenoids Pass': False,
         'Beam Extraction': False,
         'Cathode Heating': False,
@@ -567,7 +571,7 @@ class MachineStatus():
         for i in range(num_columns):
             self.machine_status_frame.grid_columnconfigure(i * 2, weight=1)  # Status box
             self.machine_status_frame.grid_columnconfigure(i * 2 + 1, weight=0)  # Thin separator line
-        
+
         for i, (name, _) in enumerate(self.MACHINE_STATUS.items()):
             bg_color = "black" if name == "Machine Status" else "#dbd9d9"
             fg_color = "white" if name == "Machine Status" else "black"
@@ -603,10 +607,10 @@ class MachineStatus():
                 if name in self._previous_status and self._previous_status[name] != status:
                     any_change = True
                     break
-        
+
         if any_change:
             self.update_labels(status_dict)
-        
+
         self._previous_status = status_dict.copy()
 
         self.parent.after(self.update_interval, self.update_status)  # Schedule the next update

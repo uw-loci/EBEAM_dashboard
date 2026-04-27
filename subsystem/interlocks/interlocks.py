@@ -67,13 +67,13 @@ class InterlocksSubsystem:
             self.driver = None
             self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
             self._set_all_indicators('red')
-        
+
         self.parent.after(self.update_interval, self.update_data)
 
     def update_com_port(self, com_port):
         """
         Update the COM port and reinitialize the driver
-        
+
         Catch:
             Exception: If inilizition throws an error
         """
@@ -115,7 +115,7 @@ class InterlocksSubsystem:
         """Create and configure the main container frame"""
         self.interlocks_frame = tk.Frame(self.parent)
         self.interlocks_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # Configure grid weights for responsive layout
         self.parent.grid_rowconfigure(0, weight=1)
         self.parent.grid_columnconfigure(0, weight=1)
@@ -127,18 +127,18 @@ class InterlocksSubsystem:
         """Create the frame that will contain the interlock indicators"""
         interlocks_frame = tk.Frame(self.interlocks_frame, highlightbackground="black")
         interlocks_frame.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
-        
+
         # Configure columns for indicator pairs (label + light)
         num_columns = 22
         for i in range(num_columns):
             interlocks_frame.grid_columnconfigure(i, weight=1)
-        
+
         return interlocks_frame
 
     def _create_indicator_circle(self, frame, color):
         """
         Create a circular indicator light
-        
+
         Args:
             frame: Parent frame for the indicator
            color: Initial color of the indicator
@@ -158,7 +158,7 @@ class InterlocksSubsystem:
             tk.Label(frame, text=name, anchor="center").grid(
                 row=0, column=i*2, sticky='ew'
             )
-            
+
             # Create indicator light
             canvas, oval_id = self._create_indicator_circle(frame, 'red')
             canvas.grid(row=0, column=i*2+1, sticky='nsew')
@@ -168,7 +168,7 @@ class InterlocksSubsystem:
     def update_interlock(self, name, safety, data):
         """
         Update individual interlock indicator
-        
+
         Args:
             name: interlock to update
             safety: Safety status bit
@@ -202,7 +202,7 @@ class InterlocksSubsystem:
     def _check_terminal_status(self, data, status_dict, terminal_type):
         """
         Generic terminal status checker
-        
+
         Raise:
             ValueError: If an error is found in the Error Cause Data or with invalid inputs
         """
@@ -216,9 +216,9 @@ class InterlocksSubsystem:
 
     def extract_flags(self, byte_string, num_bits):
         """Extracts num_bits from the data
-        the bytes are order in big-endian meaning the first 8 are on top 
+        the bytes are order in big-endian meaning the first 8 are on top
         but the bits in the bye are ordered in little-endian 7 MSB and 0 LSB
-        
+
         Raise:
             ValueError: When called requesting more bits than in the bytes
         Return:
@@ -236,7 +236,7 @@ class InterlocksSubsystem:
             extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
 
         return extracted_bits[:num_bits]
-    
+
     def update_data(self):
         """
         Update interlock status
@@ -262,7 +262,7 @@ class InterlocksSubsystem:
             else:
                 # Get interlock status from driver
                 status = self.driver.get_interlock_status()
-                
+
                 if status is None:
                     self._set_all_indicators('red')
                     if current_time - self.last_error_time > (self.update_interval / 1000):
@@ -271,7 +271,7 @@ class InterlocksSubsystem:
                         self._adjust_update_interval(success=False)
                         self.parent.after(self.update_interval, self.update_data)
                         return
-                
+
                 sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms, debug_data = status
 
                 # Log debug data for web monitor
@@ -292,7 +292,7 @@ class InterlocksSubsystem:
                     input_terms,
                     self.driver.IN_STATUS,
                     "Input")
-                
+
                 # check output terms
                 self._check_terminal_status(
                     output_terms,
@@ -301,13 +301,13 @@ class InterlocksSubsystem:
 
                 # Process dual-input interlocks (first 3 pairs)
                 for i in range(3):
-                    safety = (sitsf_bits[i*2] & 
+                    safety = (sitsf_bits[i*2] &
                             sitsf_bits[i*2+1])
-                    data = (sitdf_bits[i*2] & 
+                    data = (sitdf_bits[i*2] &
                         sitdf_bits[i*2+1])
-                    
+
                     self.update_interlock(self.INPUTS[i*2], safety, data)
-                
+
                 # Process single-input interlocks
                 for i in range(6, 11):
                     safety = sitsf_bits[i]
@@ -342,7 +342,7 @@ class InterlocksSubsystem:
                 self._set_all_indicators('red')
                 self.last_error_time = time.time()
                 self._adjust_update_interval(success=False)
-            
+
         finally:
             # Schedule next update
             if self.driver:
@@ -364,5 +364,5 @@ class InterlocksSubsystem:
                 self.driver.ser.close()
                 self.log(f"Closed serial port {self.com_port}", LogLevel.INFO)
             else:
-                self.log(f"{self.com_port} is already closed", LogLevel.INFO)       
+                self.log(f"{self.com_port} is already closed", LogLevel.INFO)
 
