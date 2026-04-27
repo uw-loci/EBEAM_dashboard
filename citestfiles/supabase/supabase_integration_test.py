@@ -442,6 +442,18 @@ class TestDictLoggerFieldManagement(unittest.TestCase):
                     self.assertEqual(self.logger.dict_logger["cathode"][label][subfield], 1.23)
                     self.logger.dict_logger["cathode"][label][subfield] = None
 
+    def test_update_cathode_field_raises_for_invalid_label(self):
+        with self.assertRaises(KeyError) as ctx:
+            self.logger.update_cathode_field("D", "heater_current", 1.0)
+        self.assertIn("D", str(ctx.exception))
+        self.assertIn("is not a valid cathode label", str(ctx.exception))
+
+    def test_update_cathode_field_raises_for_invalid_subfield(self):
+        with self.assertRaises(KeyError) as ctx:
+            self.logger.update_cathode_field("A", "nonexistent_field", 1.0)
+        self.assertIn("nonexistent_field", str(ctx.exception))
+        self.assertIn("is not a valid cathode subfield", str(ctx.exception))
+
     def test_update_field_raises_key_error_for_invalid_key(self):
         with self.assertRaises(KeyError) as ctx:
             self.logger.update_field("nonexistent_field", 42)

@@ -153,7 +153,12 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def update_cathode_field(self, cathode_label, subfield, value):
-        self.dict_logger["cathode"][cathode_label][subfield] = value
+        cathode = self.dict_logger["cathode"]
+        if cathode_label not in cathode:
+            raise KeyError(f"'{cathode_label}' is not a valid cathode label. Expected one of {list(cathode.keys())}.")
+        if subfield not in cathode[cathode_label]:
+            raise KeyError(f"'{subfield}' is not a valid cathode subfield. Expected one of {list(cathode[cathode_label].keys())}.")
+        cathode[cathode_label][subfield] = value
         self.log_dict_update(self.dict_logger)
     def clear_value(self, field):
         if field in self.dict_logger:
