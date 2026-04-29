@@ -89,12 +89,12 @@ class E5CNModbus:
                 if temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
-                else:
-                    self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
+                        # self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                # else:
+                    # self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
                 self.stop_event.wait(0.5)  # interruptible delay between reads
             except Exception as e:
-                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                # self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
                 self.stop_event.wait(1)  # interruptible delay on error
 
     def _log_thread_stack(self, thread):
@@ -207,12 +207,12 @@ class E5CNModbus:
                                 if hasattr(self.client, 'socket'):
                                     self.client.socket.reset_input_buffer()
                             else:
-                                self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
+                                # self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
                                 self.connected = False
                                 attempts -= 1
                                 continue
                         except Exception as e:
-                            self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
+                            # self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
                             self.connected = False
                             attempts -= 1
                             continue
@@ -229,15 +229,15 @@ class E5CNModbus:
                     if response and not response.isError():
                         self.connected = True
                         temperature = response.registers[1] / 10.0
-                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
+                        # self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
-                        self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
+                        # self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
                         return "ERROR"
 
             except Exception as e:
-                self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
+                # self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
                 attempts -= 1
                 if self.stop_event.wait(0.1):
                     return None
