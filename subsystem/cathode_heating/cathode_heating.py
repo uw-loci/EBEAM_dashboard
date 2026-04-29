@@ -1,7 +1,6 @@
 # cathode_heating.py
 import tkinter as tk
 from tkinter import ttk
-import tkinter.simpledialog as tksd
 import tkinter.messagebox as msgbox
 import datetime
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -14,6 +13,7 @@ from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
 import os, sys
 import numpy as np
+import pandas as pd
 from utils import LogLevel
 from decimal import Decimal
 
@@ -39,6 +39,11 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class CathodeHeatingSubsystem:
+    def _init_ocl_live_values(self):
+        self.ocl_live_values = [None, None, None]
+
+    def _init_ovl_live_values(self):
+        self.ovl_live_values = [None, None, None]
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     OUTPUT_MODE_LABEL_TO_VALUE = {
@@ -54,7 +59,7 @@ class CathodeHeatingSubsystem:
         'DISCONNECTED': '#808080'
     }
     
-    def __init__(self, parent, com_ports, active, logger=None):
+    def __init__(self, parent, com_ports, active, logger=None, cathode_datasets=None):
         """
         Initialize the cathode heating subsystem.
         
@@ -73,8 +78,64 @@ class CathodeHeatingSubsystem:
         self.com_ports = com_ports
         self.logger = logger
         self.active = active
+        self.cathode_datasets = cathode_datasets or {}
+
+        lut_rel = os.path.join('data', 'lut', 'power_supply')
+        lut_dir = resource_path(lut_rel)
+        self.lut_dir = lut_dir
+        self.current_options = {}
+
+        def has_valid_lut_columns(columns):
+            required_cols = ['beam_current', 'voltage', 'heater_current']
+            normalized = [str(col).strip() for col in columns]
+            return len(normalized) == len(required_cols) and set(normalized) == set(required_cols)
+
+        def validate_lut(df):
+            required_cols = ['beam_current', 'voltage', 'heater_current']
+            if not all(col in df.columns for col in required_cols):
+                return False
+            if df[required_cols].isnull().any().any():
+                return False
+            if len(df) == 0:
+                return False
+            return True
+
+        if os.path.exists(lut_dir):
+            for filename in os.listdir(lut_dir):
+                if filename.lower().endswith('.csv'):
+                    file_path = os.path.join(lut_dir, filename)
+                    try:
+                        # Fast eligibility check at startup from header/first row shape.
+                        preview_df = pd.read_csv(file_path, nrows=1)
+                        if not has_valid_lut_columns(preview_df.columns):
+                            self.current_options[filename] = None
+                            continue
+
+                        df = pd.read_csv(file_path)
+                        self.current_options[filename] = df if validate_lut(df) else None
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.log(f"Failed to load LUT {filename}: {e}", LogLevel.ERROR)
+                        self.current_options[filename] = None
+        else:
+            if self.logger:
+                self.logger.log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
+
+        self.valid_lut_keys = sorted(
+            [name for name, table in self.current_options.items() if isinstance(table, pd.DataFrame)],
+            key=str.lower,
+        )
+
+        self.selected_lut_files = [None, None, None]
+        if self.valid_lut_keys:
+            initial_lut_key = self.valid_lut_keys[0]
+        else:
+            initial_lut_key = sorted(self.current_options.keys(), key=str.lower)[0] if self.current_options else None
+        initial_lut = self.current_options.get(initial_lut_key, None) if initial_lut_key else None
+        self.lookup_table_setting = [initial_lut, initial_lut, initial_lut]
 
         # Power supply state tracking
+        self.power_supply_status = [False, False, False]
         self.power_supplies_initialized = False
         self.voltage_set = [False, False, False]
         self.current_set = [False, False, False]
@@ -92,7 +153,8 @@ class CathodeHeatingSubsystem:
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
         self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
-        self.query_settings_buttons = []
+        self.log_power_settings_buttons = []
+        self.lookup_table_comboboxes = []
         self.curr_adjustment_buttons = []  # Track current +/- buttons 
         self.vlt_adjustment_buttons = []  # Track voltage +/- buttons 
         self.set_button_states = [] # Track both voltage and current set button states to disable during ramp
@@ -119,6 +181,22 @@ class CathodeHeatingSubsystem:
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
         self.update_data()                          # Start the data update loop
+
+    def _style_lut_dropdown_items(self, combobox, options, retries=4):
+        """Dim invalid LUT filenames in dropdown when Tk listbox styling is available."""
+        try:
+            popdown = combobox.tk.eval(f'ttk::combobox::PopdownWindow {str(combobox)}')
+            listbox = f"{popdown}.f.l"
+            if int(combobox.tk.call('winfo', 'exists', listbox)) != 1:
+                raise RuntimeError("Combobox popdown listbox not ready")
+            valid_set = set(self.valid_lut_keys)
+            for idx, name in enumerate(options):
+                color = '#404040' if name in valid_set else '#9a9a9a'
+                combobox.tk.call(listbox, 'itemconfigure', idx, '-foreground', color)
+        except Exception:
+            if retries > 0:
+                # First open can race popdown creation; retry shortly.
+                combobox.after(30, lambda: self._style_lut_dropdown_items(combobox, options, retries=retries - 1))
 
     def _init_prediction_variables(self):
         """
@@ -210,8 +288,12 @@ class CathodeHeatingSubsystem:
         ## Power supply protection
         self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
         self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
+        self.ovl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
+        self.ocl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
 
     def setup_gui(self):
+        self._init_ocl_live_values()
+        self._init_ovl_live_values()
         cathode_labels = ['A', 'B', 'C']
         style = ttk.Style()
         style.configure('Flat.TButton', padding=(0, 0, 0, 0), relief='flat', borderwidth=0)
@@ -260,8 +342,6 @@ class CathodeHeatingSubsystem:
         self.ramp_mode_dropdowns = []
         self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
-        heater_labels = ['Output A:', 'Output B', 'Output C:']
-        ramp_labels = ['Ramp status A:', 'Ramp Status B:', 'Ramp Status C:']
         for i in range(3):
             frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
@@ -272,10 +352,6 @@ class CathodeHeatingSubsystem:
 
             notebook = ttk.Notebook(frame)
             notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
-
-            # toggle_button = tk.Button(frame, text="Ramp", background="green", command=lambda i=i: self.toggle_ramp(i))
-            # toggle_button.grid(row=0, column=1, sticky='ne', padx=5, pady=0)
-            # self.ramp_toggle_buttons.append(toggle_button)
 
             # Create the main tab
             main_tab = ttk.Frame(notebook)
@@ -447,21 +523,107 @@ class CathodeHeatingSubsystem:
             # Predicted Values
             predictions_frame = ttk.LabelFrame(main_tab, text='Predicted Output', padding=(6, 4), style='Subpanel.TLabelframe')
             predictions_frame.grid(row=1, column=0, sticky='ew', pady=(4, 0), padx=2)
+            predictions_frame.columnconfigure(0, weight=0)
+            predictions_frame.columnconfigure(1, weight=1)
+            predictions_frame.columnconfigure(2, weight=0)
+            predictions_frame.columnconfigure(3, weight=1)
+
+            # LUT selector moved to Main tab so dataset toggling stays near predicted values.
+            lut_selector_frame = ttk.Frame(predictions_frame)
+            lut_selector_frame.grid(row=0, column=0, columnspan=4, sticky='ew', pady=(0, 4))
+            lut_selector_frame.columnconfigure(1, weight=1)
+
+            lookup_table_label = ttk.Label(lut_selector_frame, text='Lookup Table Dataset:', style='RightAlign.TLabel')
+            lookup_table_label.grid(row=0, column=0, sticky='w')
+
+            # Build options from loaded LUT CSV filenames.
+            lookup_table_options = sorted(self.current_options.keys(), key=str.lower)
+
+            lookup_table_box = ttk.Combobox(
+                lut_selector_frame,
+                values=lookup_table_options,
+                state='readonly',
+                width=30,
+                postcommand=lambda box=None: self._style_lut_dropdown_items(lookup_table_box, lookup_table_options, retries=4)
+            )
+            lookup_table_box.grid(row=0, column=1, sticky='w', padx=(8, 0))
+            self._style_lut_dropdown_items(lookup_table_box, lookup_table_options, retries=4)
+            lookup_table_box.bind(
+                '<Button-1>',
+                lambda event, box=lookup_table_box, opts=lookup_table_options: self._style_lut_dropdown_items(box, opts, retries=4),
+                add='+'
+            )
+
+            # Use any dataset specified by cathode_datasets; otherwise use first option.
+            cfg_key = f'Cathode{cathode_labels[i]} PS'
+            preferred = None
+            if cfg_key in self.cathode_datasets:
+                pref_path = self.cathode_datasets.get(cfg_key)
+                if pref_path:
+                    basename = os.path.basename(pref_path)
+                    if basename in lookup_table_options and self.current_options.get(basename) is not None:
+                        preferred = basename
+                    else:
+                        # try matching the absolute path
+                        for opt in lookup_table_options:
+                            candidate = os.path.join(self.lut_dir, opt)
+                            try:
+                                if os.path.normcase(os.path.abspath(candidate)) == \
+                                   os.path.normcase(os.path.abspath(pref_path)):
+                                    if self.current_options.get(opt) is not None:
+                                        preferred = opt
+                                        break
+                            except Exception:
+                                pass
+
+            if preferred:
+                lookup_table_box.set(preferred)
+                self.selected_lut_files[i] = preferred
+            else:
+                first = self.valid_lut_keys[0] if self.valid_lut_keys else (lookup_table_options[0] if lookup_table_options else '')
+                lookup_table_box.set(first)
+                self.selected_lut_files[i] = first or None
+
+            # finally record the active DataFrame
+            self.lookup_table_setting[i] = self.current_options.get(self.selected_lut_files[i], None)
+
+            # Bind LUT combobox to centralized class method
+            def lut_selection_callback(event, idx=i, box=lookup_table_box):
+                selected = box.get()
+                if self.current_options.get(selected) is None:
+                    previous = self.selected_lut_files[idx]
+                    fallback = previous if previous and self.current_options.get(previous) is not None else (self.valid_lut_keys[0] if self.valid_lut_keys else '')
+                    if fallback:
+                        box.set(fallback)
+                        self.selected_lut_files[idx] = fallback
+                        self.lookup_table_setting[idx] = self.current_options.get(fallback, None)
+                        if self.logger:
+                            self.logger.log(
+                                f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
+                                LogLevel.WARNING,
+                            )
+                        self.refresh_predictions(idx)
+                    return
+                self.selected_lut_files[idx] = selected
+                self.lookup_table_setting[idx] = self.current_options.get(selected, None)
+                self.refresh_predictions(idx)
+            lookup_table_box.bind("<<ComboboxSelected>>", lut_selection_callback)
+            self.lookup_table_comboboxes.append(lookup_table_box)
 
             pred_emission_label = ttk.Label(predictions_frame, text='Emission (mA):', style='RightAlign.TLabel')
-            pred_emission_label.grid(row=0, column=0, sticky='w')
-            ttk.Label(predictions_frame, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=0, column=1, sticky='w', padx=(2, 8))
+            pred_emission_label.grid(row=1, column=0, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_emission_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w', padx=(2, 8))
 
             set_grid_label = ttk.Label(predictions_frame, text='Grid (mA):', style='RightAlign.TLabel')
-            set_grid_label.grid(row=1, column=0, sticky='w')
+            set_grid_label.grid(row=2, column=0, sticky='w')
             ToolTip(set_grid_label, "Grid expected to intercept 28% of cathode emission current")
-            ttk.Label(predictions_frame, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=1, column=1, sticky='w', padx=(2, 8))
+            ttk.Label(predictions_frame, textvariable=self.predicted_grid_current_vars[i], style='Bold.TLabel').grid(row=2, column=1, sticky='w', padx=(2, 8))
 
-            ttk.Label(predictions_frame, text='Heater Voltage (V):', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w')
-            ttk.Label(predictions_frame, textvariable=self.predicted_heater_voltage_vars[i], style='Bold.TLabel').grid(row=0, column=3, sticky='w', padx=(2, 0))
+            ttk.Label(predictions_frame, text='Heater Voltage (V):', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_heater_voltage_vars[i], style='Bold.TLabel').grid(row=1, column=3, sticky='w', padx=(2, 0))
 
-            ttk.Label(predictions_frame, text='Heater Current (A):', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w')
-            ttk.Label(predictions_frame, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=1, column=3, sticky='w', padx=(2, 0))
+            ttk.Label(predictions_frame, text='Heater Current (A):', style='RightAlign.TLabel').grid(row=2, column=2, sticky='w')
+            ttk.Label(predictions_frame, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=2, column=3, sticky='w', padx=(2, 0))
 
             # Measured/Actual values
             measured_frame = ttk.LabelFrame(main_tab, text='', padding=(6, 4))
@@ -532,107 +694,340 @@ class CathodeHeatingSubsystem:
             canvas = FigureCanvasTkAgg(fig, master=main_tab)
             canvas.draw()
             canvas.get_tk_widget().grid(row=3, column=0, sticky='ew', padx=2, pady=(4, 0))
-
             # ===== Config Tab =====
-            ttk.Label(config_tab, text="\nPower Supply Configuration", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew")
-            
-            # Overtemperature limit entry
-            overtemp_label = ttk.Label(config_tab, text='Overtemp Limit (C):', style='RightAlign.TLabel')
-            overtemp_label.grid(row=1, column=0, sticky='e')
+            ttk.Label(config_tab, text="Power Supply", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
-            temp_overtemp_var = tk.StringVar(value=str(self.OVERTEMP_THRESHOLD))
-            overtemp_entry = ttk.Entry(config_tab, textvariable=temp_overtemp_var, width=7)
-            overtemp_entry.grid(row=1, column=1, sticky='w')
-            
-            set_overtemp_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
-            set_overtemp_button.grid(row=1, column=2, sticky='e')
+            log_power_settings_button = ttk.Button(config_tab, text="Log Power Settings", width=18, command=lambda x=i: self.log_power_and_check_settings(x))
+            log_power_settings_button.grid(row=0, column=1, sticky='w', padx=(184, 0))
+            log_power_settings_button['state'] = 'disabled'
+            self.log_power_settings_buttons.append(log_power_settings_button)
 
-            # Overvoltage limit entry
-            overvoltage_label = ttk.Label(config_tab, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
-            overvoltage_label.grid(row=2, column=0, sticky='e')
+            # Overtemperature limit controls in a frame, with live value next to label
+            otl_control_frame = ttk.Frame(config_tab)
+            otl_control_frame.grid(row=11, column=0, columnspan=3, sticky='w', pady=(2, 2))
 
-            temp_overvoltage_var = self.overvoltage_limit_vars[i]
-            overvoltage_entry = ttk.Entry(config_tab, textvariable=temp_overvoltage_var, width=7)
-            overvoltage_entry.grid(row=2, column=1, sticky='w')
+            # Frame to hold label and live value side-by-side
+            otl_label_frame = ttk.Frame(otl_control_frame)
+            otl_label_frame.grid(row=0, column=0, sticky='w')
+            overtemp_label = ttk.Label(otl_label_frame, text='Overtemp Limit (C):', style='RightAlign.TLabel')
+            overtemp_label.pack(side='left')
+            # Live value display (styled box)
+            otl_display_frame = tk.Frame(otl_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            otl_display_frame.configure(bg='#d9d9d9')
+            otl_display_frame.pack(side='left', padx=(29, 0))
+            # Bind live value to the actual overtemp_limit_vars[i]
+            otl_live_label = ttk.Label(otl_display_frame, textvariable=self.overtemp_limit_vars[i], style='Bold.TLabel', width=6, anchor='e')
+            otl_live_label.pack(side='left')
+            otl_unit_label = ttk.Label(otl_display_frame, text=" C", style="Bold.TLabel")
+            otl_unit_label.pack(side='left')
 
-            set_overvoltage_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overvoltage_limit(i))
-            set_overvoltage_button.grid(row=2, column=2, sticky='e')
-            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 60 V")
+            temp_overtemp_var = tk.StringVar(value="")
+            overtemp_entry = ttk.Entry(otl_control_frame, textvariable=temp_overtemp_var, width=7)
+            overtemp_entry.grid(row=0, column=1, sticky='w', padx=(6, 2))
+            set_overtemp_button = ttk.Button(otl_control_frame, text="Set", width=4, command=lambda i=i, var=temp_overtemp_var: self.set_overtemp_limit(i, var))
+            set_overtemp_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
 
-            # Overcurrent limit entry
-            overcurrent_label = ttk.Label(config_tab, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
-            overcurrent_label.grid(row=3, column=0, sticky='e')
+            # Keep entry in sync with live value
+            def sync_otl_entry(*args, idx=i, var=temp_overtemp_var):
+                var.set(str(self.overtemp_limit_vars[idx].get()))
+            self.overtemp_limit_vars[i].trace_add('write', sync_otl_entry)
 
-            temp_overcurrent_var = self.overcurrent_limit_vars[i]
-            overcurrent_entry = ttk.Entry(config_tab, textvariable=temp_overcurrent_var, width=7)
-            overcurrent_entry.grid(row=3, column=1, sticky='w')
-            set_overcurrent_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i: self.set_overcurrent_limit(i))
-            set_overcurrent_button.grid(row=3, column=2, sticky='e')
-            ToolTip(overcurrent_label, "OCP must be a value greater than 0.1 A and less than or equal to 10 A")
+            # Overvoltage limit controls in a frame, with live value next to label
+            ovl_control_frame = ttk.Frame(config_tab)
+            ovl_control_frame.grid(row=3, column=0, columnspan=3, sticky='w', pady=(2, 2))
 
-            # Current slew rate setting
-            current_slew_rate_label = ttk.Label(config_tab, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
-            current_slew_rate_label.grid(row=4, column=0, sticky='e')
+            # Frame to hold label and live value side-by-side
+            ovl_label_frame = ttk.Frame(ovl_control_frame)
+            ovl_label_frame.grid(row=0, column=1, sticky='w')
+            overvoltage_label = ttk.Label(ovl_label_frame, text='Overvoltage Limit (V):', style='RightAlign.TLabel')
+            overvoltage_label.pack(side='left')
+            # Live value display (styled box)
+            ovl_display_frame = tk.Frame(ovl_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            ovl_display_frame.configure(bg='#d9d9d9')
+            ovl_display_frame.pack(side='left', padx=(34, 0))
+            ovl_readback = self.ovl_readback_vars[i]
+            ovl_live_label = ttk.Label(ovl_display_frame, textvariable=ovl_readback, style='Bold.TLabel', width=4, anchor='e')
+            ovl_live_label.pack(side='left')
+            ovl_unit_label = ttk.Label(ovl_display_frame, text=" V", style="Bold.TLabel")
+            ovl_unit_label.pack(side='left')
 
-            current_slew_rate_var = tk.StringVar(value='0.01')  # Default value
-            current_slew_rate_entry = ttk.Entry(config_tab, textvariable=current_slew_rate_var, width=7)
-            current_slew_rate_entry.grid(row=4, column=1, sticky='w')
-            set_current_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
-            set_current_slew_rate_button.grid(row=4, column=2, sticky='e')
+            # temp_overvoltage_var = self.overvoltage_limit_vars[i]
+            temp_overvoltage_var = tk.StringVar(value="")  # Initialize with an empty string
+            overvoltage_entry = ttk.Entry(ovl_control_frame, textvariable=temp_overvoltage_var, width=7)
+            overvoltage_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))
+            set_overvoltage_button = ttk.Button(ovl_control_frame, text="Set", width=4)
+            set_overvoltage_button.grid(row=0, column=3, sticky='w', padx=(1, 2))
+            ToolTip(overvoltage_label, "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
+
+            def create_ovl_update_function(cathode_idx, readback_var):
+                def update_ovl_live_box():
+                    val = self.ovl_live_values[cathode_idx]
+                    if val is not None:
+                        readback_var.set(f"{val:.2f}")
+                    else:
+                        readback_var.set("N/A")
+                return update_ovl_live_box
+            update_ovl_live_box = create_ovl_update_function(i, ovl_readback)
+
+            # Keep readback unknown until hardware confirms a value.
+            self.ovl_live_values[i] = None
+            update_ovl_live_box()
+
+            def create_ovl_set_function(cathode_idx, update_func, entry_var):
+                def set_and_update_ovl():
+                    # First, validate the input value before updating anything
+                    try:
+                        entry_value = entry_var.get()
+                        if entry_value.strip() == "":
+                            msgbox.showerror("Error", "Please enter a value for overvoltage limit.")
+                            return
+                        new_value = float(entry_value)
+
+                        # Validate range before updating any values
+                        if new_value < 0.02 or new_value > 84:
+                            msgbox.showerror("Error", "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
+                            return
+
+                        # Only commit UI values after hardware readback confirmation.
+                        set_ok = self.set_overvoltage_limit(cathode_idx, requested_value=new_value)
+                        update_func()
+                        if set_ok:
+                            entry_var.set("")  # Clear only after successful confirmation
+                        else:
+                            msgbox.showwarning("OVP Not Confirmed", "OVP could not be confirmed from power supply readback.")
+
+                    except ValueError:
+                        msgbox.showerror("Error", "Please enter a valid number for overvoltage limit.")
+                        return
+                return set_and_update_ovl
+
+            set_and_update_ovl = create_ovl_set_function(i, update_ovl_live_box, temp_overvoltage_var)
+            set_overvoltage_button.configure(command=set_and_update_ovl)
+
+            # Over Current Limit controls in a frame, with live value next to entry
+            ocl_control_frame = ttk.Frame(config_tab)
+            ocl_control_frame.grid(row=4, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            # Frame to hold label and live value side-by-side
+            ocl_label_frame = ttk.Frame(ocl_control_frame)
+            ocl_label_frame.grid(row=0, column=1, sticky='w')
+            ocl_label = ttk.Label(ocl_label_frame, text='Overcurrent Limit (A):', style='RightAlign.TLabel')
+            ocl_label.pack(side='left')
+            # Live value display (styled box)
+            ocl_display_frame = tk.Frame(ocl_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            ocl_display_frame.configure(bg='#d9d9d9')
+            ocl_display_frame.pack(side='left', padx=(34, 0))
+            ocl_readback = self.ocl_readback_vars[i]
+            ocl_live_label = ttk.Label(ocl_display_frame, textvariable=ocl_readback, style='Bold.TLabel', width=4, anchor='e')
+            ocl_live_label.pack(side='left')
+            ocl_unit_label = ttk.Label(ocl_display_frame, text=" A", style="Bold.TLabel")
+            ocl_unit_label.pack(side='left')
+
+            # temp_overcurrent_var = self.overcurrent_limit_vars[i]
+            temp_overcurrent_var = tk.StringVar(value="")
+            ocl_entry = ttk.Entry(ocl_control_frame, textvariable=temp_overcurrent_var, width=7)
+            ocl_entry.grid(row=0, column=2, sticky='w', padx=(7, 2))
+            set_ocl_button = ttk.Button(ocl_control_frame, text="Set", width=4)
+            set_ocl_button.grid(row=0, column=3, sticky='w', padx=(1, 2))
+            ToolTip(ocl_label, "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
+
+            def create_ocl_update_function(cathode_idx, readback_var):
+                def update_ocl_live_box():
+                    val = self.ocl_live_values[cathode_idx]
+                    if val is not None:
+                        readback_var.set(f"{val:.2f}")
+                    else:
+                        readback_var.set("N/A")
+                return update_ocl_live_box
+            update_ocl_live_box = create_ocl_update_function(i, ocl_readback)
+
+            # Keep readback unknown until hardware confirms a value.
+            self.ocl_live_values[i] = None
+            update_ocl_live_box()
+
+            # Create set function with proper closure
+            def create_ocl_set_function(cathode_idx, update_func, entry_var):
+                def set_and_update_ocl():
+                    # First, validate the input value before updating anything
+                    try:
+                        entry_value = entry_var.get()
+                        if entry_value.strip() == "":
+                            msgbox.showerror("Error", "Please enter a value for overcurrent limit.")
+                            return
+                        new_value = float(entry_value)
+
+                        # Validate range before updating any values
+                        if new_value < 0.1 or new_value > 10:
+                            msgbox.showerror("Error", "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
+                            return
+
+                        # Only commit UI values after hardware readback confirmation.
+                        set_ok = self.set_overcurrent_limit(cathode_idx, requested_value=new_value)
+                        update_func()
+                        if set_ok:
+                            entry_var.set("")  # Clear only after successful confirmation
+                        else:
+                            msgbox.showwarning("OCP Not Confirmed", "OCP could not be confirmed from power supply readback.")
+
+                    except ValueError:
+                        msgbox.showerror("Error", "Please enter a valid number for overcurrent limit.")
+                        return
+                return set_and_update_ocl
+
+            set_and_update_ocl = create_ocl_set_function(i, update_ocl_live_box, temp_overcurrent_var)
+            set_ocl_button.configure(command=set_and_update_ocl)
+
+            # Current slew rate controls in a frame, with live value next to label
+            csr_control_frame = ttk.Frame(config_tab)
+            csr_control_frame.grid(row=5, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            csr_label_frame = ttk.Frame(csr_control_frame)
+            csr_label_frame.grid(row=0, column=0, sticky='w')
+            current_slew_rate_label = ttk.Label(csr_label_frame, text='Current Slew Rate (A/s):', style='RightAlign.TLabel')
+            current_slew_rate_label.pack(side='left')
+            csr_display_frame = tk.Frame(csr_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            csr_display_frame.configure(bg='#d9d9d9')
+            csr_display_frame.pack(side='left', padx=(8, 0))
+            # Bind live value to the actual curr_slew_rate
+            csr_var = tk.StringVar(value=f"{self.curr_slew_rate[i]:.2f}")
+            csr_live_label = ttk.Label(csr_display_frame, textvariable=csr_var, style='Bold.TLabel', width=4, anchor='e')
+            csr_live_label.pack(side='left')
+            csr_unit_label = ttk.Label(csr_display_frame, text=" A/s", style="Bold.TLabel")
+            csr_unit_label.pack(side='left')
+
+            current_slew_rate_var = tk.StringVar(value="")
+
+            def current_slew_command(idx=i, entry_var=current_slew_rate_var):
+                # Called when spinbox arrows are clicked
+                current_val = entry_var.get()
+                if current_val == "" or current_val.strip() == "":
+                    # If empty, populate with current slew rate + increment
+                    new_val = self.curr_slew_rate[idx] + 0.01
+                    entry_var.set(f"{new_val:.2f}")
+                else:
+                    try:
+                        val = float(current_val)
+                        if val <= 0:
+                            entry_var.set("0.01")
+                    except ValueError:
+                        entry_var.set(f"{self.curr_slew_rate[idx]:.2f}")
+
+            current_slew_rate_spinbox = ttk.Spinbox(csr_control_frame, textvariable=current_slew_rate_var,
+                                                  width=5, from_=0.01, to=10.0, increment=0.01,
+                                                  format="%.2f", command=current_slew_command)
+            current_slew_rate_spinbox.grid(row=0, column=1, sticky='w', padx=(5, 2))
+
+            set_current_slew_rate_button = ttk.Button(csr_control_frame, text="Set", width=4, command=lambda i=i, var=current_slew_rate_var: self.set_slew_rate(i, var, control_mode='current'))
+            set_current_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(current_slew_rate_label, "Rate of change for current output")
 
-            # Voltage slew rate setting
-            slew_rate_label = ttk.Label(config_tab, text='Voltage Slew Rate (V/s):', style='RightAlign.TLabel')
-            slew_rate_label.grid(row=5, column=0, sticky='e')
-            
-            slew_rate_var = tk.StringVar(value='0.02')  # Default value
-            slew_rate_entry = ttk.Entry(config_tab, textvariable=slew_rate_var, width=7)
-            slew_rate_entry.grid(row=5, column=1, sticky='w')
-            set_slew_rate_button = ttk.Button(config_tab, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
-            set_slew_rate_button.grid(row=5, column=2, sticky='e')
+            # Keep entry and live label in sync with value
+            def sync_csr(*args, idx=i, var=csr_var, entry_var=current_slew_rate_var):
+                val = self.curr_slew_rate[idx]
+                var.set(f"{val:.2f}")
+                # Don't update entry_var during sync - only update live display
+            sync_csr()
+
+            if not hasattr(self, '_sync_csr_funcs'):
+                self._sync_csr_funcs = []
+            self._sync_csr_funcs.append(sync_csr)
+
+            # Voltage slew rate controls in a frame, with live value next to label
+            vsr_control_frame = ttk.Frame(config_tab)
+            vsr_control_frame.grid(row=6, column=0, columnspan=3, sticky='w', pady=(2, 2))
+
+            vsr_label_frame = ttk.Frame(vsr_control_frame)
+            vsr_label_frame.grid(row=0, column=0, sticky='w')
+            slew_rate_label = ttk.Label(vsr_label_frame, text='Voltage Slew Rate (V/s):', style='RightAlign.TLabel')
+            slew_rate_label.pack(side='left')
+            vsr_display_frame = tk.Frame(vsr_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            vsr_display_frame.configure(bg='#d9d9d9')
+            vsr_display_frame.pack(side='left', padx=(8, 0))
+            # Bind live value to the actual vlt_slew_rate
+            vsr_var = tk.StringVar(value=f"{self.vlt_slew_rate[i]:.2f}")
+            vsr_live_label = ttk.Label(vsr_display_frame, textvariable=vsr_var, style='Bold.TLabel', width=4, anchor='e')
+            vsr_live_label.pack(side='left')
+            vsr_unit_label = ttk.Label(vsr_display_frame, text=" V/s", style="Bold.TLabel")
+            vsr_unit_label.pack(side='left')
+
+            slew_rate_var = tk.StringVar(value="")
+
+            def voltage_slew_command(idx=i, entry_var=slew_rate_var):
+                # Called when spinbox arrows are clicked
+                current_val = entry_var.get()
+                if current_val == "" or current_val.strip() == "":
+                    # If empty, populate with current slew rate + increment
+                    new_val = self.vlt_slew_rate[idx] + 0.02
+                    entry_var.set(f"{new_val:.2f}")
+                else:
+                    try:
+                        val = float(current_val)
+                        if val <= 0:
+                            entry_var.set("0.02")
+                    except ValueError:
+                        entry_var.set(f"{self.vlt_slew_rate[idx]:.2f}")
+
+            slew_rate_spinbox = ttk.Spinbox(vsr_control_frame, textvariable=slew_rate_var,
+                                          width=5, from_=0.02, to=0.06, increment=0.02,
+                                          format="%.2f", command=voltage_slew_command)
+            slew_rate_spinbox.grid(row=0, column=1, sticky='w', padx=(5, 2))
+
+            set_slew_rate_button = ttk.Button(vsr_control_frame, text="Set", width=4, command=lambda i=i, var=slew_rate_var: self.set_slew_rate(i, var, control_mode='voltage'))
+            set_slew_rate_button.grid(row=0, column=2, sticky='w', padx=(2, 2))
             ToolTip(slew_rate_label, "Rate of change for voltage output")
 
-            # Get buttons and output labels
-            #ttk.Label(config_tab, text='Output Status:', style='RightAlign.TLabel').grid(row=3, column=0, sticky='e')
-            query_settings_button = ttk.Button(config_tab, text="Query Settings:", width=18, command=lambda x=i: self.query_and_check_settings(x))
-            query_settings_button.grid(row=6, column=0, sticky='w')
-            ttk.Label(config_tab, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').grid(row=6, column=1, sticky='w')
-            query_settings_button['state'] = 'disabled'
-            self.query_settings_buttons.append(query_settings_button)
+            # Keep entry and live label in sync with value
+            def sync_vsr(*args, idx=i, var=vsr_var, entry_var=slew_rate_var):
+                val = self.vlt_slew_rate[idx]
+                var.set(f"{val:.2f}")
+                # Don't update entry_var during sync - only update live display
+            sync_vsr()
 
-            # Add labels for power supply readings
-            display_label = ttk.Label(config_tab, text='\nProtection Settings:')
-            display_label.grid(row=7, column=0, columnspan=1, sticky='ew')
-
-            voltage_display_var = tk.StringVar(value='Voltage: --')
-            current_display_var = tk.StringVar(value='Current: --')
-            operation_mode_var = tk.StringVar(value='Mode: --')
-
-            voltage_label = ttk.Label(config_tab, textvariable=voltage_display_var, style='Bold.TLabel')
-            voltage_label.grid(row=8, column=0, sticky='w')
-            mode_label = ttk.Label(config_tab, textvariable=operation_mode_var, style='Bold.TLabel')
-            mode_label.grid(row=8, column=1, sticky='w')
-
-            # Store variables for later updates
-            self.voltage_display_vars.append(voltage_display_var)
-            self.current_display_vars.append(current_display_var)
-
+            if not hasattr(self, '_sync_vsr_funcs'):
+                self._sync_vsr_funcs = []
+            self._sync_vsr_funcs.append(sync_vsr)
             # Add label for Temperature Controller
-            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=8, column=0, columnspan=3, sticky="ew")
+            ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
 
-            # Place echoback and temperature buttons on the config tab
-            echoback_button = ttk.Button(config_tab, text=f"Perform Echoback Test Unit {i+1}",
-                                        command=lambda unit=i+1: self.perform_echoback_test(unit))
-            echoback_button.grid(row=10, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-            read_temp_button = ttk.Button(config_tab, text=f"Read Temperature Unit {i+1}",
-                                        command=lambda unit=i+1: self.read_and_log_temperature(unit))
-            read_temp_button.grid(row=11, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
+            # Overtemperature status display in its own frame
+            overtemp_status_frame = ttk.Frame(config_tab)
+            overtemp_status_frame.grid(row=10, column=0, columnspan=3, sticky='w', pady=(2, 2))
+            overtemp_status_label = ttk.Label(overtemp_status_frame, text='Overtemp Status:', style='LeftAlign.TLabel')
+            overtemp_status_label.pack(side='left')
+            ttk.Label(overtemp_status_frame, textvariable=self.overtemp_status_vars[i], style='Bold.TLabel').pack(side='left', padx=(8, 0))
 
         # Ensure the grid layout of config_tab accommodates the new buttons
         config_tab.columnconfigure(0, weight=1)
         config_tab.columnconfigure(1, weight=1)
 
         self.init_time = datetime.datetime.now()
+
+    def refresh_predictions(self, cathode_idx):
+        """
+        Refresh predicted values for the specified cathode index after LUT change.
+
+        Recomputes from the currently requested heater setpoint(s) when available,
+        so switching datasets does not overwrite predictions with an unrelated LUT row.
+        """
+        lut_df = self.lookup_table_setting[cathode_idx]
+        if lut_df is None or lut_df.empty:
+            self.clear_prediction_variables(cathode_idx)
+            return
+
+        has_current_setpoint = (
+            self.current_set[cathode_idx] and self.user_set_currents[cathode_idx] is not None
+        )
+        has_voltage_setpoint = (
+            self.voltage_set[cathode_idx] and self.user_set_voltages[cathode_idx] is not None
+        )
+
+        # Recompute predictions from active setpoints so dataset switch reflects current request.
+        if has_current_setpoint:
+            self.update_predictions_from_current(cathode_idx, self.user_set_currents[cathode_idx])
+        elif has_voltage_setpoint:
+            self.update_predictions_from_voltage(cathode_idx, self.user_set_voltages[cathode_idx])
+        else:
+            self.clear_prediction_variables(cathode_idx)
 
     def update_com_ports(self, new_com_ports):
         """
@@ -852,6 +1247,9 @@ class CathodeHeatingSubsystem:
                         # Confirm the OVP setting
                         confirmed_ovp = ps.get_over_voltage_protection()
                         if confirmed_ovp is not None:
+                            self.ovl_live_values[idx] = float(confirmed_ovp)
+                            self.overvoltage_limit_vars[idx].set(float(confirmed_ovp))
+                            self.ovl_readback_vars[idx].set(f"{float(confirmed_ovp):.2f}")
                             if abs(confirmed_ovp - ovp_value) < 0.1:  # 0.1V tolerance
                                 self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
                             else:
@@ -872,6 +1270,9 @@ class CathodeHeatingSubsystem:
                         # Confirm the OCP setting
                         confirmed_ocp = ps.get_over_current_protection()
                         if confirmed_ocp is not None:
+                            self.ocl_live_values[idx] = float(confirmed_ocp)
+                            self.overcurrent_limit_vars[idx].set(float(confirmed_ocp))
+                            self.ocl_readback_vars[idx].set(f"{float(confirmed_ocp):.2f}")
                             if abs(confirmed_ocp - ocp_value) < 0.05:  # 0.05A tolerance
                                 self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
                             else:
@@ -905,7 +1306,7 @@ class CathodeHeatingSubsystem:
         if not self.power_supplies_initialized:
             self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
         
-        self.update_query_settings_button_states()
+        self.update_log_power_settings_button_states()
 
     def retry_connection(self, index):
         """Single lightweight reconnect attempt — no retries, no full reconfiguration."""
@@ -922,8 +1323,24 @@ class CathodeHeatingSubsystem:
             self.power_supplies[index] = new_ps
             self.power_supply_status[index] = True
             self.toggle_buttons[index]['state'] = 'normal'
+
+            # Re-apply protection settings after reconnect so defaults/configured limits
+            # are actively pushed back to hardware.
+            cathode_label = ['A', 'B', 'C'][index]
+            preset_ok = new_ps.set_preset_selection(3)
+            if not preset_ok:
+                self.log(f"Reconnect: failed to set preset mode 3 for Cathode {cathode_label}", LogLevel.WARNING)
+
+            ovp_ok = self.set_overvoltage_limit(index)
+            if not ovp_ok:
+                self.log(f"Reconnect: failed to confirm OVP for Cathode {cathode_label}", LogLevel.WARNING)
+
+            ocp_ok = self.set_overcurrent_limit(index)
+            if not ocp_ok:
+                self.log(f"Reconnect: failed to confirm OCP for Cathode {cathode_label}", LogLevel.WARNING)
+
             self.log(f"Reconnected to power supply on port {port}", LogLevel.INFO)
-            self.update_query_settings_button_states()
+            self.update_log_power_settings_button_states()
             return True
         except Exception as e:
             self.log(f"Reconnect attempt failed for cathode {chr(65+index)}: {str(e)}", LogLevel.ERROR)
@@ -941,15 +1358,31 @@ class CathodeHeatingSubsystem:
             ValueError: If slew rate is invalid or negative
         """
         try:
-            new_slew_rate = float(var.get())
+            # Check if entry box is empty
+            entry_value = var.get().strip()
+            if not entry_value:
+                self.log(f"Please enter a value for slew rate for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
+                msgbox.showwarning("Empty Input", "Please enter a value for the slew rate.")
+                return
+
+            new_slew_rate = float(entry_value)
             if new_slew_rate <= 0:
                 raise ValueError("Slew rate must be positive.")
             if control_mode == "current":
-                self.curr_slew_rate[index] = new_slew_rate
-                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} A/s", LogLevel.INFO)
+                self.curr_slew_rate[index] = round(new_slew_rate, 2)
+                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {self.curr_slew_rate[index]:.2f} A/s", LogLevel.INFO)
+                # Update live label and clear entry box
+                if hasattr(self, '_sync_csr_funcs') and self._sync_csr_funcs[index]:
+                    self._sync_csr_funcs[index]()
+                var.set("")  # Clear the entry box
             else:  # control_mode == "voltage"
-                self.vlt_slew_rate[index] = new_slew_rate
-                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {new_slew_rate:.2f} V/s", LogLevel.INFO)
+                self.vlt_slew_rate[index] = round(new_slew_rate, 2)
+                self.log(f"Set slew rate for Cathode {['A', 'B', 'C'][index]} to {self.vlt_slew_rate[index]:.2f} V/s", LogLevel.INFO)
+                # Update live label and clear entry box
+                if hasattr(self, '_sync_vsr_funcs') and self._sync_vsr_funcs[index]:
+                    self._sync_vsr_funcs[index]()
+                var.set("")  # Clear the entry box
+            self.parent.update()
         except ValueError as e:
             self.log(f"Invalid input for slew rate for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Invalid Input", f"Invalid input for slew rate: {str(e)}")
@@ -987,20 +1420,21 @@ class CathodeHeatingSubsystem:
             self.set_vlt_adjustment_buttons_state(index, 'normal')
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
 
-    def set_overvoltage_limit(self, index):
+    def set_overvoltage_limit(self, index, requested_value=None):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OVP.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set OVP.")
             return
 
         try:
-            stored_ovp = self.overvoltage_limit_vars[index].get()
-            raw_value = float(stored_ovp)
-            ovp_set   = Decimal(stored_ovp).quantize(Decimal('0.01'))  # Round to 2 decimal places
-            if raw_value < 0 or raw_value > 60:
-                raise ValueError("OVP out of valid range (0-60 V).")
-            
-            self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
+            ovp_value = float(requested_value) if requested_value is not None else float(self.overvoltage_limit_vars[index].get())
+
+            # Backend safety validation (do not rely only on GUI-bound checks)
+            if ovp_value < 0.02 or ovp_value > 84:
+                raise ValueError("OVP must be a value greater than 0.02 V and less than or equal to 84 V")
+
+            self.log(f"Setting OVP for Cathode {['A', 'B', 'C'][index]} to: {ovp_value:.2f}", LogLevel.DEBUG)
+            ovp_set = Decimal(str(ovp_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
             ovp_set_response = self.power_supplies[index].set_over_voltage_protection(ovp_set)
             if not ovp_set_response:
                 self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.WARNING)
@@ -1009,39 +1443,52 @@ class CathodeHeatingSubsystem:
             # Verify the set value
             ovp_get_response = self.power_supplies[index].get_over_voltage_protection()
             if ovp_get_response is None:
+                self.ovl_live_values[index] = None
+                self.ovl_readback_vars[index].set("N/A")
                 self.log("OVP readback is None--possible comm issue", LogLevel.WARNING)
             else:
-                # compare with actual float value
-                if abs(ovp_get_response - raw_value) > 0.01:
+                self.ovl_live_values[index] = float(ovp_get_response)
+                self.overvoltage_limit_vars[index].set(float(ovp_get_response))
+                self.ovl_readback_vars[index].set(f"{float(ovp_get_response):.2f}")
+                if abs(ovp_get_response - ovp_value) > 0.01:
                     self.log(
                         f"OVP mismatch for Cathode {['A','B','C'][index]}. "
-                        f"Set: {raw_value:.2f}, Got: {ovp_get_response:.2f}",
+                        f"Set: {ovp_value:.2f}, Got: {ovp_get_response:.2f}",
                         LogLevel.WARNING
                     )
                 else:
                     self.log(
                         f"OVP successfully set and confirmed for Cathode {['A','B','C'][index]}: "
-                        f"{raw_value:.2f} V", LogLevel.INFO
+                        f"{ovp_value:.2f} V", LogLevel.INFO
                     )
-                    msgbox.showinfo("Success", f"OVP set to {raw_value:.2f} V for Cathode {['A','B','C'][index]}")
+                    return True
 
         except ValueError as e:
             self.log(f"Invalid input for OVP limit for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
             msgbox.showerror("Error", f"Invalid input for OVP limit: {str(e)}")
+            return False
 
-    def set_overcurrent_limit(self, index):
+        except Exception as e:
+            self.log(f"Unexpected error setting OVP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Unexpected error setting OVP: {str(e)}")
+            return False
+
+        return False
+
+    def set_overcurrent_limit(self, index, requested_value=None):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index + 1} is not initialized. Cannot set OCP.", LogLevel.ERROR)
             msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set OCP.")
             return
 
         try:
-            stored_ocp = self.overcurrent_limit_vars[index].get()
-            raw_value = float(stored_ocp)
-            ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
-            raw_value = float(self.overcurrent_limit_vars[index].get())
-            if raw_value < 0 or raw_value > 10:
-                raise ValueError("OCP out of valid range (0-10 A).")
+            raw_value = float(requested_value) if requested_value is not None else float(self.overcurrent_limit_vars[index].get())
+
+            # Backend safety validation (do not rely only on GUI-bound checks)
+            if raw_value < 0.1 or raw_value > 10:
+                raise ValueError("Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
+
+            ocp_set   = Decimal(str(raw_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
             
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
             ocp_set_response = self.power_supplies[index].set_over_current_protection(ocp_set)
@@ -1051,22 +1498,37 @@ class CathodeHeatingSubsystem:
 
             # Verify the set value
             ocp_get_response = self.power_supplies[index].get_over_current_protection()
+            if ocp_get_response is not None:
+                self.ocl_live_values[index] = float(ocp_get_response)
+                self.overcurrent_limit_vars[index].set(float(ocp_get_response))
+                self.ocl_readback_vars[index].set(f"{float(ocp_get_response):.2f}")
+            else:
+                self.ocl_live_values[index] = None
+                self.ocl_readback_vars[index].set("N/A")
             if ocp_get_response is None or abs(ocp_get_response - raw_value) > 0.01:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:.2f}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
                 self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {raw_value:.2f}A", LogLevel.INFO)
-                msgbox.showinfo("Success", f"OCP set to {raw_value:.2f}A for Cathode {['A', 'B', 'C'][index]}")
+                return True  # Return True to indicate success
 
-        except ValueError:
-            self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-            msgbox.showerror("Error", "Invalid input for OCP limit. Please enter a valid number.")
+        except ValueError as e:
+            self.log(f"Invalid input for OCP limit for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Invalid input for OCP limit: {str(e)}")
+            return False  # Return False to indicate failure
 
-    def update_query_settings_button_states(self):
+        except Exception as e:
+            self.log(f"Unexpected error setting OCP for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
+            msgbox.showerror("Error", f"Unexpected error setting OCP: {str(e)}")
+            return False
+
+        return False  # Return False if we get here without success
+
+    def update_log_power_settings_button_states(self):
         for i, power_supply in enumerate(self.power_supplies):
-            if i < len(self.query_settings_buttons):
-                self.query_settings_buttons[i]['state'] = 'normal' if power_supply else 'disabled'
+            if i < len(self.log_power_settings_buttons):
+                self.log_power_settings_buttons[i]['state'] = 'normal' if power_supply else 'disabled'
 
-    def query_and_check_settings(self, index):
+    def log_power_and_check_settings(self, index):
         if not self.power_supply_status[index]:
             self.log(f"Power supply {index} not initialized.", LogLevel.ERROR)
             return
@@ -1297,7 +1759,6 @@ class CathodeHeatingSubsystem:
                 cathode_label = ['A', 'B', 'C'][i]
                 self.logger.update_field(f"clamp_temperature_{cathode_label}", temperature)
 
-
             if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
             elif isinstance(temperature, str):
@@ -1378,7 +1839,6 @@ class CathodeHeatingSubsystem:
 
                 padding = (temp_max - temp_min) * PADDING_FACTOR
                 ax.set_ylim(temp_min - padding, temp_max + padding)
-
 
         # Adjust plot to new data
         ax.relim()
@@ -1582,6 +2042,55 @@ class CathodeHeatingSubsystem:
         self.voltage_set[index] = False
         self.current_set[index] = False        
 
+    def clear_prediction_variables(self, index):
+        """Clear only prediction display fields while preserving active setpoints/state."""
+        self.predicted_emission_current_vars[index].set('--')
+        self.predicted_grid_current_vars[index].set('--')
+        self.predicted_heater_current_vars[index].set('--')
+        self.predicted_heater_voltage_vars[index].set('--')
+        self.predicted_temperature_vars[index].set('--')
+
+    def _get_interpolation_axes(self, index: int, x_col: str, y_col: str):
+        """Return sorted numeric (x, y) arrays for LUT interpolation."""
+        table = self.lookup_table_setting[index]
+        if table is None or table.empty:
+            return None, None
+
+        numeric = pd.DataFrame(
+            {
+                x_col: pd.to_numeric(table[x_col], errors="coerce"),
+                y_col: pd.to_numeric(table[y_col], errors="coerce"),
+            }
+        ).dropna()
+        if numeric.empty:
+            return None, None
+
+        # Collapse duplicate x-values to one functional value before interpolation.
+        collapsed = (
+            numeric.groupby(x_col, as_index=False)[y_col]
+            .median()
+            .sort_values(x_col)
+        )
+
+        x_vals = collapsed[x_col].to_numpy(dtype=float)
+        y_vals = collapsed[y_col].to_numpy(dtype=float)
+        return x_vals, y_vals
+
+    def _interpolate_lut_value(self, index: int, x_value: float, x_col: str, y_col: str):
+        """Linearly interpolate LUT value for x_value; return None when out of range."""
+        x_vals, y_vals = self._get_interpolation_axes(index, x_col, y_col)
+        if x_vals is None or y_vals is None or len(x_vals) == 0:
+            return None
+
+        if len(x_vals) == 1:
+            return float(y_vals[0]) if abs(float(x_value) - float(x_vals[0])) < 1e-12 else None
+
+        # No extrapolation: only interpolate inside LUT domain.
+        if x_value < x_vals[0] or x_value > x_vals[-1]:
+            return None
+
+        return float(np.interp(float(x_value), x_vals, y_vals))
+
     def reset_power_supply(self, index):
         """
         Reset a power supply to zero voltage and current (UVL and UCL)
@@ -1621,8 +2130,20 @@ class CathodeHeatingSubsystem:
             msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
             return
 
+        raw_value = str(target_current.get()).strip()
+        if raw_value == "":
+            # Treat empty entry as a user request to clear the current goal.
+            self.user_set_currents[index] = None
+            self.current_set[index] = False
+            self.heater_current_vars[index].set('--')
+            self.sent_heater_current_vars[index].set('--')
+            self.predicted_heater_current_vars[index].set('--')
+            self.log(f"Cleared current goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            self.refresh_predictions(index)
+            return
+
         try:
-            new_current = float(target_current.get())
+            new_current = float(raw_value)
             valid_input = self.validate_current(index, new_current)
             if not valid_input:
                 # Error message already shown in validate_current
@@ -1631,10 +2152,9 @@ class CathodeHeatingSubsystem:
             msgbox.showerror("Invalid Input", "Please enter a valid current value.")
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_current(index, new_current)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_current(index, new_current)
+        if not prediction_success:
+            self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_current(index, new_current)
         if set_success:
@@ -1660,8 +2180,20 @@ class CathodeHeatingSubsystem:
                 msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
                 return
 
+        raw_value = str(target_voltage.get()).strip()
+        if raw_value == "":
+            # Treat empty entry as a user request to clear the voltage goal.
+            self.user_set_voltages[index] = None
+            self.voltage_set[index] = False
+            self.heater_voltage_vars[index].set('--')
+            self.sent_heater_voltage_vars[index].set('--')
+            self.predicted_heater_voltage_vars[index].set('--')
+            self.log(f"Cleared voltage goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            self.refresh_predictions(index)
+            return
+
         try:
-            new_voltage = float(target_voltage.get())
+            new_voltage = float(raw_value)
             valid_input = self.validate_voltage(index, new_voltage)
             if not valid_input:
                 # Error message already shown in validate_voltage
@@ -1670,10 +2202,9 @@ class CathodeHeatingSubsystem:
             msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        if not prediction_success:
+            self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_voltage(index, new_voltage)
         if set_success:
@@ -1714,10 +2245,9 @@ class CathodeHeatingSubsystem:
             # Error message already shown in validate_current
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_current(index, new_current)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_current(index, new_current)
+        if not prediction_success:
+            self.log(f"Failed to predict output from current change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_current(index, new_current)
         if set_success:
@@ -1759,10 +2289,9 @@ class CathodeHeatingSubsystem:
             # Error message already shown in validate_voltage
             return
 
-        # NO PREDICTIONS UNTIL LUT INTEGRATION
-        # prediction_success = self.update_predictions_from_voltage(index, new_voltage)
-        # if not prediction_success:
-        #     self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+        prediction_success = self.update_predictions_from_voltage(index, new_voltage)
+        if not prediction_success:
+            self.log(f"Failed to predict output from voltage change for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
         set_success = self.update_output_from_voltage(index, new_voltage)
         if set_success:
@@ -1771,6 +2300,83 @@ class CathodeHeatingSubsystem:
             self.voltage_set[index] = True
         else:
             self.log(f"Failed to set manual voltage for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
+
+    def update_predictions_from_current(self, index, current):
+        """
+        Calculate and update predicted values based on a manually set current.
+
+        Args:
+            index (int): Index of cathode (0-2)
+            current (float): Manually entered current value
+
+        Returns:
+            bool: True if update successful, False if failed
+        """
+        try:
+            # If voltage is set we expect one value to limit the other
+            if self.voltage_set[index]:
+                limited_voltage = self._voltage_for_current(index, current)
+                limited_current = self._current_for_voltage(index, self.user_set_voltages[index])
+                if limited_voltage is None or limited_current is None:
+                    # no data in LUT, return to update output without predictions
+                    self.clear_prediction_variables(index)
+                    return False
+
+                if current >= limited_current:
+                    # Current is limited by voltage and will not reach full set value
+                    pred_heater_current = limited_current
+                    pred_heater_voltage = self.user_set_voltages[index]
+                else:
+                    # Voltage is potentially limited by current
+                    pred_heater_current = current
+                    pred_heater_voltage = min(self.user_set_voltages[index], limited_voltage)
+            else:
+                # If no heater voltage is set we will predict the voltage produced by the new current and set it on the power supply
+                pred_heater_voltage = self._voltage_for_current(index, current)
+                pred_heater_current = current
+
+            if pred_heater_voltage is None:
+                self.clear_prediction_variables(index)
+                self.log(
+                    f"No lookup table voltage available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}",
+                    LogLevel.WARNING,
+                )
+                return False
+
+            # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
+            _,_, pred_beam_current = self.emission_cur_vlt_converter(
+                index,
+                pred_heater_voltage,
+                target_heater_current=pred_heater_current
+            )
+
+            # Check that LUT returned values, if not then reset predicted values
+            if pred_beam_current == -1:
+                self.clear_prediction_variables(index)
+                self.log(f"No lookup table data available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return False
+
+            # Calculate dependent variables - beam_current is what hits the target, emission is total
+            ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
+            predicted_grid_current = 0.28 * ideal_emission_current
+
+            # Update GUI with new values
+            self.predicted_heater_current_vars[index].set(f'{pred_heater_current:.2f} A')
+            self.predicted_heater_voltage_vars[index].set(f'{pred_heater_voltage:.2f} V')
+            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+            self.predicted_temperature_vars[index].set('--')
+
+            return True
+
+        except ValueError as e:
+            self.clear_prediction_variables(index)
+            self.log(f"Error processing manual current setting: {str(e)}", LogLevel.ERROR)
+            return False
+        except Exception as e:
+            self.clear_prediction_variables(index)
+            self.log(f"Unexpected error while processing manual current setting: {str(e)}", LogLevel.ERROR)
+            return False
 
     def update_predictions_from_voltage(self, index, voltage):
         """
@@ -1782,104 +2388,102 @@ class CathodeHeatingSubsystem:
 
         Returns:
             bool: True if update successful, False if failed
-
-        Updates:
-            - Heater current prediction
-            - Emission current prediction
-            - Temperature prediction
-            - Power supply settings
         """
-
         try:
-            current_ovp = self.get_ovp(index)
-            
-            if current_ovp is None:
-                self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                return
-
-            if voltage > current_ovp:
-                self.log(f"Calculated voltage ({voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                return
-            
-            if voltage < 0:
-                raise ValueError("Voltage must be positive")
-
-            # Use the ES440_cathode model to interpolate current from voltage
-            cathode_model = ES440_cathode([data[1] for data in ES440_cathode.heater_voltage_current_data], 
-                                        [data[0] for data in ES440_cathode.heater_voltage_current_data], 
-                                        log_transform=False)
-            heater_current = cathode_model.interpolate(voltage, inverse=True)
-
-            # Set Upper Current Limit on the power supply. Voltage is set in the power supply class when toggle_output is called
-            if self.power_supplies and len(self.power_supplies) > index:
-                # voltage_set_success = self.power_supplies[index].set_voltage(3, voltage)
-                current_set_success = self.power_supplies[index].set_current(
-                    3,
-                    heater_current,
-                    sent_callback=lambda c, i=index: self.parent.after(0, lambda idx=i, val=c: self._update_sent_current_display(idx, val))
-                )
-                if not current_set_success:
-                    self.log(f"Unable to set upper current limit: {heater_current} for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                    
-                # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                if self.toggle_states[index]:
-                    if self.ramp_status[index]:
-                        self.power_supplies[index].ramp_voltage(
-                            voltage,
-                            step_size=self.slew_rates[index],
-                            step_delay=1.0,
-                            preset=3,
-                            sent_callback=lambda v, i=index: self.parent.after(0, lambda idx=i, val=v: self._update_sent_voltage_display(idx, val))
-                        )
-                        self.voltage_set[index] = True
-                    else:
-                        self.power_supplies[index].set_voltage(
-                            3,
-                            voltage,
-                            sent_callback=lambda v, i=index: self.parent.after(0, lambda idx=i, val=v: self._update_sent_voltage_display(idx, val))
-                        )
-                        self.voltage_set[index] = True
-                
-                # Confirm the set values
-                _ , set_current = self.power_supplies[index].get_settings(3)
-                if set_current is not None:    
-                    # voltage_mismatch = abs(set_voltage - voltage) > 0.01  # 0.01V tolerance
-                    current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-
-                    if current_mismatch:
-                        self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                        # if voltage_mismatch:
-                        #     self.log(f"  Voltage - Intended: {voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
-                        if current_mismatch:
-                            self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
-                        return False
-                    else:
-                        self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
-                else:
-                    self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No valid response received", LogLevel.ERROR)
+            # If current is set we expect one value to limit the other
+            if self.current_set[index]:
+                limited_voltage = self._voltage_for_current(index, self.user_set_currents[index])
+                limited_current = self._current_for_voltage(index, voltage)
+                if limited_voltage is None or limited_current is None:
+                    # no data in LUT, return to update output without predictions
+                    self.clear_prediction_variables(index)
                     return False
-                
-                self.user_set_voltages[index] = voltage
 
-            # Calculate dependent variables
-            ideal_emission_current = self.emission_current_model.interpolate(np.log10(heater_current), inverse=True)
+                if voltage >= limited_voltage:
+                    # Voltage is limited by current and will not reach full set value
+                    pred_heater_voltage = limited_voltage
+                    pred_heater_current = self.user_set_currents[index]
+                else:
+                    # Current is potentially limited by voltage
+                    pred_heater_voltage = voltage
+                    pred_heater_current = min(self.user_set_currents[index], limited_current)
+            else:
+                # If no heater current is set we will predict the current produced by the new voltage and set it on the power supply
+                pred_heater_current = self._current_for_voltage(index, voltage)
+                pred_heater_voltage = voltage
+
+            if pred_heater_current is None or pred_heater_voltage is None:
+                self.clear_prediction_variables(index)
+                self.log(
+                    f"No lookup table current available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}",
+                    LogLevel.WARNING,
+                )
+                return False
+
+            # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
+            _,_, pred_beam_current = self.emission_cur_vlt_converter(
+                index,
+                pred_heater_voltage,
+                target_heater_current=pred_heater_current
+            )
+
+            # Check that LUT returned values, if not then reset predicted values
+            if pred_beam_current == -1:
+                self.clear_prediction_variables(index)
+                self.log(f"No lookup table data available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                return False
+
+            # Calculate dependent variables - beam_current is what hits the target, emission is total
+            ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
-            predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-            predicted_temperature_C = predicted_temperature_K - 273.15
 
             # Update GUI with new values
-            self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-            self.predicted_emission_current_vars[index].set("--")
-            self.predicted_grid_current_vars[index].set("--")
-            self.predicted_temperature_vars[index].set("--")
+            self.predicted_heater_current_vars[index].set(f'{pred_heater_current:.2f} A')
+            self.predicted_heater_voltage_vars[index].set(f'{pred_heater_voltage:.2f} V')
+            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
+            self.predicted_temperature_vars[index].set('--')
 
-            self.log(f"Updated manual settings for Cathode {['A', 'B', 'C'][index]}: {heater_current:.2f}A", LogLevel.INFO)
             return True
-        except ValueError as e:
+
+        except Exception as e:
+            self.clear_prediction_variables(index)
             self.log(f"Error processing manual voltage setting: {str(e)}", LogLevel.ERROR)
-            self.reset_related_variables(index)
             return False
+
+    def _current_for_voltage(self, index: int, voltage: float):
+        """Return heater current for voltage using LUT linear interpolation."""
+        return self._interpolate_lut_value(index, voltage, "voltage", "heater_current")
+
+    def _voltage_for_current(self, index: int, current: float):
+        """Return heater voltage for current using LUT linear interpolation."""
+        return self._interpolate_lut_value(index, current, "heater_current", "voltage")
+
+    def emission_cur_vlt_converter(self, index, val, target_heater_current=None):
+        """
+        Convert between voltage and current using the DataFrame lookup.
+
+        LUT data is treated as a function for voltage->(heater current, beam current)
+        lookups. For a given voltage, there must be exactly one output pair.
+
+        Args:
+            index (int): Index of the cathode (0-2)
+            val (float): Input value (voltage or current)
+            target_heater_current (float | None): Unused; retained for call-site
+                compatibility.
+
+        Returns:
+            tuple: (heater_voltage, heater_current, beam_current)
+        """
+        if isinstance(self.lookup_table_setting[index], pd.DataFrame):
+            heater_current = self._interpolate_lut_value(index, val, "voltage", "heater_current")
+            beam_current = self._interpolate_lut_value(index, val, "voltage", "beam_current")
+            if heater_current is None or beam_current is None:
+                return (val, -1, -1)
+            return (float(val), float(heater_current), float(beam_current))
+        else:
+            self.log("Lookup table not properly configured as DataFrame", LogLevel.ERROR)
+            return (val, -1, -1)
         
     def update_output_from_current(self, index:int, new_current:float):
         """
@@ -2084,42 +2688,6 @@ class CathodeHeatingSubsystem:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
-
-    def perform_echoback_test(self, unit):
-        """
-        Perform an echoback test on the specified unit.
-        This method checks if the temperature controllers are connected before proceeding.
-        """
-        try:
-            # Ensure that the unit index is within the range of connected controllers
-            if not self.temperature_controller:
-                raise ValueError(f"Temperature Controller is not connected or initialized.")
-
-            # Perform the echoback test
-            result = self.temperature_controller.perform_echoback_test(unit=unit)
-            self.log(f"Echoback test result for Unit {unit}: {result}", LogLevel.INFO)
-        except Exception as e:
-            self.log(f"Failed to perform echoback test on Unit {unit}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Echoback Test Error", f"Failed to perform echoback test on Unit {unit}: {str(e)}")
-
-    def read_and_log_temperature(self, unit):
-        """
-        Read the temperature from the specified unit and log the result.
-        Ensures the unit is connected before attempting to read.
-        """
-        try:
-            if not self.temperature_controller:
-                raise ValueError(f"Temperature Controller is not connected or initialized.")
-
-            temperature = self.temperature_controller.read_temperature(unit=unit)
-            if temperature is not None:
-                message = f"Temperature from Unit {unit}: {temperature:.2f} C"
-                self.log(message, LogLevel.VERBOSE)
-            else:
-                raise Exception("Failed to read temperature")
-        except Exception as e:
-            self.log(f"Error reading temperature from Unit {unit}: {str(e)}", LogLevel.ERROR)
-            msgbox.showerror("Temperature Read Error", f"Error reading temperature from Unit {unit}: {str(e)}")
 
     # Voltage input validation
     def validate_voltage(self, index:int, new_voltage: float):
