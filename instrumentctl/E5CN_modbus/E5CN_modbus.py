@@ -1,5 +1,7 @@
 import threading
 import time
+import sys
+import traceback
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
@@ -24,6 +26,7 @@ class E5CNModbus:
         self.logger = logger
         self.debug_mode = debug_mode
         self.stop_event = threading.Event()
+        self.thread_shutdown_timeout = 3.0
         self.threads = [] # for each unit
         self.temperatures = [None, None, None] 
         self.temperatures_lock = threading.Lock()
@@ -54,6 +57,7 @@ class E5CNModbus:
             return False
             
         self.stop_event.clear()
+        self.threads.clear()
         
         for unit in self.UNIT_NUMBERS:
             if self.stop_event.is_set():
@@ -88,32 +92,59 @@ class E5CNModbus:
                         self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
                 else:
                     self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
-                time.sleep(0.5)  # small delay between reads
+                self.stop_event.wait(0.5)  # interruptible delay between reads
             except Exception as e:
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
-                time.sleep(1)  # Longer delay on error
+                self.stop_event.wait(1)  # interruptible delay on error
+
+    def _log_thread_stack(self, thread):
+        """Log the current Python stack for a still-alive thread."""
+        try:
+            frames = sys._current_frames()
+            frame = frames.get(thread.ident)
+            if frame is None:
+                self.log(f"No stack frame available for {thread.name} (id={thread.ident})", LogLevel.WARNING)
+                return
+
+            stack_text = ''.join(traceback.format_stack(frame))
+            self.log(
+                f"Stack dump for alive thread {thread.name} (id={thread.ident}):\n{stack_text}",
+                LogLevel.WARNING,
+            )
+        except Exception as e:
+            self.log(f"Failed to collect stack for {thread.name}: {e}", LogLevel.ERROR)
+
 
     def stop_reading(self):
         """Stop all temperature reading threads and clean up connections."""
         self.log("Stopping temperature reading threads...", LogLevel.DEBUG)
         self.stop_event.set()
-        
-        # Wait for threads to finish
-        for thread in self.threads:
-            thread.join(timeout=2.0)
-            self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
-            
+
+        # Close the transport first to interrupt blocking read calls.
+        # Do this *before* join so workers can exit promptly.
+        try:
+            if self.client.is_socket_open():
+                self.client.close()
+                self.log("Modbus connection closed for shutdown", LogLevel.DEBUG)
+            else:
+                self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
+        except Exception as e:
+            self.log(f"Error pre-closing connection during shutdown: {str(e)}", LogLevel.ERROR)
+
+        # Wait for threads to finish and report stragglers.
+        for thread in list(self.threads):
+            thread.join(timeout=self.thread_shutdown_timeout)
+            if thread.is_alive():
+                self.log(
+                    f"Thread {thread.name} did not stop within {self.thread_shutdown_timeout:.1f}s",
+                    LogLevel.WARNING,
+                )
+                self._log_thread_stack(thread)
+            else:
+                self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
+
         self.threads.clear()
-        
-        # Clean up the connection
-        with self.modbus_lock:
-            try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    self.log("Modbus connection closed", LogLevel.DEBUG)
-            except Exception as e:
-                self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
-                
+
         self.is_initialized.clear()
 
     def connect(self):
@@ -154,14 +185,24 @@ class E5CNModbus:
             self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
 
     def read_temperature(self, unit):
+        if self.stop_event.is_set():
+            return None
         attempts = 3
-        while attempts > 0:
+        while attempts > 0 and not self.stop_event.is_set():
             try:
                 with self.modbus_lock:
+                    if self.stop_event.is_set():
+                        return None
+                    
                     if not self.client.is_socket_open():
                         try:
+                            if self.stop_event.is_set():
+                                return None
+                            
                             if self.client.connect():
-                                time.sleep(0.2)
+                                if self.stop_event.wait(0.2):
+                                    return None
+                                
                                 # clear any stale data
                                 if hasattr(self.client, 'socket'):
                                     self.client.socket.reset_input_buffer()
@@ -175,6 +216,9 @@ class E5CNModbus:
                             self.connected = False
                             attempts -= 1
                             continue
+
+                    if self.stop_event.is_set():
+                        return None
 
                     response = self.client.read_holding_registers(
                         address=self.TEMPERATURE_ADDRESS,
@@ -195,7 +239,8 @@ class E5CNModbus:
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
                 attempts -= 1
-                time.sleep(0.1)  # Short delay between retries
+                if self.stop_event.wait(0.1):
+                    return None
 
         return None
 
