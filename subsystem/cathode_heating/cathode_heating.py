@@ -1693,6 +1693,9 @@ class CathodeHeatingSubsystem:
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
+        if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
+            self.temperature_controller.flush_queued_logs()
+
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
 
