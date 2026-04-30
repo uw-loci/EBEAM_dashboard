@@ -465,6 +465,11 @@ class TestDictLoggerFieldManagement(unittest.TestCase):
         self.logger.clear_value("pressure")
         self.assertIsNone(self.logger.dict_logger["pressure"])
 
+    def test_clear_value_raises_for_cathode_key(self):
+        with self.assertRaises(KeyError) as ctx:
+            self.logger.clear_value("cathode")
+        self.assertIn("cathode", str(ctx.exception))
+
     def test_clear_value_raises_key_error_for_invalid_key(self):
         with self.assertRaises(KeyError) as ctx:
             self.logger.clear_value("not_a_field")

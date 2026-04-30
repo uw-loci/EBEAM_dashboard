@@ -161,6 +161,8 @@ class Logger:
         cathode[cathode_label][subfield] = value
         self.log_dict_update(self.dict_logger)
     def clear_value(self, field):
+        if field == "cathode":
+            raise KeyError("'cathode' cannot be cleared with clear_value; use update_cathode_field to reset individual subfields.")
         if field in self.dict_logger:
             self.dict_logger[field] = None
             self.log_dict_update(self.dict_logger)
