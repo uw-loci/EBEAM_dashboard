@@ -609,7 +609,17 @@ class MachineStatus():
         
         self._previous_status = status_dict.copy()
 
-        self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
+        self.after_id = self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
+
+    def cancel_updates(self):
+        '''
+        Cancel after() scheduled updates, to be called by dashboard when app is quit.
+            Note: Does not do logging like the other cancel_updates() methods since the 
+            Machine Status class does not have a logger.
+        '''
+        if hasattr(self, 'after_id') and self.after_id:
+            self.parent.after_cancel(self.after_id)
+            self.after_id = None
 
     def update_labels(self, status_dict):
             for name, is_active in status_dict.items():

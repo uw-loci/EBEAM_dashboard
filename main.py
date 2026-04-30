@@ -59,6 +59,9 @@ def start_main_app(com_ports, logger=None):
             root.destroy()
         return "break"
     
+    """Esnure that quit_app is called when the window is closed, not just when Ctrl+Q is pressed."""
+    root.protocol("WM_DELETE_WINDOW", quit_app)
+    
     def toggle_fullscreen(event=None):
         nonlocal fullscreen
         fullscreen = not fullscreen
