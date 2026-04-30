@@ -1,3 +1,4 @@
+import queue
 import threading
 import time
 
@@ -126,6 +127,8 @@ class KnobBoxModbus:
         self.logger = logger
         self.debug_mode = debug_mode
         self.modbus_lock = threading.Lock()  # Lock for Modbus communication
+        self._main_thread_id = threading.get_ident()
+        self._background_log_queue = queue.SimpleQueue()
         self.data_lock = threading.Lock()  # Lock for data state updates
         self.poll_schedule_lock = threading.Lock()  # Lock for per-unit poll scheduling/backoff
         self.port = port
@@ -529,6 +532,7 @@ class KnobBoxModbus:
         Returns:
             dict: A copy of the current data dictionary.
         """
+        self.flush_queued_logs()
         with self.data_lock:
             return {uid: values.copy() for uid, values in self.data.items()}
 
@@ -537,12 +541,14 @@ class KnobBoxModbus:
         self.disconnect()
 
     def get_unit_connection_status(self, uid):
+        self.flush_queued_logs()
         now = time.time()
         with self.data_lock:
             last_ok = self.last_success.get(uid, 0)
         return (now - last_ok) < self.CONNECTION_TIMEOUT
 
     def any_unit_connected(self):
+        self.flush_queued_logs()
         now = time.time()
         with self.data_lock:
             return any(
@@ -552,6 +558,7 @@ class KnobBoxModbus:
 
     def check_connection(self):
         """Check if the Modbus client is connected and attempt to reconnect if not."""
+        self.flush_queued_logs()
         try:
             if not self.connected:
                 self.log("Modbus client not connected. Attempting to reconnect...", LogLevel.WARNING)
@@ -567,8 +574,28 @@ class KnobBoxModbus:
             self.connected = self.connect()
             return self.connected
 
+    def flush_queued_logs(self):
+        """Flush queued background-thread logs from the main thread only."""
+        if threading.get_ident() != self._main_thread_id:
+            return
+        while True:
+            try:
+                queued_message, queued_level = self._background_log_queue.get_nowait()
+            except queue.Empty:
+                break
+            if self.logger:
+                self.logger.log(queued_message, queued_level)
+            else:
+                print(f"{queued_level.name}: {queued_message}")
+
     def log(self, message, level=LogLevel.INFO):
-        if self.logger:
-            self.logger.log(message, level)
-        else:
-            print(f"{level.name}: {message}")
+        if threading.get_ident() == self._main_thread_id:
+            self.flush_queued_logs()
+            if self.logger:
+                self.logger.log(message, level)
+            else:
+                print(f"{level.name}: {message}")
+            return
+
+        # Background thread: enqueue log for main-thread flush to avoid unsafe UI logger access.
+        self._background_log_queue.put((message, level))
