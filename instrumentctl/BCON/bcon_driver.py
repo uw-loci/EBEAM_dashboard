@@ -597,6 +597,12 @@ class BCONDriver:
                 except Exception:
                     pass
                 self._serial = None
+        elif not ok and self._serial:
+            try:
+                self._serial.close()
+            except Exception:
+                pass
+            self._serial = None
 
         self._connected = ok
         self._poll_errors = 0
