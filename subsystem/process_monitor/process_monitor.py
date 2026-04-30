@@ -225,6 +225,8 @@ class ProcessMonitorSubsystem:
     def update_temperatures(self):
         current_time = time.time()
         try:
+            if self.monitor and hasattr(self.monitor, "flush_queued_logs"):
+                self.monitor.flush_queued_logs()
             if not self.monitor:
                 self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
                 if current_time - self.last_error_time > (self.update_interval / 1000):

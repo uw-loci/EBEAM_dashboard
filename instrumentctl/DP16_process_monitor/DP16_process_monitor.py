@@ -1,6 +1,7 @@
 import time
 import threading
 from threading import Lock
+from queue import Queue, Empty
 import struct
 from utils import LogLevel
 from pymodbus.client import ModbusSerialClient as ModbusClient
@@ -44,6 +45,8 @@ class DP16ProcessMonitor:
         self.unit_numbers = set(unit_numbers)
         self.modbus_lock = Lock()
         self.logger = logger
+        self._main_thread_ident = threading.get_ident()
+        self._log_queue = Queue()
 
         self.temperature_readings = {unit: None for unit in unit_numbers}
         self.consecutive_error_counts = {unit: 0 for unit in self.unit_numbers}
@@ -343,10 +346,30 @@ class DP16ProcessMonitor:
             self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
         else:
             self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
+        self.flush_queued_logs()
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
-        if self.logger:
+        if not self.logger:
+            print(f"{level.name}: {message}")
+            return
+
+        # Tkinter widgets must only be modified on the main GUI thread.
+        if threading.get_ident() == self._main_thread_ident:
             self.logger.log(message, level)
         else:
-            print(f"{level.name}: {message}")
+            self._log_queue.put((message, level))
+
+    def flush_queued_logs(self, max_messages=200):
+        """Flush queued worker-thread log messages on the calling thread."""
+        if not self.logger:
+            return
+
+        processed = 0
+        while processed < max_messages:
+            try:
+                message, level = self._log_queue.get_nowait()
+            except Empty:
+                break
+            self.logger.log(message, level)
+            processed += 1
