@@ -905,7 +905,7 @@ class BeamPulseSubsystem:
         """Background thread that plays the CSV sequence."""
         total = len(self._seq_steps)
         for idx, (step_num, rows, dwell_ms) in enumerate(self._seq_steps):
-            if self._seq_stop.is_set():
+            if self._seq_stop.is_set() or not self.beams_armed_status:
                 break
             # Update progress via queue
             self._ui_queue.put(("seq_status", f"Step {idx+1}/{total} (#{step_num})"))
@@ -919,6 +919,8 @@ class BeamPulseSubsystem:
                 }
                 for row in rows
             ]
+            if self._seq_stop.is_set() or not self.beams_armed_status:
+                break
             self.bcon_driver.sync_start(configs)
 
             # Dwell
@@ -983,8 +985,7 @@ class BeamPulseSubsystem:
                 self.seq_progress_lbl.configure(text=text)
             self._log_event(text)
         elif typ == "seq_done":
-            if hasattr(self, 'seq_run_btn'):
-                self.seq_run_btn.configure(state="normal")
+            self._update_armed_button_states(self.beams_armed_status)
             if hasattr(self, 'seq_stop_btn'):
                 self.seq_stop_btn.configure(state="disabled")
 
@@ -1462,6 +1463,7 @@ class BeamPulseSubsystem:
 
     def disarm_beams(self) -> bool:
         self.beams_armed_status = False
+        self._stop_sequence_worker()
         self.set_all_beams_status(False)
         if self.bcon_driver:
             self.bcon_driver.stop_all()
