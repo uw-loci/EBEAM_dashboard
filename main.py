@@ -15,7 +15,8 @@ SUBSYSTEMS = [
     'CathodeC PS', 
     'TempControllers', 
     'Interlocks', 
-    'ProcessMonitors'
+    'ProcessMonitors',
+    'KnobBox', 
 ]
 
 def create_dummy_port_labels(subsystems):

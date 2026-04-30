@@ -345,6 +345,11 @@ class EBEAMSystemDashboard:
                 com_ports=self.com_ports,
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
+            ),
+            'Beam Energy': subsystem.BeamEnergySubsystem(
+                self.frames['Beam Energy'],
+                com_ports=self.com_ports,
+                logger=self.logger
             )
         }
 
@@ -378,7 +383,9 @@ class EBEAMSystemDashboard:
         self.port_selections = {}
         self.port_dropdowns = {}
 
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']:
+        for subsystem in [
+            'VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 
+            'TempControllers', 'Interlocks', 'ProcessMonitors', 'KnobBox']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
@@ -427,6 +434,8 @@ class EBEAMSystemDashboard:
                     subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
                 elif subsystem_name == 'Cathode Heating':
                     subsystem.update_com_ports(new_com_ports)
+                elif subsystem_name == 'Beam Energy':
+                    subsystem.update_com_port(new_com_ports)
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
