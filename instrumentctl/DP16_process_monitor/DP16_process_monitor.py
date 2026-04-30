@@ -53,7 +53,7 @@ class DP16ProcessMonitor:
         self.last_good_readings = {unit: None for unit in self.unit_numbers}
         self.consecutive_connection_errors = 0
 
-        self._is_running = True
+        self._stop_event = threading.Event()
         self._thread = None
         self.response_lock = Lock()
         self.last_critical_error_time = 0
@@ -187,7 +187,7 @@ class DP16ProcessMonitor:
         
     def poll_all_units(self):
         """Single polling loop with each unit independent"""
-        while self._is_running:
+        while not self._stop_event.is_set():
             current_time = time.time()
             try:
                 # Check if client is still connected
@@ -204,15 +204,19 @@ class DP16ProcessMonitor:
                         if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
                             self.log("Failed to reconnect to PMON", LogLevel.ERROR)
                             self.last_critical_error_time = current_time
-                        time.sleep(1)  # Delay before next attempt
+                        if self._stop_event.wait(1):
+                            break  # Delay before next attempt
                         continue
                 
                 # Poll each unit individually
                 for unit in sorted(self.unit_numbers):
+                    if self._stop_event.is_set():
+                        break
                     try:
                         self._poll_single_unit(unit) 
                         self.consecutive_connection_errors = 0  # Reset on successful poll
-                        time.sleep(0.1)
+                        if self._stop_event.wait(0.1):
+                            break
                     except ModbusIOException as e:
                         self._handle_poll_error(unit, e)
                         
@@ -221,8 +225,12 @@ class DP16ProcessMonitor:
                             self.log(f"Error polling unit {unit}: {e}", LogLevel.ERROR)
                             self.last_critical_error_time = current_time
 
+                if self._stop_event.is_set():
+                    break
+
                 if self.consecutive_connection_errors == 0:
-                    time.sleep(self.BASE_DELAY)
+                    if self._stop_event.wait(self.BASE_DELAY):
+                        break
                     
             except Exception as e:
                 self.consecutive_connection_errors += 1
@@ -233,7 +241,7 @@ class DP16ProcessMonitor:
 
     def _poll_single_unit(self, unit):
         """Poll a single unit atomically"""
-        if not self._is_running:
+        if self._stop_event.is_set():
             return
 
         with self.modbus_lock:
@@ -335,9 +343,9 @@ class DP16ProcessMonitor:
 
     def disconnect(self):
         # Stop polling thread
-        # self._is_running = False
-        # if self._thread and self._thread.is_alive():
-        #     self._thread.join()
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join()
         
         # Close connection
         # with self.modbus_lock:
