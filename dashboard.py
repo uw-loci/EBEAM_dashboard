@@ -45,21 +45,25 @@ def channel_name(index: int) -> str:
     return f"Channel {channel_label(index)}"
 
 
+# Total row width = 1916. Vertical guides (from left):
+#   x = w_be     — Oil | Process Monitor  lines up with  Beam Energy | Cathode Heating
+#   x = w_bp     — Process Monitor | Messages  lines up with  Beam Pulse | Main Control
+# Top-row slice widths: Vacuum+Oil = w_be; ProcessMonitor+Messages = w_ch; PM width = w_bp - w_be.
 frames_config = [
     # Row 0 — safety strip (full width)
     ("Interlocks", 0, 1916, 41),
 
-    # Row 1 — top data row: Vacuum, Oil, Process Monitor, Messages (left → right)
-    ("Vacuum System", 1, 479, 400),
-    ("Oil System", 1, 479, 400),
-    ("Process Monitor", 1, 479, 400),
-    ("Messages Frame", 1, 479, 400),
+    # Row 1 — Vacuum | Oil | Process Monitor | Messages (left → right)
+    ("Vacuum System", 1, 350, 400),
+    ("Oil System", 1, 350, 400),
+    ("Process Monitor", 1, 258, 400),
+    ("Messages Frame", 1, 958, 400),
 
-    # Row 2 — middle: Beam Energy (left), Cathode Heating (right)
-    ("Beam Energy", 2, 958, 400),
-    ("Cathode Heating", 2, 958, 400),
+    # Row 2 — Beam Energy | Cathode Heating  (w_be + w_ch = 1916)
+    ("Beam Energy", 2, 700, 400),
+    ("Cathode Heating", 2, 1216, 400),
 
-    # Row 3 — bottom: Beam Pulse (left), Main Control (right)
+    # Row 3 — Beam Pulse | Main Control  (w_bp + w_mc = 1916)
     ("Beam Pulse", 3, 958, 450),
     ("Main Control", 3, 958, 450),
 
