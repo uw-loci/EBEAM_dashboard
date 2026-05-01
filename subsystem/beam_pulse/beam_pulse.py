@@ -175,11 +175,51 @@ class BeamPulseSubsystem:
 
     def setup_ui(self):
         """Create the user interface with tabbed layout."""
+        scroll_outer = ttk.Frame(self.parent_frame)
+        scroll_outer.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(scroll_outer, highlightthickness=0)
+        vsb = ttk.Scrollbar(scroll_outer, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+
+        ui_root = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=ui_root, anchor="nw")
+
+        def _on_inner_configure(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            try:
+                canvas.itemconfig(win_id, width=event.width)
+            except tk.TclError:
+                pass
+
+        ui_root.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_mousewheel(event):
+            if event.delta:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif getattr(event, "num", None) == 4:
+                canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                canvas.yview_scroll(1, "units")
+
+        canvas.bind("<Enter>", lambda _e: canvas.focus_set())
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        canvas.bind("<Button-4>", _on_mousewheel)
+        canvas.bind("<Button-5>", _on_mousewheel)
+
+        self._bp_ui_root = ui_root
+
         # Top status bar (BCON connection + safety)
         self._build_status_bar()
 
         # Notebook with three tabs
-        self.notebook = ttk.Notebook(self.parent_frame)
+        self.notebook = ttk.Notebook(ui_root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Tab 1: Manual Separate Control
@@ -235,7 +275,7 @@ class BeamPulseSubsystem:
 
     def _build_status_bar(self):
         """Build the top status bar with connection, interlock, arm info."""
-        bar = ttk.Frame(self.parent_frame)
+        bar = ttk.Frame(self._bp_ui_root)
         bar.pack(fill=tk.X, padx=5, pady=(5, 0))
 
         # BCON connection indicator
@@ -254,7 +294,7 @@ class BeamPulseSubsystem:
         self.connect_btn.pack(side=tk.RIGHT, padx=4)
 
         # System settings row (watchdog / telemetry)
-        sys_frame = ttk.Frame(self.parent_frame)
+        sys_frame = ttk.Frame(self._bp_ui_root)
         sys_frame.pack(fill=tk.X, padx=5, pady=(2, 0))
         ttk.Label(sys_frame, text="Watchdog (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
         self.watchdog_entry = ttk.Entry(sys_frame, width=7)

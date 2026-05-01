@@ -46,27 +46,34 @@ def channel_name(index: int) -> str:
 
 
 frames_config = [
-    # Row 0
+    # Row 0 — safety strip (full width)
     ("Interlocks", 0, 1916, 41),
 
-    # Row 1
-    ("Oil System", 1, 604, 130),
-    ("Beam Steering", 1, 778, 130),
-    ("Beam Energy", 1, 528, 130),
+    # Row 1 — top data row: Vacuum, Oil, Process Monitor, Messages (left → right)
+    ("Vacuum System", 1, 479, 400),
+    ("Oil System", 1, 479, 400),
+    ("Process Monitor", 1, 479, 400),
+    ("Messages Frame", 1, 479, 400),
 
-    # Row 2
-    ("Vacuum System", 2, 604, 438),
-    ("Beam Pulse", 2, 777, 438),
-    ("Main Control", 2, 529, 438),
+    # Row 2 — middle: Beam Energy (left), Cathode Heating (right)
+    ("Beam Energy", 2, 958, 400),
+    ("Cathode Heating", 2, 958, 400),
 
-    # Row 4
-    ("Process Monitor", 3, 339, 458),
-    ("Cathode Heating", 3, 1041, 458),
-    ("Messages Frame", 3, 539, 458),
+    # Row 3 — bottom: Beam Pulse (left), Main Control (right)
+    ("Beam Pulse", 3, 958, 450),
+    ("Main Control", 3, 958, 450),
 
-    # Row 5
-    ("Machine Status", 4, 1916, 38)
+    # Row 4 — machine status
+    ("Machine Status", 4, 1916, 38),
 ]
+
+
+def _messages_frame_layout():
+    """Return (row, width, height) for the Messages Frame entry in frames_config."""
+    for title, row, w, h in frames_config:
+        if title == "Messages Frame":
+            return row, w, h
+    raise RuntimeError("frames_config must include 'Messages Frame'")
 
 class EBEAMSystemDashboard:
     """
@@ -351,7 +358,8 @@ class EBEAMSystemDashboard:
             if title == "Main Control":
                 self.create_main_control_notebook(frame)
 
-        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        _msg_row, _, _ = _messages_frame_layout()
+        self.rows[_msg_row].add(self.messages_frame.frame, stretch='always')
         self.frames['Messages Frame'] = self.messages_frame.frame
 
     def create_main_control_notebook(self, frame):
@@ -1054,7 +1062,8 @@ class EBEAMSystemDashboard:
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
+        _msg_row, _msg_w, _msg_h = _messages_frame_layout()
+        self.messages_frame = MessagesFrame(self.rows[_msg_row], width=_msg_w, height=_msg_h)
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
