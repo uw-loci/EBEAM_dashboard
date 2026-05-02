@@ -17,6 +17,7 @@ SUBSYSTEMS = [
     'Interlocks', 
     'ProcessMonitors',
     'KnobBox', 
+    'BeamPulse',
 ]
 
 def create_dummy_port_labels(subsystems):
