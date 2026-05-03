@@ -54,10 +54,20 @@ def start_main_app(com_ports, logger=None):
 
     # Track fullscreen state
     fullscreen = False
+    # app is assigned later, set to None for now to be safe in case of early quit attempt
+    app = None
   
     def quit_app(event=None):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            app.cleanup()
+            # If the main app instance exists, try to run its cleanup method.
+            if app is not None and hasattr(app, 'cleanup'):
+                try:
+                    app.cleanup()
+                except Exception as e:
+                    try:
+                        logger.exception(f"Error during cleanup: {e}")
+                    except Exception:
+                        pass
             root.destroy()
         return "break"
     
