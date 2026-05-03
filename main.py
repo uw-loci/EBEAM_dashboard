@@ -16,6 +16,7 @@ SUBSYSTEMS = [
     'TempControllers', 
     'Interlocks', 
     'ProcessMonitors',
+    'KnobBox', 
     'BeamPulse',
 ]
 
