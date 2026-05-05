@@ -150,6 +150,10 @@ class BeamPulseSubsystem:
         # Duration spinbox references (for enable/disable in pulsing behaviour)
         self.duration_spinboxes: list = []
 
+        # Tk after() ids for scheduled callbacks (used to cancel on shutdown)
+        self._ui_after_id = None
+        self._bcon_mon_after_id = None
+        self._pulser_mon_after_id = None
         # Create GUI if parent frame is provided
         if parent_frame:
             self.setup_ui()
@@ -946,9 +950,15 @@ class BeamPulseSubsystem:
             except queue.Empty:
                 pass
             if self.parent_frame:
-                self.parent_frame.after(200, _tick)
+                try:
+                    self._ui_after_id = self.parent_frame.after(200, _tick)
+                except Exception:
+                    self._ui_after_id = None
         if self.parent_frame:
-            self.parent_frame.after(200, _tick)
+            try:
+                self._ui_after_id = self.parent_frame.after(200, _tick)
+            except Exception:
+                self._ui_after_id = None
 
     def _handle_driver_msg(self, msg):
         """Process a single message from the driver/UI queue."""
@@ -1114,9 +1124,15 @@ class BeamPulseSubsystem:
                     self.bcon_connection_status = False
                     self.update_bcon_connection_status()
             if self.parent_frame:
-                self.parent_frame.after(2000, check)
+                try:
+                    self._bcon_mon_after_id = self.parent_frame.after(2000, check)
+                except Exception:
+                    self._bcon_mon_after_id = None
         if self.parent_frame:
-            self.parent_frame.after(1000, check)
+            try:
+                self._bcon_mon_after_id = self.parent_frame.after(1000, check)
+            except Exception:
+                self._bcon_mon_after_id = None
 
     def start_pulser_status_monitoring(self):
         """Periodically refresh pulser status indicators."""
@@ -1124,9 +1140,15 @@ class BeamPulseSubsystem:
             for i in range(3):
                 self.update_pulser_status_display(i)
             if self.parent_frame:
-                self.parent_frame.after(500, check)
+                try:
+                    self._pulser_mon_after_id = self.parent_frame.after(500, check)
+                except Exception:
+                    self._pulser_mon_after_id = None
         if self.parent_frame:
-            self.parent_frame.after(1000, check)
+            try:
+                self._pulser_mon_after_id = self.parent_frame.after(1000, check)
+            except Exception:
+                self._pulser_mon_after_id = None
 
     def update_bcon_connection_status(self):
         """Repaint the BCON connection indicator and sync button label."""
@@ -1642,6 +1664,23 @@ class BeamPulseSubsystem:
         self.set_all_beams_status(False)
         self._log("Safe shutdown complete", LogLevel.INFO)
         return True
+
+    def cancel_updates(self) -> None:
+        """Cancel any scheduled Tk `after` callbacks created by this subsystem."""
+        if not self.parent_frame:
+            return
+        for name in ("_ui_after_id", "_bcon_mon_after_id", "_pulser_mon_after_id"):
+            aid = getattr(self, name, None)
+            if aid:
+                try:
+                    self.parent_frame.after_cancel(aid)
+                    self.log(f"Cancelled one BCON scheduled update (3 total).", LogLevel.DEBUG)
+                except Exception:
+                    pass
+                try:
+                    setattr(self, name, None)
+                except Exception:
+                    pass
 
     # --- internal ---
 
