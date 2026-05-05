@@ -105,6 +105,7 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
+        self.ports_after_id = None
 
         # Load toggle images
         try:
@@ -163,6 +164,25 @@ class EBEAMSystemDashboard:
             if hasattr(subsystem, 'close_com_ports'):
                 subsystem.close_com_ports()
         print("Cleaned up com ports.")
+
+        '''Cancels all scheduled Dashboard updates before quitting the application.'''
+        # First cancel updates in each subsystem
+        print("Cancelling scheduled Dashboard updates...")
+        for subsystem in self.subsystems.values():
+            if hasattr(subsystem, 'cancel_updates'):
+                subsystem.cancel_updates()
+        # Now cancel com port checks
+        if self.ports_after_id is not None:
+            try:
+                self.root.after_cancel(self.ports_after_id)
+                self.ports_after_id = None
+                self.logger.debug("Cancelled scheduled com port checks.")
+            except Exception as e:
+                self.logger.debug("Failed to cancel scheduled com port checks.")
+        # Now cancel machine status updates
+        if hasattr(self.machine_status_frame, 'cancel_updates'):
+            self.machine_status_frame.cancel_updates()
+        print("Dashboard upates cancelled.")
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
@@ -1054,9 +1074,6 @@ class EBEAMSystemDashboard:
         except Exception as e:
             self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}")
 
-        # Updates machine status progress bar
-        self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
-
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
         self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3])
@@ -1246,7 +1263,7 @@ class EBEAMSystemDashboard:
 
         finally:
             self.set_com_ports = current_ports
-            self.root.after(500, self._check_ports)
+            self.ports_after_id = self.root.after(500, self._check_ports)
 
     def _update_com_ports(self, subsystem_str, port):
         """
