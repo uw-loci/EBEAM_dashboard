@@ -48,6 +48,18 @@ class OilSubsystem:
         self.pressure_label.config(text=f"{self.pressure:.1f} PSI")
         self.flow_label.config(text=f"{self.flow_rate:.1f} GPM")
         self.pumpStat.config(text=f"{self.pump_status}")
-        self.parent.after(200, self.update_display)  
+        self.after_id = self.parent.after(200, self.update_display)  
+
+    def cancel_updates(self):
+        '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        if hasattr(self, 'after_id') and self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+                self.after_id = None
+                if self.logger:
+                    self.logger.debug('Canceled scheduled oil system display update.')
+            except Exception as e:
+                if self.logger:
+                    self.logger.debug('Failed to cancel scheduled oil system display update.')
 
 
