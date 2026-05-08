@@ -1722,14 +1722,9 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")
 
                     cathode_label = ['A', 'B', 'C'][i]
-                    key_current = f"Cathode {cathode_label} - Heater Current:"
-                    value_current = current
-
-                    key_voltage = f"Cathode {cathode_label} - Heater Voltage:"
-                    value_voltage = voltage
-                    if self.logger and hasattr(self.logger, "update_field"):
-                        self.logger.update_field(key_current, value_current)
-                        self.logger.update_field(key_voltage, value_voltage)
+                    if self.logger and hasattr(self.logger, "update_cathode_field"):
+                        self.logger.update_cathode_field(cathode_label, "heater_current", current)
+                        self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
 
                     # Update mode display
                     cv_lbl, cc_lbl = self.cv_cc_labels[i]
@@ -1755,9 +1750,9 @@ class CathodeHeatingSubsystem:
                 self.actual_target_current_vars[i].set("--")
 
             temperature = self.read_temperature(i)
-            if self.logger and hasattr(self.logger, "update_field"):
+            if self.logger and hasattr(self.logger, "update_cathode_field"):
                 cathode_label = ['A', 'B', 'C'][i]
-                self.logger.update_field(f"clamp_temperature_{cathode_label}", temperature)
+                self.logger.update_cathode_field(cathode_label, "clamp_temperature", temperature)
 
             if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
