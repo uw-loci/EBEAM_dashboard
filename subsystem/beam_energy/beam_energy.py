@@ -472,12 +472,15 @@ class BeamEnergySubsystem:
             data = data_snapshot.get(unit_id) if connected else None
             sign = -1.0 if unit_id == 2 else 1.0  # make -1kV supply signed
 
+            output = bool(data_snapshot.get(unit_id, {}).get("hv_enable", False)) if data else None
+
             set_v = data.get("set_voltage_V") if data else None
             meas_v = data.get("actual_voltage_V") if data else None
             meas_i = data.get("actual_current_mA") if data else None
 
             supplies[supply_key] = {
                 "connected": connected,
+                "output": output,
                 "set_v": (sign * float(set_v)) if set_v is not None else None,
                 "meas_v": (sign * float(meas_v)) if meas_v is not None else None,
                 "meas_i": float(meas_i) if meas_i is not None else None,
