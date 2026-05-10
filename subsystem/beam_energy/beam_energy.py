@@ -458,13 +458,13 @@ class BeamEnergySubsystem:
         return True
 
     def _build_supplies_payload(self, knob_box, data_snapshot):
-        """Build a stable keyed supplies payload with exactly four entries."""
+        """Build a structured payload of 4 power supply statuses for the Web Monitor."""
         supplies = {}
         supply_map = [
             ("pos1kv", 1),
             ("neg1kv", 2),
-            ("20kv", 3),
-            ("3kv", 4),
+            ("pos20kv", 3),
+            ("pos3kv", 4),
         ]
 
         for supply_key, unit_id in supply_map:
@@ -632,6 +632,7 @@ class BeamEnergySubsystem:
                     for key in flag_keys
                 }
 
+                # Update the Web Monitor log with the latest data and flags.
                 self.logger.update_field("beam_energy", {**supply_payload, "flags": flags})
 
 
