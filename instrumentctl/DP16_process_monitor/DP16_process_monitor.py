@@ -2,7 +2,6 @@ import queue
 import struct
 import threading
 import time
-from threading import Lock
 
 from utils import LogLevel
 
@@ -31,7 +30,6 @@ class DP16ProcessMonitor:
 
     # Polling delay
     BASE_DELAY = 0.1    # [seconds]
-    MAX_DELAY = 5       # [seconds]
 
     ERROR_THRESHOLD = 5
     ERROR_LOG_INTERVAL = 10  # [seconds]
@@ -42,6 +40,10 @@ class DP16ProcessMonitor:
     WRITE_TIMEOUT = 1.0
     TRANSACTION_TIMEOUT = 0.75
     INTERFRAME_DELAY = 0.005
+    RECONNECT_DELAY = 1.0
+    BETWEEN_UNIT_DELAY = 0.1
+    THREAD_JOIN_TIMEOUT = 2.0
+    SERIAL_CLOSE_LOCK_TIMEOUT = 0.5
 
     # Error states
     DISCONNECTED = -1
@@ -56,21 +58,38 @@ class DP16ProcessMonitor:
         self.baudrate = baudrate
         self._serial = None
         self.unit_numbers = set(unit_numbers)
-        self.modbus_lock = Lock()
+        self.modbus_lock = threading.Lock()
         self.logger = logger
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
 
-        self.temperature_readings = {unit: None for unit in unit_numbers}
+        self.temperature_readings = {unit: None for unit in self.unit_numbers}
         self.consecutive_error_counts = {unit: 0 for unit in self.unit_numbers}
         self.last_good_readings = {unit: None for unit in self.unit_numbers}
         self.consecutive_connection_errors = 0
 
-        self._is_running = True
-        self._thread = threading.Thread(target=self.poll_all_units, daemon=True)
-        self.response_lock = Lock()
+        self.response_lock = threading.Lock()
         self.last_critical_error_time = 0
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(
+            target=self.poll_all_units,
+            name=f"DP16ProcessMonitor[{self.port}]",
+            daemon=True,
+        )
         self._thread.start()
+
+    def _stop_requested(self) -> bool:
+        return self._stop_event.is_set()
+
+    def _sleep_or_stop(self, seconds: float) -> bool:
+        """Sleep for up to seconds, returning True if shutdown was requested."""
+        return self._stop_event.wait(seconds)
+
+    def _unit_is_available(self, unit, caller: str) -> bool:
+        if unit not in self.unit_numbers:
+            self.log(f"DP16 {caller} was called with an invalid unit address", LogLevel.ERROR)
+            return False
+        return not self._stop_requested()
 
     @staticmethod
     def _hex_bytes(data: bytes) -> str:
@@ -93,6 +112,15 @@ class DP16ProcessMonitor:
     def _append_crc(cls, frame_without_crc: bytes) -> bytes:
         crc = cls._modbus_crc16(frame_without_crc)
         return frame_without_crc + bytes((crc & 0xFF, (crc >> 8) & 0xFF))
+
+    def _validate_crc(self, response: bytes, context: str = "response"):
+        received_crc = response[-2] | (response[-1] << 8)
+        calculated_crc = self._modbus_crc16(response[:-2])
+        if received_crc != calculated_crc:
+            raise DP16ModbusError(
+                f"CRC mismatch on {context}: received 0x{received_crc:04X}, "
+                f"calculated 0x{calculated_crc:04X}, response={self._hex_bytes(response)}"
+            )
 
     @classmethod
     def _build_read_request(cls, slave: int, function_code: int, address: int, count: int) -> bytes:
@@ -118,8 +146,12 @@ class DP16ProcessMonitor:
         ))
         return cls._append_crc(payload)
 
-    def _serial_is_open(self) -> bool:
+    def _serial_is_open_unlocked(self) -> bool:
         return self._serial is not None and self._serial.is_open
+
+    def _serial_is_open(self) -> bool:
+        with self.modbus_lock:
+            return self._serial_is_open_unlocked()
 
     def connect(self):
         """
@@ -128,9 +160,15 @@ class DP16ProcessMonitor:
         Returns:
             bool: True if at least one unit responds, False otherwise.
         """
+        if self._stop_requested():
+            return False
+
         with self.modbus_lock:
             try:
-                if self._serial_is_open():
+                if self._stop_requested():
+                    return False
+
+                if self._serial_is_open_unlocked():
                     self.log("Reusing existing PMON Modbus connection", LogLevel.DEBUG)
                 else:
                     self.log(f"Attempting to connect PMON on port {self.port}", LogLevel.DEBUG)
@@ -146,13 +184,17 @@ class DP16ProcessMonitor:
                     )
 
                     # Give USB serial adapters a moment after opening the port.
-                    time.sleep(0.2)
+                    if self._sleep_or_stop(0.2):
+                        self._close_serial_unlocked()
+                        return False
                     self._serial.reset_input_buffer()
                     self._serial.reset_output_buffer()
 
                 # Check if any unit responds.
-                working_units = set()
+                working_unit_count = 0
                 for unit in sorted(self.unit_numbers):
+                    if self._stop_requested():
+                        return False
                     try:
                         status_registers = self._read_holding_registers_unlocked(
                             unit=unit,
@@ -163,15 +205,15 @@ class DP16ProcessMonitor:
                         self.log(f"DP16 Unit {unit} not responding: {exc}", LogLevel.WARNING)
                         continue
 
-                    working_units.add(unit)
+                    working_unit_count += 1
                     self.log(
                         f"DP16 Unit {unit} responded with status: {status_registers[0]}",
                         LogLevel.VERBOSE,
                     )
 
-                if working_units:
+                if working_unit_count:
                     self.log(
-                        f"Connected to {len(working_units)}/{len(self.unit_numbers)} DP16 units",
+                        f"Connected to {working_unit_count}/{len(self.unit_numbers)} DP16 units",
                         LogLevel.INFO,
                     )
                     return True
@@ -183,14 +225,30 @@ class DP16ProcessMonitor:
                 return False
             except Exception as exc:
                 self.log(f"DP16 Error connecting: {exc}", LogLevel.ERROR)
+                self._close_serial_unlocked()
                 return False
 
     def _close_serial_unlocked(self):
-        if self._serial is not None:
-            try:
-                self._serial.close()
-            finally:
-                self._serial = None
+        ser = self._serial
+        self._serial = None
+        if ser is None:
+            return False
+
+        try:
+            ser.close()
+        except Exception as exc:
+            self.log(f"Error closing DP16 serial port: {exc}", LogLevel.WARNING)
+        return True
+
+    def _close_serial_threadsafe(self, timeout):
+        acquired = self.modbus_lock.acquire(timeout=timeout)
+        if not acquired:
+            return None
+
+        try:
+            return self._close_serial_unlocked()
+        finally:
+            self.modbus_lock.release()
 
     def _read_modbus_response_unlocked(
         self,
@@ -216,12 +274,13 @@ class DP16ProcessMonitor:
         exception_len = 5
         max_possible_len = len(request) + max(normal_len, exception_len)
 
-        while time.monotonic() < deadline:
+        while not self._stop_requested() and time.monotonic() < deadline:
             waiting = getattr(ser, "in_waiting", 0)
             remaining = max(1, max_possible_len - len(response))
             chunk = ser.read(max(1, min(remaining, waiting or 1)))
             if not chunk:
-                time.sleep(0.001)
+                if self._sleep_or_stop(0.001):
+                    raise DP16ModbusError("Transaction stopped")
                 continue
 
             response.extend(chunk)
@@ -253,6 +312,9 @@ class DP16ProcessMonitor:
             if len(response) >= max_possible_len:
                 break
 
+        if self._stop_requested():
+            raise DP16ModbusError("Transaction stopped")
+
         return bytes(response)
 
     def _transaction_unlocked(
@@ -264,6 +326,8 @@ class DP16ProcessMonitor:
         ser = self._serial
         if ser is None or not ser.is_open:
             raise DP16ModbusError("Serial port is not open")
+        if self._stop_requested():
+            raise DP16ModbusError("Transaction stopped")
 
         try:
             ser.reset_input_buffer()
@@ -272,7 +336,11 @@ class DP16ProcessMonitor:
             # Modbus RTU requires a quiet interval between frames. At 9600 baud,
             # 5 ms is conservative and matches the standalone PMON smoke test.
             if self.INTERFRAME_DELAY > 0:
-                time.sleep(self.INTERFRAME_DELAY)
+                if self._sleep_or_stop(self.INTERFRAME_DELAY):
+                    raise DP16ModbusError("Transaction stopped")
+
+            if self._stop_requested():
+                raise DP16ModbusError("Transaction stopped")
 
             ser.write(request)
             ser.flush()
@@ -308,13 +376,7 @@ class DP16ProcessMonitor:
         if len(response) < 5:
             raise DP16ModbusError(f"Incomplete response: only {len(response)} byte(s) received")
 
-        received_crc = response[-2] | (response[-1] << 8)
-        calculated_crc = self._modbus_crc16(response[:-2])
-        if received_crc != calculated_crc:
-            raise DP16ModbusError(
-                f"CRC mismatch: received 0x{received_crc:04X}, calculated 0x{calculated_crc:04X}, "
-                f"response={self._hex_bytes(response)}"
-            )
+        self._validate_crc(response)
 
         slave = response[0]
         function = response[1]
@@ -366,12 +428,7 @@ class DP16ProcessMonitor:
         if len(response) != 8:
             raise DP16ModbusError(f"Unexpected write response length: got {len(response)}, expected 8")
 
-        received_crc = response[-2] | (response[-1] << 8)
-        calculated_crc = self._modbus_crc16(response[:-2])
-        if received_crc != calculated_crc:
-            raise DP16ModbusError(
-                f"CRC mismatch on write response: received 0x{received_crc:04X}, calculated 0x{calculated_crc:04X}"
-            )
+        self._validate_crc(response, context="write response")
 
         if response[1] & 0x80:
             raise DP16ModbusError(f"Modbus write exception response: code 0x{response[2]:02X}")
@@ -384,8 +441,13 @@ class DP16ProcessMonitor:
         Returns:
             int: 2 for FFF.F format, 3 for FFFF format, None on error.
         """
+        if not self._unit_is_available(unit, "get_reading_config"):
+            return None
+
         try:
             with self.modbus_lock:
+                if self._stop_requested():
+                    return None
                 return self._read_holding_registers_unlocked(
                     unit=unit,
                     address=self.RDGCNF_REG,
@@ -405,12 +467,14 @@ class DP16ProcessMonitor:
         6 - Running
         10 - Operating
         """
-        if unit not in self.unit_numbers:
-            self.log("DP16 set_decimal_config was called with an invalid unit address", LogLevel.ERROR)
+        if not self._unit_is_available(unit, "set_decimal_config"):
             return False
 
         try:
             with self.modbus_lock:
+                if self._stop_requested():
+                    return False
+
                 self.log(f"Setting RDGCNF_REG for unit {unit}", LogLevel.DEBUG)
                 self._write_register_unlocked(
                     unit=unit,
@@ -432,9 +496,30 @@ class DP16ProcessMonitor:
             self.log(f"Error writing RDGCNF_REG config for unit {unit}: {exc}", LogLevel.ERROR)
             return False
 
+    def _mark_all_disconnected(self):
+        with self.response_lock:
+            for unit in self.unit_numbers:
+                self.temperature_readings[unit] = self.DISCONNECTED
+
+    def _log_rate_limited(self, message, level=LogLevel.ERROR, current_time=None):
+        if current_time is None:
+            current_time = time.time()
+        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+            self.log(message, level)
+            self.last_critical_error_time = current_time
+
+    def _error_display_value_unlocked(self, unit):
+        if self.consecutive_error_counts[unit] >= self.ERROR_THRESHOLD:
+            return self.DISCONNECTED
+        return (
+            self.last_good_readings[unit]
+            if self.last_good_readings[unit] is not None
+            else self.SENSOR_ERROR
+        )
+
     def poll_all_units(self):
         """Single polling loop with each unit independent."""
-        while self._is_running:
+        while not self._stop_requested():
             current_time = time.time()
             try:
                 # Check if client is still connected.
@@ -442,50 +527,60 @@ class DP16ProcessMonitor:
                     self.consecutive_connection_errors += 1
                     # Mark all disconnected if we exceed error threshold.
                     if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
-                        with self.response_lock:
-                            for unit in self.unit_numbers:
-                                self.temperature_readings[unit] = self.DISCONNECTED
+                        self._mark_all_disconnected()
+
+                    if self._stop_requested():
+                        break
 
                     # Try to reconnect.
                     if not self.connect():
-                        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
-                            self.log("Failed to reconnect to PMON", LogLevel.ERROR)
-                            self.last_critical_error_time = current_time
-                        time.sleep(1)
+                        if self._stop_requested():
+                            break
+                        self._log_rate_limited("Failed to reconnect to PMON", current_time=current_time)
+                        if self._sleep_or_stop(self.RECONNECT_DELAY):
+                            break
                         continue
 
                 # Poll each unit individually.
                 for unit in sorted(self.unit_numbers):
-                    if not self._is_running:
+                    if self._stop_requested():
                         break
                     try:
                         self._poll_single_unit(unit)
                         self.consecutive_connection_errors = 0
-                        time.sleep(0.1)
+                        if self._sleep_or_stop(self.BETWEEN_UNIT_DELAY):
+                            break
                     except Exception as exc:
+                        if self._stop_requested():
+                            break
                         self._handle_poll_error(unit, exc)
 
                         # Rate limited error logging.
-                        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
-                            self.log(f"Error polling unit {unit}: {exc}", LogLevel.ERROR)
-                            self.last_critical_error_time = current_time
+                        self._log_rate_limited(f"Error polling unit {unit}: {exc}", current_time=current_time)
+
+                if self._stop_requested():
+                    break
 
                 if self.consecutive_connection_errors == 0:
-                    time.sleep(self.BASE_DELAY)
+                    if self._sleep_or_stop(self.BASE_DELAY):
+                        break
 
             except Exception as exc:
+                if self._stop_requested():
+                    break
                 self.consecutive_connection_errors += 1
                 current_time = time.time()
-                if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
-                    self.log(f"Polling error: {exc}", LogLevel.ERROR)
-                    self.last_critical_error_time = current_time
+                self._log_rate_limited(f"Polling error: {exc}", current_time=current_time)
 
     def _poll_single_unit(self, unit):
         """Poll a single unit atomically."""
-        if not self._is_running:
+        if self._stop_requested():
             return
 
         with self.modbus_lock:
+            if self._stop_requested():
+                return
+
             # Read status first.
             status_registers = self._read_holding_registers_unlocked(
                 unit=unit,
@@ -539,15 +634,18 @@ class DP16ProcessMonitor:
 
         # Classify the error for logging or bus-level increments.
         if is_modbus_error:
-            if ("port is closed" in err_str or
-                "could not open port" in err_str or
-                "serial port is not open" in err_str):
+            hard_port_error = any(
+                text in err_str
+                for text in ("port is closed", "could not open port", "serial port is not open")
+            )
+            connection_error = "failed to connect" in err_str or "connection" in err_str
+
+            if hard_port_error:
                 self.log(f"Hard port failure on unit {unit}: {exception}", LogLevel.ERROR)
                 with self.modbus_lock:
                     self._close_serial_unlocked()
                 self.consecutive_connection_errors += 1
-            elif ("failed to connect" in err_str or
-                "connection" in err_str):
+            elif connection_error:
                 self.log(f"Connection error on unit {unit}: {exception}", LogLevel.WARNING)
                 self.consecutive_connection_errors += 1
             elif "timeout" in err_str or "no bytes received" in err_str:
@@ -558,16 +656,7 @@ class DP16ProcessMonitor:
             self.log(f"Invalid reading on unit {unit}: {exception}", LogLevel.WARNING)
 
         with self.response_lock:
-            if self.consecutive_error_counts[unit] >= self.ERROR_THRESHOLD:
-                # Enough consecutive errors to declare full disconnection.
-                self.temperature_readings[unit] = self.DISCONNECTED
-            else:
-                # Early failures show the last known good reading if it exists.
-                # Mark as SENSOR_ERROR if we never had a good reading.
-                if self.last_good_readings[unit] is not None:
-                    self.temperature_readings[unit] = self.last_good_readings[unit]
-                else:
-                    self.temperature_readings[unit] = self.SENSOR_ERROR
+            self.temperature_readings[unit] = self._error_display_value_unlocked(unit)
 
     def get_all_temperatures(self):
         """Thread-safe access method."""
@@ -576,16 +665,36 @@ class DP16ProcessMonitor:
             return dict(self.temperature_readings)
 
     def disconnect(self):
-        self._is_running = False
-        if self._thread and self._thread.is_alive() and threading.get_ident() != self._thread.ident:
-            self._thread.join(timeout=2.0)
+        """Stop polling and close the serial port without blocking indefinitely."""
+        self._stop_event.set()
+        self._mark_all_disconnected()
 
-        with self.modbus_lock:
-            if self._serial_is_open():
-                self._close_serial_unlocked()
-                self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
-            else:
-                self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
+        close_before_join = self._close_serial_threadsafe(timeout=self.SERIAL_CLOSE_LOCK_TIMEOUT)
+
+        thread = self._thread
+        current_thread = threading.current_thread()
+        if thread is not None and thread.is_alive() and current_thread is not thread:
+            thread.join(timeout=self.THREAD_JOIN_TIMEOUT)
+            if thread.is_alive():
+                self.log(
+                    "DP16 polling thread did not stop within timeout; serial transaction may be stuck",
+                    LogLevel.WARNING,
+                )
+
+        close_after_join = self._close_serial_threadsafe(timeout=self.SERIAL_CLOSE_LOCK_TIMEOUT)
+
+        if close_before_join is True or close_after_join is True:
+            self.log("Disconnected from DP16 Process Monitors", LogLevel.INFO)
+        elif close_before_join is None or close_after_join is None:
+            self.log("Could not acquire DP16 Modbus lock while closing serial port", LogLevel.WARNING)
+        else:
+            self.log("No active connection to DP16 Process Monitors", LogLevel.INFO)
+
+        self.flush_queued_logs()
+
+    def close(self):
+        """Compatibility alias for callers that use close() during shutdown."""
+        self.disconnect()
 
     def flush_queued_logs(self):
         """Flush queued background-thread logs from the main thread only."""
