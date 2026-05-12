@@ -24,12 +24,13 @@ returned registers.
 | Manufacturer | Omega |
 | Model | DP16PT-330-C24 |
 | Protocol | Modbus RTU over RS-485 |
+| Datasheet | [(link)](https://www.farnell.com/datasheets/2339803.pdf) |
+| Resolution | 0.03 °C |
 | Baud rate | 9600 |
 | Data bits | 8 |
 | Parity | None |
 | Stop bits | 1 |
-| Default units | 1, 2, 3, 4, 5 |
-| Dashboard units | 1 through 6 |
+| Slave Adress | 1 through 6 |
 
 ## Register Map
 
