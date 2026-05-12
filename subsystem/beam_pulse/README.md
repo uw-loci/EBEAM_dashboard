@@ -13,18 +13,18 @@ sequences.
 ```mermaid
 flowchart TD
     Main["main.py<br/>COM-port selection"] --> Dashboard["dashboard.py<br/>EBEAMSystemDashboard"]
-    Dashboard -->|hosts UI in Beam Steering/Pulse frame| BeamPulse["BeamPulseSubsystem<br/>beam_pulse.py"]
-    Dashboard -->|Arm, E-STOP, Beam A/B/C, CH Enable buttons| BeamPulse
-    BeamPulse -->|create_external_control_buttons()<br/>create_csv_buttons()| MainControls["Dashboard Main Control panel"]
+    Dashboard -->|"hosts UI in Beam Steering/Pulse frame"| BeamPulse["BeamPulseSubsystem<br/>beam_pulse.py"]
+    Dashboard -->|"Arm, E-STOP, Beam A/B/C, CH Enable buttons"| BeamPulse
+    BeamPulse -->|"create_external_control_buttons()<br/>create_csv_buttons()"| MainControls["Dashboard Main Control panel"]
 
-    BeamPulse -->|high-level calls| Driver["BCONDriver<br/>instrumentctl/BCON/bcon_driver.py"]
-    Driver <-->|raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes| Firmware["BCON firmware<br/>Modbus slave"]
+    BeamPulse -->|"high-level calls"| Driver["BCONDriver<br/>instrumentctl/BCON/bcon_driver.py"]
+    Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware<br/>Modbus slave"]
 
-    Driver -->|connected / regs / wrote / error / command_result| UIQueue["thread-safe UI queue"]
-    UIQueue -->|Tk after(), every 200 ms| BeamPulse
-    BeamPulse -->|live channel status callback| Dashboard
-    BeamPulse -->|live channel enable callback| Dashboard
-    Dashboard -->|E-STOP also disables| Cathode["Cathode Heating subsystem"]
+    Driver -->|"connected / regs / wrote / error / command_result"| UIQueue["thread-safe UI queue"]
+    UIQueue -->|"Tk after(), every 200 ms"| BeamPulse
+    BeamPulse -->|"live channel status callback"| Dashboard
+    BeamPulse -->|"live channel enable callback"| Dashboard
+    Dashboard -->|"E-STOP also disables"| Cathode["Cathode Heating subsystem"]
 ```
 
 ## Active UI
@@ -289,4 +289,3 @@ bcon.disconnect()
 - Most command writes are queued through the driver poll thread. Channel enable
   writes use the driver's immediate register write path so the Dashboard button
   state can update promptly.
-  
