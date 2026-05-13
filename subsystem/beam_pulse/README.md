@@ -112,6 +112,27 @@ Important behavior:
 - `Sync Stop`, channel OFF, disarm, disconnect, and safe shutdown do not require
   the armed state.
 
+### Dashboard Arm Beams Button
+
+The Dashboard `ARM BEAMS` / `BEAMS ARMED` control is the software
+permission switch for Beam Pulse actions.Arming does
+NOT start output, enable a channel, turn on cathode heating, or send a hardware
+arm command to BCON. It only allows armed-gated Dashboard controls to be used.
+
+When beams are armed, the operator can:
+
+- Toggle BCON channel enable states with the `CH A/B/C` enable buttons.
+- Turn individual Beam A/B/C outputs on from their Dashboard buttons, for
+  channels that are currently hardware-enabled.
+- Use `Sync Start` from the Manual Control configuration.
+- Run a loaded CSV sequence, when BCON is connected.
+
+Press the same button again while beams are armed to disarm Beam Pulse. Disarm
+stops any running CSV sequence, commands all BCON beam channels off when a BCON
+driver is available, disables armed-gated controls, and resets Dashboard beam
+buttons to OFF. It does not turn off cathode heater power-supply outputs; use
+`BEAMS E-STOP` when cathode heater outputs must also be shut off.
+
 ## Dashboard Interfaces
 
 `dashboard.py` integrates Beam Pulse in `create_subsystems()`:
