@@ -21,7 +21,7 @@ class InterlocksSubsystem:
         9 : "Low Oil", # Oil Low
         10 : "Water", # Water
         11 : "HVolt ON", # HVolt ON
-        12 : "G9_SP Output" # G9_SP Output
+        12 : "G9SP Output" # G9SP Output
     }
 
     INDICATORS = {
@@ -339,9 +339,9 @@ class InterlocksSubsystem:
 
                 # make sure that the data output indicates button and been pressed and the input is not off/error
                 if g9_output == sitsf_bits[12] == 1:
-                    self.update_interlock("G9_SP Output", True, all_good)
+                    self.update_interlock("G9SP Output", True, all_good)
                 else:
-                    self.update_interlock("G9_SP Output", False, all_good)
+                    self.update_interlock("G9SP Output", False, all_good)
 
                 self._adjust_update_interval(success=True)
 
