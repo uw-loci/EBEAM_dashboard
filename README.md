@@ -241,3 +241,9 @@ Assign reviewers to your PR. Merge.
 ```
 python -m PyInstaller EBEAM_DASHBOARD.spec
 ```
+
+### 10. Connectivity
+If any USB ports are unplugged from the computer or I/O expander at any point, you will have to restart the computer before running the dashboard.
+This is important when you are trying to figure out which COM port any given USB corresponds to. 
+This issue has been observed with PMON and Knob Box, but likely affects more CIs.
+
