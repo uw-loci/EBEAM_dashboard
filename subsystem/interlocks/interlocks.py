@@ -34,7 +34,7 @@ class InterlocksSubsystem:
         'E-STOP Int': None,
         'E-STOP Ext': None,
         'All Interlocks': None,
-        'G9_SP Output': None,
+        'G9SP Output': None,
         'HVolt ON': None
     }
 
