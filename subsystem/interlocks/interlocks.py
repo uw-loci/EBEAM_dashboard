@@ -21,7 +21,7 @@ class InterlocksSubsystem:
         9 : "Low Oil", # Oil Low
         10 : "Water", # Water
         11 : "HVolt ON", # HVolt ON
-        12 : "G9SP Active" # G9SP Active
+        12 : "G9_SP Output" # G9_SP Output
     }
 
     INDICATORS = {
@@ -34,7 +34,7 @@ class InterlocksSubsystem:
         'E-STOP Int': None,
         'E-STOP Ext': None,
         'All Interlocks': None,
-        'G9SP Active': None,
+        'G9_SP Output': None,
         'HVolt ON': None
     }
 
@@ -281,7 +281,7 @@ class InterlocksSubsystem:
                         self._adjust_update_interval(success=False)
                         return
                 
-                sitsf_bits, sitdf_bits, g9_active, unit_status, input_terms, output_terms, debug_data = status
+                sitsf_bits, sitdf_bits, g9_output, unit_status, input_terms, output_terms, debug_data = status
 
                 # Log debug data for web monitor
                 self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.DEBUG)
@@ -338,10 +338,10 @@ class InterlocksSubsystem:
                     self.update_interlock(self.INPUTS[11], True, False)
 
                 # make sure that the data output indicates button and been pressed and the input is not off/error
-                if g9_active == sitsf_bits[12] == 1:
-                    self.update_interlock("G9SP Active", True, all_good)
+                if g9_output == sitsf_bits[12] == 1:
+                    self.update_interlock("G9_SP Output", True, all_good)
                 else:
-                    self.update_interlock("G9SP Active", False, all_good)
+                    self.update_interlock("G9_SP Output", False, all_good)
 
                 self._adjust_update_interval(success=True)
 
