@@ -146,6 +146,11 @@ class G9Driver:
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
+    def stop_thread(self):
+        """Stops the communication thread"""
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1)
 
     def get_interlock_status(self):
         """
