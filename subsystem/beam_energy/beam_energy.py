@@ -19,6 +19,28 @@ class BeamEnergySubsystem:
     """
 
     displayFont = "Arial"
+    supply_payload_map = (
+        ("pos1kv", 1),
+        ("neg1kv", 2),
+        ("pos20kv", 3),
+        ("pos3kv", 4),
+    )
+    beam_energy_flag_keys = (
+        "3kV_enable",
+        "nomop_flag",
+        "timer_state_3kV",
+        "ccspower_flag",
+        "armbeams_flag",
+        "arm80kv_flag",
+        "vcomp_1k_flag",
+        "icomp_1k_flag",
+        "neg_vcomp_1k_flag",
+        "neg_icomp_1k_flag",
+        "vcomp_20k_flag",
+        "icomp_20k_flag",
+        "vcomp_3k_flag",
+        "icomp_3k_flag",
+    )
 
     def __init__(self, parent_frame, com_ports, logger=None):
         """
@@ -457,17 +479,40 @@ class BeamEnergySubsystem:
         self.reconnect_requested.set()
         return True
 
+    def _build_disconnected_beam_energy_payload(self):
+        """Build a Web Monitor payload that explicitly clears every Beam Energy supply."""
+        supplies = {
+            supply_key: {
+                "connected": False,
+                "output": None,
+                "set_v": None,
+                "meas_v": None,
+                "meas_i": None,
+            }
+            for supply_key, _unit_id in self.supply_payload_map
+        }
+        flags = {key: None for key in self.beam_energy_flag_keys}
+        return {**supplies, "flags": flags}
+
+    def _publish_disconnected_beam_energy_payload(self):
+        """Publish disconnected Beam Energy state before leaving a communication-loss path."""
+        if self.logger and hasattr(self.logger, "update_field"):
+            try:
+                self.logger.update_field(
+                    "beam_energy",
+                    self._build_disconnected_beam_energy_payload()
+                )
+            except Exception as e:
+                self.log(
+                    f"Failed to publish disconnected Beam Energy payload: {e}",
+                    LogLevel.ERROR
+                )
+
     def _build_supplies_payload(self, knob_box, data_snapshot):
         """Build a structured payload of 4 power supply statuses for the Web Monitor."""
         supplies = {}
-        supply_map = [
-            ("pos1kv", 1),
-            ("neg1kv", 2),
-            ("pos20kv", 3),
-            ("pos3kv", 4),
-        ]
 
-        for supply_key, unit_id in supply_map:
+        for supply_key, unit_id in self.supply_payload_map:
             connected = bool(knob_box.get_unit_connection_status(unit_id))
             data = data_snapshot.get(unit_id) if connected else None
             sign = -1.0 if unit_id == 2 else 1.0  # make -1kV supply signed
@@ -513,6 +558,7 @@ class BeamEnergySubsystem:
                     self.knob_box_connected_at = None
                     for index, _ in enumerate(self.power_supplies):
                         self.set_default_values(index)
+                    self._publish_disconnected_beam_energy_payload()
                     self._schedule_reconnect()
                     self._process_reconnect_request()
                     # Schedule next update and exit early
@@ -526,6 +572,7 @@ class BeamEnergySubsystem:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
                     self.set_default_values(index)
+                self._publish_disconnected_beam_energy_payload()
                 self._schedule_reconnect()
                 self._process_reconnect_request()
                 # Schedule next update and exit early
@@ -611,25 +658,9 @@ class BeamEnergySubsystem:
                     if knob_box.get_unit_connection_status(global_unit_id)
                     else None
                 )
-                flag_keys = [
-                    "3kV_enable",
-                    "nomop_flag",
-                    "timer_state_3kV",
-                    "ccspower_flag",
-                    "armbeams_flag",
-                    "arm80kv_flag",
-                    "vcomp_1k_flag",
-                    "icomp_1k_flag",
-                    "neg_vcomp_1k_flag",
-                    "neg_icomp_1k_flag",
-                    "vcomp_20k_flag",
-                    "icomp_20k_flag",
-                    "vcomp_3k_flag",
-                    "icomp_3k_flag",
-                ]
                 flags = {
                     key: (int(bool(global_data.get(key, 0))) if global_data else None)
-                    for key in flag_keys
+                    for key in self.beam_energy_flag_keys
                 }
 
                 # Update the Web Monitor log with the latest data and flags.
@@ -640,6 +671,7 @@ class BeamEnergySubsystem:
             self.log(f"Error updating readings: {str(e)}", LogLevel.ERROR)
             for index, _ in enumerate(self.power_supplies): 
                 self.set_default_values(index)
+            self._publish_disconnected_beam_energy_payload()
             self._schedule_reconnect()
             self._process_reconnect_request()
             
