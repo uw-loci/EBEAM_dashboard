@@ -1,5 +1,6 @@
 import threading
 import time
+from queue import Queue, Empty
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
@@ -31,6 +32,8 @@ class E5CNModbus:
         self.is_initialized = threading.Event()
         self.port = port
         self.connected = False
+        self._main_thread_ident = threading.get_ident()
+        self._log_queue = Queue()
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -115,6 +118,7 @@ class E5CNModbus:
                 self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
                 
         self.is_initialized.clear()
+        self.flush_queued_logs()
 
     def connect(self):
         """
@@ -200,7 +204,26 @@ class E5CNModbus:
         return None
 
     def log(self, message, level=LogLevel.INFO):
-        if self.logger:
+        if not self.logger:
+            print(f"{level.name}: {message}")
+            return
+
+        # Tkinter widgets must only be modified from the main GUI thread.
+        # Queue logs from worker threads and flush them on the main thread.
+        if threading.get_ident() == self._main_thread_ident:
             self.logger.log(message, level)
         else:
-            print(f"{level.name}: {message}")
+            self._log_queue.put((message, level))
+
+    def flush_queued_logs(self, max_messages=200):
+        """Flush queued worker-thread log messages on the calling thread."""
+        if not self.logger:
+            return
+        processed = 0
+        while processed < max_messages:
+            try:
+                message, level = self._log_queue.get_nowait()
+            except Empty:
+                break
+            self.logger.log(message, level)
+            processed += 1
