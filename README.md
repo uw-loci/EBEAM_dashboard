@@ -169,6 +169,9 @@ The `main` branch contains the latest production code.
 
 #### Development Process 
 Clone the repo to your machine. Current libraries require the use of Python version 3.11.
+
+> Note: Python 3.11 is in the security-fix-only phase and is scheduled to reach End of Life (EOL) on 2027-10-31. The PSF support window for each major release is five years, typically split into bugfix and security phases. See https://devguide.python.org/versions/ and https://endoflife.date/python.
+
 ```
 git clone https://github.com/bwalkerMIR/EBEAM_dashboard.git
 ```
@@ -238,3 +241,9 @@ Assign reviewers to your PR. Merge.
 ```
 python -m PyInstaller EBEAM_DASHBOARD.spec
 ```
+
+### 10. Connectivity
+If any USB ports are unplugged from the computer or I/O expander at any point, you will have to restart the computer before running the dashboard.
+This is important when you are trying to figure out which COM port any given USB corresponds to. 
+This issue has been observed with PMON and Knob Box, but likely affects more CIs.
+
