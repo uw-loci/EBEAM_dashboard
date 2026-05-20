@@ -18,12 +18,18 @@ class PowerSupply9104:
         self.debug_mode = debug_mode
         self._main_thread_ident = threading.get_ident()
         self._log_queue = Queue()
-        # self.serial_lock = threading.Lock()
+        self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
 
+    # Public serial interface methods with locking to ensure thread safety
     def setup_serial(self):
+        with self.serial_lock:
+            self._setup_serial_unlocked()
+    
+    # The unlocked version of setup_serial, should only be called within a serial_lock context like in setup_serial or update_com_port
+    def _setup_serial_unlocked(self):
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
@@ -34,23 +40,37 @@ class PowerSupply9104:
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
         
-        # Close existing serial connection if it exists
-        if self.ser is not None:
-            self.ser.close()
-            self.ser = None
+        with self.serial_lock:
+            # Close existing serial connection if it exists
+            if self.ser is not None:
+                self.ser.close()
+                self.ser = None
 
-        self.port = new_port
-        self.setup_serial()
+            self.port = new_port
+            self._setup_serial_unlocked()
+            connected = self.ser is not None
 
-        if self.ser is not None:
+        if connected:
             self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
         else:
             self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
 
+    # Thread-safe method to check connection status
     def is_connected(self):
+        with self.serial_lock:
+            return self._is_connected_unlocked()
+
+    # Unlocked version of is_connected, should only be called within a serial_lock context like in is_connected or send_command
+    def _is_connected_unlocked(self):
         return self.ser is not None and self.ser.is_open
 
+    # Thread-safe method to flush serial input buffer
     def flush_serial(self):
+        with self.serial_lock:
+            self._flush_serial_unlocked()
+
+    # Unlocked version of flush_serial, should only be called within a serial_lock context like in flush_serial or send_command
+    def _flush_serial_unlocked(self):
         if self.ser and self.ser.is_open:
             self.log("Flushing serial input buffer", LogLevel.DEBUG)
             self.ser.reset_input_buffer()
@@ -58,46 +78,47 @@ class PowerSupply9104:
             self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
 
     def send_command(self, command):
-        """Send a command to the power supply and read the response."""
-        try:
-            if not self.is_connected():
-                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
-                return None # return immediately to prevent blocking GUI on serial read
-            
-            self.flush_serial()
-            
-            self.log(f"Sending command: {command}", LogLevel.DEBUG)
-            self.ser.write(f"{command}\r\n".encode())
-            
-            response = self.ser.read_until(b'\r').decode()
-
-            if 'OK' not in response:
-                additional = self.ser.read_until(b'\r').decode().strip()
-                response = f"{response}\r{additional}"
-
-            if not response:
-                raise ValueError("No response received from 9104 supply")
-            if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
-
-            self.log(f"Response: {response}", LogLevel.DEBUG)
-                
-            return response.strip()
-        except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
-            # Mark port as dead so subsequent calls in this cycle fail fast
+        """Send a command to the power supply and read the response. """
+        with self.serial_lock:
             try:
-                if self.ser:
-                    self.ser.close()
-            except Exception:
-                pass
-            self.ser = None
-            return None
-        except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
-            return None
-        except Exception as e:
-            self.log(f"Critical Error", LogLevel.ERROR)
+                if not self._is_connected_unlocked():
+                    self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                    return None # return immediately to prevent blocking GUI on serial read
+                
+                self._flush_serial_unlocked()
+                
+                self.log(f"Sending command: {command}", LogLevel.DEBUG)
+                self.ser.write(f"{command}\r\n".encode())
+                
+                response = self.ser.read_until(b'\r').decode()
+
+                if 'OK' not in response:
+                    additional = self.ser.read_until(b'\r').decode().strip()
+                    response = f"{response}\r{additional}"
+
+                if not response:
+                    raise ValueError("No response received from 9104 supply")
+                if 'OK' not in response:
+                    self.log(f"Acknowledgement not in 9104 supply response")
+
+                self.log(f"Response: {response}", LogLevel.DEBUG)
+                    
+                return response.strip()
+            except serial.SerialException as e:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
+                # Mark port as dead so subsequent calls in this cycle fail fast
+                try:
+                    if self.ser:
+                        self.ser.close()
+                except Exception:
+                    pass
+                self.ser = None
+                return None
+            except ValueError as e:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+                return None
+            except Exception as e:
+                self.log(f"Critical Error", LogLevel.ERROR)
 
     def set_output(self, state):
         """Set the output on/off."""
@@ -743,11 +764,12 @@ class PowerSupply9104:
             self.log("Ramping thread terminated.", LogLevel.INFO)
 
         # Close the serial connection
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-            self.log(f"Closed serial port {self.port}", LogLevel.INFO)
-        else:
-            self.log(f"{self.port} port already closed", LogLevel.INFO)
+        with self.serial_lock:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+                self.log(f"Closed serial port {self.port}", LogLevel.INFO)
+            else:
+                self.log(f"{self.port} port already closed", LogLevel.INFO)
         self.flush_queued_logs()
 
     def log(self, message, level=LogLevel.INFO):

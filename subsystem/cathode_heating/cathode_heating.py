@@ -1696,6 +1696,7 @@ class CathodeHeatingSubsystem:
         # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
             self.temperature_controller.flush_queued_logs()
+        # Flush logs for each power supply as well to capture any recent communication issues or status changes before we read new data
         for power_supply in self.power_supplies:
             if power_supply and hasattr(power_supply, "flush_queued_logs"):
                 power_supply.flush_queued_logs()
