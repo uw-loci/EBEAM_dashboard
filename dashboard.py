@@ -719,12 +719,11 @@ class EBEAMSystemDashboard:
                                 text="ARM BEAMS",
                                 bg="sky blue"
                             )
-                        # Disable beam toggle buttons, enable toggle buttons and reset states
-                        self.update_beam_toggle_states(enabled=False, reset=True)
-                        self._update_enable_toggle_states(enabled=False)
                         self.logger.info("Beams disarmed via Beams E-stop button")
                     else:
                         self.logger.error("Failed to disarm beams via Beams E-stop")
+                self.update_beam_toggle_states(enabled=False, reset=True)
+                self._update_enable_toggle_states(enabled=False)
         except Exception as e:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
 
@@ -964,8 +963,8 @@ class EBEAMSystemDashboard:
 
     def _update_enable_toggle_states(self, enabled=True):
         """Enable or disable the CH Enable toggle buttons based on armed status.
-        When disabling (disarmed / E-STOP), preserve the last hardware-backed
-        Enabled/Disabled appearance but prevent interaction.
+        When disabling, mirror the firmware safety contract: all channel
+        enable latches are cleared by STOP/disconnect paths.
         """
         try:
             if not hasattr(self, 'enable_toggle_buttons'):
@@ -975,7 +974,13 @@ class EBEAMSystemDashboard:
                     btn.config(state="normal")
                 else:
                     # Disarmed — force all to Disabled appearance and reset tracking
-                    btn.config(state="disabled")
+                    if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
+                        self._ch_enable_states[i] = False
+                    btn.config(
+                        state="disabled",
+                        bg="#888888",
+                        text=f"CH {channel_label(i)}: Disabled",
+                    )
         except Exception as e:
             self.logger.error(f"Error updating enable toggle states: {str(e)}")
 
