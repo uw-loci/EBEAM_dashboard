@@ -171,7 +171,9 @@ class Logger:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
         now = datetime.datetime.now()
-        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        # Timestamp includes microseconds for sub-second logging rates
+        # Less precise sub-second times require truncation, so the downside of including full microseconds is minimal
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         # Write to Supabase if 2 seconds have passed since last write
         if self.supabase_client and self.log_to_file:
