@@ -29,6 +29,7 @@ EXPECTED_DICT_LOGGER_KEYS = {
     "temperatures",
     "vacuumBits",
     "cathode",
+    "beam_energy",
 }
 
 
