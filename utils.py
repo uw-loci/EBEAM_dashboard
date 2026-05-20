@@ -4,13 +4,34 @@ import subprocess
 import os
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
+import copy
 import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
 import json
+import threading
+import time
 from collections import deque
-from db.supabase_client import SupabaseClient
+
+SUPABASE_WRITE_TIMEOUT_SECONDS = 3.0
+
+
+def _safe_console_write(message):
+    stream = getattr(sys, "__stdout__", None)
+    if stream is None:
+        return
+    try:
+        stream.write(f"{message}\n")
+        stream.flush()
+    except Exception:
+        pass
+
+
+def _create_supabase_client():
+    from db.supabase_client import SupabaseClient
+    return SupabaseClient(timeout_seconds=SUPABASE_WRITE_TIMEOUT_SECONDS)
+
 
 class LogLevel(enum.IntEnum):
     VERBOSE = 0
@@ -22,6 +43,10 @@ class LogLevel(enum.IntEnum):
 
 class Logger:
     STARTUP_BUFFER_MAX = 500
+    SUPABASE_WRITE_MIN_INTERVAL_SECONDS = 2
+    SUPABASE_WRITE_MAX_ATTEMPTS = 2
+    SUPABASE_WRITE_RETRY_DELAY_SECONDS = 0.25
+    SUPABASE_WORKER_SHUTDOWN_TIMEOUT_SECONDS = 1.0
 
     def __init__(self, text_widget, file_log_level = LogLevel.VERBOSE, log_level=LogLevel.INFO, log_to_file=False):
         self.text_widget = text_widget
@@ -37,8 +62,16 @@ class Logger:
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
         self.supabase_client = None
         self.last_supabase_write = None
+        self._closed = False
+        self._supabase_pending_update = None
+        self._supabase_event = threading.Event()
+        self._supabase_pending_lock = threading.Lock()
+        self._supabase_worker = None
+        self._supabase_worker_lock = threading.Lock()
         try:
-            self.supabase_client = SupabaseClient()
+            self.supabase_client = _create_supabase_client()
+        except ImportError as e:
+            print(f"Warning: Supabase client unavailable: {e}")
         except Exception as e:
             print(f"Warning: Supabase client failed to initialize: {e}")
         self.dict_logger = {
@@ -122,6 +155,8 @@ class Logger:
 
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
+        if self._closed:
+            return
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
@@ -169,20 +204,12 @@ class Logger:
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
+        if self._closed:
+            return
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Write to Supabase if 2 seconds have passed since last write
-        if self.supabase_client and self.log_to_file:
-            if self.last_supabase_write is None or (now - self.last_supabase_write).total_seconds() >= 2:
-                try:
-                    write_ok = self.supabase_client.insert_status_log(update_dict)
-                    if write_ok:
-                        self.last_supabase_write = now
-                    else:
-                        self.warning("Supabase write failed; will retry on next interval.")
-                except Exception as e:
-                    print(f"Supabase write error: {e}")
+        self._enqueue_supabase_update(update_dict, now)
 
         if self.log_to_file:
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
@@ -218,6 +245,104 @@ class Logger:
                     except Exception as retry_error:
                         print(f"Error writing web monitor updates: {retry_error}")
 
+    def _enqueue_supabase_update(self, update_dict, now):
+        if self._closed or not self.supabase_client or not self.log_to_file:
+            return
+        if self.last_supabase_write is not None:
+            elapsed = (now - self.last_supabase_write).total_seconds()
+            if elapsed < self.SUPABASE_WRITE_MIN_INTERVAL_SECONDS:
+                return
+
+        try:
+            update_snapshot = copy.deepcopy(update_dict)
+        except Exception as e:
+            print(f"Warning: Supabase log update could not be copied: {e}")
+            return
+
+        try:
+            self._ensure_supabase_worker()
+        except Exception as e:
+            self.supabase_client = None
+            _safe_console_write(f"Warning: Supabase log worker could not start: {e}")
+            return
+        if self._closed or not self.log_to_file:
+            return
+
+        with self._supabase_pending_lock:
+            if self._closed or not self.log_to_file:
+                return
+            self._supabase_pending_update = update_snapshot
+        self.last_supabase_write = now
+        self._supabase_event.set()
+
+    def _ensure_supabase_worker(self):
+        with self._supabase_worker_lock:
+            if self._supabase_worker and self._supabase_worker.is_alive():
+                return
+            self._supabase_worker = threading.Thread(
+                target=self._supabase_worker_loop,
+                name="SupabaseLogWorker",
+                daemon=True,
+            )
+            try:
+                self._supabase_worker.start()
+            except Exception:
+                self._supabase_worker = None
+                raise
+
+    def _supabase_worker_loop(self):
+        while True:
+            self._supabase_event.wait()
+            self._supabase_event.clear()
+            if self._closed:
+                return
+
+            while True:
+                with self._supabase_pending_lock:
+                    update = self._supabase_pending_update
+                    self._supabase_pending_update = None
+
+                if update is None or self._closed:
+                    break
+
+                if self.log_to_file:
+                    self._write_supabase_with_retry(update)
+                if self._closed:
+                    return
+
+    def _write_supabase_with_retry(self, update):
+        last_error = None
+        for attempt in range(1, self.SUPABASE_WRITE_MAX_ATTEMPTS + 1):
+            try:
+                if self.supabase_client.insert_status_log(update):
+                    return True
+                last_error = "insert_status_log returned False"
+            except Exception as e:
+                last_error = e
+
+            if attempt < self.SUPABASE_WRITE_MAX_ATTEMPTS:
+                time.sleep(self.SUPABASE_WRITE_RETRY_DELAY_SECONDS)
+
+        _safe_console_write(f"Supabase write failed after {self.SUPABASE_WRITE_MAX_ATTEMPTS} attempts: {last_error}")
+        return False
+
+    def _stop_supabase_worker(self):
+        worker = self._supabase_worker
+        if not worker:
+            return
+        if worker is threading.current_thread():
+            self._supabase_worker = None
+            return
+        if not worker.is_alive():
+            self._supabase_worker = None
+            return
+        with self._supabase_pending_lock:
+            self._supabase_pending_update = None
+        self._supabase_event.set()
+        worker.join(timeout=self.SUPABASE_WORKER_SHUTDOWN_TIMEOUT_SECONDS)
+        if not worker.is_alive():
+            self._supabase_worker = None
+
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
 
@@ -237,6 +362,9 @@ class Logger:
         self.log_level = level
 
     def close(self):
+        self._closed = True
+        self.log_to_file = False
+        self._stop_supabase_worker()
         if self.log_file:
             try:
                 self.log_file.close()

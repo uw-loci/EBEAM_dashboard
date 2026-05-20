@@ -4,7 +4,9 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
+import threading
 import time
 import unittest
 import uuid
@@ -80,8 +82,20 @@ class TestSupabaseClientUnit(unittest.TestCase):
              patch("db.supabase_client.create_client", return_value=mock_client_instance) as mock_create:
             client = SupabaseClient()
 
-        mock_create.assert_called_once_with(fake_url, fake_key)
+        mock_create.assert_called_once()
+        self.assertEqual(mock_create.call_args.args, (fake_url, fake_key))
+        self.assertEqual(mock_create.call_args.kwargs["options"].postgrest_client_timeout, 3.0)
         self.assertIs(client.client, mock_client_instance)
+
+    def test_init_uses_configured_postgrest_timeout(self):
+        mock_client_instance = MagicMock()
+
+        with patch("db.supabase_client.load_dotenv"), \
+             patch("db.supabase_client.os.getenv", side_effect=self._make_getenv("url", "key")), \
+             patch("db.supabase_client.create_client", return_value=mock_client_instance) as mock_create:
+            SupabaseClient(timeout_seconds=1.25)
+
+        self.assertEqual(mock_create.call_args.kwargs["options"].postgrest_client_timeout, 1.25)
 
     def test_insert_status_log_returns_true_on_success(self):
         mock_client_instance = MagicMock()
@@ -108,12 +122,11 @@ class TestSupabaseClientUnit(unittest.TestCase):
              patch("db.supabase_client.create_client", return_value=mock_client_instance):
             sb = SupabaseClient()
 
-        with patch("builtins.print") as mock_print:
+        with patch("db.supabase_client._safe_console_write") as mock_write:
             result = sb.insert_status_log({})
 
         self.assertFalse(result)
-        printed = " ".join(str(c) for c in mock_print.call_args_list)
-        self.assertIn("Supabase insert error", printed)
+        self.assertIn("Supabase insert error", mock_write.call_args[0][0])
 
 
 # ---------------------------------------------------------------------------
@@ -124,11 +137,34 @@ class TestLoggerSupabaseInit(unittest.TestCase):
     """Tests for how Logger.__init__ handles SupabaseClient construction."""
 
     def setUp(self):
-        self.sb_patcher = patch("utils.SupabaseClient")
+        self.sb_patcher = patch("utils._create_supabase_client")
         self.mock_sb_class = self.sb_patcher.start()
 
     def tearDown(self):
         self.sb_patcher.stop()
+
+    def test_utils_import_does_not_require_supabase_package(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        script = (
+            "import builtins\n"
+            "real_import = builtins.__import__\n"
+            "def blocked_import(name, *args, **kwargs):\n"
+            "    if name == 'supabase':\n"
+            "        raise ModuleNotFoundError('No module named supabase')\n"
+            "    return real_import(name, *args, **kwargs)\n"
+            "builtins.__import__ = blocked_import\n"
+            "import utils\n"
+            "print('ok')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("ok", result.stdout)
 
     def test_logger_stores_supabase_client_when_init_succeeds(self):
         mock_instance = MagicMock()
@@ -150,6 +186,16 @@ class TestLoggerSupabaseInit(unittest.TestCase):
         self.assertIsNone(logger.supabase_client)
         printed = " ".join(str(c) for c in mock_print.call_args_list)
         self.assertIn("Warning: Supabase client failed to initialize", printed)
+
+    def test_logger_sets_supabase_client_to_none_when_import_fails(self):
+        self.mock_sb_class.side_effect = ImportError("No module named supabase")
+
+        with patch("builtins.print") as mock_print:
+            logger = Logger(text_widget=None)
+
+        self.assertIsNone(logger.supabase_client)
+        printed = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("Warning: Supabase client unavailable", printed)
 
     def test_logger_sets_supabase_client_to_none_when_init_raises_generic(self):
         self.mock_sb_class.side_effect = Exception("connection refused")
@@ -174,7 +220,7 @@ class TestSupabaseRateLimiting(unittest.TestCase):
     """Tests for the 2-second write throttle in log_dict_update."""
 
     def setUp(self):
-        self.sb_patcher = patch("utils.SupabaseClient")
+        self.sb_patcher = patch("utils._create_supabase_client")
         self.mock_sb_class = self.sb_patcher.start()
         self.mock_sb_instance = MagicMock()
         self.mock_sb_class.return_value = self.mock_sb_instance
@@ -185,12 +231,24 @@ class TestSupabaseRateLimiting(unittest.TestCase):
         self.logger.webMonitor_log_start_time = datetime.datetime.now()
 
     def tearDown(self):
-        self.sb_patcher.stop()
+        try:
+            self.logger.close()
+        finally:
+            self.sb_patcher.stop()
+
+    def _wait_until(self, predicate, timeout=2.0):
+        deadline = time.perf_counter() + timeout
+        while time.perf_counter() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        self.fail("Timed out waiting for Supabase worker")
 
     def test_first_call_always_writes_to_supabase(self):
         self.assertIsNone(self.logger.last_supabase_write)
 
         self.logger.log_dict_update({"pressure": 1.0})
+        self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 1)
 
         self.mock_sb_instance.insert_status_log.assert_called_once()
         self.assertIsNotNone(self.logger.last_supabase_write)
@@ -206,6 +264,7 @@ class TestSupabaseRateLimiting(unittest.TestCase):
         self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=3)
 
         self.logger.log_dict_update({"pressure": 3.0})
+        self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 1)
 
         self.mock_sb_instance.insert_status_log.assert_called_once()
 
@@ -213,6 +272,7 @@ class TestSupabaseRateLimiting(unittest.TestCase):
         self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=2)
 
         self.logger.log_dict_update({"pressure": 4.0})
+        self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 1)
 
         self.mock_sb_instance.insert_status_log.assert_called_once()
 
@@ -221,6 +281,89 @@ class TestSupabaseRateLimiting(unittest.TestCase):
 
         self.logger.log_dict_update({"pressure": 5.0})
 
+        self.mock_sb_instance.insert_status_log.assert_not_called()
+
+    def test_log_dict_update_does_not_block_on_slow_supabase_write(self):
+        def slow_insert(_status):
+            time.sleep(0.5)
+            return True
+
+        self.mock_sb_instance.insert_status_log.side_effect = slow_insert
+
+        start = time.perf_counter()
+        self.logger.log_dict_update({"pressure": 6.0})
+        elapsed = time.perf_counter() - start
+
+        self.assertLess(elapsed, 0.2)
+        self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 1)
+
+    def test_supabase_worker_retries_once_after_failed_insert(self):
+        self.logger.SUPABASE_WRITE_RETRY_DELAY_SECONDS = 0
+        self.mock_sb_instance.insert_status_log.side_effect = [False, True]
+
+        self.logger.log_dict_update({"pressure": 7.0})
+        self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 2)
+
+        self.assertEqual(self.mock_sb_instance.insert_status_log.call_count, 2)
+
+    def test_slow_worker_keeps_only_latest_pending_status(self):
+        started = threading.Event()
+        release = threading.Event()
+        seen_pressures = []
+
+        def slow_first_insert(status):
+            seen_pressures.append(status["pressure"])
+            if len(seen_pressures) == 1:
+                started.set()
+                release.wait(timeout=2.0)
+            return True
+
+        self.mock_sb_instance.insert_status_log.side_effect = slow_first_insert
+
+        self.logger.log_dict_update({"pressure": 1.0})
+        self.assertTrue(started.wait(timeout=1.0))
+        self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=3)
+        self.logger.log_dict_update({"pressure": 2.0})
+        self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=3)
+        self.logger.log_dict_update({"pressure": 3.0})
+
+        release.set()
+        self._wait_until(lambda: len(seen_pressures) == 2)
+
+        self.assertEqual(seen_pressures, [1.0, 3.0])
+
+    def test_worker_failure_reporting_bypasses_redirected_stdout(self):
+        class ExplodingStdout:
+            def write(self, _msg):
+                raise AssertionError("worker wrote to redirected stdout")
+
+            def flush(self):
+                pass
+
+        self.logger.SUPABASE_WRITE_RETRY_DELAY_SECONDS = 0
+        self.mock_sb_instance.insert_status_log.return_value = False
+
+        with patch("utils.sys.stdout", ExplodingStdout()), \
+            patch("utils._safe_console_write") as mock_console:
+            self.logger.log_dict_update({"pressure": 8.0})
+            self._wait_until(lambda: mock_console.called)
+
+        self.assertTrue(mock_console.called)
+
+    def test_worker_start_failure_disables_supabase_without_raising(self):
+        with patch("utils.threading.Thread.start", side_effect=RuntimeError("thread limit")), \
+             patch("utils._safe_console_write") as mock_console:
+            self.logger.log_dict_update({"pressure": 9.0})
+
+        self.assertIsNone(self.logger.supabase_client)
+        self.assertIn("Supabase log worker could not start", mock_console.call_args[0][0])
+
+    def test_close_prevents_late_supabase_restart(self):
+        self.logger.close()
+
+        self.logger.log_dict_update({"pressure": 10.0})
+
+        self.assertIsNone(self.logger._supabase_worker)
         self.mock_sb_instance.insert_status_log.assert_not_called()
 
 
@@ -232,7 +375,7 @@ class TestWebMonitorLogFormat(unittest.TestCase):
     """Tests for the JSON structure written to webMonitor_log_file."""
 
     def setUp(self):
-        self.sb_patcher = patch("utils.SupabaseClient")
+        self.sb_patcher = patch("utils._create_supabase_client")
         mock_sb_class = self.sb_patcher.start()
         mock_sb_class.return_value = MagicMock()
 
@@ -244,7 +387,10 @@ class TestWebMonitorLogFormat(unittest.TestCase):
         self.logger.log_to_file = True
 
     def tearDown(self):
-        self.sb_patcher.stop()
+        try:
+            self.logger.close()
+        finally:
+            self.sb_patcher.stop()
 
     def _get_entry(self):
         self.buf.seek(0)
@@ -288,7 +434,7 @@ class TestWebMonitorRotation(unittest.TestCase):
     """Tests for 1-hour web monitor rollover with timestamped filenames."""
 
     def setUp(self):
-        self.sb_patcher = patch("utils.SupabaseClient")
+        self.sb_patcher = patch("utils._create_supabase_client")
         mock_sb_class = self.sb_patcher.start()
         mock_sb_class.return_value = MagicMock()
 
@@ -401,14 +547,17 @@ class TestDictLoggerFieldManagement(unittest.TestCase):
     """Tests for update_field, clear_value, and dict_logger schema."""
 
     def setUp(self):
-        self.sb_patcher = patch("utils.SupabaseClient")
+        self.sb_patcher = patch("utils._create_supabase_client")
         mock_sb_class = self.sb_patcher.start()
         mock_sb_class.return_value = MagicMock()
         # log_to_file=False isolates from file I/O
         self.logger = Logger(text_widget=None, log_to_file=False)
 
     def tearDown(self):
-        self.sb_patcher.stop()
+        try:
+            self.logger.close()
+        finally:
+            self.sb_patcher.stop()
 
     def test_dict_logger_has_all_expected_keys_on_init(self):
         self.assertEqual(set(self.logger.dict_logger.keys()), EXPECTED_DICT_LOGGER_KEYS)

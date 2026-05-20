@@ -65,9 +65,13 @@ def start_main_app(com_ports, logger=None):
                     app.cleanup()
                 except Exception as e:
                     try:
-                        logger.exception(f"Error during cleanup: {e}")
+                        logger.error(f"Error during cleanup: {e}")
                     except Exception:
                         pass
+            try:
+                logger.close()
+            except Exception as e:
+                print(f"Error closing logger: {e}")
             root.destroy()
         return "break"
     
@@ -189,7 +193,13 @@ def start_main_app(com_ports, logger=None):
     root.bind('<Control-s>', save_logs)         # Save log file
 
     app = EBEAMSystemDashboard(root, com_ports, logger=logger)
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        try:
+            logger.close()
+        except Exception as e:
+            print(f"Error closing logger: {e}")
 
 def config_com_ports(saved_com_ports, logger=None):
     """
