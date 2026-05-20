@@ -2,6 +2,7 @@ import serial
 import threading
 import time
 import math
+from queue import Queue, Empty
 from utils import LogLevel
 
 class PowerSupply9104:
@@ -15,6 +16,8 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self._main_thread_ident = threading.get_ident()
+        self._log_queue = Queue()
         # self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
@@ -745,9 +748,29 @@ class PowerSupply9104:
             self.log(f"Closed serial port {self.port}", LogLevel.INFO)
         else:
             self.log(f"{self.port} port already closed", LogLevel.INFO)
+        self.flush_queued_logs()
 
     def log(self, message, level=LogLevel.INFO):
-        if self.logger:
+        if not self.logger:
+            print(f"{level.name}: {message}")
+            return
+
+        # Tkinter-backed loggers must only be touched from the main GUI thread.
+        # Queue logs from ramp/background threads and let cathode_heating flush them.
+        if threading.get_ident() == self._main_thread_ident:
             self.logger.log(message, level)
         else:
-            print(f"{level.name}: {message}")
+            self._log_queue.put((message, level))
+
+    def flush_queued_logs(self, max_messages=200):
+        """Flush queued worker-thread log messages on the calling thread."""
+        if not self.logger:
+            return
+        processed = 0
+        while processed < max_messages:
+            try:
+                message, level = self._log_queue.get_nowait()
+            except Empty:
+                break
+            self.logger.log(message, level)
+            processed += 1
