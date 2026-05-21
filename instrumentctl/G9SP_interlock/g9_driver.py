@@ -103,7 +103,7 @@ class G9Driver:
         data = response if response else (
             [0] * self.NUMIN,                    # sitsf_bits
             [0] * self.NUMIN,                    # sitdf_bits
-            0,                                   # g9_active
+            0,                                   # g9_output
             {},                                  # unit_status
             bytearray(10),                       # input_terms
             bytearray(10),                       # output_terms
@@ -263,7 +263,7 @@ class G9Driver:
         unit_flags = {self.US_STATUS[k] : unit_status_flags[k] for k in self.US_STATUS.keys()}
 
         return (binary_data['sitsf'], binary_data['sitdf'],                 # sitsf_bits , sitdf_bits
-                    binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_active
+                    binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_output
                     unit_flags,                                             # unit_status
                     data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input 
                     data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:],   # output
