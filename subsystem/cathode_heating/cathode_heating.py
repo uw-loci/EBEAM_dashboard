@@ -394,7 +394,7 @@ class CathodeHeatingSubsystem:
             current_entry_field.grid(row=2, column=1, sticky='w', padx=(0, 2), pady=(2, 0))
             self.entry_fields.append(current_entry_field)
 
-            set_current_button = ttk.Button(current_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=current_entry_field: self.on_current_label_click(i, entry_field))
+            set_current_button = ttk.Button(current_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=current_entry_field: self.handle_current_entry_set(i, entry_field))
             set_current_button.grid(row=2, column=2, sticky='w', padx=(2, 0), pady=(2, 0))
 
             current_display_frame = tk.Frame(current_entry_frame, bd=2, relief='groove', padx=2, pady=1)
@@ -434,7 +434,7 @@ class CathodeHeatingSubsystem:
             voltage_entry_field.grid(row=2, column=1, sticky='w', padx=(0, 2), pady=(2, 0))
             self.entry_fields.append(voltage_entry_field)
 
-            set_voltage_button = ttk.Button(voltage_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.on_voltage_label_click(i, entry_field))
+            set_voltage_button = ttk.Button(voltage_entry_frame, text="Set", width=4, command=lambda i=i, entry_field=voltage_entry_field: self.handle_voltage_entry_set(i, entry_field))
             set_voltage_button.grid(row=2, column=2, sticky='w', padx=(2, 0), pady=(2, 0))
 
             self.set_button_states.append([set_voltage_button, set_current_button])
@@ -2274,13 +2274,16 @@ class CathodeHeatingSubsystem:
         self.heater_current_vars[index].set('--')
 
 
-    def on_current_label_click(self, index, target_current):
-        """ 
-        Handler for user clicks on heater current label for manual current setting
+    def handle_current_entry_set(self, index, current_entry):
+        """
+        Handle the Set button for the heater current entry.
+
         Args:
-            index (int): Index of the clicked current label (0-2)
-        Shows a dialog for current input if output is disabled. 
-        Updates predictions and display values based on entered current.
+            index (int): Cathode index (0-2).
+            current_entry (ttk.Entry): Entry widget containing the requested heater current.
+
+        Clears the current goal when the entry is empty. Otherwise validates the
+        entered current, updates predictions, and applies the requested output.
         """
         # Check for active ramping
         if self.is_ramping(index):
@@ -2288,19 +2291,19 @@ class CathodeHeatingSubsystem:
             msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
             return
 
-        raw_value = str(target_current.get()).strip()
-        if raw_value == "":
-            # Treat empty entry as a user request to clear the current goal.
-            self.user_set_currents[index] = None
-            self.current_set[index] = False
-            self.heater_current_vars[index].set('--')
-            self.sent_heater_current_vars[index].set('--')
-            self.predicted_heater_current_vars[index].set('--')
-            self.log(f"Cleared current goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
-            self.refresh_predictions(index)
-            return
-
         try:
+            raw_value = str(current_entry.get()).strip()
+            if raw_value == "":
+                # Treat empty entry as a user request to clear the current goal.
+                self.user_set_currents[index] = None
+                self.current_set[index] = False
+                self.heater_current_vars[index].set('--')
+                self.sent_heater_current_vars[index].set('--')
+                self.predicted_heater_current_vars[index].set('--')
+                self.log(f"Cleared current goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+                self.refresh_predictions(index)
+                return
+
             new_current = float(raw_value)
             valid_input = self.validate_current(index, new_current)
             if not valid_input:
@@ -2322,35 +2325,36 @@ class CathodeHeatingSubsystem:
         else:
             self.log(f"Failed to set manual current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
 
-    def on_voltage_label_click(self, index, target_voltage):
-        """ 
-        Handler for user clicks on heater voltage label for manual voltage setting
+    def handle_voltage_entry_set(self, index, voltage_entry):
+        """
+        Handle the Set button for the heater voltage entry.
 
         Args:
-            index (int): Index of the clicked voltage label (0-2)
+            index (int): Cathode index (0-2).
+            voltage_entry (ttk.Entry): Entry widget containing the requested heater voltage.
 
-        Shows a dialog for voltage input if output is disabled. 
-        Updates predictions and display values based on entered voltage.
+        Clears the voltage goal when the entry is empty. Otherwise validates the
+        entered voltage, updates predictions, and applies the requested output.
         """
         # Check for active ramping
         if self.is_ramping(index):
-                self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
-                msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
-                return
-
-        raw_value = str(target_voltage.get()).strip()
-        if raw_value == "":
-            # Treat empty entry as a user request to clear the voltage goal.
-            self.user_set_voltages[index] = None
-            self.voltage_set[index] = False
-            self.heater_voltage_vars[index].set('--')
-            self.sent_heater_voltage_vars[index].set('--')
-            self.predicted_heater_voltage_vars[index].set('--')
-            self.log(f"Cleared voltage goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
-            self.refresh_predictions(index)
+            self.log(f"Cannot set manual voltage for Cathode {['A', 'B', 'C'][index]} while ramping is enabled.", LogLevel.WARNING)
+            msgbox.showwarning('Ramp in progress','Please wait for the ramp to finish or press STOP RAMP.') # add option in msg box to stop ramp
             return
 
         try:
+            raw_value = str(voltage_entry.get()).strip()
+            if raw_value == "":
+                # Treat empty entry as a user request to clear the voltage goal.
+                self.user_set_voltages[index] = None
+                self.voltage_set[index] = False
+                self.heater_voltage_vars[index].set('--')
+                self.sent_heater_voltage_vars[index].set('--')
+                self.predicted_heater_voltage_vars[index].set('--')
+                self.log(f"Cleared voltage goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+                self.refresh_predictions(index)
+                return
+
             new_voltage = float(raw_value)
             valid_input = self.validate_voltage(index, new_voltage)
             if not valid_input:
