@@ -147,6 +147,8 @@ class Logger:
             except Exception as e:
                 print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
+        if field == "cathode":
+            raise KeyError("'cathode' cannot be updated with update_field; use update_cathode_field for cathode subfields.")
         if field in self.dict_logger:
             self.dict_logger[field] = value
             self.log_dict_update(self.dict_logger)
@@ -154,6 +156,8 @@ class Logger:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def update_cathode_field(self, cathode_label, subfield, value):
         cathode = self.dict_logger["cathode"]
+        if not isinstance(cathode, dict):
+            raise TypeError("Logger cathode schema is corrupted; expected 'cathode' to be a dict.")
         if cathode_label not in cathode:
             raise KeyError(f"'{cathode_label}' is not a valid cathode label. Expected one of {list(cathode.keys())}.")
         if subfield not in cathode[cathode_label]:

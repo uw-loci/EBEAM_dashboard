@@ -460,6 +460,22 @@ class TestDictLoggerFieldManagement(unittest.TestCase):
         self.assertIn("nonexistent_field", str(ctx.exception))
         self.assertIn("is not a valid key", str(ctx.exception))
 
+    def test_update_field_rejects_cathode_key_without_corrupting_schema(self):
+        with self.assertRaises(KeyError) as ctx:
+            self.logger.update_field("cathode", None)
+        self.assertIn("cathode", str(ctx.exception))
+        self.assertIn("update_cathode_field", str(ctx.exception))
+
+        self.assertIsInstance(self.logger.dict_logger["cathode"], dict)
+        self.logger.update_cathode_field("A", "clamp_temperature", 42.0)
+        self.assertEqual(self.logger.dict_logger["cathode"]["A"]["clamp_temperature"], 42.0)
+
+    def test_update_cathode_field_raises_clear_error_for_corrupted_cathode_schema(self):
+        self.logger.dict_logger["cathode"] = None
+        with self.assertRaises(TypeError) as ctx:
+            self.logger.update_cathode_field("A", "clamp_temperature", 42.0)
+        self.assertIn("cathode schema is corrupted", str(ctx.exception))
+
     def test_clear_value_sets_field_to_none(self):
         self.logger.dict_logger["pressure"] = 5.0
         self.logger.clear_value("pressure")
