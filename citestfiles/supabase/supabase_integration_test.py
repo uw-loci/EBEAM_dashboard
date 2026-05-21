@@ -27,6 +27,7 @@ EXPECTED_DICT_LOGGER_KEYS = {
     "temperatures",
     "vacuumBits",
     "cathode",
+    "beam_energy",
 }
 
 
@@ -268,7 +269,7 @@ class TestWebMonitorLogFormat(unittest.TestCase):
         self.logger.log_dict_update({"pressure": 1.0})
         entry = self._get_entry()
         # Should not raise if format matches
-        datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S")
+        datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
 
     def test_webmonitor_log_status_contains_dict_logger_snapshot(self):
         self.logger.dict_logger["pressure"] = 9.9e-6
@@ -344,7 +345,7 @@ class TestWebMonitorRotation(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         entry = json.loads(lines[0])
         self.assertEqual(entry["status"]["pressure"], 1.0)
-        datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S")
+        datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
 
     def test_webmonitor_log_does_not_rotate_before_one_hour(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
