@@ -1688,13 +1688,42 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars[index].set("-- C")
         return None
 
+    def _publish_cathode_power_readback(self, index, current, voltage):
+        """Publish cathode heater readbacks, including None when the read is invalid."""
+        if self.logger and hasattr(self.logger, "update_cathode_field"):
+            cathode_label = ['A', 'B', 'C'][index]
+            self.logger.update_cathode_field(cathode_label, "heater_current", current)
+            self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+
+    def _mark_power_supply_unavailable(self, index):
+        """Clear one cathode's power-supply readbacks without skipping temperature updates."""
+        if index < len(self.power_supply_status):
+            self.power_supply_status[index] = False
+
+        self.actual_heater_current_vars[index].set("--")
+        self.actual_heater_voltage_vars[index].set("--")
+        self.actual_target_current_vars[index].set("--")
+        self.operation_mode_var[index].set("Mode: --")
+
+        if index < len(self.cv_cc_labels):
+            cv_lbl, cc_lbl = self.cv_cc_labels[index]
+            cv_lbl.config(bg='grey')
+            cc_lbl.config(bg='grey')
+
+        self._publish_cathode_power_readback(index, None, None)
+
     
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
+        # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
             self.temperature_controller.flush_queued_logs()
+        # Flush logs for each power supply as well to capture any recent communication issues or status changes before we read new data
+        for power_supply in self.power_supplies:
+            if power_supply and hasattr(power_supply, "flush_queued_logs"):
+                power_supply.flush_queued_logs()
 
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
@@ -1705,52 +1734,59 @@ class CathodeHeatingSubsystem:
             temperature = None
 
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
+                read_power_supply = True
                 try:
                     if not self.power_supplies[i].is_connected():
+                        read_power_supply = False
                         # Backoff: only attempt reconnect after cooldown period
                         if (current_time - self.last_reconnect_attempt[i]) < self.RECONNECT_COOLDOWN:
-                            continue
-                        self.last_reconnect_attempt[i] = current_time
-                        self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
-                        if self.retry_connection(i):
-                            self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
+                            self._mark_power_supply_unavailable(i)
                         else:
-                            self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
-                            continue
-                    
-                    voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
-                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
-                    
-                    self.actual_heater_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")
+                            self.last_reconnect_attempt[i] = current_time
+                            self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
+                            if self.retry_connection(i):
+                                self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
+                                read_power_supply = True
+                            else:
+                                self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
+                                self._mark_power_supply_unavailable(i)
 
-                    cathode_label = ['A', 'B', 'C'][i]
-                    if self.logger and hasattr(self.logger, "update_cathode_field"):
-                        self.logger.update_cathode_field(cathode_label, "heater_current", current)
-                        self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+                    if read_power_supply:
+                        voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
 
-                    # Update mode display
-                    cv_lbl, cc_lbl = self.cv_cc_labels[i]
+                        if voltage is None or current is None:
+                            self.log(f"Power supply {i+1} did not return valid voltage/current readings", LogLevel.WARNING)
+                            voltage = None
+                            current = None
+                            mode = None
+                            self._mark_power_supply_unavailable(i)
+                        else:
+                            self.power_supply_status[i] = True
+                            self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
 
-                    if mode == "CV Mode":
-                        cv_lbl.config(bg='green')
-                        cc_lbl.config(bg='grey')
-                    elif mode == "CC Mode":
-                        cc_lbl.config(bg='green')
-                        cv_lbl.config(bg='grey')
-                    else: # supply off or error
-                        cv_lbl.config(bg='grey')
-                        cc_lbl.config(bg='grey') 
+                            self.actual_heater_current_vars[i].set(f"{current:.2f}")
+                            self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}")
+
+                            self._publish_cathode_power_readback(i, current, voltage)
+
+                            # Update mode display
+                            cv_lbl, cc_lbl = self.cv_cc_labels[i]
+
+                            if mode == "CV Mode":
+                                cv_lbl.config(bg='green')
+                                cc_lbl.config(bg='grey')
+                            elif mode == "CC Mode":
+                                cc_lbl.config(bg='green')
+                                cv_lbl.config(bg='grey')
+                            else: # supply off or error
+                                cv_lbl.config(bg='grey')
+                                cc_lbl.config(bg='grey')
     
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
-                    self.actual_heater_current_vars[i].set("--")
-                    self.actual_heater_voltage_vars[i].set("--")
-                    self.operation_mode_var[i].set("Mode: --")
+                    self._mark_power_supply_unavailable(i)
             else:
-                self.actual_heater_current_vars[i].set("--")
-                self.actual_heater_voltage_vars[i].set("--")
-                self.actual_target_current_vars[i].set("--")
+                self._mark_power_supply_unavailable(i)
 
             temperature = self.read_temperature(i)
             if self.logger and hasattr(self.logger, "update_cathode_field"):
