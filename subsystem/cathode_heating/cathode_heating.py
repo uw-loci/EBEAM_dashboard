@@ -1688,6 +1688,13 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars[index].set("-- C")
         return None
 
+    def _publish_cathode_power_readback(self, index, current, voltage):
+        """Publish cathode heater readbacks, including None when the read is invalid."""
+        if self.logger and hasattr(self.logger, "update_cathode_field"):
+            cathode_label = ['A', 'B', 'C'][index]
+            self.logger.update_cathode_field(cathode_label, "heater_current", current)
+            self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+
     def _mark_power_supply_unavailable(self, index):
         """Clear one cathode's power-supply readbacks without skipping temperature updates."""
         if index < len(self.power_supply_status):
@@ -1703,10 +1710,7 @@ class CathodeHeatingSubsystem:
             cv_lbl.config(bg='grey')
             cc_lbl.config(bg='grey')
 
-        if self.logger and hasattr(self.logger, "update_cathode_field"):
-            cathode_label = ['A', 'B', 'C'][index]
-            self.logger.update_cathode_field(cathode_label, "heater_current", None)
-            self.logger.update_cathode_field(cathode_label, "heater_voltage", None)
+        self._publish_cathode_power_readback(index, None, None)
 
     
     def update_data(self):
@@ -1759,14 +1763,11 @@ class CathodeHeatingSubsystem:
                         else:
                             self.power_supply_status[i] = True
                             self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
-                            
+
                             self.actual_heater_current_vars[i].set(f"{current:.2f}")
                             self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}")
 
-                            cathode_label = ['A', 'B', 'C'][i]
-                            if self.logger and hasattr(self.logger, "update_cathode_field"):
-                                self.logger.update_cathode_field(cathode_label, "heater_current", current)
-                                self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+                            self._publish_cathode_power_readback(i, current, voltage)
 
                             # Update mode display
                             cv_lbl, cc_lbl = self.cv_cc_labels[i]
@@ -1779,7 +1780,7 @@ class CathodeHeatingSubsystem:
                                 cv_lbl.config(bg='grey')
                             else: # supply off or error
                                 cv_lbl.config(bg='grey')
-                                cc_lbl.config(bg='grey') 
+                                cc_lbl.config(bg='grey')
     
                 except Exception as e:
                     self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
