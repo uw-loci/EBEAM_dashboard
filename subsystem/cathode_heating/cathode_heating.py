@@ -270,6 +270,7 @@ class CathodeHeatingSubsystem:
         self.plot_interval = datetime.timedelta(seconds=5)  # Time between plot updates
         self.time_data = [[] for _ in range(3)]  # Timestamp arrays for plotting
         self.temperature_data = [[] for _ in range(3)]  # Temperature arrays for plotting
+        self.plot_color_states = [None for _ in range(3)]  # Current plot color/error state
 
     def _init_config_variables(self):
         """
@@ -1645,10 +1646,15 @@ class CathodeHeatingSubsystem:
                 - 'overtemp': Red for over-temperature condition
                 - None: Blue for normal operation
         """
+        state = error_type if error_type else 'normal'
+        if self.plot_color_states[index] == state:
+            return
+        self.plot_color_states[index] = state
+
         ax = self.temperature_data[index][0].axes
         line = self.temperature_data[index][0]
-        
-        color = self.ERROR_COLORS.get(error_type if error_type else 'normal')
+
+        color = self.ERROR_COLORS.get(state)
         
         # Update plot elements
         for spine in ax.spines.values():
@@ -1691,9 +1697,9 @@ class CathodeHeatingSubsystem:
                           LogLevel.ERROR)
                 self.set_plot_color(index, 'ERROR')  # Set plot to orange for no data
         else:
-            # if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
-            self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
-            self.last_no_conn_log_time[index] = current_time
+            if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
+                self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
+                self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'DISCONNECTED')
 
 
