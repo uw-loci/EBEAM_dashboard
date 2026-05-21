@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox as msgbox
 import datetime
+import threading
+import time
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -141,6 +143,11 @@ class CathodeHeatingSubsystem:
         self.current_set = [False, False, False]
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
+        self.power_supply_poll_interval = 0.5
+        self.power_supply_poll_thread = None
+        self.power_supply_poll_stop = threading.Event()
+        self.power_supply_readback_lock = threading.Lock()
+        self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
 
         # GUI element references
         self.toggle_buttons = []
@@ -180,6 +187,7 @@ class CathodeHeatingSubsystem:
         self.setup_gui()                            # Set up graphical interface
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
+        self.start_power_supply_polling()           # Poll 9104 readbacks off the Tk thread
         self.update_data()                          # Start the data update loop
 
     def _style_lut_dropdown_items(self, combobox, options, retries=4):
@@ -262,6 +270,7 @@ class CathodeHeatingSubsystem:
         self.plot_interval = datetime.timedelta(seconds=5)  # Time between plot updates
         self.time_data = [[] for _ in range(3)]  # Timestamp arrays for plotting
         self.temperature_data = [[] for _ in range(3)]  # Temperature arrays for plotting
+        self.plot_color_states = [None for _ in range(3)]  # Current plot color/error state
 
     def _init_config_variables(self):
         """
@@ -1049,6 +1058,9 @@ class CathodeHeatingSubsystem:
 
         update_success = True
         
+        if not self.stop_power_supply_polling():
+            self.log("9104 polling thread did not stop before COM port update", LogLevel.WARNING)
+        self._reset_power_supply_readbacks()
         self._disconnect_existing_connections()
         
         try:
@@ -1076,10 +1088,12 @@ class CathodeHeatingSubsystem:
                     self.log("Power supplies reinitialization failed", LogLevel.ERROR)
                     update_success = False
             
+            self.start_power_supply_polling()
             return update_success
             
         except Exception as e:
             self.log(f"Unexpected error during COM port update: {str(e)}", LogLevel.ERROR)
+            self.start_power_supply_polling()
             return False
             
     def _disconnect_existing_connections(self):
@@ -1632,10 +1646,15 @@ class CathodeHeatingSubsystem:
                 - 'overtemp': Red for over-temperature condition
                 - None: Blue for normal operation
         """
+        state = error_type if error_type else 'normal'
+        if self.plot_color_states[index] == state:
+            return
+        self.plot_color_states[index] = state
+
         ax = self.temperature_data[index][0].axes
         line = self.temperature_data[index][0]
-        
-        color = self.ERROR_COLORS.get(error_type if error_type else 'normal')
+
+        color = self.ERROR_COLORS.get(state)
         
         # Update plot elements
         for spine in ax.spines.values():
@@ -1678,9 +1697,9 @@ class CathodeHeatingSubsystem:
                           LogLevel.ERROR)
                 self.set_plot_color(index, 'ERROR')  # Set plot to orange for no data
         else:
-            # if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
-            self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
-            self.last_no_conn_log_time[index] = current_time
+            if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
+                self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
+                self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'DISCONNECTED')
 
 
@@ -1688,13 +1707,155 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars[index].set("-- C")
         return None
 
+    def _publish_cathode_power_readback(self, index, current, voltage):
+        """Publish cathode heater readbacks, including None when the read is invalid."""
+        if self.logger and hasattr(self.logger, "update_cathode_field"):
+            cathode_label = ['A', 'B', 'C'][index]
+            self.logger.update_cathode_field(cathode_label, "heater_current", current)
+            self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+
+    @staticmethod
+    def _empty_power_supply_readback():
+        return {
+            "voltage": None,
+            "current": None,
+            "mode": None,
+            "connected": False,
+            "error": None,
+            "updated_at": None,
+        }
+
+    def _set_power_supply_readback(self, index, voltage=None, current=None, mode=None, connected=False, error=None):
+        if not 0 <= index < 3:
+            return
+        with self.power_supply_readback_lock:
+            self.power_supply_readbacks[index] = {
+                "voltage": voltage,
+                "current": current,
+                "mode": mode,
+                "connected": connected,
+                "error": error,
+                "updated_at": datetime.datetime.now(),
+            }
+
+    def _get_power_supply_readback(self, index):
+        if not 0 <= index < 3:
+            return self._empty_power_supply_readback()
+        with self.power_supply_readback_lock:
+            return self.power_supply_readbacks[index].copy()
+
+    def _reset_power_supply_readbacks(self):
+        with self.power_supply_readback_lock:
+            self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
+
+    def start_power_supply_polling(self):
+        """Start the background 9104 readback poller."""
+        if self.power_supply_poll_thread and self.power_supply_poll_thread.is_alive():
+            return
+
+        self.power_supply_poll_stop.clear()
+        self.power_supply_poll_thread = threading.Thread(
+            target=self._power_supply_polling_loop,
+            name="Cathode9104Poller",
+            daemon=True,
+        )
+        self.power_supply_poll_thread.start()
+
+    def stop_power_supply_polling(self, timeout=5.0):
+        """Stop the background 9104 readback poller without blocking indefinitely."""
+        self.power_supply_poll_stop.set()
+        thread = self.power_supply_poll_thread
+        if thread and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=timeout)
+        if thread is None or not thread.is_alive():
+            self.power_supply_poll_thread = None
+            return True
+        return False
+
+    def _attempt_power_supply_reopen(self, index, ps):
+        """Best-effort reopen for a disconnected existing 9104 object."""
+        current_time = datetime.datetime.now()
+        if (current_time - self.last_reconnect_attempt[index]) < self.RECONNECT_COOLDOWN:
+            return
+
+        self.last_reconnect_attempt[index] = current_time
+        port = self.com_ports.get(f'Cathode{chr(65 + index)} PS')
+        if not port:
+            return
+
+        try:
+            ps.update_com_port(port)
+        except Exception:
+            # PowerSupply9104 logs serial failures itself; keep this worker quiet.
+            pass
+
+    def _power_supply_polling_loop(self):
+        """Poll 9104 readbacks in the background and publish a cached snapshot."""
+        while not self.power_supply_poll_stop.is_set():
+            loop_start = time.monotonic()
+
+            for index in range(3):
+                if self.power_supply_poll_stop.is_set():
+                    break
+
+                ps = self.power_supplies[index] if index < len(self.power_supplies) else None
+                if ps is None:
+                    self._set_power_supply_readback(index, error="not_initialized")
+                    continue
+
+                try:
+                    if not ps.is_connected():
+                        self._set_power_supply_readback(index, error="disconnected")
+                        self._attempt_power_supply_reopen(index, ps)
+                        continue
+
+                    voltage, current, mode = ps.get_voltage_current_mode()
+                    if voltage is None or current is None:
+                        self._set_power_supply_readback(index, error="invalid_read")
+                    else:
+                        self._set_power_supply_readback(
+                            index,
+                            voltage=voltage,
+                            current=current,
+                            mode=mode,
+                            connected=True,
+                        )
+                except Exception as exc:
+                    self._set_power_supply_readback(index, error=str(exc))
+
+            elapsed = time.monotonic() - loop_start
+            sleep_time = max(0.05, self.power_supply_poll_interval - elapsed)
+            self.power_supply_poll_stop.wait(sleep_time)
+
+    def _mark_power_supply_unavailable(self, index):
+        """Clear one cathode's power-supply readbacks without skipping temperature updates."""
+        if index < len(self.power_supply_status):
+            self.power_supply_status[index] = False
+
+        self.actual_heater_current_vars[index].set("--")
+        self.actual_heater_voltage_vars[index].set("--")
+        self.actual_target_current_vars[index].set("--")
+        self.operation_mode_var[index].set("Mode: --")
+
+        if index < len(self.cv_cc_labels):
+            cv_lbl, cc_lbl = self.cv_cc_labels[index]
+            cv_lbl.config(bg='grey')
+            cc_lbl.config(bg='grey')
+
+        self._publish_cathode_power_readback(index, None, None)
+
     
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
+        # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
             self.temperature_controller.flush_queued_logs()
+        # Flush logs for each power supply as well to capture any recent communication issues or status changes before we read new data
+        for power_supply in self.power_supplies:
+            if power_supply and hasattr(power_supply, "flush_queued_logs"):
+                power_supply.flush_queued_logs()
 
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
@@ -1705,29 +1866,19 @@ class CathodeHeatingSubsystem:
             temperature = None
 
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
-                try:
-                    if not self.power_supplies[i].is_connected():
-                        # Backoff: only attempt reconnect after cooldown period
-                        if (current_time - self.last_reconnect_attempt[i]) < self.RECONNECT_COOLDOWN:
-                            continue
-                        self.last_reconnect_attempt[i] = current_time
-                        self.log(f"Power supply {i+1} disconnected, attempting reconnection", LogLevel.WARNING)
-                        if self.retry_connection(i):
-                            self.log(f"Reconnected to power supply {i+1}", LogLevel.INFO)
-                        else:
-                            self.log(f"Failed to reconnect to power supply {i+1}", LogLevel.ERROR)
-                            continue
-                    
-                    voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
-                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
-                    
-                    self.actual_heater_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
-                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")
+                readback = self._get_power_supply_readback(i)
+                voltage = readback.get("voltage")
+                current = readback.get("current")
+                mode = readback.get("mode")
 
-                    cathode_label = ['A', 'B', 'C'][i]
-                    if self.logger and hasattr(self.logger, "update_cathode_field"):
-                        self.logger.update_cathode_field(cathode_label, "heater_current", current)
-                        self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+                if readback.get("connected") and voltage is not None and current is not None:
+                    self.power_supply_status[i] = True
+                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
+
+                    self.actual_heater_current_vars[i].set(f"{current:.2f}")
+                    self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}")
+
+                    self._publish_cathode_power_readback(i, current, voltage)
 
                     # Update mode display
                     cv_lbl, cc_lbl = self.cv_cc_labels[i]
@@ -1740,17 +1891,11 @@ class CathodeHeatingSubsystem:
                         cv_lbl.config(bg='grey')
                     else: # supply off or error
                         cv_lbl.config(bg='grey')
-                        cc_lbl.config(bg='grey') 
-    
-                except Exception as e:
-                    self.log(f"Error updating data for power supply {i+1}: {str(e)}", LogLevel.ERROR)
-                    self.actual_heater_current_vars[i].set("--")
-                    self.actual_heater_voltage_vars[i].set("--")
-                    self.operation_mode_var[i].set("Mode: --")
+                        cc_lbl.config(bg='grey')
+                else:
+                    self._mark_power_supply_unavailable(i)
             else:
-                self.actual_heater_current_vars[i].set("--")
-                self.actual_heater_voltage_vars[i].set("--")
-                self.actual_target_current_vars[i].set("--")
+                self._mark_power_supply_unavailable(i)
 
             temperature = self.read_temperature(i)
             if self.logger and hasattr(self.logger, "update_cathode_field"):
@@ -2984,16 +3129,29 @@ class CathodeHeatingSubsystem:
         """
         Disables all power supply outputs and closes serial connections upon quitting the application.
         """
+        # Stop Tk callbacks and the 9104 readback poller before touching serial
+        # ports. Polling uses the same PowerSupply9104.serial_lock as commands,
+        # so shutdown uses bounded waits below instead of blocking indefinitely.
+        self.cancel_updates()
+        if not self.stop_power_supply_polling():
+            self.log("9104 polling thread did not stop before shutdown; continuing with bounded serial close", LogLevel.WARNING)
+
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for i, ps in enumerate(self.power_supplies):
                 try:
-                    if hasattr(ps, 'disable_output') and ps.is_connected():
+                    if hasattr(ps, 'stop_ramp'):
+                        ps.stop_ramp()
+                    if hasattr(ps, 'disable_output'):
+                        # Try to turn output off, but continue closing if a dead serial transaction owns the lock.
                         self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
-                        ps.disable_output()
+                        ps.disable_output(lock_timeout=1.0)
                 except Exception as e:
                     self.log(f"Error disabling output on cathode {chr(65 + i)}: {e}", LogLevel.ERROR)
                 if hasattr(ps, 'close'):
-                    ps.close()
+                    try:
+                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                    except TypeError:
+                        ps.close()
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
