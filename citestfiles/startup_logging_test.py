@@ -38,6 +38,11 @@ class FakeTextWidget:
         return "".join(self.messages)
 
 
+class FakeSubsystem:
+    def __init__(self, *args, **kwargs):
+        pass
+
+
 class TestStartupLogger(unittest.TestCase):
     def setUp(self):
         self.tempdir = os.path.join(TEST_TMP_ROOT, f"case_{uuid.uuid4().hex}")
@@ -144,6 +149,74 @@ class TestComPortConfigLogging(unittest.TestCase):
 
     def test_get_beam_pulse_com_port_defaults_to_blank(self):
         self.assertEqual(get_beam_pulse_com_port({}), "")
+
+
+class TestDashboardBeamPulseInitialization(unittest.TestCase):
+    def _patch_required_subsystems(self, dashboard):
+        subsystem_names = (
+            "VTRXSubsystem",
+            "ProcessMonitorSubsystem",
+            "InterlocksSubsystem",
+            "OilSubsystem",
+            "CathodeHeatingSubsystem",
+            "BeamEnergySubsystem",
+        )
+        for name in subsystem_names:
+            patcher = patch.object(dashboard.subsystem, name, FakeSubsystem)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _create_dashboard(self, dashboard):
+        frame_names = (
+            "Vacuum System",
+            "Process Monitor",
+            "Interlocks",
+            "Oil System",
+            "Cathode Heating",
+            "Beam Energy",
+            "Beam Pulse",
+        )
+        frames = {name: MagicMock(name=name) for name in frame_names}
+
+        instance = dashboard.EBEAMSystemDashboard.__new__(
+            dashboard.EBEAMSystemDashboard
+        )
+        instance.frames = frames
+        instance.com_ports = {
+            "VTRXSubsystem": "",
+            "ProcessMonitors": "",
+            "Interlocks": "",
+            "BeamPulse": "COM7",
+        }
+        instance.logger = MagicMock()
+        instance.machine_status_frame = MagicMock(MACHINE_STATUS=False)
+        return instance
+
+    def test_beam_pulse_constructed_from_subsystem_package(self):
+        import dashboard
+
+        self._patch_required_subsystems(dashboard)
+        instance = self._create_dashboard(dashboard)
+        beam_pulse = MagicMock()
+
+        with patch.object(
+            dashboard.subsystem,
+            "BeamPulseSubsystem",
+            return_value=beam_pulse,
+        ) as beam_pulse_factory:
+            instance.create_subsystems()
+
+        beam_pulse_factory.assert_called_once_with(
+            parent_frame=instance.frames["Beam Pulse"],
+            port="COM7",
+            unit=1,
+            baudrate=115200,
+            logger=instance.logger,
+        )
+        self.assertIs(instance.subsystems["Beam Pulse"], beam_pulse)
+        beam_pulse.set_dashboard_beam_callback.assert_called_once_with(
+            instance.handle_beam_pulse_callback
+        )
 
 
 class TestPanelConfigLogging(unittest.TestCase):
