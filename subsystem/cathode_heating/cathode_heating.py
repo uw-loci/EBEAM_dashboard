@@ -1693,6 +1693,9 @@ class CathodeHeatingSubsystem:
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
+        if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
+            self.temperature_controller.flush_queued_logs()
+
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
 
@@ -2994,7 +2997,8 @@ class CathodeHeatingSubsystem:
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-               # self.temperature_controller.stop_reading()
+                self.temperature_controller.stop_reading()
+                self.temp_controllers_connected = False
                 self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
