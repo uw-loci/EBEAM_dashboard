@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils import Logger, LogLevel
-from usr.com_port_config import load_com_ports, save_com_ports
+from usr.com_port_config import (
+    get_beam_pulse_com_port,
+    load_com_ports,
+    save_com_ports,
+)
 from usr.panel_config import load_pane_states
 
 TEST_TMP_ROOT = os.path.join(os.path.dirname(__file__), "_tmp")
@@ -124,6 +128,22 @@ class TestComPortConfigLogging(unittest.TestCase):
         self.assertEqual(loaded, {})
         self.assertIn("Error loading COM ports", logger.error.call_args[0][0])
         mock_print.assert_not_called()
+
+    def test_get_beam_pulse_com_port_prefers_canonical_key(self):
+        com_ports = {
+            "BeamPulse": "COM7",
+            "Beam Pulse": "COM8",
+        }
+
+        self.assertEqual(get_beam_pulse_com_port(com_ports), "COM7")
+
+    def test_get_beam_pulse_com_port_accepts_legacy_key(self):
+        com_ports = {"Beam Pulse": "COM8"}
+
+        self.assertEqual(get_beam_pulse_com_port(com_ports), "COM8")
+
+    def test_get_beam_pulse_com_port_defaults_to_blank(self):
+        self.assertEqual(get_beam_pulse_com_port({}), "")
 
 
 class TestPanelConfigLogging(unittest.TestCase):
