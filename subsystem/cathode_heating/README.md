@@ -53,8 +53,13 @@ The `Main` tab includes:
   - Output toggle button.
   - Output mode dropdown.
   - `STOP RAMP` button.
-- Read-only displays:
-  - Predicted output values.
+- Predicted output panel:
+  - `Lookup Table Dataset` selector.
+  - Predicted emission current.
+  - Predicted grid current.
+  - Predicted heater voltage.
+  - Predicted heater current.
+- Read-only measured displays:
   - Measured heater current and voltage.
   - Clamp temperature.
   - CV/CC mode indicator.
@@ -67,7 +72,7 @@ The `Config` tab includes:
 - Overcurrent protection (OCP).
 - Current slew rate.
 - Voltage slew rate.
-- Query-settings button and status readback.
+- `Log Power Settings` button and status readback.
 
 ## Output Modes
 
@@ -210,9 +215,9 @@ Key configuration methods include:
 - `set_overcurrent_limit()`
 - `set_overtemp_limit()`
 - `set_slew_rate()`
-- `query_and_check_settings()`
+- `log_power_and_check_settings()`
 
-These methods are responsible for writing protection settings to the supply, reading them back, and logging mismatches or failures.
+These methods are responsible for writing or reading protection settings on the supply, confirming readbacks, and logging mismatches or failures.
 
 ## Modeling and Predicted Output
 

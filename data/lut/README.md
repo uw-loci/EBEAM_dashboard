@@ -33,6 +33,12 @@ To update the power supply lookup tables and generate visualizations:
    - For each cleaned dataset, output plots are generated in `power_supply/plots/`.
    - Graphs are saved only in the `power_supply/plots/` directory.
 
+## Dashboard Usage
+
+The cathode-heating subsystem loads CSV files from `data/lut/power_supply` at startup. Valid files appear in the `Lookup Table Dataset` dropdown in each cathode's `Predicted Output` panel.
+
+If a CSV is present but invalid, the dashboard keeps the filename visible for operator awareness, dims it when Tk dropdown styling is available, and reverts to a valid dataset if it is selected.
+
 ## Running Cleanup Operations
 
 From the repository root, run:
@@ -42,6 +48,9 @@ python data/lut/clean.py data/lut/power_supply/Cbmark_Beam_A_07_2025.csv
 
 # Clean another file (in place)
 python data/lut/clean.py data/lut/power_supply/Test_LUT_Dont_Use.csv
+
+# With no filename argument, clean.py discovers and cleans every CSV in data/lut/power_supply
+python data/lut/clean.py
 ```
 
 Or, from the `data/lut` directory, run:
