@@ -3123,18 +3123,30 @@ class CathodeHeatingSubsystem:
         """
         Disables all power supply outputs and closes serial connections upon quitting the application.
         """
-        self.stop_power_supply_polling()
+        # Stop Tk callbacks and the 9104 readback poller before touching serial
+        # ports. Polling uses the same PowerSupply9104.serial_lock as commands,
+        # so shutdown uses bounded waits below instead of blocking indefinitely.
+        self.cancel_updates()
+        if not self.stop_power_supply_polling():
+            self.log("9104 polling thread did not stop before shutdown; continuing with bounded serial close", LogLevel.WARNING)
 
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for i, ps in enumerate(self.power_supplies):
                 try:
-                    if hasattr(ps, 'disable_output') and ps.is_connected():
+                    if hasattr(ps, 'stop_ramp'):
+                        ps.stop_ramp()
+                    if hasattr(ps, 'disable_output'):
+                        # Best-effort safety command: try to turn output off, but
+                        # continue closing if a dead serial transaction owns the lock.
                         self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
-                        ps.disable_output()
+                        ps.disable_output(lock_timeout=1.0)
                 except Exception as e:
                     self.log(f"Error disabling output on cathode {chr(65 + i)}: {e}", LogLevel.ERROR)
                 if hasattr(ps, 'close'):
-                    ps.close()
+                    try:
+                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                    except TypeError:
+                        ps.close()
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
