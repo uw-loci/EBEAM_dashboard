@@ -53,8 +53,13 @@ The `Main` tab includes:
   - Output toggle button.
   - Output mode dropdown.
   - `STOP RAMP` button.
-- Read-only displays:
-  - Predicted output values.
+- Predicted output panel:
+  - `Lookup Table Dataset` selector.
+  - Predicted emission current.
+  - Predicted grid current.
+  - Predicted heater voltage.
+  - Predicted heater current.
+- Read-only measured displays:
   - Measured heater current and voltage.
   - Clamp temperature.
   - CV/CC mode indicator.
@@ -67,7 +72,7 @@ The `Config` tab includes:
 - Overcurrent protection (OCP).
 - Current slew rate.
 - Voltage slew rate.
-- Query-settings button and status readback.
+- `Log Power Settings` button and status readback.
 
 ## Output Modes
 
@@ -210,9 +215,9 @@ Key configuration methods include:
 - `set_overcurrent_limit()`
 - `set_overtemp_limit()`
 - `set_slew_rate()`
-- `query_and_check_settings()`
+- `log_power_and_check_settings()`
 
-These methods are responsible for writing protection settings to the supply, reading them back, and logging mismatches or failures.
+These methods are responsible for writing or reading protection settings on the supply, confirming readbacks, and logging mismatches or failures.
 
 ## Modeling and Predicted Output
 
@@ -222,16 +227,14 @@ The subsystem still initializes cathode models in `init_cathode_model()` for:
 - Heater current to emission current.
 - Heater current to true temperature.
 
-However, the current manual setpoint handlers do not actively update predictions when the operator changes current or voltage:
+The current manual setpoint handlers update predictions when the operator changes current or voltage:
 
-- `on_current_label_click()`
-- `on_voltage_label_click()`
+- `handle_current_entry_set()`
+- `handle_voltage_entry_set()`
 - `adjust_current()`
 - `adjust_voltage()`
 
-Those handlers currently skip prediction updates and focus on validation plus direct output control.
-
-That means the "Predicted Output" panel should be treated as partial/incomplete documentation of future behavior, not as a fully active feature path for the current manual-control flow.
+Those handlers validate manual input, refresh prediction displays, and route accepted setpoints through the direct output-control path.
 
 ## Main Methods To Read First
 
@@ -241,8 +244,8 @@ If you are trying to understand the file quickly, start with these methods:
 - `initialize_power_supplies()`
 - `update_data()`
 - `toggle_output()`
-- `on_current_label_click()`
-- `on_voltage_label_click()`
+- `handle_current_entry_set()`
+- `handle_voltage_entry_set()`
 - `update_output_from_current()`
 - `update_output_from_voltage()`
 - `validate_current()`
