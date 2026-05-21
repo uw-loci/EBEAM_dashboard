@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox
 import serial.tools.list_ports
 
 from dashboard import EBEAMSystemDashboard
-from usr.com_port_config import save_com_ports, load_com_ports
+from usr.com_port_config import get_beam_pulse_com_port, save_com_ports, load_com_ports
 from utils import Logger, LogLevel
 
 
@@ -237,7 +237,11 @@ def config_com_ports(saved_com_ports, logger=None):
         label.pack(side=tk.LEFT, padx=(0, 10))
 
         # Default to a previously saved port if available, otherwise blank
-        selected_port = tk.StringVar(value=saved_com_ports.get(subsystem, ''))
+        if subsystem == 'BeamPulse':
+            saved_port = get_beam_pulse_com_port(saved_com_ports)
+        else:
+            saved_port = saved_com_ports.get(subsystem, '')
+        selected_port = tk.StringVar(value=saved_port)
 
         combobox = ttk.Combobox(
             frame, 
