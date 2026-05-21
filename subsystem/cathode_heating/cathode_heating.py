@@ -3136,8 +3136,7 @@ class CathodeHeatingSubsystem:
                     if hasattr(ps, 'stop_ramp'):
                         ps.stop_ramp()
                     if hasattr(ps, 'disable_output'):
-                        # Best-effort safety command: try to turn output off, but
-                        # continue closing if a dead serial transaction owns the lock.
+                        # Try to turn output off, but continue closing if a dead serial transaction owns the lock.
                         self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
                         ps.disable_output(lock_timeout=1.0)
                 except Exception as e:
