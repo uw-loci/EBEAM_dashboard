@@ -53,7 +53,8 @@ class Logger:
                 "A": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
                 "B": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
                 "C": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
-            }
+            },
+            "beam_energy": None
             }
         if log_to_file:
             self.setup_log_file()
