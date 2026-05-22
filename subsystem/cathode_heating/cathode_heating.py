@@ -1865,9 +1865,14 @@ class CathodeHeatingSubsystem:
             sleep_time = max(0.05, self.power_supply_poll_interval - elapsed)
             stop_event.wait(sleep_time)
 
-    def _mark_power_supply_unavailable(self, index):
-        """Clear one cathode's power-supply readbacks without skipping temperature updates."""
-        if index < len(self.power_supply_status):
+    def _mark_power_supply_unavailable(self, index, *, mark_status_unavailable=True):
+        """
+        Clear one cathode's power-supply readbacks without skipping temperature updates.
+
+        mark_status_unavailable should only be true for confirmed unavailable hardware,
+        not for temporary readback contention such as a busy serial lock.
+        """
+        if mark_status_unavailable and index < len(self.power_supply_status):
             self.power_supply_status[index] = False
 
         self.actual_heater_current_vars[index].set("--")
@@ -1931,7 +1936,13 @@ class CathodeHeatingSubsystem:
                         cv_lbl.config(bg='grey')
                         cc_lbl.config(bg='grey')
                 else:
-                    self._mark_power_supply_unavailable(i)
+                    # A missed/busy readback is display-only; only a confirmed disconnect
+                    # should downgrade the initialized status used by command guards.
+                    mark_status_unavailable = readback.get("error") == "disconnected"
+                    self._mark_power_supply_unavailable(
+                        i,
+                        mark_status_unavailable=mark_status_unavailable,
+                    )
             else:
                 self._mark_power_supply_unavailable(i)
 
