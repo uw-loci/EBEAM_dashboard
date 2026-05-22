@@ -37,10 +37,26 @@ class PowerSupply9104:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
 
-    def update_com_port(self, new_port):
+    def update_com_port(self, new_port, lock_timeout=None):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
-        
-        with self.serial_lock:
+
+        if lock_timeout is None:
+            with self.serial_lock:
+                return self._update_com_port_unlocked(new_port)
+
+        # COM reconfiguration uses a bounded wait so a stuck serial transaction cannot hang the GUI.
+        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        if not acquired:
+            self.log(f"Timed out waiting for serial lock while updating COM port to {new_port}", LogLevel.WARNING)
+            return False
+
+        try:
+            return self._update_com_port_unlocked(new_port)
+        finally:
+            self.serial_lock.release()
+
+    def _update_com_port_unlocked(self, new_port):
+        try:
             # Close existing serial connection if it exists
             if self.ser is not None:
                 self.ser.close()
@@ -49,16 +65,33 @@ class PowerSupply9104:
             self.port = new_port
             self._setup_serial_unlocked()
             connected = self.ser is not None
+        except Exception as e:
+            self.log(f"Failed to update COM port to {new_port}: {e}", LogLevel.ERROR)
+            self.ser = None
+            return False
 
         if connected:
             self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
         else:
             self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
+        return connected
 
     # Thread-safe method to check connection status
-    def is_connected(self):
-        with self.serial_lock:
+    def is_connected(self, lock_timeout=None):
+        if lock_timeout is None:
+            with self.serial_lock:
+                return self._is_connected_unlocked()
+
+        # Returning None means "busy", distinct from a confirmed disconnected port.
+        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        if not acquired:
+            self.log("Timed out waiting for serial lock while checking connection", LogLevel.WARNING)
+            return None
+
+        try:
             return self._is_connected_unlocked()
+        finally:
+            self.serial_lock.release()
 
     # Unlocked version of is_connected, should only be called within a serial_lock context like in is_connected or send_command
     def _is_connected_unlocked(self):
@@ -496,13 +529,13 @@ class PowerSupply9104:
         """
         self.stop_event.set()    
 
-    def get_display_readings(self):
+    def get_display_readings(self, lock_timeout=None):
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
         # Example corresponds to 05.00V, 01.00A, supply in CV mode
         command = "GETD"
         self.log(f"Sent command:{command}", LogLevel.DEBUG)
-        return self.send_command(command)
+        return self.send_command(command, lock_timeout=lock_timeout)
     
     def parse_getd_response(self, response):
         try:
@@ -543,7 +576,7 @@ class PowerSupply9104:
             self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
             return False
 
-    def get_voltage_current_mode(self):
+    def get_voltage_current_mode(self, lock_timeout=None):
         """
         Extract voltage and current from the power supply reading.
         
@@ -552,10 +585,11 @@ class PowerSupply9104:
         """
         for attempt in range(self.MAX_RETRIES):
             try:
-                if not self.is_connected():
+                # Bounded callers already acquire through send_command; avoid a second lock wait here.
+                if lock_timeout is None and not self.is_connected():
                     break
 
-                reading = self.get_display_readings()
+                reading = self.get_display_readings(lock_timeout=lock_timeout)
 
                 if not reading:
                     # Nothing came back – very likely no device on the port.
@@ -566,7 +600,7 @@ class PowerSupply9104:
                 voltage, current, mode = self.parse_getd_response(reading)
                 if voltage is not None and current is not None:
                     if abs(voltage) < 0.001:
-                        second_read = self.get_display_readings()
+                        second_read = self.get_display_readings(lock_timeout=lock_timeout)
                         v2, c2, m2 = self.parse_getd_response(second_read)
                         if v2 is not None and abs(v2) > 0.001:
                             # overwrite with second read if it's nonzero

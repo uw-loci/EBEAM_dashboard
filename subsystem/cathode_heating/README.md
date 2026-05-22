@@ -21,7 +21,7 @@ Each cathode channel is backed by:
 - One BK Precision 9104 power supply, used for heater voltage/current control.
 - One temperature-controller input, used for clamp-temperature monitoring.
 
-The subsystem creates and stores three power-supply driver instances in `self.power_supplies`, one for each cathode.
+The subsystem stores three power-supply driver slots in `self.power_supplies`, one for each cathode. Initial startup and COM-port reconfiguration create fresh `PowerSupply9104` objects and publish them into those slots after setup.
 
 ## High-Level Behavior
 
@@ -215,13 +215,14 @@ The poller:
 
 - Runs independently of the Tkinter event loop.
 - Polls each configured 9104 roughly every 500 ms.
-- Calls `PowerSupply9104.get_voltage_current_mode()` from the background thread.
+- Calls `PowerSupply9104.get_voltage_current_mode(lock_timeout=...)` from the background thread.
 - Writes a small snapshot into `self.power_supply_readbacks` under `self.power_supply_readback_lock`.
 - Uses the existing `PowerSupply9104.serial_lock`, so regular commands and readback polling still serialize through the driver.
 - Marks disconnected, uninitialized, and invalid-read states in the snapshot.
 - Performs best-effort reconnects for disconnected existing supply objects, throttled by `RECONNECT_COOLDOWN`.
+- Stands down while COM-port reconfiguration is replacing the shared supply list.
 
-COM-port changes and shutdown call `stop_power_supply_polling()` before disconnecting or closing serial ports.
+COM-port changes keep the poller alive, clear the shared supply list, close old supply objects with bounded serial-lock waits, and publish newly initialized supply objects when they are ready. Shutdown still calls `stop_power_supply_polling()` before closing serial ports.
 
 ## Protection and Configuration Handling
 
@@ -298,7 +299,7 @@ It handles:
 - Serialized readback commands used by the cathode polling thread.
 - Background ramp threads.
 - Ramp stop signaling.
-- Bounded serial-lock waits during shutdown, through optional `lock_timeout` arguments on selected calls.
+- Bounded serial-lock waits for polling, reconnect, COM-port update, and shutdown paths through optional `lock_timeout` arguments on selected calls.
 
 In short:
 
@@ -333,24 +334,42 @@ Temperature-controller polling itself remains in `E5CNModbus`; this subsystem ju
 The bounded waits prevent a dead serial transaction from hanging dashboard exit indefinitely.
 
 
+# COM-Port Reconfiguration
+
+COM-port updates keep the 9104 poller thread alive. The subsystem briefly tells the poller to stand down, detaches old supply objects from `self.power_supplies`, closes those old objects with bounded waits, and then publishes freshly initialized replacement objects.
+
+```mermaid
+flowchart TB
+    Start([Update COM ports]) --> Validate{"Required ports present?"}
+    Validate -- No --> ReturnFail([Return false])
+    Validate -- Yes --> PausePoller["Set power_supply_reconfiguring"]
+    PausePoller --> ResetReadbacks["Reset cached 9104 readbacks"]
+    ResetReadbacks --> DetachOld["Detach old power-supply objects"]
+    DetachOld --> CloseOld["Close old supplies with bounded waits"]
+    CloseOld --> SavePorts["Update COM-port dictionary"]
+    SavePorts --> VerifyPorts["Verify requested 9104 ports"]
+    VerifyPorts --> TempInit["Reinitialize temperature controller"]
+    TempInit --> UpdatesOK{"Port checks and temp init OK?"}
+    UpdatesOK -- Yes --> InitSupplies["Initialize fresh 9104 objects"]
+    InitSupplies --> PublishNew["Publish new power_supplies list"]
+    UpdatesOK -- No --> SkipSupplies["Leave supplies unavailable"]
+    PublishNew --> ResumePoller["Clear reconfiguring flag"]
+    SkipSupplies --> ResumePoller
+    ResumePoller --> EnsurePoller["Ensure poller thread is running"]
+    EnsurePoller --> ReturnResult([Return update result])
+```
+
+
 # 9104 Power Supply Initialization
 ```mermaid
 flowchart TB
-    Start([Start]) --> InitArrays[Initialize power_supplies and status arrays]
-    InitArrays --> LoopStart{For each cathode PS}
+    Start([Start]) --> InitLocal["Create local replacement arrays"]
+    InitLocal --> LoopStart{For each cathode PS}
     
     LoopStart --> HasPort{Port exists?}
-    HasPort -- No --> SetNull[Set PS to null & status false]
-    HasPort -- Yes --> TryInit[Try initialization]
-    
-    TryInit --> PSExists{PS exists?}
-    PSExists -- No --> CreatePS[Create new PowerSupply9104]
-    PSExists -- Yes --> CheckConnection{Is connected?}
-    
-    CheckConnection -- No --> UpdatePort[Update COM port]
-    CheckConnection -- Yes --> SetPreset[Normal mode]
-    CreatePS --> SetPreset
-    UpdatePort --> SetPreset
+    HasPort -- No --> SetNull["Leave local PS null and status false"]
+    HasPort -- Yes --> CreatePS["Create fresh PowerSupply9104"]
+    CreatePS --> SetPreset[Normal mode]
     
     SetPreset --> ConfirmPreset{Preset == 3?}
     ConfirmPreset -- No --> LogPresetWarning[Log preset warning]
@@ -371,7 +390,7 @@ flowchart TB
     OCPSuccess -- Yes --> ConfirmOCP{OCP matches?}
     
     ConfirmOCP -- No --> LogOCPMismatch[Log OCP mismatch]
-    ConfirmOCP -- Yes --> SetSuccess[Set PS status true]
+    ConfirmOCP -- Yes --> SetSuccess["Store PS in local list and set status true"]
     LogOCPMismatch --> SetSuccess
     LogOCPFail --> SetSuccess
     
@@ -379,7 +398,8 @@ flowchart TB
     SetNull --> NextPS
     
     NextPS -- Yes --> LoopStart
-    NextPS -- No --> UpdateButtons["Update button states
+    NextPS -- No --> PublishArrays["Publish replacement power_supplies and status arrays"]
+    PublishArrays --> UpdateButtons["Update button states
     enabled/disabled"]
     
     UpdateButtons --> CheckAnyInit{Any PS initialized?}
@@ -389,14 +409,14 @@ flowchart TB
     SetInitTrue --> UpdateSettings[Update query settings]
     LogNoInit --> UpdateSettings
     
-    UpdateSettings --> ReturnInit[Return to caller]
-    ReturnInit --> StartPoller[Caller starts/restarts 9104 background poller]
-    StartPoller --> End([to idle state])
+    UpdateSettings --> End([Return to caller])
     
-    Error[Handle Exception] --> SetErrorState[Set PS null & status false]
+    Error[Handle exception] --> ClosePartial["Close partially initialized PS"]
+    ClosePartial --> SetErrorState["Leave local PS null and status false"]
     SetErrorState --> NextPS
     
-    TryInit -- Exception --> Error
+    CreatePS -- Exception --> Error
+    SetPreset -- Exception --> Error
 ```
 
 # Idle State Monitoring
@@ -410,19 +430,26 @@ Cathode9104Poller background thread:
 ```mermaid
 flowchart TB
     PollStart["Poll cycle
-    about every 500 ms"] --> PollEach["For each cathode 9104"]
+    about every 500 ms"] --> Reconfiguring{"COM-port reconfiguring?"}
+    Reconfiguring -- Yes --> PollWait["Wait for next poll"]
+    Reconfiguring -- No --> PollEach["For each cathode 9104"]
     PollEach --> HasPS{"Power supply object exists?"}
     HasPS -- No --> SnapshotNotInit["Snapshot not_initialized state"]
-    HasPS -- Yes --> Connected{"Driver reports connected?"}
+    HasPS -- Yes --> CheckConnected["Check connection with bounded lock wait"]
+    CheckConnected --> LockBusy{"Serial lock busy?"}
+    LockBusy -- Yes --> SnapshotBusy["Snapshot busy state"]
+    LockBusy -- No --> Connected{"Driver reports connected?"}
     Connected -- No --> SnapshotDisconnected["Snapshot disconnected state"]
     SnapshotDisconnected --> Reopen["Best-effort reopen
-    throttled by RECONNECT_COOLDOWN"]
-    Connected -- Yes --> Read9104["Read voltage, current, and mode"]
+    bounded and throttled"]
+    Connected -- Yes --> Read9104["Read voltage, current, and mode
+    with bounded lock wait"]
     Read9104 --> ReadValid{"Voltage/current valid?"}
     ReadValid -- Yes --> SnapshotGood["Snapshot readback values"]
     ReadValid -- No --> SnapshotInvalid["Snapshot invalid_read state"]
     SnapshotGood --> PollWait["Wait for next poll"]
     SnapshotInvalid --> PollWait
+    SnapshotBusy --> PollWait
     SnapshotNotInit --> PollWait
     Reopen --> PollWait
     PollWait --> PollStart

@@ -145,7 +145,10 @@ class CathodeHeatingSubsystem:
         self.toggle_states = [False for _ in range(3)]
         self.power_supply_poll_interval = 0.5
         self.power_supply_poll_thread = None
-        self.power_supply_poll_stop = threading.Event()
+        self.power_supply_poll_stop_event = threading.Event()
+        self.power_supply_poll_stop = self.power_supply_poll_stop_event
+        # Tells the long-lived poller to pause while COM-port updates swap driver objects.
+        self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
         self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
 
@@ -1056,30 +1059,22 @@ class CathodeHeatingSubsystem:
             self.log("Missing required COM port assignments", LogLevel.ERROR)
             return False
 
-        update_success = True
-        
-        if not self.stop_power_supply_polling():
-            self.log("9104 polling thread did not stop before COM port update", LogLevel.WARNING)
-        self._reset_power_supply_readbacks()
-        self._disconnect_existing_connections()
-        
+        # Keep the poller thread alive, but make it ignore the supply list while we replace it.
+        self.power_supply_reconfiguring.set()
         try:
-            # Update power supply ports
+            self._reset_power_supply_readbacks()
+            self._disconnect_existing_connections()
+            self._update_com_ports_dictionary(new_com_ports)
+
             ps_update_success = self._update_power_supply_ports(new_com_ports)
             if not ps_update_success:
                 self.log("Some power supply port updates failed", LogLevel.WARNING)
-                update_success = False
             
-            # Update temperature controller port
             tc_update_success = self._update_temperature_controller_port(new_com_ports)
             if not tc_update_success:
                 self.log("Temperature controller port update failed", LogLevel.WARNING)
-                update_success = False
-                
-            # Update internal COM ports dictionary
-            self._update_com_ports_dictionary(new_com_ports)
-            
-            # Reinitialize connections with new ports
+
+            update_success = ps_update_success and tc_update_success
             if update_success:
                 self.initialize_power_supplies()
                 if self.power_supplies_initialized:
@@ -1088,20 +1083,32 @@ class CathodeHeatingSubsystem:
                     self.log("Power supplies reinitialization failed", LogLevel.ERROR)
                     update_success = False
             
-            self.start_power_supply_polling()
             return update_success
             
         except Exception as e:
             self.log(f"Unexpected error during COM port update: {str(e)}", LogLevel.ERROR)
-            self.start_power_supply_polling()
             return False
+        finally:
+            # Always let the poller resume, even after a partial or failed reconfiguration.
+            self.power_supply_reconfiguring.clear()
+            if not self.start_power_supply_polling():
+                self.log("9104 polling is not running after COM port update", LogLevel.WARNING)
             
     def _disconnect_existing_connections(self):
         # Disconnect power supplies
-        for idx, ps in enumerate(self.power_supplies):
+        old_power_supplies = list(self.power_supplies)
+        # Detach old drivers before close so the poller cannot pick them up again.
+        self.power_supplies = [None, None, None]
+        self.power_supply_status = [False, False, False]
+        self.power_supplies_initialized = False
+
+        for idx, ps in enumerate(old_power_supplies):
             if ps is not None:
                 try:
-                    ps.disconnect()
+                    if hasattr(ps, 'close'):
+                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                    elif hasattr(ps, 'disconnect'):
+                        ps.disconnect()
                     self.log(f"Disconnected power supply {idx + 1}", LogLevel.DEBUG)
                 except Exception as e:
                     self.log(f"Error disconnecting power supply {idx + 1}: {str(e)}", LogLevel.WARNING)
@@ -1117,7 +1124,7 @@ class CathodeHeatingSubsystem:
 
     def _update_power_supply_ports(self, new_com_ports):
         """
-        Update power supply COM ports.
+        Verify requested power supply COM ports before reinitialization.
         
         Returns:
             bool: True if all critical updates succeeded
@@ -1146,13 +1153,7 @@ class CathodeHeatingSubsystem:
                     success = False
                     continue
                     
-                # Update or create power supply instance
-                if self.power_supplies[idx] is not None:
-                    self.power_supplies[idx].update_com_port(new_port)
-                else:
-                    self.power_supplies[idx] = PowerSupply9104(port=new_port, logger=self.logger)
-                    
-                self.log(f"Successfully updated {cathode} to port {new_port}", LogLevel.INFO)
+                self.log(f"Verified {cathode} port {new_port}", LogLevel.INFO)
                 
             except Exception as e:
                 self.log(f"Failed to update {cathode} to port {new_port}: {str(e)}", LogLevel.ERROR)
@@ -1214,9 +1215,9 @@ class CathodeHeatingSubsystem:
             return False
 
     def initialize_power_supplies(self):
-        if not self.power_supplies:
-            self.power_supplies = [None, None, None]
-        self.power_supply_status = [False, False, False]
+        # Build a complete replacement list locally, then publish it in one assignment.
+        new_power_supplies = [None, None, None]
+        new_power_supply_status = [False, False, False]
 
         cathode_ports = {
             'CathodeA PS': self.com_ports.get('CathodeA PS'),
@@ -1226,13 +1227,9 @@ class CathodeHeatingSubsystem:
 
         for idx, (cathode, port) in enumerate(cathode_ports.items()):
             if port:
+                ps = None
                 try:
-                    if self.power_supplies[idx] is None:
-                        self.power_supplies[idx] = PowerSupply9104(port=port, logger=self.logger)
-                    elif not self.power_supplies[idx].is_connected():
-                        self.power_supplies[idx].update_com_port(port)
-
-                    ps = self.power_supplies[idx]
+                    ps = PowerSupply9104(port=port, logger=self.logger)
 
                     # Set preset mode to 3 (normal mode)
                     set_preset_response = ps.set_preset_selection(3)
@@ -1296,16 +1293,21 @@ class CathodeHeatingSubsystem:
                     else:
                         self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.WARNING)
 
-                    self.power_supply_status[idx] = True
+                    new_power_supplies[idx] = ps
+                    new_power_supply_status[idx] = True
                     self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
                 except Exception as e:
-                    self.power_supplies[idx] = None
-                    self.power_supply_status[idx] = False  
+                    if ps is not None and hasattr(ps, 'close'):
+                        try:
+                            ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                        except Exception:
+                            pass
                     self.log(f"Failed to initialize {cathode} on port {port}: {str(e)}", LogLevel.ERROR)
             else:
-                self.power_supplies[idx] = None
-                self.power_supply_status[idx] = False
                 self.log(f"No COM port specified for {cathode}", LogLevel.ERROR)
+
+        self.power_supplies = new_power_supplies
+        self.power_supply_status = new_power_supply_status
 
         # Update button states based on individual power supply status
         for idx, status in enumerate(self.power_supply_status):
@@ -1749,22 +1751,43 @@ class CathodeHeatingSubsystem:
             self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
 
     def start_power_supply_polling(self):
-        """Start the background 9104 readback poller."""
-        if self.power_supply_poll_thread and self.power_supply_poll_thread.is_alive():
-            return
+        """Start the background 9104 readback poller if one is not already running."""
+        thread = self.power_supply_poll_thread
+        if thread and thread.is_alive():
+            # A set stop event means an old poller is still exiting; do not start a duplicate.
+            if self.power_supply_poll_stop_event.is_set():
+                return False
+            return True
 
-        self.power_supply_poll_stop.clear()
-        self.power_supply_poll_thread = threading.Thread(
-            target=self._power_supply_polling_loop,
-            name="Cathode9104Poller",
-            daemon=True,
-        )
-        self.power_supply_poll_thread.start()
+        stop_event = threading.Event()
+        try:
+            thread = threading.Thread(
+                target=self._power_supply_polling_loop,
+                args=(stop_event,),
+                name="Cathode9104Poller",
+                daemon=True,
+            )
+            # Publish the event before start returns so a fast poller sees its own stop event.
+            self.power_supply_poll_thread = thread
+            self.power_supply_poll_stop_event = stop_event
+            self.power_supply_poll_stop = stop_event
+            thread.start()
+        except Exception as exc:
+            stop_event.set()
+            self.power_supply_poll_thread = None
+            self.power_supply_poll_stop_event = stop_event
+            self.power_supply_poll_stop = stop_event
+            self.log(f"Failed to start 9104 polling thread: {exc}", LogLevel.ERROR)
+            return False
+
+        return True
 
     def stop_power_supply_polling(self, timeout=5.0):
         """Stop the background 9104 readback poller without blocking indefinitely."""
-        self.power_supply_poll_stop.set()
+        stop_event = self.power_supply_poll_stop_event
+        stop_event.set()
         thread = self.power_supply_poll_thread
+        # Avoid joining ourselves if shutdown is triggered from inside the poller.
         if thread and thread.is_alive() and threading.current_thread() is not thread:
             thread.join(timeout=timeout)
         if thread is None or not thread.is_alive():
@@ -1784,18 +1807,26 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            ps.update_com_port(port)
+            ps.update_com_port(port, lock_timeout=1.0)
         except Exception:
             # PowerSupply9104 logs serial failures itself; keep this worker quiet.
             pass
 
-    def _power_supply_polling_loop(self):
+    def _power_supply_polling_loop(self, stop_event=None):
         """Poll 9104 readbacks in the background and publish a cached snapshot."""
-        while not self.power_supply_poll_stop.is_set():
+        stop_event = stop_event or self.power_supply_poll_stop_event
+
+        while not stop_event.is_set():
             loop_start = time.monotonic()
 
+            if self.power_supply_reconfiguring.is_set():
+                # COM updates own the supply list briefly; wait without touching old drivers.
+                stop_event.wait(self.power_supply_poll_interval)
+                continue
+
             for index in range(3):
-                if self.power_supply_poll_stop.is_set():
+                # Re-check between cathodes so a COM update does not wait for a full cycle.
+                if stop_event.is_set() or self.power_supply_reconfiguring.is_set():
                     break
 
                 ps = self.power_supplies[index] if index < len(self.power_supplies) else None
@@ -1804,12 +1835,19 @@ class CathodeHeatingSubsystem:
                     continue
 
                 try:
-                    if not ps.is_connected():
+                    connected = ps.is_connected(lock_timeout=0.25)
+                    if connected is None:
+                        # Another command owns the serial lock; keep the GUI responsive and retry later.
+                        self._set_power_supply_readback(index, error="busy")
+                        continue
+                    if not connected:
                         self._set_power_supply_readback(index, error="disconnected")
-                        self._attempt_power_supply_reopen(index, ps)
+                        # Reconfiguration replaces objects itself, so only normal polling reconnects here.
+                        if not self.power_supply_reconfiguring.is_set():
+                            self._attempt_power_supply_reopen(index, ps)
                         continue
 
-                    voltage, current, mode = ps.get_voltage_current_mode()
+                    voltage, current, mode = ps.get_voltage_current_mode(lock_timeout=0.25)
                     if voltage is None or current is None:
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
@@ -1825,7 +1863,7 @@ class CathodeHeatingSubsystem:
 
             elapsed = time.monotonic() - loop_start
             sleep_time = max(0.05, self.power_supply_poll_interval - elapsed)
-            self.power_supply_poll_stop.wait(sleep_time)
+            stop_event.wait(sleep_time)
 
     def _mark_power_supply_unavailable(self, index):
         """Clear one cathode's power-supply readbacks without skipping temperature updates."""
