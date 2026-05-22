@@ -1089,7 +1089,7 @@ class EBEAMSystemDashboard:
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
         _msg_row, _msg_w, _msg_h = _messages_frame_layout()
-        self.messages_frame = MessagesFrame(self.rows[_msg_row], width=_msg_w, height=_msg_h)
+        self.messages_frame = MessagesFrame(self.rows[_msg_row], width=_msg_w, height=_msg_h, logger=self.logger)
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
