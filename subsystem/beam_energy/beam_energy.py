@@ -83,6 +83,7 @@ class BeamEnergySubsystem:
         ]
         self.supply_keys = [supply_key for supply_key, _ in self.supply_payload_map]
         self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
+        # Last numeric readings let limit edits immediately refresh colors/trips without waiting for a new poll.
         self.latest_actual_voltage_values = [None for _ in self.power_supplies]
         self.latest_actual_current_values = [None for _ in self.power_supplies]
 
@@ -101,6 +102,7 @@ class BeamEnergySubsystem:
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
+        # Beam Energy owns the +20kV threshold and latch; Dashboard provides the actual stop handler.
         self.beams_estop_current_entry_var = tk.StringVar(value="")
         self.beams_estop_current_value_var = tk.StringVar(
             value=self._format_beams_estop_current_limit_setting()
@@ -283,6 +285,7 @@ class BeamEnergySubsystem:
             ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
 
         if self._get_supply_key(index) == POS20KV_SUPPLY_KEY:
+            # +20kV has an escalation threshold above Max I that triggers the full Beams E-STOP.
             self.create_beams_estop_limit_controls(frame)
 
         if self._get_supply_key(index) == "neg1kv":
@@ -439,6 +442,7 @@ class BeamEnergySubsystem:
         candidate = dict(self.warning_limits[supply_key])
         candidate[field] = new_value
 
+        # For +20kV, show the operator the Max I/E-STOP relationship before generic range errors.
         if (
             supply_key == POS20KV_SUPPLY_KEY
             and candidate["max_current_ma"] > candidate[BEAMS_ESTOP_CURRENT_FIELD]
@@ -509,6 +513,7 @@ class BeamEnergySubsystem:
             return False
 
         limits = self.warning_limits[POS20KV_SUPPLY_KEY]
+        # Keep the warning threshold at or below the Estop threshold.
         if new_value < limits["max_current_ma"]:
             self._show_warning_limit_error(
                 "Invalid Current Range",
@@ -584,6 +589,7 @@ class BeamEnergySubsystem:
             self.beams_estop_breach_active = False
             return False
 
+        # Trigger once for a continuous over-limit period; reset when a valid reading returns in range.
         if not getattr(self, "beams_estop_breach_active", False):
             self.beams_estop_breach_active = True
             self._trigger_beams_estop_current(value, limit)
@@ -615,6 +621,7 @@ class BeamEnergySubsystem:
         def _recheck():
             self.refresh_warning_indicators(pos20kv_index)
 
+        # A reading may already exist by the time Dashboard wires the callback.
         try:
             self.parent_frame.after(0, _recheck)
         except Exception:
@@ -664,6 +671,7 @@ class BeamEnergySubsystem:
         if current_warning and not current_estop:
             self._log_warning_breach(index, "current", current)
 
+        # For 20kV: Red E-STOP threshold takes visual priority over the Max I warning.
         voltage_color = (
             self.WARNING_TEXT_COLOR
             if voltage_warning

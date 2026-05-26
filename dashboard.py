@@ -1032,6 +1032,7 @@ class EBEAMSystemDashboard:
             )
         }
 
+        # Beam Energy can auto-detect a +20kV current E-STOP; reuse the manual button handler.
         beam_energy = self.subsystems.get('Beam Energy')
         if beam_energy is not None and hasattr(beam_energy, 'set_beams_estop_callback'):
             beam_energy.set_beams_estop_callback(self.handle_beams_off)

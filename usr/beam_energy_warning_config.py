@@ -67,6 +67,7 @@ def _max_allowed_value(defaults, field):
 
 
 def _normalizable_fields(supply_key):
+    # Only +20kV persists the extra shutdown threshold; other supplies keep warning-only limits.
     if supply_key == POS20KV_SUPPLY_KEY:
         return (*LIMIT_FIELDS, BEAMS_ESTOP_CURRENT_FIELD)
     return LIMIT_FIELDS
@@ -117,6 +118,7 @@ def normalize_warning_limits(raw_limits, logger=None):
             candidate[field] = value
 
         if supply_key == POS20KV_SUPPLY_KEY:
+            # Preserve older configs by clamping Max I below the newly-added E-STOP limit.
             estop_limit = candidate[BEAMS_ESTOP_CURRENT_FIELD]
             if candidate["max_current_ma"] > estop_limit:
                 _log(
