@@ -82,10 +82,6 @@ class BeamEnergySubsystem:
         self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
         self.latest_actual_voltage_values = [None for _ in self.power_supplies]
         self.latest_actual_current_values = [None for _ in self.power_supplies]
-        self.warning_alarm_states = [
-            {"voltage": False, "current": False}
-            for _ in self.power_supplies
-        ]
 
         # Global data storing each power supply's latest readings
         self.set_voltages = [tk.StringVar(value="-- V") for _ in range(len(self.power_supplies))]
@@ -410,7 +406,7 @@ class BeamEnergySubsystem:
         limits = self.warning_limits[self._get_supply_key(index)]
         return value > limits["max_current_ma"]
 
-    def _log_warning_transition(self, index, reading_type, value):
+    def _log_warning_breach(self, index, reading_type, value):
         compare_value = self._warning_compare_value(index, value)
         if compare_value is None:
             return
@@ -435,12 +431,6 @@ class BeamEnergySubsystem:
                 LogLevel.WARNING,
             )
 
-    def _update_warning_alarm_state(self, index, reading_type, is_warning, value):
-        was_warning = self.warning_alarm_states[index][reading_type]
-        if is_warning and not was_warning:
-            self._log_warning_transition(index, reading_type, value)
-        self.warning_alarm_states[index][reading_type] = is_warning
-
     def _set_actual_display_color(self, index, element_name, color):
         if index < len(self.ui_elements) and self.ui_elements[index]:
             self.ui_elements[index][element_name].config(foreground=color)
@@ -454,8 +444,10 @@ class BeamEnergySubsystem:
 
         voltage_warning = self._voltage_warning_active(index, voltage)
         current_warning = self._current_warning_active(index, current)
-        self._update_warning_alarm_state(index, "voltage", voltage_warning, voltage)
-        self._update_warning_alarm_state(index, "current", current_warning, current)
+        if voltage_warning:
+            self._log_warning_breach(index, "voltage", voltage)
+        if current_warning:
+            self._log_warning_breach(index, "current", current)
 
         voltage_color = (
             self.WARNING_TEXT_COLOR

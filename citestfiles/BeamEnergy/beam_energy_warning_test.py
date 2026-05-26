@@ -59,10 +59,6 @@ def make_subsystem(limits=None):
     ]
     subsystem.latest_actual_voltage_values = [None, None, None, None]
     subsystem.latest_actual_current_values = [None, None, None, None]
-    subsystem.warning_alarm_states = [
-        {"voltage": False, "current": False}
-        for _ in subsystem.supply_keys
-    ]
     subsystem.ui_elements = [
         {"voltage_display": FakeLabel(), "current_display": FakeLabel()}
         for _ in subsystem.supply_keys
@@ -195,7 +191,7 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
         self.assertEqual(subsystem.ui_elements[1]["voltage_display"].foreground, "#FFA500")
         self.assertEqual(subsystem.ui_elements[1]["current_display"].foreground, "#FFA500")
 
-    def test_warning_logs_once_when_voltage_first_goes_orange(self):
+    def test_warning_logs_each_time_voltage_is_outside_limit(self):
         subsystem = make_subsystem({"pos1kv": {"min_voltage_v": 100, "max_voltage_v": 900}})
 
         subsystem.apply_warning_indicators(0, 900.1, 1.0)
@@ -205,11 +201,11 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
             call for call in subsystem.logger.log.call_args_list
             if len(call.args) >= 2 and call.args[1] == LogLevel.WARNING
         ]
-        self.assertEqual(len(warning_logs), 1)
+        self.assertEqual(len(warning_logs), 2)
         self.assertIn("+1kV Matsusada PS", warning_logs[0].args[0])
         self.assertIn("actual voltage", warning_logs[0].args[0])
 
-    def test_warning_logs_again_after_value_recovers_and_rebreaches(self):
+    def test_warning_does_not_log_when_current_is_in_range(self):
         subsystem = make_subsystem({"pos1kv": {"max_current_ma": 10}})
 
         subsystem.apply_warning_indicators(0, 100.0, 10.1)
