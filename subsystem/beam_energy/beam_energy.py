@@ -28,7 +28,7 @@ class BeamEnergySubsystem:
 
     displayFont = "Arial"
     ESTOP_TEXT_COLOR = "red"
-    WARNING_TEXT_COLOR = "#FF4500"
+    WARNING_TEXT_COLOR = "#FF8000"
     NORMAL_TEXT_COLOR = "black"
     warning_limit_fields = (
         ("max_voltage_v", "Max V", "V"),
