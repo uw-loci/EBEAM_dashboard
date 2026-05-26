@@ -20,8 +20,8 @@ class BeamEnergySubsystem:
     - +80kV Glassman (interlock only)
     - +1kV Matsusada
     - -1kV Matsusada 
-    - +3kV Bertran
-    - +20kV Bertran
+    - +3kV Bertan
+    - +20kV Bertan
     """
 
     displayFont = "Arial"
@@ -75,8 +75,8 @@ class BeamEnergySubsystem:
         self.power_supplies = [
             {"name": "+1kV Matsusada PS", "type": "matsusada", "voltage": 1000},
             {"name": "-1kV Matsusada PS", "type": "matsusada", "voltage": -1000},
-            {"name": "+20kV Bertran PS", "type": "bertran", "voltage": 20000},
-            {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
+            {"name": "+20kV Bertan PS", "type": "bertan", "voltage": 20000},
+            {"name": "+3kV Bertan PS", "type": "bertan", "voltage": 3000},
         ]
         self.supply_keys = [supply_key for supply_key, _ in self.supply_payload_map]
         self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
@@ -90,7 +90,7 @@ class BeamEnergySubsystem:
         self.output_status = [tk.StringVar(value="DISABLED") for _ in range(len(self.power_supplies))]
         self.connection_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies) )]
         self.reset_status_colors = [tk.StringVar(value="white") for _ in range(2)]
-        self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertran
+        self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertan
 
         # Indicator Panel -> not power supply specific
         self.glassman_interlock_var = tk.StringVar(value="UNARMED")
@@ -638,7 +638,7 @@ class BeamEnergySubsystem:
                 self.reset_status_colors[index].set("white")
 
     def update_forced_off_status(self, index, timer_state_3k):
-        if index == 3:  # Only 3kV Bertran has forced off status
+        if index == 3:  # Only 3kV Bertan has forced off status
             if timer_state_3k:
                 self.forced_off_color.set("red") 
             else:
