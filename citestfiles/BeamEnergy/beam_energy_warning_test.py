@@ -64,7 +64,6 @@ def make_subsystem(limits=None):
     subsystem.latest_actual_voltage_values = [None, None, None, None]
     subsystem.latest_actual_current_values = [None, None, None, None]
     subsystem.beams_estop_callback = None
-    subsystem.beams_estop_breach_active = False
     subsystem.beams_estop_current_entry_var = FakeVar("")
     subsystem.beams_estop_current_value_var = FakeVar(
         subsystem._format_beams_estop_current_limit_setting()
@@ -246,28 +245,28 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
         self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FF4500")
         subsystem.beams_estop_callback.assert_not_called()
 
-    def test_pos20kv_current_above_estop_is_red_and_calls_estop_once(self):
-        # Once current crosses the E-STOP threshold, red overrides the orange warning.
+    def test_pos20kv_current_above_estop_is_red_and_calls_estop_each_poll(self):
+        # While current exceeds the E-STOP threshold, red overrides the orange warning.
         subsystem = make_subsystem(
             {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
         )
         subsystem.beams_estop_callback = MagicMock()
 
         subsystem.apply_warning_indicators(2, 100.0, 0.751)
-        # A second over-limit poll should stay latched, not spam the E-STOP handler.
+        # A second over-limit poll should retry the E-STOP handler.
         subsystem.apply_warning_indicators(2, 100.0, 0.8)
 
         self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "red")
-        subsystem.beams_estop_callback.assert_called_once()
+        self.assertEqual(subsystem.beams_estop_callback.call_count, 2)
 
         critical_logs = [
             call for call in subsystem.logger.log.call_args_list
             if len(call.args) >= 2 and call.args[1] == LogLevel.CRITICAL
         ]
-        self.assertEqual(len(critical_logs), 1)
+        self.assertEqual(len(critical_logs), 2)
 
-    def test_pos20kv_estop_rearms_after_current_returns_to_limit(self):
-        # Returning to or below the limit clears the one-shot latch for a future breach.
+    def test_pos20kv_estop_does_not_trigger_at_or_below_limit(self):
+        # At-limit readings do not fire; later over-limit readings still do.
         subsystem = make_subsystem(
             {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
         )

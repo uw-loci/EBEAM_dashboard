@@ -102,13 +102,12 @@ class BeamEnergySubsystem:
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
-        # Beam Energy owns the +20kV threshold and latch; Dashboard provides the actual stop handler.
+        # Beam Energy owns the +20kV threshold; Dashboard provides the actual stop handler.
         self.beams_estop_current_entry_var = tk.StringVar(value="")
         self.beams_estop_current_value_var = tk.StringVar(
             value=self._format_beams_estop_current_limit_setting()
         )
         self.beams_estop_callback = None
-        self.beams_estop_breach_active = False
         self.warning_limit_entry_vars = [
             {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
             for _ in self.power_supplies
@@ -553,48 +552,10 @@ class BeamEnergySubsystem:
             return None
         return numeric_value
 
-    def _warning_compare_value(self, index, value):
-        value = self._coerce_reading(value)
+    def _comparison_value(self, supply_key, value):
         if value is None:
             return None
-        if self._get_supply_key(index) == "neg1kv":
-            return abs(value)
-        return value
-
-    def _voltage_warning_active(self, index, voltage):
-        value = self._warning_compare_value(index, voltage)
-        if value is None:
-            return False
-        limits = self.warning_limits[self._get_supply_key(index)]
-        return value < limits["min_voltage_v"] or value > limits["max_voltage_v"]
-
-    def _current_warning_active(self, index, current):
-        value = self._warning_compare_value(index, current)
-        if value is None:
-            return False
-        limits = self.warning_limits[self._get_supply_key(index)]
-        return value > limits["max_current_ma"]
-
-    def _process_beams_estop_current(self, index, current):
-        if self._get_supply_key(index) != POS20KV_SUPPLY_KEY:
-            return False
-
-        value = self._coerce_reading(current)
-        if value is None:
-            return False
-
-        limit = self.warning_limits[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
-        breached = value > limit
-        if not breached:
-            self.beams_estop_breach_active = False
-            return False
-
-        # Trigger once for a continuous over-limit period; reset when a valid reading returns in range.
-        if not getattr(self, "beams_estop_breach_active", False):
-            self.beams_estop_breach_active = True
-            self._trigger_beams_estop_current(value, limit)
-
-        return True
+        return abs(value) if supply_key == "neg1kv" else value
 
     def _trigger_beams_estop_current(self, current_ma, limit_ma):
         self.log(
@@ -628,8 +589,7 @@ class BeamEnergySubsystem:
             _recheck()
 
     def _log_warning_breach(self, index, reading_type, value):
-        compare_value = self._warning_compare_value(index, value)
-        if compare_value is None:
+        if value is None:
             return
 
         supply_key = self._get_supply_key(index)
@@ -640,14 +600,14 @@ class BeamEnergySubsystem:
         if reading_type == "voltage":
             self.log(
                 f"Beam Energy warning: {supply_name} {absolute_prefix}actual voltage "
-                f"{compare_value:.2f}V outside configured range "
+                f"{value:.2f}V outside configured range "
                 f"{limits['min_voltage_v']:g}V to {limits['max_voltage_v']:g}V.",
                 LogLevel.WARNING,
             )
         else:
             self.log(
                 f"Beam Energy warning: {supply_name} {absolute_prefix}actual current "
-                f"{compare_value:.3f}mA exceeds configured max "
+                f"{value:.3f}mA exceeds configured max "
                 f"{limits['max_current_ma']:g}mA.",
                 LogLevel.WARNING,
             )
@@ -663,15 +623,39 @@ class BeamEnergySubsystem:
         self.latest_actual_voltage_values[index] = voltage
         self.latest_actual_current_values[index] = current
 
-        voltage_warning = self._voltage_warning_active(index, voltage)
-        current_warning = self._current_warning_active(index, current)
-        current_estop = self._process_beams_estop_current(index, current)
-        if voltage_warning:
-            self._log_warning_breach(index, "voltage", voltage)
-        if current_warning and not current_estop:
-            self._log_warning_breach(index, "current", current)
+        supply_key = self._get_supply_key(index)
+        limits = self.warning_limits[supply_key]
+        voltage_value = self._comparison_value(supply_key, voltage)
+        current_value = self._comparison_value(supply_key, current)
 
-        # For 20kV: Red E-STOP threshold takes visual priority over the Max I warning.
+        voltage_warning = (
+            voltage_value is not None
+            and (
+                voltage_value < limits["min_voltage_v"]
+                or voltage_value > limits["max_voltage_v"]
+            )
+        )
+        current_warning = (
+            current_value is not None
+            and current_value > limits["max_current_ma"]
+        )
+        current_estop = (
+            supply_key == POS20KV_SUPPLY_KEY
+            and current_value is not None
+            and current_value > limits[BEAMS_ESTOP_CURRENT_FIELD]
+        )
+
+        if voltage_warning:
+            self._log_warning_breach(index, "voltage", voltage_value)
+        # For 20kV: the E-STOP threshold takes priority over the Max I warning.
+        if current_estop:
+            self._trigger_beams_estop_current(
+                current_value,
+                limits[BEAMS_ESTOP_CURRENT_FIELD],
+            )
+        if current_warning and not current_estop:
+            self._log_warning_breach(index, "current", current_value)
+
         voltage_color = (
             self.WARNING_TEXT_COLOR
             if voltage_warning
