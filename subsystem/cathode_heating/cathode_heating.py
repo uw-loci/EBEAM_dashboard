@@ -1680,7 +1680,7 @@ class CathodeHeatingSubsystem:
                 elif isinstance(temperature, str):
                     self.clamp_temperature_vars[index].set("ERR")
                     self.set_plot_color(index, 'ERROR')
-                    self.log(f"Reading temperature for cathode {index+1} returned an error",
+                    self.log(f"Reading temperature for cathode {index+1} returned an error: {temperature}",
                               LogLevel.ERROR)
                 else:
                     self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
