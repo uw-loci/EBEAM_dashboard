@@ -125,6 +125,8 @@ class BeamPulseSubsystem:
         # zero-argument callable that returns list[bool] (one entry per channel).
         # _sync_start uses it to skip channels that are not hardware-enabled.
         self._ch_enable_getter = None
+        # Dashboard-provided guard used before starting any non-OFF output group.
+        self._emission_limit_checker = None
 
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
@@ -757,6 +759,26 @@ class BeamPulseSubsystem:
                 ch + 1, config['duration_ms'], config['count'])
         self._log_event("Sync wrote params for channels")
 
+    def _emission_limit_allows(self, action, configs):
+        """Return (allowed, error_message) for a non-OFF output request."""
+        if not callable(self._emission_limit_checker):
+            return True, None
+
+        # Only channels with output-producing modes count toward total emission.
+        output_channels = [
+            cfg['ch'] - 1
+            for cfg in configs
+            if str(cfg.get('mode', '')).strip().upper() != 'OFF'
+        ]
+        if not output_channels:
+            return True, None
+
+        try:
+            return bool(self._emission_limit_checker(action, output_channels, configs)), None
+        except Exception as e:
+            # Treat checker failures as blocked starts to avoid partial output transitions.
+            return False, f"{action} blocked: emission limit check failed ({e})"
+
     def _sync_start(self):
         """Synchronous start of enabled channels using Manual Control tab configuration.
 
@@ -797,6 +819,12 @@ class BeamPulseSubsystem:
             })
 
         if configs:
+            allowed, error_message = self._emission_limit_allows("Sync Start", configs)
+            if not allowed:
+                if error_message:
+                    self._log_event(error_message)
+                return
+
             self.bcon_driver.sync_start(configs)
             self._log_event(
                 "Sync Start: " +
@@ -964,6 +992,16 @@ class BeamPulseSubsystem:
                 for row in rows
             ]
             if self._seq_stop.is_set() or not self.beams_armed_status:
+                break
+
+            allowed, error_message = self._emission_limit_allows(
+                f"CSV Sequence step {step_num}",
+                configs,
+            )
+            if not allowed:
+                if error_message:
+                    self._ui_queue.put(("seq_status", error_message))
+                self._seq_stop.set()
                 break
             self.bcon_driver.sync_start(configs)
 
@@ -1436,6 +1474,10 @@ class BeamPulseSubsystem:
         Typically: beam_pulse.set_channel_enable_getter(lambda: self._ch_enable_states)
         """
         self._ch_enable_getter = getter
+
+    def set_emission_limit_checker(self, callback):
+        """Register dashboard callback used to approve non-OFF output groups."""
+        self._emission_limit_checker = callback
 
     def set_channel_enable_status_callback(self, callback):
         """Register callback(ch, enabled) invoked on every register poll."""

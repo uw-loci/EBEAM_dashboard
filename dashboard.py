@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import math
 import subsystem
 import tkinter as tk
 from tkinter import ttk
@@ -8,6 +9,10 @@ from tkinter import messagebox
 import time
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states
+from usr.main_control_config import (
+    load_total_max_emission_current,
+    save_total_max_emission_current,
+)
 import serial.tools.list_ports
 try:
     from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
@@ -145,6 +150,12 @@ class EBEAMSystemDashboard:
         self._bp_future_len = 30
         self._bp_stats = {}
         self._bp_update_interval_ms = 1000
+        # Main Control owns the persisted guard rail used before enabling beam outputs.
+        self.total_max_emission_current_ma = load_total_max_emission_current(logger=self.logger)
+        self.total_max_emission_current_entry_var = tk.StringVar(value="")
+        self.total_max_emission_current_value_var = tk.StringVar(
+            value=f"Limit set to: {self.total_max_emission_current_ma:g}mA"
+        )
 
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
@@ -519,6 +530,9 @@ class EBEAMSystemDashboard:
         self.create_log_level_dropdown(config_frame)
         self.file_create_log_level_dropdown(config_frame)
 
+        # Expose the limit used by manual beam starts, Sync Start, and CSV sequences.
+        self.create_total_max_emission_current_controls(config_frame)
+
         # Add F1 help hint
         help_label = ttk.Label(
             config_frame,
@@ -530,6 +544,79 @@ class EBEAMSystemDashboard:
 
     def create_script_dropdown(self, parent_frame):
         SetupScripts(parent_frame)
+
+    def create_total_max_emission_current_controls(self, parent_frame):
+        """Create Main Control config UI for the total predicted emission limit."""
+        section = ttk.Frame(parent_frame)
+        section.pack(side=tk.TOP, anchor='nw', fill=tk.X, padx=5, pady=(5, 2))
+
+        ttk.Label(
+            section,
+            text="Total Max Emission Current",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 2))
+
+        row = ttk.Frame(section)
+        row.pack(fill=tk.X, pady=(2, 0))
+
+        ttk.Label(row, text="Max I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            row,
+            textvariable=self.total_max_emission_current_entry_var,
+            width=7,
+        ).grid(row=0, column=1, sticky=tk.W, padx=(2, 2))
+        ttk.Label(row, text="mA", font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
+        ttk.Button(
+            row,
+            text="Set",
+            width=4,
+            command=self.set_total_max_emission_current_limit,
+        ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
+
+        ttk.Label(
+            section,
+            textvariable=self.total_max_emission_current_value_var,
+            font=("Segoe UI", 8),
+            foreground="gray",
+        ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
+
+    def set_total_max_emission_current_limit(self):
+        """UI callback for committing the Main Control total emission limit."""
+        raw_text = str(self.total_max_emission_current_entry_var.get()).strip()
+        context = "Total Max Emission Current"
+        # Keep validation here so UI callbacks and tests use the same rules.
+        if not raw_text:
+            message = f"{context}: please enter a limit value in mA."
+            self.logger.error(message)
+            messagebox.showerror("Invalid Input", message)
+            return
+
+        try:
+            new_value = float(raw_text)
+        except ValueError:
+            message = f"{context}: please enter a valid number in mA."
+            self.logger.error(message)
+            messagebox.showerror("Invalid Input", message)
+            return
+
+        # Reject values that would make the limit comparison ambiguous.
+        if not math.isfinite(new_value) or new_value < 0:
+            message = f"{context}: value must be a finite, non-negative number in mA."
+            self.logger.error(message)
+            messagebox.showerror("Invalid Input", message)
+            return
+
+        self.total_max_emission_current_ma = new_value
+        self.total_max_emission_current_value_var.set(
+            f"Limit set to: {self.total_max_emission_current_ma:g}mA"
+        )
+        self.total_max_emission_current_entry_var.set("")
+
+        # Runtime updates still apply even if persisting to disk fails.
+        if not save_total_max_emission_current(new_value, logger=self.logger):
+            message = f"{context}: value was updated for this session but could not be saved."
+            self.logger.warning(message)
+            messagebox.showwarning("Save Failed", message)
 
     def create_post_processor_button(self, parent_frame):
         """Create a button to launch the standalone post-processor application"""
@@ -739,6 +826,50 @@ class EBEAMSystemDashboard:
         except Exception as e:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
 
+    def check_total_emission_current_limit(self, action, channel_indices, configs=None):
+        """Return True when the projected emission total is below the configured limit."""
+        # Only requested BCON channels A/B/C participate in this limit.
+        unique_channels = sorted({
+            int(index)
+            for index in channel_indices
+            if isinstance(index, int) and 0 <= index < 3
+        })
+        if not unique_channels:
+            return True
+
+        currents = [0.0, 0.0, 0.0]
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        getter = getattr(cathode, "get_predicted_emission_currents_ma", None)
+        if callable(getter):
+            try:
+                for index, value in enumerate(list(getter())[:3]):
+                    try:
+                        numeric_value = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(numeric_value) and numeric_value >= 0:
+                        currents[index] = numeric_value
+            except Exception as e:
+                self.logger.error(f"Could not read Cathode Heating predicted emission currents: {e}")
+
+        projected_total = sum(currents[index] for index in unique_channels)
+        limit = self.total_max_emission_current_ma
+
+        # The limit is exclusive: matching the configured cap blocks the action.
+        if projected_total < limit:
+            return True
+
+        breakdown = ", ".join(
+            f"{channel_label(index)}={currents[index]:.3f}mA"
+            for index in unique_channels
+        )
+        self.logger.error(
+            f"{action} blocked: predicted total emission current "
+            f"{projected_total:.3f}mA is at or above limit {limit:g}mA "
+            f"({breakdown})."
+        )
+        return False
+
     def _toggle_channel_enable(self, ch_index: int):
         """Toggle the hardware enable for a BCON channel (0-based index).
 
@@ -801,6 +932,27 @@ class EBEAMSystemDashboard:
                 self.logger.info(f"Beam {channel_label(beam_index)} turned OFF")
             else:
                 # Currently OFF -> send channel config to BCON
+                config = (
+                    beam_pulse.get_channel_config(beam_index)
+                    if hasattr(beam_pulse, 'get_channel_config')
+                    else {'mode': 'PULSE'}
+                )
+                mode_label = str(config.get('mode', 'PULSE')).strip().upper()
+                # OFF-mode configs do not create beam output, so they skip the emission guard.
+                if mode_label != 'OFF':
+                    # Include beams that are already ON because the limit applies to total output.
+                    projected_channels = [
+                        idx for idx in range(3)
+                        if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(idx)
+                    ]
+                    if beam_index not in projected_channels:
+                        projected_channels.append(beam_index)
+                    if not self.check_total_emission_current_limit(
+                        f"Beam {channel_label(beam_index)} ON",
+                        projected_channels,
+                    ):
+                        return
+
                 ok = beam_pulse.send_channel_config(beam_index)
                 if ok:
                     btn.config(bg="green", text=f"Beam {channel_label(beam_index)} ON")
@@ -1085,6 +1237,11 @@ class EBEAMSystemDashboard:
                 beam_pulse_subsystem.set_channel_enable_getter(
                     lambda: list(getattr(self, '_ch_enable_states', [True, True, True]))
                 )
+                # Beam Pulse calls back here before multi-channel output transitions.
+                if hasattr(beam_pulse_subsystem, 'set_emission_limit_checker'):
+                    beam_pulse_subsystem.set_emission_limit_checker(
+                        self.check_total_emission_current_limit
+                    )
 
                 self.subsystems['Beam Pulse'] = beam_pulse_subsystem
             else:
