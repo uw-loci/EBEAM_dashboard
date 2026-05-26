@@ -551,7 +551,6 @@ class BeamEnergySubsystem:
                     if self.knob_box_connected_at and (time.time() - self.knob_box_connected_at) < knob_box.CONNECTION_TIMEOUT:
                         for index, _ in enumerate(self.power_supplies):
                             self.set_default_values(index)
-                        self._publish_disconnected_beam_energy_payload()
                         self.after_id = self.parent_frame.after(500, self.update_readings)
                         return
 
