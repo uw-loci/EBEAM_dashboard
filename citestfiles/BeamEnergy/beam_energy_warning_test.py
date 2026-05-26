@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from subsystem.beam_energy.beam_energy import BeamEnergySubsystem
+from utils import LogLevel
 from usr.beam_energy_warning_config import (
     DEFAULT_WARNING_LIMITS,
     load_beam_energy_warning_limits,
@@ -50,8 +51,18 @@ def make_subsystem(limits=None):
     subsystem.logger = MagicMock()
     subsystem.supply_keys = [supply_key for supply_key, _unit_id in subsystem.supply_payload_map]
     subsystem.warning_limits = normalize_warning_limits(limits or DEFAULT_WARNING_LIMITS)
+    subsystem.power_supplies = [
+        {"name": "+1kV Matsusada PS", "type": "matsusada", "voltage": 1000},
+        {"name": "-1kV Matsusada PS", "type": "matsusada", "voltage": -1000},
+        {"name": "+20kV Bertan PS", "type": "bertan", "voltage": 20000},
+        {"name": "+3kV Bertan PS", "type": "bertan", "voltage": 3000},
+    ]
     subsystem.latest_actual_voltage_values = [None, None, None, None]
     subsystem.latest_actual_current_values = [None, None, None, None]
+    subsystem.warning_alarm_states = [
+        {"voltage": False, "current": False}
+        for _ in subsystem.supply_keys
+    ]
     subsystem.ui_elements = [
         {"voltage_display": FakeLabel(), "current_display": FakeLabel()}
         for _ in subsystem.supply_keys
@@ -183,6 +194,48 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
 
         self.assertEqual(subsystem.ui_elements[1]["voltage_display"].foreground, "#FFA500")
         self.assertEqual(subsystem.ui_elements[1]["current_display"].foreground, "#FFA500")
+
+    def test_warning_logs_once_when_voltage_first_goes_orange(self):
+        subsystem = make_subsystem({"pos1kv": {"min_voltage_v": 100, "max_voltage_v": 900}})
+
+        subsystem.apply_warning_indicators(0, 900.1, 1.0)
+        subsystem.apply_warning_indicators(0, 901.0, 1.0)
+
+        warning_logs = [
+            call for call in subsystem.logger.log.call_args_list
+            if len(call.args) >= 2 and call.args[1] == LogLevel.WARNING
+        ]
+        self.assertEqual(len(warning_logs), 1)
+        self.assertIn("+1kV Matsusada PS", warning_logs[0].args[0])
+        self.assertIn("actual voltage", warning_logs[0].args[0])
+
+    def test_warning_logs_again_after_value_recovers_and_rebreaches(self):
+        subsystem = make_subsystem({"pos1kv": {"max_current_ma": 10}})
+
+        subsystem.apply_warning_indicators(0, 100.0, 10.1)
+        subsystem.apply_warning_indicators(0, 100.0, 10.0)
+        subsystem.apply_warning_indicators(0, 100.0, 10.2)
+
+        warning_logs = [
+            call for call in subsystem.logger.log.call_args_list
+            if len(call.args) >= 2 and call.args[1] == LogLevel.WARNING
+        ]
+        self.assertEqual(len(warning_logs), 2)
+        self.assertTrue(all("actual current" in call.args[0] for call in warning_logs))
+
+    def test_negative_one_kv_warning_log_mentions_absolute_reading(self):
+        subsystem = make_subsystem(
+            {"neg1kv": {"min_voltage_v": 0, "max_voltage_v": 1000, "max_current_ma": 30}}
+        )
+
+        subsystem.apply_warning_indicators(1, -1001.0, 1.0)
+
+        warning_logs = [
+            call for call in subsystem.logger.log.call_args_list
+            if len(call.args) >= 2 and call.args[1] == LogLevel.WARNING
+        ]
+        self.assertEqual(len(warning_logs), 1)
+        self.assertIn("absolute actual voltage", warning_logs[0].args[0])
 
 
 class TestBeamEnergyWarningValidation(unittest.TestCase):
