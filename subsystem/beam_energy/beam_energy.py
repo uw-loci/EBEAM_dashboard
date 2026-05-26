@@ -1,10 +1,16 @@
 import tkinter as tk
 from tkinter import ttk
+import math
 import threading
 import time
 from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 from utils import LogLevel
 import tkinter.messagebox as messagebox
+from usr.beam_energy_warning_config import (
+    DEFAULT_WARNING_LIMITS,
+    load_beam_energy_warning_limits,
+    save_beam_energy_warning_limits,
+)
 
 
 
@@ -19,6 +25,13 @@ class BeamEnergySubsystem:
     """
 
     displayFont = "Arial"
+    WARNING_TEXT_COLOR = "#FFA500"
+    NORMAL_TEXT_COLOR = "black"
+    warning_limit_fields = (
+        ("max_voltage_v", "Max V", "V"),
+        ("min_voltage_v", "Min V", "V"),
+        ("max_current_ma", "Max I", "mA"),
+    )
     supply_payload_map = (
         ("pos1kv", 1),
         ("neg1kv", 2),
@@ -65,6 +78,10 @@ class BeamEnergySubsystem:
             {"name": "+20kV Bertran PS", "type": "bertran", "voltage": 20000},
             {"name": "+3kV Bertran PS", "type": "bertran", "voltage": 3000},
         ]
+        self.supply_keys = [supply_key for supply_key, _ in self.supply_payload_map]
+        self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
+        self.latest_actual_voltage_values = [None for _ in self.power_supplies]
+        self.latest_actual_current_values = [None for _ in self.power_supplies]
 
         # Global data storing each power supply's latest readings
         self.set_voltages = [tk.StringVar(value="-- V") for _ in range(len(self.power_supplies))]
@@ -81,6 +98,17 @@ class BeamEnergySubsystem:
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
+        self.warning_limit_entry_vars = [
+            {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
+            for _ in self.power_supplies
+        ]
+        self.warning_limit_value_vars = [
+            {
+                field: tk.StringVar(value=self._format_warning_limit_setting(index, field))
+                for field, _label, _unit in self.warning_limit_fields
+            }
+            for index, _ps_config in enumerate(self.power_supplies)
+        ]
 
         self.overcurrent_flags = [False for _ in self.power_supplies]
 
@@ -100,8 +128,16 @@ class BeamEnergySubsystem:
         
     def setup_ui(self):
         """Create the user interface with four vertical boxes for power supplies."""
+        notebook = ttk.Notebook(self.parent_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        main_tab = ttk.Frame(notebook)
+        config_tab = ttk.Frame(notebook)
+        notebook.add(main_tab, text="Main")
+        notebook.add(config_tab, text="Config")
+
         # Main container frame
-        main_frame = ttk.Frame(self.parent_frame, padding="2")
+        main_frame = ttk.Frame(main_tab, padding="2")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Initialize ui_elements list, one for each power supply
@@ -137,6 +173,7 @@ class BeamEnergySubsystem:
         right_panel = ttk.Frame(ps_container)
         right_panel.grid(row=0, column=len(self.ps_frames)+1, sticky="ns", padx=(10,0))
         self.create_indicators(right_panel)
+        self.create_warning_config_tab(config_tab)
 
     def create_indicator_circle(self, parent, color="gray"):
         """Helper function, used to create indicators for system status panel."""
@@ -182,6 +219,222 @@ class BeamEnergySubsystem:
         add_row("Arm 80kV:",     self.glassman_interlock_var)
         add_row("Logic Comms:",    color_var=self.logic_comms_color)
         add_row("Interlocks:",     color_var=self.interlocks_color)        
+
+    def create_warning_config_tab(self, parent_frame):
+        """Create configurable warning-limit controls for Beam Energy readbacks."""
+        config_container = ttk.Frame(parent_frame, padding="2")
+        config_container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            config_container,
+            text="Power Supply Warning Values",
+            font=("Segoe UI", 9, "bold"),
+            anchor=tk.CENTER
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        supplies_container = ttk.Frame(config_container)
+        supplies_container.pack(fill=tk.BOTH, expand=True)
+
+        for i, ps_config in enumerate(self.power_supplies):
+            ps_frame = ttk.LabelFrame(
+                supplies_container,
+                text=ps_config["name"],
+                padding="5",
+                labelanchor="n"
+            )
+            ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
+            supplies_container.grid_columnconfigure(i, weight=1)
+            self.create_warning_limit_controls(ps_frame, i)
+
+        supplies_container.grid_rowconfigure(0, weight=1)
+
+    def create_warning_limit_controls(self, frame, index):
+        for field, label, unit in self.warning_limit_fields:
+            row = ttk.Frame(frame)
+            row.pack(fill=tk.X, pady=(2, 0))
+
+            ttk.Label(row, text=f"{label}:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
+            sign_text = "-" if self._get_supply_key(index) == "neg1kv" and field != "max_current_ma" else ""
+            ttk.Label(row, text=sign_text, font=("Segoe UI", 8), width=1).grid(row=0, column=1, sticky=tk.E)
+            entry = ttk.Entry(row, textvariable=self.warning_limit_entry_vars[index][field], width=7)
+            entry.grid(row=0, column=2, sticky=tk.W, padx=(2, 2))
+            ttk.Label(row, text=unit, font=("Segoe UI", 8)).grid(row=0, column=3, sticky=tk.W)
+            ttk.Button(
+                row,
+                text="Set",
+                width=4,
+                command=lambda i=index, f=field: self.set_warning_limit(i, f)
+            ).grid(row=0, column=4, sticky=tk.W, padx=(4, 0))
+
+            ttk.Label(
+                frame,
+                textvariable=self.warning_limit_value_vars[index][field],
+                font=("Segoe UI", 8),
+                foreground="gray"
+            ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
+
+        if self._get_supply_key(index) == "neg1kv":
+            ttk.Label(
+                frame,
+                text="Warning values use absolute values.",
+                font=("Segoe UI", 8, "italic"),
+                foreground="gray"
+            ).pack(anchor=tk.W, pady=(2, 0))
+
+    def _get_supply_key(self, index):
+        return self.supply_keys[index]
+
+    def _warning_limit_unit(self, field):
+        return "mA" if field == "max_current_ma" else "V"
+
+    def _format_warning_limit_setting(self, index, field):
+        supply_key = self.supply_keys[index]
+        value = self.warning_limits[supply_key][field]
+        return f"Limit set to: {value:g}{self._warning_limit_unit(field)}"
+
+    def _max_allowed_warning_limit(self, supply_key, field):
+        defaults = DEFAULT_WARNING_LIMITS[supply_key]
+        if field == "max_current_ma":
+            return defaults["max_current_ma"]
+        return defaults["max_voltage_v"]
+
+    def _refresh_warning_limit_display(self, index, field=None):
+        if not hasattr(self, "warning_limit_value_vars"):
+            return
+
+        fields = [field] if field else [item[0] for item in self.warning_limit_fields]
+        for limit_field in fields:
+            self.warning_limit_value_vars[index][limit_field].set(
+                self._format_warning_limit_setting(index, limit_field)
+            )
+
+    def set_warning_limit(self, index, field):
+        """UI callback for committing one warning-limit entry."""
+        raw_value = self.warning_limit_entry_vars[index][field].get()
+        if self._set_warning_limit_from_raw(index, field, raw_value):
+            self.warning_limit_entry_vars[index][field].set("")
+
+    def _set_warning_limit_from_raw(self, index, field, raw_value, show_dialogs=True, persist=True):
+        raw_text = str(raw_value).strip()
+        if not raw_text:
+            self._show_warning_limit_error("Invalid Input", "Please enter a warning-limit value.", show_dialogs)
+            return False
+
+        try:
+            new_value = float(raw_text)
+        except ValueError:
+            self._show_warning_limit_error("Invalid Input", "Please enter a valid number.", show_dialogs)
+            return False
+
+        if not math.isfinite(new_value) or new_value < 0:
+            self._show_warning_limit_error(
+                "Invalid Input",
+                "Warning-limit values must be finite, non-negative numbers.",
+                show_dialogs
+            )
+            return False
+
+        supply_key = self._get_supply_key(index)
+        max_allowed = self._max_allowed_warning_limit(supply_key, field)
+        if new_value > max_allowed:
+            self._show_warning_limit_error(
+                "Invalid Input",
+                f"{self._warning_limit_unit(field)} limit must be between 0 and {max_allowed:g}.",
+                show_dialogs
+            )
+            return False
+
+        candidate = dict(self.warning_limits[supply_key])
+        candidate[field] = new_value
+
+        if candidate["max_voltage_v"] < candidate["min_voltage_v"]:
+            self._show_warning_limit_error(
+                "Invalid Voltage Range",
+                "Max Voltage Limit must be greater than or equal to Min Voltage Limit.",
+                show_dialogs
+            )
+            return False
+
+        self.warning_limits[supply_key] = candidate
+        self._refresh_warning_limit_display(index, field)
+        self.refresh_warning_indicators(index)
+
+        if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
+            message = "Warning-limit value was updated for this session but could not be saved."
+            self.log(message, LogLevel.WARNING)
+            if show_dialogs:
+                messagebox.showwarning("Save Failed", message)
+
+        return True
+
+    def _show_warning_limit_error(self, title, message, show_dialogs):
+        self.log(message, LogLevel.ERROR)
+        if show_dialogs:
+            messagebox.showerror(title, message)
+
+    def _coerce_reading(self, value):
+        if value is None:
+            return None
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric_value):
+            return None
+        return numeric_value
+
+    def _warning_compare_value(self, index, value):
+        value = self._coerce_reading(value)
+        if value is None:
+            return None
+        if self._get_supply_key(index) == "neg1kv":
+            return abs(value)
+        return value
+
+    def _voltage_warning_active(self, index, voltage):
+        value = self._warning_compare_value(index, voltage)
+        if value is None:
+            return False
+        limits = self.warning_limits[self._get_supply_key(index)]
+        return value < limits["min_voltage_v"] or value > limits["max_voltage_v"]
+
+    def _current_warning_active(self, index, current):
+        value = self._warning_compare_value(index, current)
+        if value is None:
+            return False
+        limits = self.warning_limits[self._get_supply_key(index)]
+        return value > limits["max_current_ma"]
+
+    def _set_actual_display_color(self, index, element_name, color):
+        if index < len(self.ui_elements) and self.ui_elements[index]:
+            self.ui_elements[index][element_name].config(foreground=color)
+
+    def apply_warning_indicators(self, index, voltage, current):
+        """Update main-tab Actual Voltage/Current colors from numeric readings."""
+        voltage = self._coerce_reading(voltage)
+        current = self._coerce_reading(current)
+        self.latest_actual_voltage_values[index] = voltage
+        self.latest_actual_current_values[index] = current
+
+        voltage_color = (
+            self.WARNING_TEXT_COLOR
+            if self._voltage_warning_active(index, voltage)
+            else self.NORMAL_TEXT_COLOR
+        )
+        current_color = (
+            self.WARNING_TEXT_COLOR
+            if self._current_warning_active(index, current)
+            else self.NORMAL_TEXT_COLOR
+        )
+        self._set_actual_display_color(index, "voltage_display", voltage_color)
+        self._set_actual_display_color(index, "current_display", current_color)
+
+    def refresh_warning_indicators(self, index):
+        self.apply_warning_indicators(
+            index,
+            self.latest_actual_voltage_values[index],
+            self.latest_actual_current_values[index],
+        )
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -637,6 +890,8 @@ class BeamEnergySubsystem:
                 else:
                     self.actual_currents[index].set("-- mA")
 
+                self.apply_warning_indicators(index, v_read, i_read)
+
                 # Update indicators based on data 
                 interlocks = not nomop_flag # 1 for Nom Op, 0 for interlocks active
                 self.update_indicators_panel(index, arm_beams, ccs_power, arm_80kV, logic_alive, interlocks)
@@ -688,7 +943,8 @@ class BeamEnergySubsystem:
         """Set display values to default '--'."""
         self.set_voltages[index].set("-- V")
         self.actual_voltages[index].set("-- V")
-        self.actual_currents[index].set("-- A")
+        self.actual_currents[index].set("-- mA")
+        self.apply_warning_indicators(index, None, None)
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
         self.update_reset_status(index, False)
