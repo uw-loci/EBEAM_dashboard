@@ -193,17 +193,17 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
         subsystem = make_subsystem({"pos1kv": {"min_voltage_v": 100, "max_voltage_v": 900}})
 
         subsystem.apply_warning_indicators(0, 99.9, 1.0)
-        self.assertEqual(subsystem.ui_elements[0]["voltage_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[0]["voltage_display"].foreground, "#FF4500")
 
         subsystem.apply_warning_indicators(0, 900.1, 1.0)
-        self.assertEqual(subsystem.ui_elements[0]["voltage_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[0]["voltage_display"].foreground, "#FF4500")
 
     def test_current_above_max_is_orange(self):
         subsystem = make_subsystem({"pos1kv": {"max_current_ma": 10}})
 
         subsystem.apply_warning_indicators(0, 100.0, 10.001)
 
-        self.assertEqual(subsystem.ui_elements[0]["current_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[0]["current_display"].foreground, "#FF4500")
 
     def test_pos20kv_current_above_max_below_estop_is_orange_without_estop(self):
         subsystem = make_subsystem(
@@ -213,7 +213,7 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
 
         subsystem.apply_warning_indicators(2, 100.0, 0.6)
 
-        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FF4500")
         subsystem.beams_estop_callback.assert_not_called()
 
     def test_pos20kv_current_equal_to_estop_limit_is_not_estop(self):
@@ -224,7 +224,7 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
 
         subsystem.apply_warning_indicators(2, 100.0, 0.75)
 
-        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FF4500")
         subsystem.beams_estop_callback.assert_not_called()
 
     def test_pos20kv_current_above_estop_is_red_and_calls_estop_once(self):
@@ -287,8 +287,8 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
 
         subsystem.apply_warning_indicators(1, -1001.0, -30.1)
 
-        self.assertEqual(subsystem.ui_elements[1]["voltage_display"].foreground, "#FFA500")
-        self.assertEqual(subsystem.ui_elements[1]["current_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[1]["voltage_display"].foreground, "#FF4500")
+        self.assertEqual(subsystem.ui_elements[1]["current_display"].foreground, "#FF4500")
 
     def test_warning_logs_each_time_voltage_is_outside_limit(self):
         subsystem = make_subsystem({"pos1kv": {"min_voltage_v": 100, "max_voltage_v": 900}})
@@ -384,7 +384,7 @@ class TestBeamEnergyWarningValidation(unittest.TestCase):
             subsystem.warning_limit_value_vars[0]["max_current_ma"].get(),
             "Limit set to: 22.5mA",
         )
-        self.assertEqual(subsystem.ui_elements[0]["current_display"].foreground, "#FFA500")
+        self.assertEqual(subsystem.ui_elements[0]["current_display"].foreground, "#FF4500")
         save_limits.assert_called_once()
 
     def test_pos20kv_max_current_above_estop_limit_is_rejected(self):
