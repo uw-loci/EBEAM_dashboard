@@ -276,7 +276,7 @@ class BeamEnergySubsystem:
         if self._get_supply_key(index) == "neg1kv":
             ttk.Label(
                 frame,
-                text="Warning values use absolute values.",
+                text="Warning limits use absolute values.",
                 font=("Segoe UI", 8, "italic"),
                 foreground="gray"
             ).pack(anchor=tk.W, pady=(2, 0))
@@ -290,7 +290,8 @@ class BeamEnergySubsystem:
     def _format_warning_limit_setting(self, index, field):
         supply_key = self.supply_keys[index]
         value = self.warning_limits[supply_key][field]
-        return f"Limit set to: {value:g}{self._warning_limit_unit(field)}"
+        sign = "-" if supply_key == "neg1kv" and field != "max_current_ma" else ""
+        return f"Limit set to: {sign}{value:g}{self._warning_limit_unit(field)}"
 
     def _max_allowed_warning_limit(self, supply_key, field):
         defaults = DEFAULT_WARNING_LIMITS[supply_key]

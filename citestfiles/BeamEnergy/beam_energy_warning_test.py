@@ -254,6 +254,22 @@ class TestBeamEnergyWarningValidation(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(subsystem.warning_limits["pos1kv"], before)
 
+    def test_negative_one_kv_voltage_limit_display_has_negative_marker(self):
+        subsystem = make_subsystem({"neg1kv": {"max_voltage_v": 955, "min_voltage_v": 12}})
+
+        self.assertEqual(
+            subsystem.warning_limit_value_vars[1]["max_voltage_v"].get(),
+            "Limit set to: -955V",
+        )
+        self.assertEqual(
+            subsystem.warning_limit_value_vars[1]["min_voltage_v"].get(),
+            "Limit set to: -12V",
+        )
+        self.assertEqual(
+            subsystem.warning_limit_value_vars[1]["max_current_ma"].get(),
+            "Limit set to: 30mA",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
