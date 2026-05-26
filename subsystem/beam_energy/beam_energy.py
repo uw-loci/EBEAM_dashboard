@@ -7,7 +7,9 @@ from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 from utils import LogLevel
 import tkinter.messagebox as messagebox
 from usr.beam_energy_warning_config import (
+    BEAMS_ESTOP_CURRENT_FIELD,
     DEFAULT_WARNING_LIMITS,
+    POS20KV_SUPPLY_KEY,
     load_beam_energy_warning_limits,
     save_beam_energy_warning_limits,
 )
@@ -25,6 +27,7 @@ class BeamEnergySubsystem:
     """
 
     displayFont = "Arial"
+    ESTOP_TEXT_COLOR = "red"
     WARNING_TEXT_COLOR = "#FFA500"
     NORMAL_TEXT_COLOR = "black"
     warning_limit_fields = (
@@ -98,6 +101,12 @@ class BeamEnergySubsystem:
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
+        self.beams_estop_current_entry_var = tk.StringVar(value="")
+        self.beams_estop_current_value_var = tk.StringVar(
+            value=self._format_beams_estop_current_limit_setting()
+        )
+        self.beams_estop_callback = None
+        self.beams_estop_breach_active = False
         self.warning_limit_entry_vars = [
             {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
             for _ in self.power_supplies
@@ -273,6 +282,9 @@ class BeamEnergySubsystem:
                 foreground="gray"
             ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
 
+        if self._get_supply_key(index) == POS20KV_SUPPLY_KEY:
+            self.create_beams_estop_limit_controls(frame)
+
         if self._get_supply_key(index) == "neg1kv":
             ttk.Label(
                 frame,
@@ -281,11 +293,47 @@ class BeamEnergySubsystem:
                 foreground="gray"
             ).pack(anchor=tk.W, pady=(2, 0))
 
+    def create_beams_estop_limit_controls(self, frame):
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(4, 4))
+        ttk.Label(
+            frame,
+            text="Beams E-Stop Current Limit",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 2))
+
+        row = ttk.Frame(frame)
+        row.pack(fill=tk.X, pady=(2, 0))
+
+        ttk.Label(row, text="E-Stop Limit:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(row, textvariable=self.beams_estop_current_entry_var, width=7).grid(
+            row=0,
+            column=1,
+            sticky=tk.W,
+            padx=(2, 2),
+        )
+        ttk.Label(row, text="mA", font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
+        ttk.Button(
+            row,
+            text="Set",
+            width=4,
+            command=self.set_beams_estop_current_limit,
+        ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
+
+        ttk.Label(
+            frame,
+            textvariable=self.beams_estop_current_value_var,
+            font=("Segoe UI", 8),
+            foreground="gray",
+        ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
+
     def _get_supply_key(self, index):
         return self.supply_keys[index]
 
+    def _get_pos20kv_index(self):
+        return self.supply_keys.index(POS20KV_SUPPLY_KEY)
+
     def _warning_limit_unit(self, field):
-        return "mA" if field == "max_current_ma" else "V"
+        return "mA" if field in ("max_current_ma", BEAMS_ESTOP_CURRENT_FIELD) else "V"
 
     def _format_warning_limit_setting(self, index, field):
         supply_key = self.supply_keys[index]
@@ -293,10 +341,34 @@ class BeamEnergySubsystem:
         sign = "-" if supply_key == "neg1kv" and field != "max_current_ma" else ""
         return f"Limit set to: {sign}{value:g}{self._warning_limit_unit(field)}"
 
+    def _format_beams_estop_current_limit_setting(self):
+        value = self.warning_limits[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
+        return f"Limit set to: {value:g}mA"
+
+    def _get_supply_name(self, index):
+        if index < len(self.power_supplies):
+            return self.power_supplies[index]["name"]
+        return self._get_supply_key(index)
+
+    def _warning_limit_label(self, field):
+        if field == "max_current_ma":
+            return "Max I current limit"
+        if field == "max_voltage_v":
+            return "Max V voltage limit"
+        if field == "min_voltage_v":
+            return "Min V voltage limit"
+        return "warning limit"
+
+    def _warning_limit_context(self, index, field):
+        return f"{self._get_supply_name(index)} {self._warning_limit_label(field)}"
+
+    def _beams_estop_current_limit_context(self):
+        return f"{self._get_supply_name(self._get_pos20kv_index())} Beams E-Stop Current Limit"
+
     def _max_allowed_warning_limit(self, supply_key, field):
         defaults = DEFAULT_WARNING_LIMITS[supply_key]
-        if field == "max_current_ma":
-            return defaults["max_current_ma"]
+        if field in ("max_current_ma", BEAMS_ESTOP_CURRENT_FIELD):
+            return defaults[field]
         return defaults["max_voltage_v"]
 
     def _refresh_warning_limit_display(self, index, field=None):
@@ -309,49 +381,90 @@ class BeamEnergySubsystem:
                 self._format_warning_limit_setting(index, limit_field)
             )
 
+    def _refresh_beams_estop_current_display(self):
+        if hasattr(self, "beams_estop_current_value_var"):
+            self.beams_estop_current_value_var.set(
+                self._format_beams_estop_current_limit_setting()
+            )
+
     def set_warning_limit(self, index, field):
         """UI callback for committing one warning-limit entry."""
         raw_value = self.warning_limit_entry_vars[index][field].get()
         if self._set_warning_limit_from_raw(index, field, raw_value):
             self.warning_limit_entry_vars[index][field].set("")
 
-    def _set_warning_limit_from_raw(self, index, field, raw_value, show_dialogs=True, persist=True):
+    def _parse_warning_limit_value(self, raw_value, context, unit, show_dialogs=True):
         raw_text = str(raw_value).strip()
         if not raw_text:
-            self._show_warning_limit_error("Invalid Input", "Please enter a warning-limit value.", show_dialogs)
-            return False
+            self._show_warning_limit_error(
+                "Invalid Input",
+                f"{context}: please enter a warning-limit value in {unit}.",
+                show_dialogs,
+            )
+            return None
 
         try:
             new_value = float(raw_text)
         except ValueError:
-            self._show_warning_limit_error("Invalid Input", "Please enter a valid number.", show_dialogs)
-            return False
+            self._show_warning_limit_error(
+                "Invalid Input",
+                f"{context}: please enter a valid number in {unit}.",
+                show_dialogs,
+            )
+            return None
 
         if not math.isfinite(new_value) or new_value < 0:
             self._show_warning_limit_error(
                 "Invalid Input",
-                "Warning-limit values must be finite, non-negative numbers.",
+                f"{context}: value must be a finite, non-negative number in {unit}.",
                 show_dialogs
             )
+            return None
+
+        return new_value
+
+    def _set_warning_limit_from_raw(self, index, field, raw_value, show_dialogs=True, persist=True):
+        context = self._warning_limit_context(index, field)
+        unit = self._warning_limit_unit(field)
+        new_value = self._parse_warning_limit_value(
+            raw_value,
+            context,
+            unit,
+            show_dialogs=show_dialogs,
+        )
+        if new_value is None:
             return False
 
         supply_key = self._get_supply_key(index)
+        candidate = dict(self.warning_limits[supply_key])
+        candidate[field] = new_value
+
+        if (
+            supply_key == POS20KV_SUPPLY_KEY
+            and candidate["max_current_ma"] > candidate[BEAMS_ESTOP_CURRENT_FIELD]
+        ):
+            self._show_warning_limit_error(
+                "Invalid Current Range",
+                f"{context}: must be at or below the Beams E-Stop Current "
+                f"Limit ({candidate[BEAMS_ESTOP_CURRENT_FIELD]:g}mA).",
+                show_dialogs,
+            )
+            return False
+
         max_allowed = self._max_allowed_warning_limit(supply_key, field)
         if new_value > max_allowed:
             self._show_warning_limit_error(
                 "Invalid Input",
-                f"{self._warning_limit_unit(field)} limit must be between 0 and {max_allowed:g}.",
+                f"{context}: value must be between 0{unit} and {max_allowed:g}{unit}.",
                 show_dialogs
             )
             return False
 
-        candidate = dict(self.warning_limits[supply_key])
-        candidate[field] = new_value
-
         if candidate["max_voltage_v"] < candidate["min_voltage_v"]:
             self._show_warning_limit_error(
                 "Invalid Voltage Range",
-                "Max Voltage Limit must be greater than or equal to Min Voltage Limit.",
+                f"{self._get_supply_name(index)} voltage limits: Max V must be greater "
+                f"than or equal to Min V ({candidate['min_voltage_v']:g}V).",
                 show_dialogs
             )
             return False
@@ -361,7 +474,58 @@ class BeamEnergySubsystem:
         self.refresh_warning_indicators(index)
 
         if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
-            message = "Warning-limit value was updated for this session but could not be saved."
+            message = f"{context}: value was updated for this session but could not be saved."
+            self.log(message, LogLevel.WARNING)
+            if show_dialogs:
+                messagebox.showwarning("Save Failed", message)
+
+        return True
+
+    def set_beams_estop_current_limit(self):
+        """UI callback for committing the +20kV Beams E-STOP current limit."""
+        raw_value = self.beams_estop_current_entry_var.get()
+        if self._set_beams_estop_current_limit_from_raw(raw_value):
+            self.beams_estop_current_entry_var.set("")
+
+    def _set_beams_estop_current_limit_from_raw(self, raw_value, show_dialogs=True, persist=True):
+        context = self._beams_estop_current_limit_context()
+        unit = self._warning_limit_unit(BEAMS_ESTOP_CURRENT_FIELD)
+        new_value = self._parse_warning_limit_value(
+            raw_value,
+            context,
+            unit,
+            show_dialogs=show_dialogs,
+        )
+        if new_value is None:
+            return False
+
+        max_allowed = DEFAULT_WARNING_LIMITS[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
+        if new_value > max_allowed:
+            self._show_warning_limit_error(
+                "Invalid Input",
+                f"{context}: value must be between 0mA and {max_allowed:g}mA.",
+                show_dialogs,
+            )
+            return False
+
+        limits = self.warning_limits[POS20KV_SUPPLY_KEY]
+        if new_value < limits["max_current_ma"]:
+            self._show_warning_limit_error(
+                "Invalid Current Range",
+                f"{context}: must be greater than or equal to the Max I current "
+                f"limit ({limits['max_current_ma']:g}mA).",
+                show_dialogs,
+            )
+            return False
+
+        candidate = dict(limits)
+        candidate[BEAMS_ESTOP_CURRENT_FIELD] = new_value
+        self.warning_limits[POS20KV_SUPPLY_KEY] = candidate
+        self._refresh_beams_estop_current_display()
+        self.refresh_warning_indicators(self._get_pos20kv_index())
+
+        if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
+            message = f"{context}: value was updated for this session but could not be saved."
             self.log(message, LogLevel.WARNING)
             if show_dialogs:
                 messagebox.showwarning("Save Failed", message)
@@ -406,6 +570,56 @@ class BeamEnergySubsystem:
         limits = self.warning_limits[self._get_supply_key(index)]
         return value > limits["max_current_ma"]
 
+    def _process_beams_estop_current(self, index, current):
+        if self._get_supply_key(index) != POS20KV_SUPPLY_KEY:
+            return False
+
+        value = self._coerce_reading(current)
+        if value is None:
+            return False
+
+        limit = self.warning_limits[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
+        breached = value > limit
+        if not breached:
+            self.beams_estop_breach_active = False
+            return False
+
+        if not getattr(self, "beams_estop_breach_active", False):
+            self.beams_estop_breach_active = True
+            self._trigger_beams_estop_current(value, limit)
+
+        return True
+
+    def _trigger_beams_estop_current(self, current_ma, limit_ma):
+        self.log(
+            "+20kV Bertan automatic Beams E-STOP: actual current "
+            f"{current_ma:.3f}mA exceeded E-STOP limit {limit_ma:g}mA.",
+            LogLevel.CRITICAL,
+        )
+
+        callback = getattr(self, "beams_estop_callback", None)
+        if not callable(callback):
+            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.ERROR)
+            return
+
+        try:
+            callback()
+        except Exception as e:
+            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.ERROR)
+
+    def set_beams_estop_callback(self, callback):
+        """Register the dashboard's Beams E-STOP handler."""
+        self.beams_estop_callback = callback
+        pos20kv_index = self._get_pos20kv_index()
+
+        def _recheck():
+            self.refresh_warning_indicators(pos20kv_index)
+
+        try:
+            self.parent_frame.after(0, _recheck)
+        except Exception:
+            _recheck()
+
     def _log_warning_breach(self, index, reading_type, value):
         compare_value = self._warning_compare_value(index, value)
         if compare_value is None:
@@ -444,9 +658,10 @@ class BeamEnergySubsystem:
 
         voltage_warning = self._voltage_warning_active(index, voltage)
         current_warning = self._current_warning_active(index, current)
+        current_estop = self._process_beams_estop_current(index, current)
         if voltage_warning:
             self._log_warning_breach(index, "voltage", voltage)
-        if current_warning:
+        if current_warning and not current_estop:
             self._log_warning_breach(index, "current", current)
 
         voltage_color = (
@@ -454,11 +669,12 @@ class BeamEnergySubsystem:
             if voltage_warning
             else self.NORMAL_TEXT_COLOR
         )
-        current_color = (
-            self.WARNING_TEXT_COLOR
-            if current_warning
-            else self.NORMAL_TEXT_COLOR
-        )
+        if current_estop:
+            current_color = self.ESTOP_TEXT_COLOR
+        elif current_warning:
+            current_color = self.WARNING_TEXT_COLOR
+        else:
+            current_color = self.NORMAL_TEXT_COLOR
         self._set_actual_display_color(index, "voltage_display", voltage_color)
         self._set_actual_display_color(index, "current_display", current_color)
 

@@ -11,7 +11,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from subsystem.beam_energy.beam_energy import BeamEnergySubsystem
 from utils import LogLevel
 from usr.beam_energy_warning_config import (
+    BEAMS_ESTOP_CURRENT_FIELD,
     DEFAULT_WARNING_LIMITS,
+    POS20KV_SUPPLY_KEY,
     load_beam_energy_warning_limits,
     normalize_warning_limits,
     save_beam_energy_warning_limits,
@@ -59,6 +61,12 @@ def make_subsystem(limits=None):
     ]
     subsystem.latest_actual_voltage_values = [None, None, None, None]
     subsystem.latest_actual_current_values = [None, None, None, None]
+    subsystem.beams_estop_callback = None
+    subsystem.beams_estop_breach_active = False
+    subsystem.beams_estop_current_entry_var = FakeVar("")
+    subsystem.beams_estop_current_value_var = FakeVar(
+        subsystem._format_beams_estop_current_limit_setting()
+    )
     subsystem.ui_elements = [
         {"voltage_display": FakeLabel(), "current_display": FakeLabel()}
         for _ in subsystem.supply_keys
@@ -142,6 +150,35 @@ class TestBeamEnergyWarningConfig(unittest.TestCase):
         self.assertEqual(loaded["pos1kv"]["max_current_ma"], 30.0)
         self.assertEqual(loaded["pos20kv"]["min_voltage_v"], 0.0)
 
+    def test_default_pos20kv_estop_limit_is_one_ma(self):
+        self.assertEqual(
+            DEFAULT_WARNING_LIMITS[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD],
+            1.0,
+        )
+
+    def test_invalid_pos20kv_estop_limit_falls_back_to_default(self):
+        loaded = normalize_warning_limits(
+            {"pos20kv": {BEAMS_ESTOP_CURRENT_FIELD: 1.1}},
+            logger=MagicMock(),
+        )
+
+        self.assertEqual(
+            loaded[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD],
+            1.0,
+        )
+
+    def test_pos20kv_max_current_clamps_to_estop_limit(self):
+        logger = MagicMock()
+
+        loaded = normalize_warning_limits(
+            {"pos20kv": {"max_current_ma": 0.9, BEAMS_ESTOP_CURRENT_FIELD: 0.75}},
+            logger=logger,
+        )
+
+        self.assertEqual(loaded[POS20KV_SUPPLY_KEY]["max_current_ma"], 0.75)
+        self.assertEqual(loaded[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD], 0.75)
+        self.assertTrue(logger.warning.called)
+
 
 class TestBeamEnergyWarningIndicators(unittest.TestCase):
     def test_missing_readings_are_black(self):
@@ -167,6 +204,68 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
         subsystem.apply_warning_indicators(0, 100.0, 10.001)
 
         self.assertEqual(subsystem.ui_elements[0]["current_display"].foreground, "#FFA500")
+
+    def test_pos20kv_current_above_max_below_estop_is_orange_without_estop(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+        subsystem.beams_estop_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 100.0, 0.6)
+
+        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FFA500")
+        subsystem.beams_estop_callback.assert_not_called()
+
+    def test_pos20kv_current_equal_to_estop_limit_is_not_estop(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+        subsystem.beams_estop_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 100.0, 0.75)
+
+        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "#FFA500")
+        subsystem.beams_estop_callback.assert_not_called()
+
+    def test_pos20kv_current_above_estop_is_red_and_calls_estop_once(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+        subsystem.beams_estop_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 100.0, 0.751)
+        subsystem.apply_warning_indicators(2, 100.0, 0.8)
+
+        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "red")
+        subsystem.beams_estop_callback.assert_called_once()
+
+        critical_logs = [
+            call for call in subsystem.logger.log.call_args_list
+            if len(call.args) >= 2 and call.args[1] == LogLevel.CRITICAL
+        ]
+        self.assertEqual(len(critical_logs), 1)
+
+    def test_pos20kv_estop_rearms_after_current_returns_to_limit(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+        subsystem.beams_estop_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 100.0, 0.8)
+        subsystem.apply_warning_indicators(2, 100.0, 0.75)
+        subsystem.apply_warning_indicators(2, 100.0, 0.8)
+
+        self.assertEqual(subsystem.beams_estop_callback.call_count, 2)
+
+    def test_other_supplies_never_trigger_beams_estop(self):
+        subsystem = make_subsystem()
+        subsystem.beams_estop_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(0, 100.0, 31.0)
+        subsystem.apply_warning_indicators(1, -100.0, 31.0)
+        subsystem.apply_warning_indicators(3, 100.0, 11.0)
+
+        subsystem.beams_estop_callback.assert_not_called()
 
     def test_boundary_values_are_black(self):
         subsystem = make_subsystem(
@@ -286,6 +385,136 @@ class TestBeamEnergyWarningValidation(unittest.TestCase):
             "Limit set to: 22.5mA",
         )
         self.assertEqual(subsystem.ui_elements[0]["current_display"].foreground, "#FFA500")
+        save_limits.assert_called_once()
+
+    def test_pos20kv_max_current_above_estop_limit_is_rejected(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+        before = dict(subsystem.warning_limits[POS20KV_SUPPLY_KEY])
+
+        changed = subsystem._set_warning_limit_from_raw(
+            2,
+            "max_current_ma",
+            "0.751",
+            show_dialogs=False,
+            persist=False,
+        )
+
+        self.assertFalse(changed)
+        self.assertEqual(subsystem.warning_limits[POS20KV_SUPPLY_KEY], before)
+
+    def test_3kv_current_limit_popup_names_supply_and_units(self):
+        subsystem = make_subsystem()
+
+        with patch("subsystem.beam_energy.beam_energy.messagebox.showerror") as showerror:
+            changed = subsystem._set_warning_limit_from_raw(
+                3,
+                "max_current_ma",
+                "10.1",
+                show_dialogs=True,
+                persist=False,
+            )
+
+        self.assertFalse(changed)
+        message = showerror.call_args.args[1]
+        self.assertTrue(message.startswith("+3kV Bertan PS Max I current limit:"))
+        self.assertIn("mA", message)
+        self.assertIn("10mA", message)
+
+    def test_pos20kv_max_current_above_estop_popup_mentions_estop_limit(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+
+        with patch("subsystem.beam_energy.beam_energy.messagebox.showerror") as showerror:
+            changed = subsystem._set_warning_limit_from_raw(
+                2,
+                "max_current_ma",
+                "0.751",
+                show_dialogs=True,
+                persist=False,
+            )
+
+        self.assertFalse(changed)
+        message = showerror.call_args.args[1]
+        self.assertTrue(message.startswith("+20kV Bertan PS Max I current limit:"))
+        self.assertIn("at or below the Beams E-Stop Current Limit", message)
+        self.assertIn("0.75mA", message)
+        self.assertNotIn("between", message)
+
+    def test_pos20kv_estop_limit_below_max_current_is_rejected(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+        before = dict(subsystem.warning_limits[POS20KV_SUPPLY_KEY])
+
+        changed = subsystem._set_beams_estop_current_limit_from_raw(
+            "0.499",
+            show_dialogs=False,
+            persist=False,
+        )
+
+        self.assertFalse(changed)
+        self.assertEqual(subsystem.warning_limits[POS20KV_SUPPLY_KEY], before)
+
+    def test_pos20kv_estop_limit_below_max_popup_names_supply_and_units(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 0.75}}
+        )
+
+        with patch("subsystem.beam_energy.beam_energy.messagebox.showerror") as showerror:
+            changed = subsystem._set_beams_estop_current_limit_from_raw(
+                "0.499",
+                show_dialogs=True,
+                persist=False,
+            )
+
+        self.assertFalse(changed)
+        message = showerror.call_args.args[1]
+        self.assertTrue(message.startswith("+20kV Bertan PS Beams E-Stop Current Limit:"))
+        self.assertIn("Max I current limit", message)
+        self.assertIn("0.5mA", message)
+
+    def test_pos20kv_estop_limit_above_one_ma_is_rejected(self):
+        subsystem = make_subsystem()
+        before = dict(subsystem.warning_limits[POS20KV_SUPPLY_KEY])
+
+        changed = subsystem._set_beams_estop_current_limit_from_raw(
+            "1.001",
+            show_dialogs=False,
+            persist=False,
+        )
+
+        self.assertFalse(changed)
+        self.assertEqual(subsystem.warning_limits[POS20KV_SUPPLY_KEY], before)
+
+    def test_valid_estop_limit_updates_state_saves_and_rechecks_current(self):
+        subsystem = make_subsystem(
+            {"pos20kv": {"max_current_ma": 0.5, BEAMS_ESTOP_CURRENT_FIELD: 1.0}}
+        )
+        subsystem.latest_actual_voltage_values[2] = 0.0
+        subsystem.latest_actual_current_values[2] = 0.8
+        subsystem.beams_estop_callback = MagicMock()
+        subsystem.beams_estop_current_entry_var.set("0.75")
+
+        with patch(
+            "subsystem.beam_energy.beam_energy.save_beam_energy_warning_limits",
+            return_value=True,
+        ) as save_limits:
+            subsystem.set_beams_estop_current_limit()
+
+        self.assertEqual(
+            subsystem.warning_limits[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD],
+            0.75,
+        )
+        self.assertEqual(subsystem.beams_estop_current_entry_var.get(), "")
+        self.assertEqual(
+            subsystem.beams_estop_current_value_var.get(),
+            "Limit set to: 0.75mA",
+        )
+        self.assertEqual(subsystem.ui_elements[2]["current_display"].foreground, "red")
+        subsystem.beams_estop_callback.assert_called_once()
         save_limits.assert_called_once()
 
     def test_value_above_default_cap_is_rejected(self):
