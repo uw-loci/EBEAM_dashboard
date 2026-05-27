@@ -6,9 +6,9 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
-from dashboard import EBEAMSystemDashboard
 from subsystem.cathode_heating.cathode_heating import CathodeHeatingSubsystem
 from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
+from subsystem.main_control.main_control import MainControlPanel
 from usr.main_control_config import (
     load_total_max_emission_current,
     save_total_max_emission_current,
@@ -72,7 +72,7 @@ class FakeBeamPulse:
 
 
 def make_dashboard(limit=6.0, emission_values=None, beam_pulse=None):
-    dash = object.__new__(EBEAMSystemDashboard)
+    dash = object.__new__(MainControlPanel)
     dash.logger = MagicMock()
     dash.total_max_emission_current_ma = limit
     dash.total_max_emission_current_value_var = FakeVar("")
@@ -405,7 +405,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         beam_pulse._update_armed_button_states = MagicMock()
         dash = make_dashboard(beam_pulse=beam_pulse)
 
-        with patch("dashboard.messagebox.showerror") as showerror:
+        with patch("subsystem.main_control.main_control.messagebox.showerror") as showerror:
             dash.handle_arm_beams()
 
         showerror.assert_not_called()
@@ -415,7 +415,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
     def test_arm_button_missing_subsystem_updates_status_without_popup(self):
         dash = make_dashboard()
 
-        with patch("dashboard.messagebox.showerror") as showerror:
+        with patch("subsystem.main_control.main_control.messagebox.showerror") as showerror:
             dash.handle_arm_beams()
 
         showerror.assert_not_called()
