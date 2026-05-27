@@ -115,7 +115,7 @@ class BeamPulseSubsystem:
         self._seq_stop = threading.Event()
 
         # Channel status callback — set_channel_status_callback(cb) registers
-        # a function cb(ch, mode_code, remaining) called from register polling.
+        # cb(ch, mode_code, remaining, config) called from register polling.
         self._channel_status_callback = None
 
         # Channel enable status callback — set_channel_enable_status_callback(cb)
@@ -780,6 +780,16 @@ class BeamPulseSubsystem:
             # Treat checker failures as blocked starts to avoid partial output transitions.
             return False, f"{action} blocked: emission limit check failed ({e})"
 
+    def _sync_start_config_summary(self, config):
+        """Return one channel summary for the Main Control Sync Start status."""
+        label = self._channel_label(config['ch'] - 1)
+        mode = str(config.get('mode', '')).strip().upper()
+        if mode == 'DC':
+            return f"{label}=DC"
+        if mode == 'PULSE':
+            return f"{label}=PULSE({config['duration_ms']}ms)"
+        return f"{label}={mode}({config['duration_ms']}ms x{config['count']})"
+
     def _sync_start(self):
         """Synchronous start of enabled channels using Manual Control tab configuration.
 
@@ -845,7 +855,7 @@ class BeamPulseSubsystem:
             message = (
                 "Sync Start: " +
                 ", ".join(
-                    f"{self._channel_label(c['ch'] - 1)}={c['mode']}({c['duration_ms']}ms x{c['count']})"
+                    self._sync_start_config_summary(c)
                     for c in configs
                 )
             )
@@ -1200,6 +1210,7 @@ class BeamPulseSubsystem:
                             "mode": MODE_CODE_TO_LABEL.get(mode_code, "OFF"),
                             "duration_ms": pulse_ms,
                             "count": count_val,
+                            "remaining": remaining,
                         },
                     )
                 except Exception:
@@ -1542,7 +1553,7 @@ class BeamPulseSubsystem:
         return 50.0
 
     def set_channel_status_callback(self, callback):
-        """Register callback(ch, mode_code, remaining) invoked on every register poll.
+        """Register callback(ch, mode_code, remaining, config) for every register poll.
 
         The dashboard uses this to keep the Beam A/B/C toggle buttons in sync
         with live hardware state without polling from the dashboard side.

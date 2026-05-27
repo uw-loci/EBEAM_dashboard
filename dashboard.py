@@ -622,9 +622,16 @@ class EBEAMSystemDashboard:
         except (TypeError, ValueError):
             count = 1
 
+        remaining = config.get("remaining", config.get("remaining_pulses", None))
+        try:
+            remaining = None if remaining is None else int(float(remaining))
+        except (TypeError, ValueError):
+            remaining = None
+
         if mode in ("OFF", "DC"):
             duration = 0
             count = 1
+            remaining = 0
         elif mode == "PULSE":
             # Firmware treats a single pulse as count=1 regardless of GUI input.
             count = 1
@@ -632,7 +639,13 @@ class EBEAMSystemDashboard:
             # Keep status text valid even if a stale or malformed payload arrives.
             count = 2
 
-        return {"mode": mode, "duration_ms": duration, "count": count}
+        if mode == "PULSE_TRAIN":
+            if remaining is None:
+                remaining = count
+            elif remaining < 0:
+                remaining = 0
+
+        return {"mode": mode, "duration_ms": duration, "count": count, "remaining": remaining}
 
     def _beam_on_description(self, config):
         """Return the mode-specific phrase used in ON status lines."""
@@ -644,17 +657,31 @@ class EBEAMSystemDashboard:
             return f"PULSE mode for {config['duration_ms']}ms"
         if mode == "PULSE_TRAIN":
             return (
-                f"PULSE_TRAIN mode: set to {config['count']} pulses "
-                f"in {config['duration_ms']}ms"
+                f"PULSE_TRAIN mode: set to {config['count']} pulses"
+                f", {config['duration_ms']}ms each. Remaining: {config['remaining']}"
             )
         return "OFF"
+
+    def _is_beam_channel_enabled(self, beam_index):
+        states = getattr(self, "_ch_enable_states", None)
+        return bool(states and 0 <= beam_index < len(states) and states[beam_index])
+
+    def _format_beam_output_off_status(self, beam_index):
+        label = channel_label(beam_index)
+        enable_text = "ENABLED" if self._is_beam_channel_enabled(beam_index) else "DISABLED"
+        return f"Beam {label} {enable_text}, Output OFF"
+
+    def _beam_output_display_is_on(self, beam_index):
+        if not 0 <= beam_index < len(getattr(self, "_beam_output_status_colors", [])):
+            return False
+        return self._beam_output_status_colors[beam_index] == BEAM_OUTPUT_ON_COLOR
 
     def _format_beam_output_status(self, beam_index, config=None):
         """Format one Beam A/B/C output line from a normalized sent config."""
         label = channel_label(beam_index)
         config = self._coerce_beam_config(config)
         if config["mode"] == "OFF":
-            return f"Beam {label} Output: OFF"
+            return self._format_beam_output_off_status(beam_index)
         return f"Beam {label} Output: ON in {self._beam_on_description(config)}"
 
     def _set_beam_output_display(self, beam_index, config=None, is_on=False):
@@ -1332,6 +1359,9 @@ class EBEAMSystemDashboard:
                     bg="#2e7d32" if enabled else "#888888",
                     text=f"CH {channel_label(ch)}: {'Enabled' if enabled else 'Disabled'}",
                 )
+
+            if not enabled or not self._beam_output_display_is_on(ch):
+                self._clear_beam_output_display(ch)
 
             beam_pulse = self.subsystems.get('Beam Pulse')
             armed = bool(

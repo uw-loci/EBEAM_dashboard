@@ -207,7 +207,12 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         self.assertEqual(
             dash._format_beam_output_status(0, None),
-            "Beam A Output: OFF",
+            "Beam A DISABLED, Output OFF",
+        )
+        dash._ch_enable_states[0] = True
+        self.assertEqual(
+            dash._format_beam_output_status(0, None),
+            "Beam A ENABLED, Output OFF",
         )
         self.assertEqual(
             dash._format_beam_output_status(0, {"mode": "DC"}),
@@ -222,7 +227,14 @@ class TestMainControlBeamStatusText(unittest.TestCase):
                 0,
                 {"mode": "PULSE_TRAIN", "duration_ms": 100, "count": 5},
             ),
-            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses in 100ms",
+            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses, 100ms each. Remaining: 5",
+        )
+        self.assertEqual(
+            dash._format_beam_output_status(
+                0,
+                {"mode": "PULSE_TRAIN", "duration_ms": 100, "count": 5, "remaining": 3},
+            ),
+            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses, 100ms each. Remaining: 3",
         )
 
     def test_manual_beam_on_updates_output_and_action_text(self):
@@ -239,11 +251,12 @@ class TestMainControlBeamStatusText(unittest.TestCase):
     def test_manual_beam_off_updates_output_and_action_text(self):
         beam_pulse = FakeBeamPulse(statuses=[True, False, False], mode="PULSE")
         dash = make_dashboard(beam_pulse=beam_pulse)
+        dash._ch_enable_states[0] = True
         dash._set_beam_output_display(0, {"mode": "DC"}, is_on=True)
 
         dash.toggle_individual_beam_with_status(0)
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A ENABLED, Output OFF")
         self.assertEqual(dash._beam_output_status_colors[0], "gray")
         self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to OFF")
         self.assertEqual(dash._beam_action_status_color, "green")
@@ -255,11 +268,12 @@ class TestMainControlBeamStatusText(unittest.TestCase):
             emission_values=[2.0, 4.0, 0.0],
             beam_pulse=beam_pulse,
         )
+        dash._on_channel_enable_status_update(0, True)
 
         dash.toggle_individual_beam_with_status(0)
 
         beam_pulse.send_channel_config.assert_not_called()
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A ENABLED, Output OFF")
         self.assertEqual(
             dash._beam_action_status_text,
             "Failed to set Beam A ON, total emission current limit exceeded",
@@ -271,7 +285,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         dash._handle_main_control_feedback(
             "beams_sent",
-            "Sync Start: A=PULSE(100ms x1), B=PULSE_TRAIN(50ms x5)",
+            "Sync Start: A=PULSE(100ms), B=PULSE_TRAIN(50ms x5)",
             "success",
             [
                 {"ch": 1, "mode": "PULSE", "duration_ms": 100, "count": 1},
@@ -282,18 +296,19 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 100ms")
         self.assertEqual(
             dash._beam_output_status_text[1],
-            "Beam B Output: ON in PULSE_TRAIN mode: set to 5 pulses in 50ms",
+            "Beam B Output: ON in PULSE_TRAIN mode: set to 5 pulses, 50ms each. Remaining: 5",
         )
         self.assertEqual(dash._beam_action_status_color, "green")
 
     def test_live_status_clears_completed_pulse_line(self):
         dash = make_dashboard()
+        dash._ch_enable_states[0] = True
         dash._set_beam_output_display(0, {"mode": "PULSE", "duration_ms": 100, "count": 1}, is_on=True)
         dash.beam_toggle_buttons[0].config(bg="green")
 
         dash._on_channel_status_update(0, 0, 0)
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A ENABLED, Output OFF")
         self.assertEqual(dash._beam_output_status_colors[0], "gray")
 
     def test_live_status_clears_stale_text_even_if_button_already_gray(self):
@@ -302,7 +317,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         dash._on_channel_status_update(0, 0, 0)
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A DISABLED, Output OFF")
         self.assertEqual(dash._beam_output_status_colors[0], "gray")
 
     def test_live_status_updates_output_text_from_firmware_state(self):
@@ -318,12 +333,59 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 75ms")
         self.assertEqual(dash._beam_output_status_colors[0], "green")
 
+    def test_live_status_updates_pulse_train_remaining_from_firmware_state(self):
+        dash = make_dashboard()
+
+        dash._on_channel_status_update(
+            0,
+            3,
+            3,
+            {"mode": "PULSE_TRAIN", "duration_ms": 50, "count": 5, "remaining": 3},
+        )
+
+        self.assertEqual(
+            dash._beam_output_status_text[0],
+            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses, 50ms each. Remaining: 3",
+        )
+        self.assertEqual(dash._beam_output_status_colors[0], "green")
+
+    def test_channel_enable_updates_off_output_text(self):
+        dash = make_dashboard()
+
+        dash._on_channel_enable_status_update(0, True)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A ENABLED, Output OFF")
+        self.assertEqual(dash._beam_output_status_colors[0], "gray")
+
+        dash._on_channel_enable_status_update(0, False)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A DISABLED, Output OFF")
+        self.assertEqual(dash._beam_output_status_colors[0], "gray")
+
+    def test_channel_enable_button_press_updates_off_output_text(self):
+        beam_pulse = FakeBeamPulse(statuses=[False, False, False], mode="PULSE")
+        dash = make_dashboard(beam_pulse=beam_pulse)
+
+        dash._toggle_channel_enable(0)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A ENABLED, Output OFF")
+        self.assertEqual(dash._beam_output_status_colors[0], "gray")
+
+    def test_channel_enable_does_not_reword_active_output(self):
+        dash = make_dashboard()
+        dash._set_beam_output_display(0, {"mode": "DC"}, is_on=True)
+
+        dash._on_channel_enable_status_update(0, True)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in DC mode")
+        self.assertEqual(dash._beam_output_status_colors[0], "green")
+
     def test_auto_20kv_estop_clears_outputs_and_sets_required_message(self):
         dash = make_dashboard()
         dash._set_beam_output_display(0, {"mode": "DC"}, is_on=True)
         dash.handle_beams_off("20kV E-Stop Current Limit exceeded: All Beams Disabled")
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A DISABLED, Output OFF")
         self.assertEqual(
             dash._beam_action_status_text,
             "20kV E-Stop Current Limit exceeded: All Beams Disabled",
