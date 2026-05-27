@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import threading
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from dashboard import EBEAMSystemDashboard
 from subsystem.cathode_heating.cathode_heating import CathodeHeatingSubsystem
@@ -29,9 +29,14 @@ class FakeVar:
 class FakeButton:
     def __init__(self):
         self.config_calls = []
+        self.values = {"bg": "gray"}
 
     def config(self, **kwargs):
         self.config_calls.append(kwargs)
+        self.values.update(kwargs)
+
+    def cget(self, key):
+        return self.values.get(key)
 
 
 class FakeCathode:
@@ -71,8 +76,12 @@ def make_dashboard(limit=6.0, emission_values=None, beam_pulse=None):
     dash.logger = MagicMock()
     dash.total_max_emission_current_ma = limit
     dash.total_max_emission_current_value_var = FakeVar("")
+    dash._initialize_main_control_beam_status_state()
     dash.beam_toggle_buttons = [FakeButton(), FakeButton(), FakeButton()]
     dash.enable_toggle_buttons = [FakeButton(), FakeButton(), FakeButton()]
+    dash.beams_ready_button = FakeButton()
+    dash.toggle_on_image = None
+    dash.toggle_off_image = None
     dash._ch_enable_states = [False, False, False]
     dash.subsystems = {
         "Cathode Heating": FakeCathode(emission_values or [0.0, 0.0, 0.0]),
@@ -192,6 +201,147 @@ class TestMainControlEmissionLimit(unittest.TestCase):
         dash.logger.error.assert_not_called()
 
 
+class TestMainControlBeamStatusText(unittest.TestCase):
+    def test_beam_status_formatting(self):
+        dash = make_dashboard()
+
+        self.assertEqual(
+            dash._format_beam_output_status(0, None),
+            "Beam A Output: OFF",
+        )
+        self.assertEqual(
+            dash._format_beam_output_status(0, {"mode": "DC"}),
+            "Beam A Output: ON in DC mode",
+        )
+        self.assertEqual(
+            dash._format_beam_output_status(0, {"mode": "PULSE", "duration_ms": 100}),
+            "Beam A Output: ON in PULSE mode for 100ms",
+        )
+        self.assertEqual(
+            dash._format_beam_output_status(
+                0,
+                {"mode": "PULSE_TRAIN", "duration_ms": 100, "count": 5},
+            ),
+            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses in 100ms",
+        )
+
+    def test_manual_beam_on_updates_output_and_action_text(self):
+        beam_pulse = FakeBeamPulse(statuses=[False, False, False], mode="PULSE")
+        dash = make_dashboard(limit=6.1, emission_values=[1.0, 0.0, 0.0], beam_pulse=beam_pulse)
+
+        dash.toggle_individual_beam_with_status(0)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 100ms")
+        self.assertEqual(dash._beam_output_status_colors[0], "green")
+        self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to ON in PULSE mode for 100ms")
+        self.assertEqual(dash._beam_action_status_color, "green")
+
+    def test_manual_beam_off_updates_output_and_action_text(self):
+        beam_pulse = FakeBeamPulse(statuses=[True, False, False], mode="PULSE")
+        dash = make_dashboard(beam_pulse=beam_pulse)
+        dash._set_beam_output_display(0, {"mode": "DC"}, is_on=True)
+
+        dash.toggle_individual_beam_with_status(0)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_colors[0], "gray")
+        self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to OFF")
+        self.assertEqual(dash._beam_action_status_color, "green")
+
+    def test_emission_limit_failure_updates_action_text_without_marking_on(self):
+        beam_pulse = FakeBeamPulse(statuses=[False, True, False], mode="PULSE")
+        dash = make_dashboard(
+            limit=6.0,
+            emission_values=[2.0, 4.0, 0.0],
+            beam_pulse=beam_pulse,
+        )
+
+        dash.toggle_individual_beam_with_status(0)
+
+        beam_pulse.send_channel_config.assert_not_called()
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "Failed to set Beam A ON, total emission current limit exceeded",
+        )
+        self.assertEqual(dash._beam_action_status_color, "red")
+
+    def test_sync_feedback_updates_multiple_beam_lines(self):
+        dash = make_dashboard()
+
+        dash._handle_main_control_feedback(
+            "beams_sent",
+            "Sync Start: A=PULSE(100ms x1), B=PULSE_TRAIN(50ms x5)",
+            "success",
+            [
+                {"ch": 1, "mode": "PULSE", "duration_ms": 100, "count": 1},
+                {"ch": 2, "mode": "PULSE_TRAIN", "duration_ms": 50, "count": 5},
+            ],
+        )
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 100ms")
+        self.assertEqual(
+            dash._beam_output_status_text[1],
+            "Beam B Output: ON in PULSE_TRAIN mode: set to 5 pulses in 50ms",
+        )
+        self.assertEqual(dash._beam_action_status_color, "green")
+
+    def test_live_status_clears_completed_pulse_line(self):
+        dash = make_dashboard()
+        dash._set_beam_output_display(0, {"mode": "PULSE", "duration_ms": 100, "count": 1}, is_on=True)
+        dash.beam_toggle_buttons[0].config(bg="green")
+
+        dash._on_channel_status_update(0, 0, 0)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_colors[0], "gray")
+
+    def test_auto_20kv_estop_clears_outputs_and_sets_required_message(self):
+        dash = make_dashboard()
+        dash._set_beam_output_display(0, {"mode": "DC"}, is_on=True)
+        dash.handle_beams_off("20kV E-Stop Current Limit exceeded: All Beams Disabled")
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "20kV E-Stop Current Limit exceeded: All Beams Disabled",
+        )
+        self.assertEqual(dash._beam_action_status_color, "red")
+
+    def test_arm_button_disarms_without_popup_when_bcon_not_connected(self):
+        beam_pulse = object.__new__(BeamPulseSubsystem)
+        beam_pulse.beams_armed_status = True
+        beam_pulse.beam_on_status = [False, False, False]
+        beam_pulse.bcon_driver = None
+        beam_pulse._seq_stop = threading.Event()
+        beam_pulse._seq_thread = None
+        beam_pulse._dashboard_beam_callback = None
+        beam_pulse._channel_enable_status_callback = None
+        beam_pulse._log = MagicMock()
+        beam_pulse._update_armed_button_states = MagicMock()
+        dash = make_dashboard(beam_pulse=beam_pulse)
+
+        with patch("dashboard.messagebox.showerror") as showerror:
+            dash.handle_arm_beams()
+
+        showerror.assert_not_called()
+        self.assertFalse(beam_pulse.get_beams_armed_status())
+        self.assertEqual(dash._beam_action_status_text, "Beams disarmed")
+
+    def test_arm_button_missing_subsystem_updates_status_without_popup(self):
+        dash = make_dashboard()
+
+        with patch("dashboard.messagebox.showerror") as showerror:
+            dash.handle_arm_beams()
+
+        showerror.assert_not_called()
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "Failed to arm beams, Beam Pulse subsystem not available",
+        )
+        self.assertEqual(dash._beam_action_status_color, "red")
+
+
 class TestBeamPulseEmissionLimitHook(unittest.TestCase):
     def make_beam_pulse(self):
         beam_pulse = object.__new__(BeamPulseSubsystem)
@@ -227,6 +377,50 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         beam_pulse._sync_start()
 
         beam_pulse.bcon_driver.sync_start.assert_called_once()
+
+    def test_sync_start_feedback_after_bcon_sync_start(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_main_control_feedback_callback(feedback)
+        beam_pulse._emission_limit_checker = MagicMock(return_value=True)
+        beam_pulse._validate_and_get_config = MagicMock(side_effect=[
+            {"mode": "PULSE", "duration_ms": 100, "count": 1},
+            {"mode": "PULSE_TRAIN", "duration_ms": 50, "count": 5},
+        ])
+
+        beam_pulse._sync_start()
+
+        beam_pulse.bcon_driver.sync_start.assert_called_once()
+        feedback.assert_called_once()
+        event_type, message, outcome, configs = feedback.call_args.args
+        self.assertEqual(event_type, "beams_sent")
+        self.assertEqual(outcome, "success")
+        self.assertIn("Sync Start", message)
+        self.assertEqual(configs[0]["mode"], "PULSE")
+        self.assertEqual(configs[1]["count"], 5)
+
+    def test_firmware_rejection_updates_main_control_feedback(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_main_control_feedback_callback(feedback)
+
+        beam_pulse._handle_driver_msg(("command_result", {
+            "requested_label": "APPLY_STAGED_MODES",
+            "last_command_label": "APPLY_STAGED_MODES",
+            "last_cmd_seq": 12,
+            "rejected": True,
+            "last_reject_reason": "UNSAFE_INTERLOCK",
+        }))
+
+        feedback.assert_called_once_with(
+            "status",
+            "BCON command APPLY_STAGED_MODES rejected: UNSAFE_INTERLOCK",
+            "failure",
+            None,
+        )
+        beam_pulse._log_event.assert_called_once_with(
+            "BCON command APPLY_STAGED_MODES rejected: UNSAFE_INTERLOCK (seq=12)"
+        )
 
     def test_csv_sequence_block_stops_before_bcon_sync_start(self):
         beam_pulse = object.__new__(BeamPulseSubsystem)
