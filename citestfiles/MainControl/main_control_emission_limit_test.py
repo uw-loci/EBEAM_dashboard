@@ -296,6 +296,28 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
         self.assertEqual(dash._beam_output_status_colors[0], "gray")
 
+    def test_live_status_clears_stale_text_even_if_button_already_gray(self):
+        dash = make_dashboard()
+        dash._set_beam_output_display(0, {"mode": "PULSE", "duration_ms": 100, "count": 1}, is_on=True)
+
+        dash._on_channel_status_update(0, 0, 0)
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: OFF")
+        self.assertEqual(dash._beam_output_status_colors[0], "gray")
+
+    def test_live_status_updates_output_text_from_firmware_state(self):
+        dash = make_dashboard()
+
+        dash._on_channel_status_update(
+            0,
+            2,
+            1,
+            {"mode": "PULSE", "duration_ms": 75, "count": 1},
+        )
+
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 75ms")
+        self.assertEqual(dash._beam_output_status_colors[0], "green")
+
     def test_auto_20kv_estop_clears_outputs_and_sets_required_message(self):
         dash = make_dashboard()
         dash._set_beam_output_display(0, {"mode": "DC"}, is_on=True)

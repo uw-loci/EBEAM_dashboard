@@ -1293,7 +1293,7 @@ class EBEAMSystemDashboard:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
 
     def _on_channel_status_update(self, ch: int, mode_code: int, remaining: int, status_config=None):
-        """Mirror live BCON register state onto the Beam A/B/C toggle button.
+        """Mirror live BCON register state onto Main Control beam displays.
 
         Called on every register-poll cycle by BeamPulseSubsystem.
         mode_code=0 means OFF; remaining=0 means all pulses delivered.
@@ -1313,13 +1313,11 @@ class EBEAMSystemDashboard:
                 if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                     self.subsystems['Beam Pulse'].beam_on_status[ch] = True
             else:
-                # Only reset to gray when the button is currently green
-                # (avoids overwriting a manually-initiated OFF state)
                 if str(btn.cget('bg')) == 'green':
                     btn.config(bg="gray", text=f"Beam {channel_label(ch)} OFF")
-                    self._clear_beam_output_display(ch)
-                    if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                        self.subsystems['Beam Pulse'].beam_on_status[ch] = False
+                self._clear_beam_output_display(ch)
+                if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
+                    self.subsystems['Beam Pulse'].beam_on_status[ch] = False
         except Exception:
             pass
 
