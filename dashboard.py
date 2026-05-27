@@ -8,16 +8,13 @@ from tkinter import ttk
 from tkinter import messagebox
 import time
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
+from usr.com_port_config import get_beam_pulse_com_port
 from usr.panel_config import save_pane_states, load_pane_states
 from usr.main_control_config import (
     load_total_max_emission_current,
     save_total_max_emission_current,
 )
 import serial.tools.list_ports
-try:
-    from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
-except Exception:
-    BeamPulseSubsystem = None
 
 try:
     from matplotlib.figure import Figure
@@ -1486,34 +1483,33 @@ class EBEAMSystemDashboard:
 
         # Beam Pulse subsystem (BCON)
         try:
-            bp_port = self.com_ports.get('BeamPulse', self.com_ports.get('Beam Pulse', ''))
-            if BeamPulseSubsystem is not None:
-                # Host Beam Pulse UI inside the merged pane
-                parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
-                beam_pulse_subsystem = BeamPulseSubsystem(
-                    parent_frame=parent,
-                    port=bp_port if bp_port else None,
-                    unit=1,
-                    baudrate=115200,
-                    logger=self.logger
+            bp_port = get_beam_pulse_com_port(self.com_ports)
+            # Host Beam Pulse UI inside the merged pane
+            parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
+            beam_pulse_subsystem = subsystem.BeamPulseSubsystem(
+                parent_frame=parent,
+                port=bp_port if bp_port else None,
+                unit=1,
+                baudrate=115200,
+                logger=self.logger
+            )
+
+            # Set up dashboard callback for pulse animations
+            beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
+
+            # Add Sync Start/Stop and wire tab-aware panel visibility.
+            if hasattr(self, 'main_control_frame'):
+                manual_panel = getattr(self, 'bp_manual_panel', None)
+                beam_pulse_subsystem.create_external_control_buttons(
+                    self.main_control_frame,
+                    manual_panel_override=manual_panel,
+                    beam_on_off_frame=getattr(self, 'beam_on_off_frame', None),
+                    csv_frame=getattr(self, 'csv_buttons_frame', None),
                 )
 
-                # Set up dashboard callback for pulse animations
-                beam_pulse_subsystem.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
-
-                # Add Sync Start/Stop and wire tab-aware panel visibility.
-                if hasattr(self, 'main_control_frame'):
-                    manual_panel = getattr(self, 'bp_manual_panel', None)
-                    beam_pulse_subsystem.create_external_control_buttons(
-                        self.main_control_frame,
-                        manual_panel_override=manual_panel,
-                        beam_on_off_frame=getattr(self, 'beam_on_off_frame', None),
-                        csv_frame=getattr(self, 'csv_buttons_frame', None),
-                    )
-
-                # CSV sequence buttons below the script-selection dropdown
-                if hasattr(self, 'csv_buttons_frame'):
-                    beam_pulse_subsystem.create_csv_buttons(self.csv_buttons_frame)
+            # CSV sequence buttons below the script-selection dropdown
+            if hasattr(self, 'csv_buttons_frame'):
+                beam_pulse_subsystem.create_csv_buttons(self.csv_buttons_frame)
 
                 # Mirror live BCON register state onto the Beam toggle buttons
                 beam_pulse_subsystem.set_channel_status_callback(
@@ -1537,13 +1533,7 @@ class EBEAMSystemDashboard:
                         self.check_total_emission_current_limit
                     )
 
-                self.subsystems['Beam Pulse'] = beam_pulse_subsystem
-            else:
-                # placeholder if module not importable
-                container = self.frames.get('Beam Steering/Pulse', self.frames['Process Monitor'])
-                container.pack_propagate(True)
-                lbl = ttk.Label(container, text="BeamPulse subsystem not installed")
-                lbl.pack(fill=tk.BOTH, expand=True)
+            self.subsystems['Beam Pulse'] = beam_pulse_subsystem
         except Exception as e:
             self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}")
 
@@ -1646,16 +1636,16 @@ class EBEAMSystemDashboard:
             dropdown.pack(side=tk.RIGHT)
             self.port_dropdowns[subsystem] = dropdown
 
-        # ensure Beam Pulse key is present for users
-        if 'Beam Pulse' not in self.port_selections:
+        # Ensure Beam Pulse is stored under the canonical config key.
+        if 'BeamPulse' not in self.port_selections:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text="Beam Pulse:").pack(side=tk.LEFT)
-            port_var = tk.StringVar(value=self.com_ports.get('Beam Pulse', ''))
-            self.port_selections['Beam Pulse'] = port_var
+            port_var = tk.StringVar(value=get_beam_pulse_com_port(self.com_ports))
+            self.port_selections['BeamPulse'] = port_var
             dropdown = ttk.Combobox(frame, textvariable=port_var)
             dropdown.pack(side=tk.RIGHT)
-            self.port_dropdowns['Beam Pulse'] = dropdown
+            self.port_dropdowns['BeamPulse'] = dropdown
 
         ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
 
