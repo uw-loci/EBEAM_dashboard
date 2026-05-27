@@ -389,12 +389,12 @@ class MainControlPanel:
         config = self._coerce_beam_config(config)
         mode = config["mode"]
         if mode == "DC":
-            return "DC mode"
+            return "running DC"
         if mode == "PULSE":
-            return f"PULSE mode for {config['duration_ms']}ms"
+            return f"running PULSE for {config['duration_ms']}ms"
         if mode == "PULSE_TRAIN":
             return (
-                f"PULSE_TRAIN mode: set to {config['count']} pulses"
+                f"running PULSE_TRAIN: set to {config['count']} pulses"
                 f", {config['duration_ms']}ms each. Remaining: {config['remaining']}"
             )
         return "OFF"
@@ -419,7 +419,7 @@ class MainControlPanel:
         config = self._coerce_beam_config(config)
         if config["mode"] == "OFF":
             return self._format_beam_output_off_status(beam_index)
-        return f"Beam {label} Output: ON in {self._beam_on_description(config)}"
+        return f"Beam {label} Output: ON, {self._beam_on_description(config)}"
 
     def _set_beam_output_display(self, beam_index, config=None, is_on=False):
         """Update one Beam A/B/C output line."""
@@ -489,7 +489,7 @@ class MainControlPanel:
     def _beam_success_message(self, beam_index, config):
         """Build line 4 success text for a beam ON command."""
         return (
-            f"Beam {channel_label(beam_index)} successfully set to ON in "
+            f"Beam {channel_label(beam_index)} successfully set to ON, "
             f"{self._beam_on_description(config)}"
         )
 
@@ -1021,7 +1021,7 @@ class MainControlPanel:
                     # Schedule auto turn-off after pulse duration
                     self.root.after(int(duration), lambda: self.auto_turn_off_beam(beam_index))
                 else:
-                    self.logger.info(f"Beam {beam_names[beam_index]} turned ON in DC mode")
+                    self.logger.info(f"Beam {beam_names[beam_index]} turned ON, running DC")
             else:
                 # Beam turned OFF - update button display
                 if beam_index < len(self.beam_toggle_buttons):

@@ -216,25 +216,25 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         )
         self.assertEqual(
             dash._format_beam_output_status(0, {"mode": "DC"}),
-            "Beam A Output: ON in DC mode",
+            "Beam A Output: ON, running DC",
         )
         self.assertEqual(
             dash._format_beam_output_status(0, {"mode": "PULSE", "duration_ms": 100}),
-            "Beam A Output: ON in PULSE mode for 100ms",
+            "Beam A Output: ON, running PULSE for 100ms",
         )
         self.assertEqual(
             dash._format_beam_output_status(
                 0,
                 {"mode": "PULSE_TRAIN", "duration_ms": 100, "count": 5},
             ),
-            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses, 100ms each. Remaining: 5",
+            "Beam A Output: ON, running PULSE_TRAIN: set to 5 pulses, 100ms each. Remaining: 5",
         )
         self.assertEqual(
             dash._format_beam_output_status(
                 0,
                 {"mode": "PULSE_TRAIN", "duration_ms": 100, "count": 5, "remaining": 3},
             ),
-            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses, 100ms each. Remaining: 3",
+            "Beam A Output: ON, running PULSE_TRAIN: set to 5 pulses, 100ms each. Remaining: 3",
         )
 
     def test_manual_beam_on_updates_output_and_action_text(self):
@@ -243,9 +243,9 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         dash.toggle_individual_beam_with_status(0)
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 100ms")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON, running PULSE for 100ms")
         self.assertEqual(dash._beam_output_status_colors[0], "green")
-        self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to ON in PULSE mode for 100ms")
+        self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to ON, running PULSE for 100ms")
         self.assertEqual(dash._beam_action_status_color, "green")
 
     def test_manual_beam_off_updates_output_and_action_text(self):
@@ -293,10 +293,10 @@ class TestMainControlBeamStatusText(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 100ms")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON, running PULSE for 100ms")
         self.assertEqual(
             dash._beam_output_status_text[1],
-            "Beam B Output: ON in PULSE_TRAIN mode: set to 5 pulses, 50ms each. Remaining: 5",
+            "Beam B Output: ON, running PULSE_TRAIN: set to 5 pulses, 50ms each. Remaining: 5",
         )
         self.assertEqual(dash._beam_action_status_color, "green")
 
@@ -330,7 +330,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
             {"mode": "PULSE", "duration_ms": 75, "count": 1},
         )
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in PULSE mode for 75ms")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON, running PULSE for 75ms")
         self.assertEqual(dash._beam_output_status_colors[0], "green")
 
     def test_live_status_updates_pulse_train_remaining_from_firmware_state(self):
@@ -345,7 +345,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         self.assertEqual(
             dash._beam_output_status_text[0],
-            "Beam A Output: ON in PULSE_TRAIN mode: set to 5 pulses, 50ms each. Remaining: 3",
+            "Beam A Output: ON, running PULSE_TRAIN: set to 5 pulses, 50ms each. Remaining: 3",
         )
         self.assertEqual(dash._beam_output_status_colors[0], "green")
 
@@ -377,7 +377,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         dash._on_channel_enable_status_update(0, True)
 
-        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON in DC mode")
+        self.assertEqual(dash._beam_output_status_text[0], "Beam A Output: ON, running DC")
         self.assertEqual(dash._beam_output_status_colors[0], "green")
 
     def test_auto_20kv_estop_clears_outputs_and_sets_required_message(self):
