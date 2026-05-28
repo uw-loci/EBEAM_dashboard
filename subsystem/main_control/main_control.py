@@ -940,11 +940,20 @@ class MainControlPanel:
                     btn.config(bg="green", text=f"Beam {channel_label(beam_index)} ON")
                     self.logger.info(f"Beam {channel_label(beam_index)} config sent to BCON")
                 else:
-                    self._set_beam_action_status(
-                        f"Failed to send Beam {channel_label(beam_index)} config",
-                        "failure",
-                    )
-                    self.logger.error(f"Failed to send Beam {channel_label(beam_index)} config")
+                    # Prefer Beam Pulse's exact reason so line 4 explains why nothing was sent.
+                    failure_message = ""
+                    getter = getattr(beam_pulse, "get_last_send_failure_message", None)
+                    if callable(getter):
+                        try:
+                            failure_message = getter()
+                        except Exception:
+                            failure_message = ""
+                    if failure_message:
+                        failure_message = (f"Failed to send Beam {channel_label(beam_index)} config: "f"{failure_message}")
+                    else:
+                        failure_message = f"Failed to send Beam {channel_label(beam_index)} config"
+                    self._set_beam_action_status(failure_message,"failure",)
+                    self.logger.error(failure_message)
 
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
