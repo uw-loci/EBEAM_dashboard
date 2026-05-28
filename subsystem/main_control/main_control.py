@@ -115,9 +115,6 @@ class MainControlPanel:
         if beam_pulse is None:
             return
 
-        if hasattr(beam_pulse, "set_dashboard_beam_callback"):
-            beam_pulse.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
-
         if hasattr(beam_pulse, "set_channel_status_callback"):
             beam_pulse.set_channel_status_callback(self._on_channel_status_update)
         if hasattr(beam_pulse, "set_action_feedback_callback"):
@@ -542,6 +539,15 @@ class MainControlPanel:
                 message = self._format_sync_start_message(configs)
         elif event_type == "all_off":
             self._clear_all_beam_output_displays()
+        elif event_type == "firmware_ack":
+            current = getattr(self, "_beam_action_status_text", "")
+            current_color = getattr(self, "_beam_action_status_color", BEAM_ACTION_NEUTRAL_COLOR)
+            if current and message:
+                message = f"{current} | {message}"
+                if current_color == BEAM_ACTION_FAILURE_COLOR:
+                    outcome = "failure"
+                elif current_color == BEAM_ACTION_NEUTRAL_COLOR:
+                    outcome = "neutral"
 
         if message:
             self._set_beam_action_status(message, outcome)
@@ -963,80 +969,6 @@ class MainControlPanel:
         """Legacy method - redirects to new method with status bar."""
         self.toggle_individual_beam_with_status(beam_index)
 
-    def get_beam_pulse_duration(self, beam_index):
-        """Get the pulse duration for a specific beam."""
-        try:
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                return 0
-
-            beam_pulse = self.subsystems['Beam Pulse']
-
-            # Get duration from the beam pulse subsystem
-            if beam_index == 0 and hasattr(beam_pulse, 'beam_a_duration'):
-                return beam_pulse.beam_a_duration.get()
-            elif beam_index == 1 and hasattr(beam_pulse, 'beam_b_duration'):
-                return beam_pulse.beam_b_duration.get()
-            elif beam_index == 2 and hasattr(beam_pulse, 'beam_c_duration'):
-                return beam_pulse.beam_c_duration.get()
-
-            return 100.0  # Default fallback
-        except Exception as e:
-            self.logger.error(f"Error getting beam {beam_index} duration: {str(e)}")
-            return 100.0
-
-    def auto_turn_off_beam(self, beam_index):
-        """Automatically turn off a beam after pulse duration."""
-        try:
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                return
-
-            beam_pulse = self.subsystems['Beam Pulse']
-            beam_names = ["A", "B", "C"]
-
-            # Check if beam is still on before turning off
-            if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(beam_index):
-                # Turn off the beam
-                if hasattr(beam_pulse, 'set_beam_status'):
-                    beam_pulse.set_beam_status(beam_index, False)
-
-                    # Update button appearance
-                    btn = self.beam_toggle_buttons[beam_index]
-                    btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                    self._clear_beam_output_display(beam_index)
-
-                    self.logger.info(f"Beam {beam_names[beam_index]} automatically turned OFF after pulse duration")
-
-        except Exception as e:
-            self.logger.error(f"Error auto-turning off beam {beam_index}: {str(e)}")
-
-    def handle_beam_pulse_callback(self, beam_index, status, duration=0):
-        """Handle beam pulse callback for button updates.
-
-        This method is called by the beam pulse subsystem when beam status changes.
-        """
-        try:
-            beam_names = ["A", "B", "C"]
-
-            if status:
-                # Beam turned ON - update button display
-                if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-
-                if duration > 0:
-                    self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
-                    # Schedule auto turn-off after pulse duration
-                    self.root.after(int(duration), lambda: self.auto_turn_off_beam(beam_index))
-                else:
-                    self.logger.info(f"Beam {beam_names[beam_index]} turned ON, running DC")
-            else:
-                # Beam turned OFF - update button display
-                if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                self._clear_beam_output_display(beam_index)
-
-        except Exception as e:
-            self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
-
     def _on_channel_status_update(self, ch: int, mode_code: int, remaining: int, status_config=None):
         """Mirror live BCON register state onto Main Control beam displays.
 
@@ -1110,18 +1042,10 @@ class MainControlPanel:
                     if reset:
                         btn.config(bg="gray", text=f"Beam {channel_label(i)} OFF")
                         self._clear_beam_output_display(i)
-                        if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                            beam_pulse = self.subsystems['Beam Pulse']
-                            if hasattr(beam_pulse, 'set_beam_status'):
-                                beam_pulse.set_beam_status(i, False)
                 else:
                     btn.config(state="disabled", bg="gray", text=f"Beam {channel_label(i)} OFF")
                     if reset:
                         self._clear_beam_output_display(i)
-                        if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                            beam_pulse = self.subsystems['Beam Pulse']
-                            if hasattr(beam_pulse, 'set_beam_status'):
-                                beam_pulse.set_beam_status(i, False)
 
         except Exception as e:
             self.logger.error(f"Error updating beam toggle states: {str(e)}")

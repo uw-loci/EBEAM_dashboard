@@ -120,7 +120,6 @@ def make_real_beam_pulse_for_send(
             "count": FakeVar("1"),
         },
     ]
-    beam_pulse._dashboard_beam_callback = None
     beam_pulse._last_send_failure_message = ""
     beam_pulse._log = MagicMock()
     beam_pulse._log_event = MagicMock()
@@ -302,6 +301,17 @@ class TestMainControlEmissionLimit(unittest.TestCase):
 
         beam_pulse.sync_stop_all.assert_called_once_with()
 
+    def test_wire_beam_pulse_uses_register_status_callback_only(self):
+        dash = make_dashboard()
+        beam_pulse = MagicMock()
+
+        dash.wire_beam_pulse(beam_pulse)
+
+        beam_pulse.set_dashboard_beam_callback.assert_not_called()
+        beam_pulse.set_channel_status_callback.assert_called_once_with(
+            dash._on_channel_status_update
+        )
+
 
 class TestMainControlBeamStatusText(unittest.TestCase):
     def test_beam_status_formatting(self):
@@ -349,6 +359,8 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         self.assertEqual(dash._beam_output_status_colors[0], "green")
         self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to ON, running PULSE for 100ms")
         self.assertEqual(dash._beam_action_status_color, "green")
+        self.assertEqual(dash.beam_toggle_buttons[0].values["bg"], "green")
+        self.assertEqual(dash.beam_toggle_buttons[0].values["text"], "Beam A ON")
 
     def test_manual_beam_off_updates_output_and_action_text(self):
         beam_pulse = FakeBeamPulse(statuses=[True, False, False], mode="PULSE")
@@ -362,6 +374,8 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         self.assertEqual(dash._beam_output_status_colors[0], "gray")
         self.assertEqual(dash._beam_action_status_text, "Beam A successfully set to OFF")
         self.assertEqual(dash._beam_action_status_color, "green")
+        self.assertEqual(dash.beam_toggle_buttons[0].values["bg"], "gray")
+        self.assertEqual(dash.beam_toggle_buttons[0].values["text"], "Beam A OFF")
 
     def test_emission_limit_failure_updates_action_text_without_marking_on(self):
         beam_pulse = make_real_beam_pulse_for_send(
@@ -469,6 +483,32 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         )
         self.assertEqual(dash._beam_action_status_color, "green")
 
+    def test_firmware_ack_appends_to_current_action_status_without_button_update(self):
+        dash = make_dashboard()
+        dash._set_beam_action_status("Beam A successfully set to ON, running DC", "success")
+        before_button_calls = list(dash.beam_toggle_buttons[0].config_calls)
+
+        dash._handle_action_feedback("firmware_ack", "FW OK: Beam A ON seq=12", "success")
+
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "Beam A successfully set to ON, running DC | FW OK: Beam A ON seq=12",
+        )
+        self.assertEqual(dash._beam_action_status_color, "green")
+        self.assertEqual(dash.beam_toggle_buttons[0].config_calls, before_button_calls)
+
+    def test_firmware_ack_preserves_existing_failure_color(self):
+        dash = make_dashboard()
+        dash._set_beam_action_status("Beams E-STOP pressed: All Beams Disabled", "estop")
+
+        dash._handle_action_feedback("firmware_ack", "FW OK: All OFF seq=14", "success")
+
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "Beams E-STOP pressed: All Beams Disabled | FW OK: All OFF seq=14",
+        )
+        self.assertEqual(dash._beam_action_status_color, "red")
+
     def test_live_status_clears_completed_pulse_line(self):
         dash = make_dashboard()
         dash._ch_enable_states[0] = True
@@ -568,7 +608,6 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         beam_pulse.bcon_driver = None
         beam_pulse._seq_stop = threading.Event()
         beam_pulse._seq_thread = None
-        beam_pulse._dashboard_beam_callback = None
         beam_pulse._channel_enable_status_callback = None
         beam_pulse._log = MagicMock()
         beam_pulse._update_armed_button_states = MagicMock()
@@ -614,6 +653,24 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         beam_pulse._log_event = MagicMock()
         beam_pulse._last_send_failure_message = ""
         return beam_pulse
+
+    def test_beam_pulse_exposes_no_dashboard_beam_callback_api(self):
+        self.assertFalse(hasattr(BeamPulseSubsystem, "set_dashboard_beam_callback"))
+
+    def test_send_channel_config_does_not_require_dashboard_beam_callback(self):
+        beam_pulse = make_real_beam_pulse_for_send()
+
+        self.assertTrue(beam_pulse.send_channel_config(0))
+
+        self.assertFalse(hasattr(beam_pulse, "_dashboard_beam_callback"))
+
+    def test_send_channel_off_does_not_require_dashboard_beam_callback(self):
+        beam_pulse = make_real_beam_pulse_for_send(statuses=[True, False, False])
+        beam_pulse.bcon_driver.set_channel_off.return_value = True
+
+        self.assertTrue(beam_pulse.send_channel_off(0))
+
+        self.assertFalse(hasattr(beam_pulse, "_dashboard_beam_callback"))
 
     def test_sync_start_blocks_before_bcon_sync_start(self):
         beam_pulse = self.make_beam_pulse()
@@ -816,6 +873,122 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
             "BCON command APPLY_STAGED_MODES rejected: UNSAFE_INTERLOCK (seq=12)"
         )
 
+    def test_firmware_executed_with_pending_ack_updates_action_feedback(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_action_feedback_callback(feedback)
+        beam_pulse._queue_firmware_ack("Beam A ON")
+
+        beam_pulse._handle_driver_msg(("command_result", {
+            "requested_label": "APPLY_STAGED_MODES",
+            "last_command_label": "APPLY_STAGED_MODES",
+            "last_command_result": "EXECUTED",
+            "last_cmd_seq": 12,
+            "rejected": False,
+        }))
+
+        feedback.assert_called_once_with(
+            "firmware_ack",
+            "FW OK: Beam A ON seq=12",
+            "success",
+            None,
+        )
+        beam_pulse._log_event.assert_called_once_with(
+            "BCON command APPLY_STAGED_MODES executed (seq=12) [Beam A ON]"
+        )
+
+    def test_firmware_executed_without_pending_ack_logs_only(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_action_feedback_callback(feedback)
+
+        beam_pulse._handle_driver_msg(("command_result", {
+            "requested_label": "APPLY_STAGED_MODES",
+            "last_command_label": "APPLY_STAGED_MODES",
+            "last_command_result": "EXECUTED",
+            "last_cmd_seq": 12,
+            "rejected": False,
+        }))
+
+        feedback.assert_not_called()
+        beam_pulse._log_event.assert_called_once_with(
+            "BCON command APPLY_STAGED_MODES executed (seq=12)"
+        )
+
+    def test_command_confirmation_error_clears_pending_firmware_ack(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_action_feedback_callback(feedback)
+        beam_pulse._queue_firmware_ack("Beam A ON")
+        message = (
+            "Command APPLY_STAGED_MODES write completed, "
+            "but diagnostics were inconclusive"
+        )
+
+        beam_pulse._handle_driver_msg(("error", message))
+
+        self.assertEqual(list(beam_pulse._firmware_ack_queue()), [])
+        feedback.assert_called_once_with(
+            "status",
+            f"BCON send failed: {message}",
+            "failure",
+            None,
+        )
+
+    def test_write_register_error_clears_pending_firmware_ack(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_action_feedback_callback(feedback)
+        beam_pulse._queue_firmware_ack("Beam A ON")
+        message = "Write reg 2: serial timeout"
+
+        beam_pulse._handle_driver_msg(("error", message))
+
+        self.assertEqual(list(beam_pulse._firmware_ack_queue()), [])
+        feedback.assert_called_once_with(
+            "status",
+            f"BCON send failed: {message}",
+            "failure",
+            None,
+        )
+
+    def test_unrelated_driver_error_does_not_clear_pending_firmware_ack(self):
+        beam_pulse = self.make_beam_pulse()
+        feedback = MagicMock()
+        beam_pulse.set_action_feedback_callback(feedback)
+        beam_pulse._queue_firmware_ack("Beam A ON")
+
+        beam_pulse._handle_driver_msg(("error", "Poll error (1/5): transient read"))
+
+        self.assertEqual(list(beam_pulse._firmware_ack_queue()), ["Beam A ON"])
+        feedback.assert_not_called()
+
+    def test_disconnect_message_clears_pending_firmware_ack(self):
+        beam_pulse = self.make_beam_pulse()
+        beam_pulse.beams_armed_status = True
+        beam_pulse._queue_firmware_ack("Beam A ON")
+        beam_pulse._update_armed_button_states = MagicMock()
+        beam_pulse.update_bcon_connection_status = MagicMock()
+
+        beam_pulse._handle_driver_msg(("connected", False))
+
+        self.assertEqual(list(beam_pulse._firmware_ack_queue()), [])
+        self.assertFalse(beam_pulse.beams_armed_status)
+        self.assertEqual(beam_pulse.beam_on_status, [False, False, False])
+
+    def test_direct_disconnect_clears_pending_firmware_ack(self):
+        beam_pulse = self.make_beam_pulse()
+        beam_pulse._queue_firmware_ack("Beam A ON")
+        beam_pulse._seq_stop = threading.Event()
+        beam_pulse._seq_thread = None
+        beam_pulse._update_armed_button_states = MagicMock()
+        beam_pulse._channel_enable_status_callback = None
+
+        beam_pulse.disconnect()
+
+        self.assertEqual(list(beam_pulse._firmware_ack_queue()), [])
+        beam_pulse.bcon_driver.disconnect.assert_called_once_with()
+
     def test_register_update_sets_beam_pulse_output_state(self):
         beam_pulse = object.__new__(BeamPulseSubsystem)
         beam_pulse.channel_vars = [
@@ -882,6 +1055,27 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         beam_pulse.bcon_driver.set_channel_enable.assert_called_once_with(1, True)
         self.assertTrue(beam_pulse.channel_enable_status[0])
         beam_pulse._channel_enable_status_callback.assert_called_once_with(0, True)
+
+    def test_channel_enable_disable_sends_off_without_firmware_ack(self):
+        beam_pulse = object.__new__(BeamPulseSubsystem)
+        beam_pulse.beams_armed_status = True
+        beam_pulse.channel_enable_status = [True, False, False]
+        beam_pulse.beam_on_status = [True, False, False]
+        beam_pulse._active_channels = {0}
+        beam_pulse.bcon_driver = MagicMock()
+        beam_pulse.bcon_driver.is_connected.return_value = True
+        beam_pulse.bcon_driver.is_channel_enabled.return_value = True
+        beam_pulse.bcon_driver.set_channel_enable.return_value = True
+        beam_pulse.bcon_driver.set_channel_off.return_value = True
+        beam_pulse._channel_enable_status_callback = MagicMock()
+        beam_pulse._log_event = MagicMock()
+
+        ok, enabled, _detail = beam_pulse.toggle_channel_enable(0)
+
+        self.assertTrue(ok)
+        self.assertFalse(enabled)
+        beam_pulse.bcon_driver.set_channel_off.assert_called_once_with(1)
+        self.assertEqual(list(beam_pulse._firmware_ack_queue()), [])
 
     def test_csv_sequence_block_stops_before_bcon_sync_start(self):
         beam_pulse = object.__new__(BeamPulseSubsystem)

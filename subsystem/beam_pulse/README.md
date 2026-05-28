@@ -105,9 +105,8 @@ There are two safety layers:
 Important behavior:
 
 - `BEAMS ARMED` is a software gate, not a hardware arm command.
-- `disarm_beams()` stops any CSV sequence, sends all channels off through
-  `set_all_beams_status(False)`, calls `bcon_driver.stop_all()`, and disables
-  armed-gated buttons.
+- `disarm_beams()` stops any CSV sequence, commands BCON all-off, clears local
+  output state, and disables armed-gated buttons.
 - Dashboard `BEAMS E-STOP` calls `stop_all_channels()`, tells the Cathode
   Heating subsystem to turn off all beams, then disarms Beam Pulse.
 - Beam Pulse owns emission-limit checks before any non-OFF Beam ON, Sync Start,
@@ -169,10 +168,9 @@ BeamPulse-to-Dashboard callbacks:
 
 | Registration method | Callback shape | Purpose |
 | --- | --- | --- |
-| `set_dashboard_beam_callback(callback)` | `callback(beam_index, status)` | Immediate Dashboard button updates after subsystem commands |
-| `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining)` | Live register-backed Beam A/B/C button state |
+| `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining, config)` | Live register-backed Beam A/B/C button state |
 | `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | Live register-backed channel enable state |
-| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | Action status events for Dashboard displays |
+| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | Action status events, including firmware acknowledgements, for Dashboard displays |
 | `set_emission_limit_providers(limit_provider, currents_provider)` | `limit_provider() -> float`, `currents_provider() -> sequence` | Raw data sources for Beam Pulse-owned emission checks |
 
 Dashboard stores Beam Pulse in `self.subsystems["Beam Pulse"]`.
