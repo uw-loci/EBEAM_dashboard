@@ -80,12 +80,8 @@ class LaserMonitorDriver:
         # One worker thread owns all serial I/O. This avoids direct serial
         # writes from Tk callbacks or future dashboard status handlers.
         self._stop_event = threading.Event()
-        self._worker_thread = threading.Thread(
-            target=self._worker_loop,
-            name=f"LaserMonitorDriver[{self.port}]",
-            daemon=True,
-        )
-        self._worker_thread.start()
+        self._worker_thread = None
+        self._start_worker()
 
     def set_beams_on(self, active: bool) -> None:
         """Update the desired beams-on state for the next worker-cycle send."""
@@ -107,6 +103,7 @@ class LaserMonitorDriver:
         self._stop_event.set()
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
+        self._worker_thread = None
 
         self._set_connected(False)
         self._close_serial()
@@ -115,11 +112,41 @@ class LaserMonitorDriver:
         """Compatibility alias for disconnect()."""
         self.disconnect()
 
+    def close_com_ports(self) -> None:
+        """Dashboard cleanup hook."""
+        self.disconnect()
+
+    def update_com_port(self, new_port) -> None:
+        """Restart the worker on a new COM port."""
+        if (
+            new_port == self.port
+            and self._worker_thread is not None
+            and self._worker_thread.is_alive()
+        ):
+            return
+
+        self.disconnect()
+        self.port = new_port
+        self._last_sent_state = None
+        with self._status_lock:
+            self._last_error = None
+
+        self._stop_event = threading.Event()
+        self._start_worker()
+
     @property
     def last_error(self):
         """Most recent connection/protocol error text, or None."""
         with self._status_lock:
             return self._last_error
+
+    def _start_worker(self) -> None:
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop,
+            name=f"LaserMonitorDriver[{self.port}]",
+            daemon=True,
+        )
+        self._worker_thread.start()
 
     def _worker_loop(self) -> None:
         # Main lifecycle loop:

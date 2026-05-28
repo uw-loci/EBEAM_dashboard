@@ -9,6 +9,7 @@ import time
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
+from instrumentctl.laser_monitor.laser_monitor_driver import LaserMonitorDriver
 try:
     from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
 except Exception:
@@ -1032,6 +1033,17 @@ class EBEAMSystemDashboard:
             )
         }
 
+        # Laser Monitor indicator com port init
+        try:
+            laser_monitor_port = self.com_ports.get('Laser Monitor', '')
+            if laser_monitor_port:
+                self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
+                self.logger.info(f"Laser Monitor driver initialized on port {laser_monitor_port}")
+            else:
+                self.logger.warning("No COM port configured for Laser Monitor")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Laser Monitor driver: {e}")
+
         # Beam Pulse subsystem (BCON)
         try:
             bp_port = self.com_ports.get('BeamPulse', self.com_ports.get('Beam Pulse', ''))
@@ -1238,6 +1250,8 @@ class EBEAMSystemDashboard:
                     subsystem.update_com_ports(new_com_ports)
                 elif subsystem_name == 'Beam Energy':
                     subsystem.update_com_port(new_com_ports)
+                elif subsystem_name == 'Laser Monitor':
+                    subsystem.update_com_port(new_com_ports.get('Laser Monitor'))
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
