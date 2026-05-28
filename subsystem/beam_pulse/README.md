@@ -14,8 +14,9 @@ sequences.
 flowchart TD
     Main["main.py<br/>COM-port selection"] --> Dashboard["dashboard.py<br/>EBEAMSystemDashboard"]
     Dashboard -->|"hosts UI in Beam Steering/Pulse frame"| BeamPulse["BeamPulseSubsystem<br/>beam_pulse.py"]
-    Dashboard -->|"Arm, E-STOP, Beam A/B/C, CH Enable buttons"| BeamPulse
-    BeamPulse -->|"create_external_control_buttons()<br/>create_csv_buttons()"| MainControls["Dashboard Main Control panel"]
+    Dashboard -->|"Arm, E-STOP, Beam A/B/C, CH Enable, Sync controls"| MainControls["Dashboard Main Control panel"]
+    MainControls -->|"manual/sync callbacks"| BeamPulse
+    BeamPulse -->|"CSV Sequence tab controls"| BeamPulse
 
     BeamPulse -->|"high-level calls"| Driver["BCONDriver<br/>instrumentctl/BCON/bcon_driver.py"]
     Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware<br/>Modbus slave"]
@@ -158,9 +159,9 @@ Dashboard-to-BeamPulse calls:
 | E-STOP | `stop_all_channels()`, `disarm_beams()` |
 | Beam A/B/C ON | `send_channel_config(channel_index)` |
 | Beam A/B/C OFF | `send_channel_off(channel_index)` |
-| Channel enable toggle | `bcon_driver.set_channel_enable(channel, enabled)` and, when disabling, `send_channel_off(channel_index)` |
-| Main-control sync row | `create_external_control_buttons(...)` |
-| CSV buttons | `create_csv_buttons(parent_frame)` |
+| Channel enable toggle | `toggle_channel_enable(channel_index)` |
+| Sync Start / Stop | `sync_start()`, `sync_stop_all()` |
+| CSV Sequence tab buttons | `create_csv_buttons(parent_frame)` |
 
 BeamPulse-to-Dashboard callbacks:
 
@@ -169,7 +170,8 @@ BeamPulse-to-Dashboard callbacks:
 | `set_dashboard_beam_callback(callback)` | `callback(beam_index, status)` | Immediate Dashboard button updates after subsystem commands |
 | `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining)` | Live register-backed Beam A/B/C button state |
 | `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | Live register-backed channel enable state |
-| `set_channel_enable_getter(getter)` | `getter() -> list[bool]` | Lets `Sync Start` skip channels that are not hardware-enabled |
+| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | Action status events for Dashboard displays |
+| `set_output_start_guard(callback)` | `callback(action, channel_indices, configs) -> bool` | Cross-subsystem approval before non-OFF output starts |
 
 Dashboard stores Beam Pulse in `self.subsystems["Beam Pulse"]`.
 
@@ -190,16 +192,17 @@ count with safe defaults if widgets are unavailable.
 `send_channel_off(ch)` sends OFF immediately and does not require arming.
 
 `Sync Start` reads all three Manual Control configurations, filters out
-hardware-disabled channels using the registered enable getter, then calls
-`bcon_driver.sync_start(configs)`. The driver stages pulse parameters and
-requested modes, then commits them together with the firmware apply command.
+hardware-disabled channels using Beam Pulse's register-backed channel enable
+state, then calls `bcon_driver.sync_start(configs)`. The driver stages pulse
+parameters and requested modes, then commits them together with the firmware
+apply command.
 
 `Sync Stop` calls `bcon_driver.stop_all()`.
 
 ## CSV Sequences
 
-CSV controls are added to the Dashboard main control panel. The `CSV Sequence`
-tab shows the loaded file, progress, and parsed preview.
+CSV controls are hosted inside the Beam Pulse `CSV Sequence` tab above the
+loaded-step preview. The tab shows the loaded file, progress, and parsed preview.
 
 Accepted columns:
 
