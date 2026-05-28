@@ -135,6 +135,10 @@ class MainControlPanel:
             beam_pulse.set_main_control_feedback_callback(self._handle_main_control_feedback)
         if hasattr(beam_pulse, "set_channel_enable_status_callback"):
             beam_pulse.set_channel_enable_status_callback(self._on_channel_enable_status_update)
+        if hasattr(beam_pulse, "set_connection_status_callback"):
+            beam_pulse.set_connection_status_callback(
+                lambda connected: self._update_laser_monitor_beams_on(clear=not connected)
+            )
         if hasattr(beam_pulse, "set_channel_enable_getter"):
             beam_pulse.set_channel_enable_getter(self.get_channel_enable_states)
         if hasattr(beam_pulse, "set_emission_limit_checker"):
@@ -338,6 +342,10 @@ class MainControlPanel:
             self._beam_action_status_text = ""
         if not hasattr(self, "_beam_action_status_color"):
             self._beam_action_status_color = BEAM_ACTION_NEUTRAL_COLOR
+        if not hasattr(self, "_laser_monitor_active_channels"):
+            self._laser_monitor_active_channels = set()
+        if not hasattr(self, "_laser_monitor_beams_on_sent"):
+            self._laser_monitor_beams_on_sent = None
 
     def _coerce_beam_config(self, config):
         """Normalize a BCON channel config dict for display/state storage."""
@@ -680,6 +688,7 @@ class MainControlPanel:
         try:
             # Check if Beam Pulse subsystem is available
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                self._update_laser_monitor_beams_on(clear=True)
                 self.logger.error("Beam Pulse subsystem not available")
                 self._set_beam_action_status("Failed to arm beams, Beam Pulse subsystem not available", "failure")
                 return
@@ -735,6 +744,8 @@ class MainControlPanel:
         """Handle Beams E-stop button press — force stop all BCON channels,
         turn off cathode heating, and disarm beams."""
         try:
+            self._update_laser_monitor_beams_on(clear=True)
+
             # Force stop all BCON channels immediately
             if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
                 beam_pulse = self.subsystems['Beam Pulse']
@@ -863,6 +874,7 @@ class MainControlPanel:
                 if was_enabled:
                     if beam_pulse.send_channel_off(ch_index):
                         self._clear_beam_output_display(ch_index)
+                        self._update_laser_monitor_beams_on(ch_index, False)
                     if ch_index < len(self.beam_toggle_buttons):
                         self.beam_toggle_buttons[ch_index].config(
                             bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
@@ -881,6 +893,7 @@ class MainControlPanel:
         """
         try:
             if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+                self._update_laser_monitor_beams_on(clear=True)
                 self.logger.error("Beam Pulse subsystem not available")
                 self._set_beam_action_status("Failed to toggle beam, Beam Pulse subsystem not available", "failure")
                 return
@@ -997,6 +1010,7 @@ class MainControlPanel:
                     btn = self.beam_toggle_buttons[beam_index]
                     btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
                     self._clear_beam_output_display(beam_index)
+                    self._update_laser_monitor_beams_on(beam_index, False)
 
                     self.logger.info(f"Beam {beam_names[beam_index]} automatically turned OFF after pulse duration")
 
@@ -1031,19 +1045,47 @@ class MainControlPanel:
         except Exception as e:
             self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
 
+    def _update_laser_monitor_beams_on(self, ch=None, active=None, clear=False):
+        """Track active Beam A/B/C channels and send their OR to Laser Monitor."""
+        try:
+            active_channels = getattr(self, "_laser_monitor_active_channels", set())
+            if clear:
+                active_channels.clear()
+            elif ch is not None and 0 <= ch < 3:
+                if active:
+                    active_channels.add(ch)
+                else:
+                    active_channels.discard(ch)
+            self._laser_monitor_active_channels = active_channels
+
+            beams_on = bool(active_channels)
+            if beams_on == getattr(self, "_laser_monitor_beams_on_sent", None):
+                return
+
+            laser_monitor = self._get_subsystem("Laser Monitor")
+            if laser_monitor is None or not hasattr(laser_monitor, "set_beams_on"):
+                return
+
+            laser_monitor.set_beams_on(beams_on)
+            self._laser_monitor_beams_on_sent = beams_on
+        except Exception as e:
+            self.logger.error(f"Error updating Laser Monitor beam state: {str(e)}")
+
     def _on_channel_status_update(self, ch: int, mode_code: int, remaining: int, status_config=None):
         """Mirror live BCON register state onto Main Control beam displays.
 
         Called on every register-poll cycle by BeamPulseSubsystem.
         mode_code=0 means OFF; remaining=0 means all pulses delivered.
         """
-        if not hasattr(self, 'beam_toggle_buttons') or ch >= len(self.beam_toggle_buttons):
-            return
-        btn = self.beam_toggle_buttons[ch]
         # DC mode never counts down, so remaining is always 0 in hardware.
         # Treat DC as running whenever mode != OFF to prevent button glitching.
         MODE_DC = 1
         is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
+        self._update_laser_monitor_beams_on(ch, is_running)
+
+        if ch < 0 or not hasattr(self, 'beam_toggle_buttons') or ch >= len(self.beam_toggle_buttons):
+            return
+        btn = self.beam_toggle_buttons[ch]
         try:
             if is_running:
                 btn.config(bg="green", text=f"Beam {channel_label(ch)} ON")
@@ -1074,6 +1116,8 @@ class MainControlPanel:
 
             if not enabled or not self._beam_output_display_is_on(ch):
                 self._clear_beam_output_display(ch)
+            if not enabled:
+                self._update_laser_monitor_beams_on(ch, False)
 
             beam_pulse = self.subsystems.get('Beam Pulse')
             armed = bool(
@@ -1092,6 +1136,9 @@ class MainControlPanel:
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
         try:
+            if reset:
+                self._update_laser_monitor_beams_on(clear=True)
+
             if not hasattr(self, 'beam_toggle_buttons'):
                 return
 
@@ -1166,7 +1213,8 @@ class MainControlPanel:
 
         for subsystem in [
             'VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 
-            'TempControllers', 'Interlocks', 'ProcessMonitors', 'KnobBox']:
+            'TempControllers', 'Interlocks', 'ProcessMonitors', 'KnobBox',
+            'Laser Monitor']:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)

@@ -106,6 +106,7 @@ class BeamPulseSubsystem:
         # Dashboard integration callback
         self._dashboard_beam_callback = None
         self._main_control_feedback_callback = None
+        self._connection_status_callback = None
         self._host_toplevel = None
         self._shutdown_in_progress = False
 
@@ -1123,6 +1124,7 @@ class BeamPulseSubsystem:
         typ = msg[0]
         if typ == "connected":
             ok = msg[1]
+            previous = self.bcon_connection_status
             self.bcon_connection_status = ok
             if not ok:
                 self.beams_armed_status = False
@@ -1130,7 +1132,7 @@ class BeamPulseSubsystem:
                 self._active_channels.clear()
                 self._update_armed_button_states(False)
                 self._notify_all_channel_enables(False)
-            self.update_bcon_connection_status()
+            self.update_bcon_connection_status(previous)
         elif typ == "regs":
             regs = msg[1]
             self._update_ui_from_registers(regs)
@@ -1294,12 +1296,14 @@ class BeamPulseSubsystem:
             if self.bcon_driver:
                 connected = self.bcon_driver.is_connected()
                 if connected != self.bcon_connection_status:
+                    previous = self.bcon_connection_status
                     self.bcon_connection_status = connected
-                    self.update_bcon_connection_status()
+                    self.update_bcon_connection_status(previous)
             else:
                 if self.bcon_connection_status:
+                    previous = self.bcon_connection_status
                     self.bcon_connection_status = False
-                    self.update_bcon_connection_status()
+                    self.update_bcon_connection_status(previous)
             if self.parent_frame:
                 try:
                     self._bcon_mon_after_id = self.parent_frame.after(2000, check)
@@ -1327,8 +1331,8 @@ class BeamPulseSubsystem:
             except Exception:
                 self._pulser_mon_after_id = None
 
-    def update_bcon_connection_status(self):
-        """Repaint the BCON connection indicator and sync button label."""
+    def update_bcon_connection_status(self, previous_status=None):
+        """Repaint BCON connection UI and notify external status listeners."""
         if hasattr(self, 'bcon_connection_canvas'):
             self.bcon_connection_canvas.delete("indicator")
             color = "green" if self.bcon_connection_status else "red"
@@ -1338,6 +1342,16 @@ class BeamPulseSubsystem:
                 text="Disconnect" if self.bcon_connection_status else "Reconnect",
                 state="normal"
             )
+        # Only update connection status when there has been a change and the callback is valid
+        if previous_status is None or bool(previous_status) == bool(self.bcon_connection_status):
+            return
+        callback = getattr(self, "_connection_status_callback", None)
+        if not callable(callback):
+            return
+        try:
+            callback(bool(self.bcon_connection_status))
+        except Exception:
+            pass
 
     def update_pulser_status_display(self, pulser_index: int):
         """Update enabled + overcurrent indicators for a pulser."""
@@ -1508,8 +1522,9 @@ class BeamPulseSubsystem:
     # --- Status access ---
 
     def set_bcon_connection_status(self, status: bool):
+        previous = self.bcon_connection_status
         self.bcon_connection_status = status
-        self.update_bcon_connection_status()
+        self.update_bcon_connection_status(previous)
 
     def set_beam_status(self, beam_index: int, status: bool):
         if 0 <= beam_index < 3:
@@ -1576,6 +1591,10 @@ class BeamPulseSubsystem:
         """Register callback(ch, enabled) invoked on every register poll."""
         self._channel_enable_status_callback = callback
 
+    def set_connection_status_callback(self, callback):
+        """Register callback(connected) invoked when BCON connection changes."""
+        self._connection_status_callback = callback
+
     def set_main_control_feedback_callback(self, callback):
         """Register optional Dashboard callback for Main Control status text."""
         self._main_control_feedback_callback = callback
@@ -1629,12 +1648,14 @@ class BeamPulseSubsystem:
 
     def disconnect(self) -> None:
         self._stop_sequence_worker()
+        previous = self.bcon_connection_status
         self.bcon_connection_status = False
         self.beams_armed_status = False
         self.beam_on_status = [False, False, False]
         self._active_channels.clear()
         self._update_armed_button_states(False)
         self._notify_all_channel_enables(False)
+        self.update_bcon_connection_status(previous)
         if self.bcon_driver:
             self.bcon_driver.disconnect()
 

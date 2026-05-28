@@ -71,7 +71,15 @@ class FakeBeamPulse:
         return True
 
 
-def make_dashboard(limit=6.0, emission_values=None, beam_pulse=None):
+class FakeLaserMonitor:
+    def __init__(self):
+        self.states = []
+
+    def set_beams_on(self, active):
+        self.states.append(bool(active))
+
+
+def make_dashboard(limit=6.0, emission_values=None, beam_pulse=None, laser_monitor=None):
     dash = object.__new__(MainControlPanel)
     dash.logger = MagicMock()
     dash.total_max_emission_current_ma = limit
@@ -88,6 +96,8 @@ def make_dashboard(limit=6.0, emission_values=None, beam_pulse=None):
     }
     if beam_pulse is not None:
         dash.subsystems["Beam Pulse"] = beam_pulse
+    if laser_monitor is not None:
+        dash.subsystems["Laser Monitor"] = laser_monitor
     return dash
 
 
@@ -349,6 +359,88 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         )
         self.assertEqual(dash._beam_output_status_colors[0], "green")
 
+    def test_laser_monitor_dc_status_sets_beams_on(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+
+        dash._on_channel_status_update(0, 1, 0)
+
+        self.assertEqual(laser_monitor.states, [True])
+
+    def test_laser_monitor_pulsed_status_sets_beams_on(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+
+        dash._on_channel_status_update(1, 2, 5)
+
+        self.assertEqual(laser_monitor.states, [True])
+
+    def test_laser_monitor_one_beam_off_does_not_clear_another_active_beam(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+
+        dash._on_channel_status_update(0, 1, 0)
+        dash._on_channel_status_update(1, 2, 5)
+        dash._on_channel_status_update(0, 0, 0)
+
+        self.assertEqual(laser_monitor.states, [True])
+        self.assertEqual(dash._laser_monitor_active_channels, {1})
+
+    def test_laser_monitor_all_channels_off_sends_false(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+
+        for ch in range(3):
+            dash._on_channel_status_update(ch, 1, 0)
+        for ch in range(3):
+            dash._on_channel_status_update(ch, 0, 0)
+
+        self.assertEqual(laser_monitor.states, [True, False])
+        self.assertEqual(dash._laser_monitor_active_channels, set())
+
+    def test_laser_monitor_channel_disable_clears_inactive_channel(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+
+        dash._on_channel_status_update(0, 1, 0)
+        dash._on_channel_enable_status_update(0, False)
+
+        self.assertEqual(laser_monitor.states, [True, False])
+        self.assertEqual(dash._laser_monitor_active_channels, set())
+
+    def test_laser_monitor_beams_off_forces_false(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+        dash._laser_monitor_active_channels = {0}
+        dash._laser_monitor_beams_on_sent = True
+
+        dash.handle_beams_off()
+
+        self.assertIn(False, laser_monitor.states)
+        self.assertEqual(dash._laser_monitor_active_channels, set())
+
+    def test_laser_monitor_reset_beam_toggle_states_forces_false(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+        dash._laser_monitor_active_channels = {0}
+        dash._laser_monitor_beams_on_sent = True
+
+        dash.update_beam_toggle_states(enabled=False, reset=True)
+
+        self.assertEqual(laser_monitor.states, [False])
+        self.assertEqual(dash._laser_monitor_active_channels, set())
+
+    def test_laser_monitor_connection_loss_forces_false(self):
+        laser_monitor = FakeLaserMonitor()
+        dash = make_dashboard(laser_monitor=laser_monitor)
+        dash._laser_monitor_active_channels = {0}
+        dash._laser_monitor_beams_on_sent = True
+
+        dash._update_laser_monitor_beams_on(clear=True)
+
+        self.assertEqual(laser_monitor.states, [False])
+        self.assertEqual(dash._laser_monitor_active_channels, set())
+
     def test_channel_enable_updates_off_output_text(self):
         dash = make_dashboard()
 
@@ -505,6 +597,24 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         beam_pulse._log_event.assert_called_once_with(
             "BCON command APPLY_STAGED_MODES rejected: UNSAFE_INTERLOCK (seq=12)"
         )
+
+    def test_connection_status_callback_runs_on_connected_message_change(self):
+        beam_pulse = object.__new__(BeamPulseSubsystem)
+        beam_pulse.bcon_connection_status = True
+        beam_pulse.beams_armed_status = True
+        beam_pulse.beam_on_status = [True, False, False]
+        beam_pulse._active_channels = {0}
+        beam_pulse._connection_status_callback = None
+        beam_pulse._update_armed_button_states = MagicMock()
+        beam_pulse._notify_all_channel_enables = MagicMock()
+        callback = MagicMock()
+        beam_pulse.set_connection_status_callback(callback)
+
+        beam_pulse._handle_driver_msg(("connected", False))
+
+        callback.assert_called_once_with(False)
+        self.assertEqual(beam_pulse.beam_on_status, [False, False, False])
+        self.assertEqual(beam_pulse._active_channels, set())
 
     def test_csv_sequence_block_stops_before_bcon_sync_start(self):
         beam_pulse = object.__new__(BeamPulseSubsystem)
