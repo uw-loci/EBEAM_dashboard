@@ -461,6 +461,17 @@ class EBEAMSystemDashboard:
         if hasattr(self, "main_control"):
             self.main_control.subsystems = self.subsystems
             self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
+        beam_energy = self.subsystems.get('Beam Energy')
+        laser_monitor = self.subsystems.get('Laser Monitor')
+        if (
+            beam_energy is not None
+            and laser_monitor is not None
+            and hasattr(beam_energy, 'set_radiation_indicator_callback')
+            and hasattr(laser_monitor, 'set_radiation_indicator')
+        ):
+            beam_energy.set_radiation_indicator_callback(
+                laser_monitor.set_radiation_indicator
+            )
 
         # Beam Pulse subsystem (BCON)
         try:

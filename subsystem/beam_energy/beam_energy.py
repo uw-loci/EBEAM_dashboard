@@ -30,6 +30,9 @@ class BeamEnergySubsystem:
     ESTOP_TEXT_COLOR = "red"
     WARNING_TEXT_COLOR = "#FF8000"
     NORMAL_TEXT_COLOR = "black"
+
+    RADIATION_INDICATOR_THRESHOLD_V = 10000.0   #20kV V min for radiation indicator
+
     warning_limit_fields = (
         ("max_voltage_v", "Max V", "V"),
         ("min_voltage_v", "Min V", "V"),
@@ -108,6 +111,10 @@ class BeamEnergySubsystem:
             value=self._format_beams_estop_current_limit_setting()
         )
         self.beams_estop_callback = None
+        # Dashboard wires this to LaserMonitorDriver.set_radiation_indicator().
+        # The last-sent value prevents repeated sends during unchanged 500 ms polls.
+        self.radiation_indicator_callback = None
+        self._radiation_indicator_sent = None
         self.warning_limit_entry_vars = [
             {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
             for _ in self.power_supplies
@@ -588,6 +595,35 @@ class BeamEnergySubsystem:
         except Exception:
             _recheck()
 
+    def set_radiation_indicator_callback(self, callback):
+        """Register callback(active) for the Laser Monitor radiation indicator."""
+        self.radiation_indicator_callback = callback
+        self._radiation_indicator_sent = None
+        self._update_radiation_indicator(
+            self.latest_actual_voltage_values[self._get_pos20kv_index()]
+        )
+
+    def _update_radiation_indicator(self, voltage):
+        # Missing/invalid +20kV readback clears the indicator; valid readings
+        # at or above the threshold assert it.
+        voltage = self._coerce_reading(voltage)
+        active = (
+            voltage is not None
+            and voltage >= self.RADIATION_INDICATOR_THRESHOLD_V
+        )
+        if active == getattr(self, "_radiation_indicator_sent", None):
+            return
+
+        callback = getattr(self, "radiation_indicator_callback", None)
+        if not callable(callback):
+            return
+
+        try:
+            callback(active)
+            self._radiation_indicator_sent = active
+        except Exception as e:
+            self.log(f"Radiation indicator callback failed: {e}", LogLevel.ERROR)
+
     def _log_warning_breach(self, index, reading_type, value):
         if value is None:
             return
@@ -624,6 +660,9 @@ class BeamEnergySubsystem:
         self.latest_actual_current_values[index] = current
 
         supply_key = self._get_supply_key(index)
+        if supply_key == POS20KV_SUPPLY_KEY:
+            self._update_radiation_indicator(voltage)
+
         limits = self.warning_limits[supply_key]
         voltage_value = self._comparison_value(supply_key, voltage)
         current_value = self._comparison_value(supply_key, current)

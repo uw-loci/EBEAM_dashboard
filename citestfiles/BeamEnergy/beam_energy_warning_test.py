@@ -64,6 +64,8 @@ def make_subsystem(limits=None):
     subsystem.latest_actual_voltage_values = [None, None, None, None]
     subsystem.latest_actual_current_values = [None, None, None, None]
     subsystem.beams_estop_callback = None
+    subsystem.radiation_indicator_callback = None
+    subsystem._radiation_indicator_sent = None
     subsystem.beams_estop_current_entry_var = FakeVar("")
     subsystem.beams_estop_current_value_var = FakeVar(
         subsystem._format_beams_estop_current_limit_setting()
@@ -303,6 +305,60 @@ class TestBeamEnergyWarningIndicators(unittest.TestCase):
         subsystem.apply_warning_indicators(3, 100.0, 11.0)
 
         subsystem.beams_estop_callback.assert_not_called()
+
+    def test_pos20kv_voltage_above_threshold_sets_radiation_indicator_true(self):
+        subsystem = make_subsystem()
+        subsystem.radiation_indicator_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 10000.1, 0.0)
+
+        subsystem.radiation_indicator_callback.assert_called_once_with(True)
+
+    def test_pos20kv_voltage_equal_to_threshold_sets_radiation_indicator_true(self):
+        subsystem = make_subsystem()
+        subsystem.radiation_indicator_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 10000.0, 0.0)
+
+        subsystem.radiation_indicator_callback.assert_called_once_with(True)
+
+    def test_pos20kv_voltage_below_threshold_sets_radiation_indicator_false(self):
+        subsystem = make_subsystem()
+        subsystem.radiation_indicator_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 9999.9, 0.0)
+
+        subsystem.radiation_indicator_callback.assert_called_once_with(False)
+
+    def test_pos20kv_voltage_falling_below_threshold_sets_radiation_indicator_false(self):
+        subsystem = make_subsystem()
+        subsystem.radiation_indicator_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, 10000.1, 0.0)
+        subsystem.apply_warning_indicators(2, 9999.9, 0.0)
+
+        self.assertEqual(
+            [call.args[0] for call in subsystem.radiation_indicator_callback.call_args_list],
+            [True, False],
+        )
+
+    def test_pos20kv_missing_voltage_sets_radiation_indicator_false(self):
+        subsystem = make_subsystem()
+        subsystem.radiation_indicator_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(2, None, 0.0)
+
+        subsystem.radiation_indicator_callback.assert_called_once_with(False)
+
+    def test_non_20kv_voltage_does_not_update_radiation_indicator(self):
+        subsystem = make_subsystem()
+        subsystem.radiation_indicator_callback = MagicMock()
+
+        subsystem.apply_warning_indicators(0, 20000.0, 0.0)
+        subsystem.apply_warning_indicators(1, -20000.0, 0.0)
+        subsystem.apply_warning_indicators(3, 20000.0, 0.0)
+
+        subsystem.radiation_indicator_callback.assert_not_called()
 
     def test_boundary_values_are_black(self):
         # Standard warning limits are also strict: exact boundary values are safe.
