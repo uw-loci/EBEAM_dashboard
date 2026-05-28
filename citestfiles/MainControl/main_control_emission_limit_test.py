@@ -72,6 +72,7 @@ class FakeBeamPulse:
         self.send_channel_config = MagicMock(return_value=True)
         self.send_channel_off = MagicMock(return_value=True)
         self.get_channel_config = MagicMock(return_value={"mode": mode, "duration_ms": 100, "count": 1})
+        self.get_last_send_failure_message = MagicMock(return_value="")
         self.toggle_channel_enable = MagicMock(
             return_value=(True, True, "Channel A successfully enabled")
         )
@@ -85,11 +86,23 @@ class FakeBeamPulse:
         return True
 
 
-def make_real_beam_pulse_for_send(mode="PULSE", duration="100", count="1", connected=True, driver=True):
+def make_real_beam_pulse_for_send(
+    mode="PULSE",
+    duration="100",
+    count="1",
+    connected=True,
+    driver=True,
+    statuses=None,
+    limit=6.0,
+    currents=None,
+):
     beam_pulse = object.__new__(BeamPulseSubsystem)
     beam_pulse.beams_armed_status = True
-    beam_pulse.beam_on_status = [False, False, False]
+    beam_pulse.beam_on_status = list(statuses or [False, False, False])
     beam_pulse.channel_enable_status = [False, False, False]
+    beam_pulse._active_channels = {
+        index for index, is_on in enumerate(beam_pulse.beam_on_status) if is_on
+    }
     beam_pulse.channel_vars = [
         {
             "mode": FakeVar(mode),
@@ -111,6 +124,10 @@ def make_real_beam_pulse_for_send(mode="PULSE", duration="100", count="1", conne
     beam_pulse._last_send_failure_message = ""
     beam_pulse._log = MagicMock()
     beam_pulse._log_event = MagicMock()
+    beam_pulse.set_emission_limit_providers(
+        lambda: limit,
+        lambda: list(currents if currents is not None else [0.0, 0.0, 0.0]),
+    )
     if driver:
         beam_pulse.bcon_driver = MagicMock()
         beam_pulse.bcon_driver.is_connected.return_value = connected
@@ -190,15 +207,28 @@ class TestMainControlEmissionLimit(unittest.TestCase):
         self.assertEqual(cathode.get_predicted_emission_currents_ma(), [1.25, 0.0, 0.0])
 
     def test_equality_blocks_output(self):
-        dash = make_dashboard(limit=6.0, emission_values=[2.0, 4.0, float("nan")])
+        beam_pulse = make_real_beam_pulse_for_send(
+            limit=6.0,
+            currents=[2.0, 4.0, float("nan")],
+        )
 
-        allowed = dash.check_total_emission_current_limit("Test action", [0, 1])
+        allowed, message = beam_pulse._emission_limit_allows_output(
+            "Test action",
+            [
+                {"ch": 1, "mode": "PULSE", "duration_ms": 100, "count": 1},
+                {"ch": 2, "mode": "DC", "duration_ms": 0, "count": 1},
+            ],
+        )
 
         self.assertFalse(allowed)
-        dash.logger.error.assert_called_once()
+        self.assertIn("total emission current limit exceeded", message)
 
     def test_beam_on_blocks_before_sending_channel_config(self):
-        beam_pulse = FakeBeamPulse(statuses=[False, True, False], mode="PULSE")
+        beam_pulse = make_real_beam_pulse_for_send(
+            statuses=[False, True, False],
+            limit=6.0,
+            currents=[2.0, 4.0, 0.0],
+        )
         dash = make_dashboard(
             limit=6.0,
             emission_values=[2.0, 4.0, 0.0],
@@ -207,23 +237,14 @@ class TestMainControlEmissionLimit(unittest.TestCase):
 
         dash.toggle_individual_beam_with_status(0)
 
-        beam_pulse.send_channel_config.assert_not_called()
-        dash.logger.error.assert_called_once()
-
-    def test_beam_on_allows_below_limit(self):
-        beam_pulse = FakeBeamPulse(statuses=[False, True, False], mode="PULSE")
-        dash = make_dashboard(
-            limit=6.1,
-            emission_values=[2.0, 4.0, 0.0],
-            beam_pulse=beam_pulse,
+        beam_pulse.bcon_driver.set_channel_mode.assert_not_called()
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "Failed to set Beam A ON, total emission current limit exceeded",
         )
 
-        dash.toggle_individual_beam_with_status(0)
-
-        beam_pulse.send_channel_config.assert_called_once_with(0)
-
-    def test_beam_on_allows_off_mode_without_emission_check(self):
-        beam_pulse = FakeBeamPulse(statuses=[False, True, False], mode="OFF")
+    def test_beam_on_delegates_emission_check_to_beam_pulse(self):
+        beam_pulse = FakeBeamPulse(statuses=[False, True, False], mode="PULSE")
         dash = make_dashboard(
             limit=1.0,
             emission_values=[2.0, 4.0, 0.0],
@@ -233,6 +254,22 @@ class TestMainControlEmissionLimit(unittest.TestCase):
         dash.toggle_individual_beam_with_status(0)
 
         beam_pulse.send_channel_config.assert_called_once_with(0)
+
+    def test_beam_on_allows_off_mode_without_emission_check(self):
+        beam_pulse = make_real_beam_pulse_for_send(
+            mode="OFF",
+            statuses=[False, True, False],
+            limit=0.0,
+        )
+        dash = make_dashboard(
+            limit=1.0,
+            emission_values=[2.0, 4.0, 0.0],
+            beam_pulse=beam_pulse,
+        )
+
+        dash.toggle_individual_beam_with_status(0)
+
+        beam_pulse.bcon_driver.set_channel_mode.assert_called_once()
         dash.logger.error.assert_not_called()
 
     def test_channel_enable_does_not_apply_emission_limit(self):
@@ -327,7 +364,11 @@ class TestMainControlBeamStatusText(unittest.TestCase):
         self.assertEqual(dash._beam_action_status_color, "green")
 
     def test_emission_limit_failure_updates_action_text_without_marking_on(self):
-        beam_pulse = FakeBeamPulse(statuses=[False, True, False], mode="PULSE")
+        beam_pulse = make_real_beam_pulse_for_send(
+            statuses=[False, True, False],
+            limit=6.0,
+            currents=[2.0, 4.0, 0.0],
+        )
         dash = make_dashboard(
             limit=6.0,
             emission_values=[2.0, 4.0, 0.0],
@@ -337,7 +378,7 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
         dash.toggle_individual_beam_with_status(0)
 
-        beam_pulse.send_channel_config.assert_not_called()
+        beam_pulse.bcon_driver.set_channel_mode.assert_not_called()
         self.assertEqual(dash._beam_output_status_text[0], "Beam A ENABLED, Output OFF")
         self.assertEqual(
             dash._beam_action_status_text,
@@ -555,13 +596,21 @@ class TestMainControlBeamStatusText(unittest.TestCase):
 
 
 class TestBeamPulseEmissionLimitHook(unittest.TestCase):
-    def make_beam_pulse(self):
+    def make_beam_pulse(self, limit=4.0, currents=None, active=None):
         beam_pulse = object.__new__(BeamPulseSubsystem)
         beam_pulse.beams_armed_status = True
+        beam_pulse.beam_on_status = [False, False, False]
+        if active:
+            for index in active:
+                beam_pulse.beam_on_status[index] = True
+        beam_pulse._active_channels = set(active or [])
         beam_pulse.bcon_driver = MagicMock()
         beam_pulse.channel_vars = [object(), object(), object()]
         beam_pulse.channel_enable_status = [True, True, False]
-        beam_pulse._output_start_guard = MagicMock(return_value=False)
+        beam_pulse._emission_limit_provider = MagicMock(return_value=limit)
+        beam_pulse._predicted_currents_provider = MagicMock(
+            return_value=list(currents if currents is not None else [0.0, 4.0, 0.0])
+        )
         beam_pulse._log_event = MagicMock()
         beam_pulse._last_send_failure_message = ""
         return beam_pulse
@@ -575,13 +624,12 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
 
         beam_pulse.sync_start()
 
-        beam_pulse._output_start_guard.assert_called_once()
-        self.assertEqual(beam_pulse._output_start_guard.call_args.args[1], [1])
+        beam_pulse._emission_limit_provider.assert_called_once()
+        beam_pulse._predicted_currents_provider.assert_called_once()
         beam_pulse.bcon_driver.sync_start.assert_not_called()
 
     def test_sync_start_allows_bcon_sync_start_below_limit(self):
-        beam_pulse = self.make_beam_pulse()
-        beam_pulse._output_start_guard = MagicMock(return_value=True)
+        beam_pulse = self.make_beam_pulse(limit=4.1)
         beam_pulse._validate_and_get_config = MagicMock(side_effect=[
             {"mode": "OFF", "duration_ms": 0, "count": 1},
             {"mode": "PULSE", "duration_ms": 100, "count": 1},
@@ -591,11 +639,104 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
 
         beam_pulse.bcon_driver.sync_start.assert_called_once()
 
+    def test_send_channel_config_blocks_before_bcon_write_at_limit(self):
+        beam_pulse = make_real_beam_pulse_for_send(
+            limit=2.0,
+            currents=[2.0, 0.0, 0.0],
+        )
+
+        ok = beam_pulse.send_channel_config(0)
+
+        self.assertFalse(ok)
+        beam_pulse.bcon_driver.set_channel_mode.assert_not_called()
+        self.assertEqual(
+            beam_pulse.get_last_send_failure_message(),
+            "Failed to set Beam A ON, total emission current limit exceeded",
+        )
+
+    def test_send_channel_config_sanitizes_bad_currents_as_zero(self):
+        beam_pulse = make_real_beam_pulse_for_send(
+            limit=0.1,
+            currents=["--", float("nan"), "bad"],
+        )
+
+        ok = beam_pulse.send_channel_config(0)
+
+        self.assertTrue(ok)
+        beam_pulse.bcon_driver.set_channel_mode.assert_called_once()
+
+    def test_missing_emission_providers_block_output_start(self):
+        beam_pulse = make_real_beam_pulse_for_send()
+        beam_pulse._emission_limit_provider = None
+        beam_pulse._predicted_currents_provider = None
+
+        ok = beam_pulse.send_channel_config(0)
+
+        self.assertFalse(ok)
+        beam_pulse.bcon_driver.set_channel_mode.assert_not_called()
+        self.assertIn("provider unavailable", beam_pulse.get_last_send_failure_message())
+
+    def test_provider_exception_blocks_output_start(self):
+        beam_pulse = make_real_beam_pulse_for_send()
+        beam_pulse._predicted_currents_provider = MagicMock(side_effect=RuntimeError("offline"))
+
+        ok = beam_pulse.send_channel_config(0)
+
+        self.assertFalse(ok)
+        beam_pulse.bcon_driver.set_channel_mode.assert_not_called()
+        self.assertIn("provider failed", beam_pulse.get_last_send_failure_message())
+
+    def test_existing_active_channels_are_counted_for_single_beam_on(self):
+        beam_pulse = make_real_beam_pulse_for_send(
+            statuses=[False, True, False],
+            limit=6.0,
+            currents=[2.0, 4.0, 0.0],
+        )
+
+        ok = beam_pulse.send_channel_config(0)
+
+        self.assertFalse(ok)
+        beam_pulse.bcon_driver.set_channel_mode.assert_not_called()
+
+    def test_existing_active_channels_are_counted_for_sync_start(self):
+        beam_pulse = self.make_beam_pulse(
+            limit=6.0,
+            currents=[2.0, 4.0, 0.0],
+            active=[1],
+        )
+        beam_pulse.channel_enable_status = [True, False, False]
+        beam_pulse._validate_and_get_config = MagicMock(return_value={
+            "mode": "PULSE",
+            "duration_ms": 100,
+            "count": 1,
+        })
+
+        beam_pulse.sync_start()
+
+        beam_pulse.bcon_driver.sync_start.assert_not_called()
+
+    def test_off_configs_remove_active_channels_from_projection(self):
+        beam_pulse = self.make_beam_pulse(
+            limit=2.0,
+            currents=[4.0, 0.0, 1.0],
+            active=[0],
+        )
+
+        allowed, message = beam_pulse._emission_limit_allows_output(
+            "Sync Start",
+            [
+                {"ch": 1, "mode": "OFF", "duration_ms": 0, "count": 1},
+                {"ch": 3, "mode": "PULSE", "duration_ms": 100, "count": 1},
+            ],
+        )
+
+        self.assertTrue(allowed)
+        self.assertIsNone(message)
+
     def test_sync_start_feedback_after_bcon_sync_start(self):
-        beam_pulse = self.make_beam_pulse()
+        beam_pulse = self.make_beam_pulse(limit=10.0, currents=[1.0, 2.0, 0.0])
         feedback = MagicMock()
         beam_pulse.set_action_feedback_callback(feedback)
-        beam_pulse._output_start_guard = MagicMock(return_value=True)
         beam_pulse._validate_and_get_config = MagicMock(side_effect=[
             {"mode": "PULSE", "duration_ms": 100, "count": 1},
             {"mode": "PULSE_TRAIN", "duration_ms": 50, "count": 5},
@@ -616,7 +757,6 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         beam_pulse = self.make_beam_pulse()
         feedback = MagicMock()
         beam_pulse.set_action_feedback_callback(feedback)
-        beam_pulse._output_start_guard = MagicMock(return_value=True)
         beam_pulse.channel_vars = [
             {"mode": FakeVar("PULSE_TRAIN"), "duration": FakeVar("100"), "count": FakeVar("10001")},
             {"mode": FakeVar("OFF"), "duration": FakeVar("0"), "count": FakeVar("1")},
@@ -639,7 +779,6 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         beam_pulse = self.make_beam_pulse()
         feedback = MagicMock()
         beam_pulse.set_action_feedback_callback(feedback)
-        beam_pulse._output_start_guard = MagicMock(return_value=True)
         beam_pulse.channel_vars = [
             {"mode": FakeVar("PULSE"), "duration": FakeVar("60001"), "count": FakeVar("1")},
             {"mode": FakeVar("OFF"), "duration": FakeVar("0"), "count": FakeVar("1")},
@@ -751,14 +890,40 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         ]
         beam_pulse._seq_stop = threading.Event()
         beam_pulse.beams_armed_status = True
+        beam_pulse.beam_on_status = [False, False, False]
+        beam_pulse._active_channels = set()
         beam_pulse._ui_queue = queue.Queue()
         beam_pulse.bcon_driver = MagicMock()
-        beam_pulse._output_start_guard = MagicMock(return_value=False)
+        beam_pulse._emission_limit_provider = MagicMock(return_value=2.0)
+        beam_pulse._predicted_currents_provider = MagicMock(return_value=[2.0, 0.0, 0.0])
+        beam_pulse._log_event = MagicMock()
         beam_pulse._last_send_failure_message = ""
 
         beam_pulse._sequence_worker()
 
-        beam_pulse._output_start_guard.assert_called_once()
+        beam_pulse._emission_limit_provider.assert_called_once()
+        beam_pulse._predicted_currents_provider.assert_called_once()
+        beam_pulse.bcon_driver.sync_start.assert_not_called()
+        self.assertTrue(beam_pulse._seq_stop.is_set())
+
+    def test_csv_sequence_counts_existing_active_channels(self):
+        beam_pulse = object.__new__(BeamPulseSubsystem)
+        beam_pulse._seq_steps = [
+            (1, [{"ch": 0, "mode": "PULSE", "duration_ms": 100, "count": 1}], 0)
+        ]
+        beam_pulse._seq_stop = threading.Event()
+        beam_pulse.beams_armed_status = True
+        beam_pulse.beam_on_status = [False, True, False]
+        beam_pulse._active_channels = {1}
+        beam_pulse._ui_queue = queue.Queue()
+        beam_pulse.bcon_driver = MagicMock()
+        beam_pulse._emission_limit_provider = MagicMock(return_value=6.0)
+        beam_pulse._predicted_currents_provider = MagicMock(return_value=[2.0, 4.0, 0.0])
+        beam_pulse._log_event = MagicMock()
+        beam_pulse._last_send_failure_message = ""
+
+        beam_pulse._sequence_worker()
+
         beam_pulse.bcon_driver.sync_start.assert_not_called()
         self.assertTrue(beam_pulse._seq_stop.is_set())
 
@@ -769,14 +934,19 @@ class TestBeamPulseEmissionLimitHook(unittest.TestCase):
         ]
         beam_pulse._seq_stop = threading.Event()
         beam_pulse.beams_armed_status = True
+        beam_pulse.beam_on_status = [False, False, False]
+        beam_pulse._active_channels = set()
         beam_pulse._ui_queue = queue.Queue()
         beam_pulse.bcon_driver = MagicMock()
-        beam_pulse._output_start_guard = MagicMock(return_value=True)
+        beam_pulse._emission_limit_provider = MagicMock(return_value=10.0)
+        beam_pulse._predicted_currents_provider = MagicMock(return_value=[1.0, 0.0, 0.0])
+        beam_pulse._log_event = MagicMock()
         beam_pulse._last_send_failure_message = ""
 
         beam_pulse._sequence_worker()
 
-        beam_pulse._output_start_guard.assert_not_called()
+        beam_pulse._emission_limit_provider.assert_not_called()
+        beam_pulse._predicted_currents_provider.assert_not_called()
         beam_pulse.bcon_driver.sync_start.assert_not_called()
         self.assertTrue(beam_pulse._seq_stop.is_set())
         messages = list(beam_pulse._ui_queue.queue)

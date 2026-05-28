@@ -1,5 +1,6 @@
 import csv
 import json
+import math
 import os
 import sys
 import threading
@@ -128,8 +129,9 @@ class BeamPulseSubsystem:
         # registers a function cb(ch, enabled) called from register polling.
         self._channel_enable_status_callback = None
 
-        # Dashboard-provided guard used before starting any non-OFF output group.
-        self._output_start_guard = None
+        # Dashboard-provided raw data sources for Beam Pulse-owned emission checks.
+        self._emission_limit_provider = None
+        self._predicted_currents_provider = None
 
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
@@ -569,25 +571,112 @@ class BeamPulseSubsystem:
             except Exception:
                 pass
 
-    def _emission_limit_allows(self, action, configs):
-        """Return (allowed, error_message) for a non-OFF output request."""
-        if not callable(self._output_start_guard):
-            return True, None
-
-        # Only channels with output-producing modes count toward total emission.
-        output_channels = [
-            cfg['ch'] - 1
-            for cfg in configs
-            if str(cfg.get('mode', '')).strip().upper() != 'OFF'
-        ]
-        if not output_channels:
-            return True, None
-
+    @staticmethod
+    def _safe_emission_current_ma(value) -> float:
+        """Convert one predicted current reading to a non-negative mA value."""
         try:
-            return bool(self._output_start_guard(action, output_channels, configs)), None
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(numeric_value) or numeric_value < 0:
+            return 0.0
+        return numeric_value
+
+    def _read_emission_limit_ma(self):
+        provider = getattr(self, "_emission_limit_provider", None)
+        if not callable(provider):
+            return None, "emission limit provider unavailable"
+        try:
+            limit = float(provider())
         except Exception as e:
-            # Treat checker failures as blocked starts to avoid partial output transitions.
-            return False, f"{action} blocked: emission limit check failed ({e})"
+            return None, f"emission limit provider failed ({e})"
+        if not math.isfinite(limit) or limit < 0:
+            return None, "emission limit is invalid"
+        return limit, None
+
+    def _read_predicted_emission_currents_ma(self):
+        provider = getattr(self, "_predicted_currents_provider", None)
+        if not callable(provider):
+            return None, "predicted emission current provider unavailable"
+        try:
+            raw_values = list(provider() or [])
+        except Exception as e:
+            return None, f"predicted emission current provider failed ({e})"
+        currents = [0.0, 0.0, 0.0]
+        for index, value in enumerate(raw_values[:3]):
+            currents[index] = self._safe_emission_current_ma(value)
+        return currents, None
+
+    def _emission_block_message(self, action: str, detail: str = "total emission current limit exceeded") -> str:
+        action_text = str(action or "output start").strip()
+        action_key = action_text.lower()
+        if action_key == "sync start":
+            return f"Failed to sync start, {detail}"
+        if action_key.startswith("beam ") and action_key.endswith(" on"):
+            return f"Failed to set {action_text}, {detail}"
+        return f"Failed to {action_text}, {detail}"
+
+    def _emission_limit_allows_output(self, action, configs):
+        """Return (allowed, error_message) before any non-OFF output command."""
+        active_channels = {
+            index
+            for index, is_on in enumerate(getattr(self, "beam_on_status", []))
+            if is_on and 0 <= index < 3
+        }
+        active_channels.update(
+            index
+            for index in getattr(self, "_active_channels", set())
+            if isinstance(index, int) and 0 <= index < 3
+        )
+
+        requested_output = set()
+        requested_off = set()
+        for cfg in configs or []:
+            try:
+                channel_index = int(cfg.get("ch")) - 1
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if not 0 <= channel_index < 3:
+                continue
+            mode = str(cfg.get("mode", "")).strip().upper()
+            if mode == "OFF":
+                requested_off.add(channel_index)
+            else:
+                requested_output.add(channel_index)
+
+        if not requested_output:
+            return True, None
+
+        projected_channels = (active_channels - requested_off) | requested_output
+        if not projected_channels:
+            return True, None
+
+        limit, error_message = self._read_emission_limit_ma()
+        if error_message:
+            message = self._emission_block_message(action, error_message)
+            self._log_event(message)
+            return False, message
+
+        currents, error_message = self._read_predicted_emission_currents_ma()
+        if error_message:
+            message = self._emission_block_message(action, error_message)
+            self._log_event(message)
+            return False, message
+
+        projected_total = sum(currents[index] for index in sorted(projected_channels))
+        if projected_total < limit:
+            return True, None
+
+        breakdown = ", ".join(
+            f"{self._channel_label(index)}={currents[index]:.3f}mA"
+            for index in sorted(projected_channels)
+        )
+        self._log_event(
+            f"{action} blocked: predicted total emission current "
+            f"{projected_total:.3f}mA is at or above limit {limit:g}mA "
+            f"({breakdown})."
+        )
+        return False, self._emission_block_message(action)
 
     def sync_start(self):
         """Synchronous start of enabled channels using Manual Control tab configuration.
@@ -642,7 +731,7 @@ class BeamPulseSubsystem:
             })
 
         if configs:
-            allowed, error_message = self._emission_limit_allows("Sync Start", configs)
+            allowed, error_message = self._emission_limit_allows_output("Sync Start", configs)
             if not allowed:
                 # Surface guard-rail failures without writing to BCON.
                 if error_message:
@@ -890,7 +979,7 @@ class BeamPulseSubsystem:
             if self._seq_stop.is_set() or not self.beams_armed_status:
                 break
 
-            allowed, error_message = self._emission_limit_allows(
+            allowed, error_message = self._emission_limit_allows_output(
                 f"CSV Sequence step {step_num}",
                 configs,
             )
@@ -1405,9 +1494,10 @@ class BeamPulseSubsystem:
         """
         self._channel_status_callback = callback
 
-    def set_output_start_guard(self, callback):
-        """Register a callback used to approve non-OFF output groups."""
-        self._output_start_guard = callback
+    def set_emission_limit_providers(self, limit_provider, predicted_currents_provider):
+        """Register raw data providers used for Beam Pulse-owned emission checks."""
+        self._emission_limit_provider = limit_provider
+        self._predicted_currents_provider = predicted_currents_provider
 
     def set_channel_enable_status_callback(self, callback):
         """Register callback(ch, enabled) invoked on every register poll."""
@@ -1690,6 +1780,22 @@ class BeamPulseSubsystem:
         mode_label = config['mode']
         duration   = config['duration_ms']
         count      = config['count']
+
+        if mode_label != 'OFF':
+            allowed, error_message = self._emission_limit_allows_output(
+                f"Beam {self._channel_label(ch)} ON",
+                [{
+                    'ch': ch + 1,
+                    'mode': mode_label,
+                    'duration_ms': duration,
+                    'count': count,
+                }],
+            )
+            if not allowed:
+                self._set_last_send_failure(
+                    error_message or "total emission current limit exceeded"
+                )
+                return False
 
         if not self.bcon_driver.set_channel_mode(ch + 1, mode_label, duration_ms=duration, count=count):
             self._set_last_send_failure(

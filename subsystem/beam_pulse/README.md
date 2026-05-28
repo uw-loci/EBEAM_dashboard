@@ -110,6 +110,8 @@ Important behavior:
   armed-gated buttons.
 - Dashboard `BEAMS E-STOP` calls `stop_all_channels()`, tells the Cathode
   Heating subsystem to turn off all beams, then disarms Beam Pulse.
+- Beam Pulse owns emission-limit checks before any non-OFF Beam ON, Sync Start,
+  or CSV step command reaches BCON.
 - `Sync Stop`, channel OFF, disarm, disconnect, and safe shutdown do not require
   the armed state.
 
@@ -171,7 +173,7 @@ BeamPulse-to-Dashboard callbacks:
 | `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining)` | Live register-backed Beam A/B/C button state |
 | `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | Live register-backed channel enable state |
 | `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | Action status events for Dashboard displays |
-| `set_output_start_guard(callback)` | `callback(action, channel_indices, configs) -> bool` | Cross-subsystem approval before non-OFF output starts |
+| `set_emission_limit_providers(limit_provider, currents_provider)` | `limit_provider() -> float`, `currents_provider() -> sequence` | Raw data sources for Beam Pulse-owned emission checks |
 
 Dashboard stores Beam Pulse in `self.subsystems["Beam Pulse"]`.
 
@@ -185,17 +187,19 @@ count with safe defaults if widgets are unavailable.
 
 1. Requires beams to be armed.
 2. Validates mode-specific duration/count.
-3. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
-4. Updates `beam_on_status[ch]`.
-5. Notifies the Dashboard beam callback.
+3. Blocks non-OFF output if projected emission current is at or above the configured limit.
+4. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
+5. Updates `beam_on_status[ch]`.
+6. Notifies the Dashboard beam callback.
 
 `send_channel_off(ch)` sends OFF immediately and does not require arming.
 
 `Sync Start` reads all three Manual Control configurations, filters out
 hardware-disabled channels using Beam Pulse's register-backed channel enable
-state, then calls `bcon_driver.sync_start(configs)`. The driver stages pulse
-parameters and requested modes, then commits them together with the firmware
-apply command.
+state, blocks non-OFF output when projected emission current is at or above the
+configured limit, then calls `bcon_driver.sync_start(configs)`. The driver
+stages pulse parameters and requested modes, then commits them together with the
+firmware apply command.
 
 `Sync Stop` calls `bcon_driver.stop_all()`.
 
@@ -241,9 +245,9 @@ Running a sequence requires:
 - No currently running sequence worker.
 
 The sequence runner uses a background thread. Each step calls
-`bcon_driver.sync_start(configs)`, then sleeps for the step dwell while checking
-the stop event. Stop, disarm, disconnect, and host shutdown all request the
-worker to stop.
+the Beam Pulse emission-limit check before `bcon_driver.sync_start(configs)`,
+then sleeps for the step dwell while checking the stop event. Stop, disarm,
+disconnect, and host shutdown all request the worker to stop.
 
 ## Threading And Lifecycle
 

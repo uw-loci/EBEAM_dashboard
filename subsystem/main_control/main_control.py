@@ -124,8 +124,18 @@ class MainControlPanel:
             beam_pulse.set_action_feedback_callback(self._handle_action_feedback)
         if hasattr(beam_pulse, "set_channel_enable_status_callback"):
             beam_pulse.set_channel_enable_status_callback(self._on_channel_enable_status_update)
-        if hasattr(beam_pulse, "set_output_start_guard"):
-            beam_pulse.set_output_start_guard(self.check_total_emission_current_limit)
+        if hasattr(beam_pulse, "set_emission_limit_providers"):
+            beam_pulse.set_emission_limit_providers(
+                lambda: self.total_max_emission_current_ma,
+                self._get_predicted_emission_currents_for_beam_pulse,
+            )
+
+    def _get_predicted_emission_currents_for_beam_pulse(self):
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        getter = getattr(cathode, "get_predicted_emission_currents_ma", None)
+        if not callable(getter):
+            raise RuntimeError("Cathode Heating predicted emission current provider unavailable")
+        return getter()
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -825,58 +835,6 @@ class MainControlPanel:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
-    def check_total_emission_current_limit(self, action, channel_indices, configs=None):
-        """Return True when the projected emission total is below the configured limit."""
-        # Only requested BCON channels A/B/C participate in this limit.
-        unique_channels = sorted({
-            int(index)
-            for index in channel_indices
-            if isinstance(index, int) and 0 <= index < 3
-        })
-        if not unique_channels:
-            return True
-
-        currents = [0.0, 0.0, 0.0]
-        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
-        getter = getattr(cathode, "get_predicted_emission_currents_ma", None)
-        if callable(getter):
-            try:
-                for index, value in enumerate(list(getter())[:3]):
-                    try:
-                        numeric_value = float(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if math.isfinite(numeric_value) and numeric_value >= 0:
-                        currents[index] = numeric_value
-            except Exception as e:
-                self.logger.error(f"Could not read Cathode Heating predicted emission currents: {e}")
-
-        projected_total = sum(currents[index] for index in unique_channels)
-        limit = self.total_max_emission_current_ma
-
-        # The limit is exclusive: matching the configured cap blocks the action.
-        if projected_total < limit:
-            return True
-
-        breakdown = ", ".join(
-            f"{channel_label(index)}={currents[index]:.3f}mA"
-            for index in unique_channels
-        )
-        self.logger.error(
-            f"{action} blocked: predicted total emission current "
-            f"{projected_total:.3f}mA is at or above limit {limit:g}mA "
-            f"({breakdown})."
-        )
-        action_key = str(action).strip().lower()
-        if action_key == "sync start":
-            message = "Failed to sync start, total emission current limit exceeded"
-        elif action_key.startswith("beam ") and action_key.endswith(" on"):
-            message = f"Failed to set {action}, total emission current limit exceeded"
-        else:
-            message = f"Failed to {action}, total emission current limit exceeded"
-        self._set_beam_action_status(message, "failure")
-        return False
-
     def _toggle_channel_enable(self, ch_index: int):
         """Toggle the hardware enable for a BCON channel (0-based index).
 
@@ -965,22 +923,6 @@ class MainControlPanel:
                     if hasattr(beam_pulse, 'get_channel_config')
                     else {'mode': 'PULSE'}
                 )
-                mode_label = str(config.get('mode', 'PULSE')).strip().upper()
-                # OFF-mode configs do not create beam output, so they skip the emission guard.
-                if mode_label != 'OFF':
-                    # Include beams that are already ON because the limit applies to total output.
-                    projected_channels = [
-                        idx for idx in range(3)
-                        if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(idx)
-                    ]
-                    if beam_index not in projected_channels:
-                        projected_channels.append(beam_index)
-                    if not self.check_total_emission_current_limit(
-                        f"Beam {channel_label(beam_index)} ON",
-                        projected_channels,
-                    ):
-                        return
-
                 ok = beam_pulse.send_channel_config(beam_index)
                 if ok:
                     self._set_beam_output_display(beam_index, config, is_on=True)
@@ -1000,7 +942,11 @@ class MainControlPanel:
                         except Exception:
                             failure_message = ""
                     if failure_message:
-                        failure_message = (f"Failed to send Beam {channel_label(beam_index)} config: "f"{failure_message}")
+                        if not str(failure_message).lower().startswith("failed "):
+                            failure_message = (
+                                f"Failed to send Beam {channel_label(beam_index)} config: "
+                                f"{failure_message}"
+                            )
                     else:
                         failure_message = f"Failed to send Beam {channel_label(beam_index)} config"
                     self._set_beam_action_status(failure_message,"failure",)
