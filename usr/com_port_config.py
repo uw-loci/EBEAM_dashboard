@@ -4,6 +4,11 @@ import os
 
 CONFIG_FILE = 'usr/usr_data/com_ports.json'
 
+
+def get_beam_pulse_com_port(com_ports):
+    """Return the Beam Pulse COM port, accepting the legacy display key."""
+    return com_ports.get('BeamPulse', com_ports.get('Beam Pulse', ''))
+
 def save_com_ports(com_ports, filepath=CONFIG_FILE, logger=None):
     """Save COM port selections to a JSON file."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)

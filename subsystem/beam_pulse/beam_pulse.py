@@ -105,6 +105,7 @@ class BeamPulseSubsystem:
 
         # Dashboard integration callback
         self._dashboard_beam_callback = None
+        self._main_control_feedback_callback = None
         self._host_toplevel = None
         self._shutdown_in_progress = False
 
@@ -114,7 +115,7 @@ class BeamPulseSubsystem:
         self._seq_stop = threading.Event()
 
         # Channel status callback — set_channel_status_callback(cb) registers
-        # a function cb(ch, mode_code, remaining) called from register polling.
+        # cb(ch, mode_code, remaining, config) called from register polling.
         self._channel_status_callback = None
 
         # Channel enable status callback — set_channel_enable_status_callback(cb)
@@ -125,6 +126,8 @@ class BeamPulseSubsystem:
         # zero-argument callable that returns list[bool] (one entry per channel).
         # _sync_start uses it to skip channels that are not hardware-enabled.
         self._ch_enable_getter = None
+        # Dashboard-provided guard used before starting any non-OFF output group.
+        self._emission_limit_checker = None
 
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
@@ -757,6 +760,36 @@ class BeamPulseSubsystem:
                 ch + 1, config['duration_ms'], config['count'])
         self._log_event("Sync wrote params for channels")
 
+    def _emission_limit_allows(self, action, configs):
+        """Return (allowed, error_message) for a non-OFF output request."""
+        if not callable(self._emission_limit_checker):
+            return True, None
+
+        # Only channels with output-producing modes count toward total emission.
+        output_channels = [
+            cfg['ch'] - 1
+            for cfg in configs
+            if str(cfg.get('mode', '')).strip().upper() != 'OFF'
+        ]
+        if not output_channels:
+            return True, None
+
+        try:
+            return bool(self._emission_limit_checker(action, output_channels, configs)), None
+        except Exception as e:
+            # Treat checker failures as blocked starts to avoid partial output transitions.
+            return False, f"{action} blocked: emission limit check failed ({e})"
+
+    def _sync_start_config_summary(self, config):
+        """Return one channel summary for the Main Control Sync Start status."""
+        label = self._channel_label(config['ch'] - 1)
+        mode = str(config.get('mode', '')).strip().upper()
+        if mode == 'DC':
+            return f"{label}=DC"
+        if mode == 'PULSE':
+            return f"{label}=PULSE({config['duration_ms']}ms)"
+        return f"{label}={mode}({config['duration_ms']}ms x{config['count']})"
+
     def _sync_start(self):
         """Synchronous start of enabled channels using Manual Control tab configuration.
 
@@ -765,8 +798,18 @@ class BeamPulseSubsystem:
         If no getter is registered all three channels are started.
         """
         if not self._require_armed():
+            self._notify_main_control_feedback(
+                "status",
+                "Failed to sync start, beams are not armed",
+                "failure",
+            )
             return
         if not self.bcon_driver:
+            self._notify_main_control_feedback(
+                "status",
+                "Failed to sync start, BCON driver not available",
+                "failure",
+            )
             return
 
         # Resolve which channels are enabled; default to all if no getter registered
@@ -797,19 +840,46 @@ class BeamPulseSubsystem:
             })
 
         if configs:
+            allowed, error_message = self._emission_limit_allows("Sync Start", configs)
+            if not allowed:
+                # Surface guard-rail failures in Main Control without writing to BCON.
+                if error_message:
+                    self._log_event(error_message)
+                    message = error_message
+                else:
+                    message = "Failed to sync start, total emission current limit exceeded"
+                self._notify_main_control_feedback("status", message, "failure")
+                return
+
             self.bcon_driver.sync_start(configs)
-            self._log_event(
+            message = (
                 "Sync Start: " +
                 ", ".join(
-                    f"{self._channel_label(c['ch'] - 1)}={c['mode']}({c['duration_ms']}ms x{c['count']})"
+                    self._sync_start_config_summary(c)
                     for c in configs
                 )
+            )
+            self._notify_main_control_feedback("beams_sent", message, "success", configs)
+            self._log_event(
+                message
+            )
+        else:
+            # No channels were eligible, so line 4 gets status but lines 1-3 stay unchanged.
+            self._notify_main_control_feedback(
+                "status",
+                "Sync Start skipped: no enabled channels",
+                "neutral",
             )
 
     def _sync_stop_all(self):
         """Stop all channels immediately."""
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+        self._notify_main_control_feedback(
+            "all_off",
+            "Sync Stop: all channels -> OFF",
+            "neutral",
+        )
         self._log_event("Sync Stop: all channels -> OFF")
 
     # ================================================================== #
@@ -922,12 +992,27 @@ class BeamPulseSubsystem:
     def _run_sequence(self):
         """Start running the loaded CSV sequence."""
         if not self._require_armed():
+            self._notify_main_control_feedback(
+                "status",
+                "Failed to run sequence, beams are not armed",
+                "failure",
+            )
             return
         if not self._seq_steps:
             messagebox.showinfo("Sequence", "No sequence loaded.")
+            self._notify_main_control_feedback(
+                "status",
+                "Failed to run sequence, no sequence loaded",
+                "failure",
+            )
             return
         if not self.bcon_driver or not self.bcon_driver.is_connected():
             messagebox.showwarning("Sequence", "Not connected to BCON device.")
+            self._notify_main_control_feedback(
+                "status",
+                "Failed to run sequence, BCON device not connected",
+                "failure",
+            )
             return
         if self._seq_thread and self._seq_thread.is_alive():
             return
@@ -938,11 +1023,19 @@ class BeamPulseSubsystem:
             self.seq_stop_btn.configure(state="normal")
         self._seq_thread = threading.Thread(target=self._sequence_worker, daemon=True)
         self._seq_thread.start()
+        self._notify_main_control_feedback("status", "Sequence started", "success")
         self._log_event("Sequence started")
 
     def _stop_sequence(self):
         """Request sequence stop."""
         self._seq_stop.set()
+        self._ui_queue.put((
+            "main_control_feedback",
+            "status",
+            "Sequence stop requested",
+            "neutral",
+            None,
+        ))
         self._log_event("Sequence stop requested")
 
     def _sequence_worker(self):
@@ -965,7 +1058,31 @@ class BeamPulseSubsystem:
             ]
             if self._seq_stop.is_set() or not self.beams_armed_status:
                 break
+
+            allowed, error_message = self._emission_limit_allows(
+                f"CSV Sequence step {step_num}",
+                configs,
+            )
+            if not allowed:
+                if error_message:
+                    self._ui_queue.put(("seq_status", error_message))
+                    message = error_message
+                else:
+                    message = (
+                        f"Failed to CSV Sequence step {step_num}, "
+                        "total emission current limit exceeded"
+                    )
+                self._ui_queue.put(("main_control_feedback", "status", message, "failure", None))
+                self._seq_stop.set()
+                break
             self.bcon_driver.sync_start(configs)
+            self._ui_queue.put((
+                "main_control_feedback",
+                "beams_sent",
+                f"CSV Sequence step {step_num} sent to BCON",
+                "success",
+                configs,
+            ))
 
             # Dwell
             deadline = time.time() + dwell_ms / 1000.0
@@ -973,6 +1090,7 @@ class BeamPulseSubsystem:
                 time.sleep(0.05)
 
         final = "Sequence complete" if not self._seq_stop.is_set() else "Sequence stopped"
+        self._ui_queue.put(("main_control_feedback", "status", final, "neutral", None))
         self._ui_queue.put(("seq_status", final))
         self._ui_queue.put(("seq_done", None))
 
@@ -1006,6 +1124,12 @@ class BeamPulseSubsystem:
         if typ == "connected":
             ok = msg[1]
             self.bcon_connection_status = ok
+            if not ok:
+                self.beams_armed_status = False
+                self.beam_on_status = [False, False, False]
+                self._active_channels.clear()
+                self._update_armed_button_states(False)
+                self._notify_all_channel_enables(False)
             self.update_bcon_connection_status()
         elif typ == "regs":
             regs = msg[1]
@@ -1023,7 +1147,9 @@ class BeamPulseSubsystem:
             seq = info.get("last_cmd_seq", 0)
             if info.get("rejected"):
                 reason = info.get("last_reject_reason", "UNKNOWN")
-                self._log_event(f"BCON command {cmd_text} rejected: {reason} (seq={seq})")
+                message = f"BCON command {cmd_text} rejected: {reason}"
+                self._notify_main_control_feedback("status", message, "failure")
+                self._log_event(f"{message} (seq={seq})")
             else:
                 result = str(info.get("last_command_result", "UNKNOWN")).lower()
                 self._log_event(f"BCON command {cmd_text} {result} (seq={seq})")
@@ -1034,6 +1160,8 @@ class BeamPulseSubsystem:
             if hasattr(self, 'seq_progress_lbl'):
                 self.seq_progress_lbl.configure(text=text)
             self._log_event(text)
+        elif typ == "main_control_feedback":
+            self._notify_main_control_feedback(*msg[1:])
         elif typ == "seq_done":
             self._update_armed_button_states(self.beams_armed_status)
             if hasattr(self, 'seq_stop_btn'):
@@ -1051,6 +1179,10 @@ class BeamPulseSubsystem:
             remaining = regs[status_base + 3]
             enabled_state = bool(regs[status_base + 4])
             output_level = regs[status_base + 8]
+            # Duration/count are reused for Dashboard status text and local entry auto-fill.
+            base = CH_BASE[ch]
+            pulse_ms = regs[base + CH_PULSE_MS_OFF]
+            count_val = regs[base + CH_COUNT_OFF]
 
             st_text = MODE_CODE_TO_LABEL.get(mode_code, "unknown")
             self.channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
@@ -1072,7 +1204,15 @@ class BeamPulseSubsystem:
             # Notify dashboard so beam toggle button colour tracks hardware state
             if callable(getattr(self, '_channel_status_callback', None)):
                 try:
-                    self._channel_status_callback(ch, mode_code, remaining)
+                    # The fourth argument lets Main Control describe the live output mode.
+                    self._channel_status_callback(ch, mode_code, remaining,
+                        {
+                            "mode": MODE_CODE_TO_LABEL.get(mode_code, "OFF"),
+                            "duration_ms": pulse_ms,
+                            "count": count_val,
+                            "remaining": remaining,
+                        },
+                    )
                 except Exception:
                     pass
 
@@ -1087,9 +1227,6 @@ class BeamPulseSubsystem:
             # above already shows the live running mode.
 
             # Auto-fill duration/count from param registers if widget is empty or '0'
-            base = CH_BASE[ch]
-            pulse_ms = regs[base + CH_PULSE_MS_OFF]
-            count_val = regs[base + CH_COUNT_OFF]
             self._safe_fill(self.channel_vars[ch]['duration'], pulse_ms)
             self._safe_fill(self.channel_vars[ch]['count'], count_val)
 
@@ -1416,7 +1553,7 @@ class BeamPulseSubsystem:
         return 50.0
 
     def set_channel_status_callback(self, callback):
-        """Register callback(ch, mode_code, remaining) invoked on every register poll.
+        """Register callback(ch, mode_code, remaining, config) for every register poll.
 
         The dashboard uses this to keep the Beam A/B/C toggle buttons in sync
         with live hardware state without polling from the dashboard side.
@@ -1431,9 +1568,39 @@ class BeamPulseSubsystem:
         """
         self._ch_enable_getter = getter
 
+    def set_emission_limit_checker(self, callback):
+        """Register dashboard callback used to approve non-OFF output groups."""
+        self._emission_limit_checker = callback
+
     def set_channel_enable_status_callback(self, callback):
         """Register callback(ch, enabled) invoked on every register poll."""
         self._channel_enable_status_callback = callback
+
+    def set_main_control_feedback_callback(self, callback):
+        """Register optional Dashboard callback for Main Control status text."""
+        self._main_control_feedback_callback = callback
+
+    def _notify_main_control_feedback(self, event_type, message="", outcome="neutral", configs=None):
+        """Send one Main Control status update when Dashboard is present."""
+        callback = getattr(self, "_main_control_feedback_callback", None)
+        if not callable(callback):
+            return
+        try:
+            callback(event_type, message, outcome, configs)
+        except Exception:
+            pass
+
+    def _notify_all_channel_enables(self, enabled: bool) -> None:
+        """Mirror a known all-channel enable state to dashboard controls."""
+        if self.bcon_driver:
+            self.bcon_driver.reset_channel_enable_cache(enabled)
+        if not callable(getattr(self, '_channel_enable_status_callback', None)):
+            return
+        for ch in range(3):
+            try:
+                self._channel_enable_status_callback(ch, enabled)
+            except Exception:
+                pass
 
     def set_dashboard_beam_callback(self, callback):
         self._dashboard_beam_callback = callback
@@ -1467,8 +1634,8 @@ class BeamPulseSubsystem:
         self.beam_on_status = [False, False, False]
         self._active_channels.clear()
         self._update_armed_button_states(False)
+        self._notify_all_channel_enables(False)
         if self.bcon_driver:
-            self.bcon_driver.reset_channel_enable_cache()
             self.bcon_driver.disconnect()
 
     def close_com_ports(self) -> None:
@@ -1512,6 +1679,7 @@ class BeamPulseSubsystem:
     def stop_all_channels(self) -> bool:
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+            self._notify_all_channel_enables(False)
             return True
         return False
 
@@ -1529,6 +1697,7 @@ class BeamPulseSubsystem:
         self.set_all_beams_status(False)
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+        self._notify_all_channel_enables(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
         return True
