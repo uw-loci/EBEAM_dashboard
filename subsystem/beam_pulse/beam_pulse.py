@@ -179,11 +179,51 @@ class BeamPulseSubsystem:
 
     def setup_ui(self):
         """Create the user interface with tabbed layout."""
+        scroll_outer = ttk.Frame(self.parent_frame)
+        scroll_outer.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(scroll_outer, highlightthickness=0)
+        vsb = ttk.Scrollbar(scroll_outer, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+
+        ui_root = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=ui_root, anchor="nw")
+
+        def _on_inner_configure(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            try:
+                canvas.itemconfig(win_id, width=event.width)
+            except tk.TclError:
+                pass
+
+        ui_root.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_mousewheel(event):
+            if event.delta:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif getattr(event, "num", None) == 4:
+                canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                canvas.yview_scroll(1, "units")
+
+        canvas.bind("<Enter>", lambda _e: canvas.focus_set())
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        canvas.bind("<Button-4>", _on_mousewheel)
+        canvas.bind("<Button-5>", _on_mousewheel)
+
+        self._bp_ui_root = ui_root
+
         # Top status bar (BCON connection + safety)
         self._build_status_bar()
 
         # Notebook with three tabs
-        self.notebook = ttk.Notebook(self.parent_frame)
+        self.notebook = ttk.Notebook(ui_root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Tab 1: Manual Separate Control
@@ -239,7 +279,7 @@ class BeamPulseSubsystem:
 
     def _build_status_bar(self):
         """Build the top status bar with connection, interlock, arm info."""
-        bar = ttk.Frame(self.parent_frame)
+        bar = ttk.Frame(self._bp_ui_root)
         bar.pack(fill=tk.X, padx=5, pady=(5, 0))
 
         # BCON connection indicator
@@ -258,7 +298,7 @@ class BeamPulseSubsystem:
         self.connect_btn.pack(side=tk.RIGHT, padx=4)
 
         # System settings row (watchdog / telemetry)
-        sys_frame = ttk.Frame(self.parent_frame)
+        sys_frame = ttk.Frame(self._bp_ui_root)
         sys_frame.pack(fill=tk.X, padx=5, pady=(2, 0))
         ttk.Label(sys_frame, text="Watchdog (ms):", font=("Arial", 8)).pack(side=tk.LEFT)
         self.watchdog_entry = ttk.Entry(sys_frame, width=7)
@@ -966,6 +1006,12 @@ class BeamPulseSubsystem:
         if typ == "connected":
             ok = msg[1]
             self.bcon_connection_status = ok
+            if not ok:
+                self.beams_armed_status = False
+                self.beam_on_status = [False, False, False]
+                self._active_channels.clear()
+                self._update_armed_button_states(False)
+                self._notify_all_channel_enables(False)
             self.update_bcon_connection_status()
         elif typ == "regs":
             regs = msg[1]
@@ -1395,6 +1441,18 @@ class BeamPulseSubsystem:
         """Register callback(ch, enabled) invoked on every register poll."""
         self._channel_enable_status_callback = callback
 
+    def _notify_all_channel_enables(self, enabled: bool) -> None:
+        """Mirror a known all-channel enable state to dashboard controls."""
+        if self.bcon_driver:
+            self.bcon_driver.reset_channel_enable_cache(enabled)
+        if not callable(getattr(self, '_channel_enable_status_callback', None)):
+            return
+        for ch in range(3):
+            try:
+                self._channel_enable_status_callback(ch, enabled)
+            except Exception:
+                pass
+
     def set_dashboard_beam_callback(self, callback):
         self._dashboard_beam_callback = callback
         self._log("Dashboard beam callback registered", LogLevel.DEBUG)
@@ -1427,8 +1485,8 @@ class BeamPulseSubsystem:
         self.beam_on_status = [False, False, False]
         self._active_channels.clear()
         self._update_armed_button_states(False)
+        self._notify_all_channel_enables(False)
         if self.bcon_driver:
-            self.bcon_driver.reset_channel_enable_cache()
             self.bcon_driver.disconnect()
 
     def close_com_ports(self) -> None:
@@ -1472,6 +1530,7 @@ class BeamPulseSubsystem:
     def stop_all_channels(self) -> bool:
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+            self._notify_all_channel_enables(False)
             return True
         return False
 
@@ -1489,6 +1548,7 @@ class BeamPulseSubsystem:
         self.set_all_beams_status(False)
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+        self._notify_all_channel_enables(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
         return True
