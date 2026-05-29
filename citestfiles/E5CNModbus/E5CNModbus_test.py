@@ -70,6 +70,23 @@ class TestE5CNModbus(unittest.TestCase):
             slave=1
         )
 
+    def test_read_temperature_above_hard_max_returns_error(self):
+        """Test impossible E5CN readings are reported as sensor errors."""
+        mock_response = MagicMock()
+        mock_response.isError.return_value = False
+        mock_response.registers = [0, 13000]  # Represents 1300.0 C
+
+        self.device.client.is_socket_open.return_value = True
+        self.device.client.read_holding_registers.return_value = mock_response
+
+        temperature = self.device.read_temperature(1)
+
+        self.assertEqual(temperature, self.device.SENSOR_ERROR)
+        self.assertTrue(any(
+            "exceeds hard maximum" in str(call)
+            for call in self.mock_logger.log.call_args_list
+        ))
+
     def test_read_temperature_connection_retry(self):
         """Test temperature reading with connection retry"""
 
