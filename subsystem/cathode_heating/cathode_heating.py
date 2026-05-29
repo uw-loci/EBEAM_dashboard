@@ -1688,13 +1688,25 @@ class CathodeHeatingSubsystem:
         self.clamp_temperature_vars[index].set("-- C")
         return None
 
+    def _publish_cathode_power_readback(self, index, current, voltage):
+        """Publish cathode heater readbacks, including None when the read is invalid."""
+        if self.logger and hasattr(self.logger, "update_cathode_field"):
+            cathode_label = ['A', 'B', 'C'][index]
+            self.logger.update_cathode_field(cathode_label, "heater_current", current)
+            self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
+
     
     def update_data(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
+        # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
             self.temperature_controller.flush_queued_logs()
+        # Flush logs for each power supply as well to capture any recent communication issues or status changes before we read new data
+        for power_supply in self.power_supplies:
+            if power_supply and hasattr(power_supply, "flush_queued_logs"):
+                power_supply.flush_queued_logs()
 
         for i in range(3):
             self.log(f"Processing Cathode {['A', 'B', 'C'][i]}", LogLevel.VERBOSE)
@@ -1707,6 +1719,9 @@ class CathodeHeatingSubsystem:
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 try:
                     if not self.power_supplies[i].is_connected():
+                        self.actual_heater_current_vars[i].set("--")
+                        self.actual_heater_voltage_vars[i].set("--")
+                        self._publish_cathode_power_readback(i, None, None)
                         # Backoff: only attempt reconnect after cooldown period
                         if (current_time - self.last_reconnect_attempt[i]) < self.RECONNECT_COOLDOWN:
                             continue
@@ -1719,15 +1734,14 @@ class CathodeHeatingSubsystem:
                             continue
                     
                     voltage, current, mode = self.power_supplies[i].get_voltage_current_mode()
-                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
+                    self._publish_cathode_power_readback(i, current, voltage)
+                    if voltage is not None and current is not None:
+                        self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
+                    else:
+                        self.log(f"Power supply {i+1} readings unavailable. Mode: {mode}", LogLevel.WARNING)
                     
                     self.actual_heater_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}" if voltage is not None else "--")
-
-                    cathode_label = ['A', 'B', 'C'][i]
-                    if self.logger and hasattr(self.logger, "update_cathode_field"):
-                        self.logger.update_cathode_field(cathode_label, "heater_current", current)
-                        self.logger.update_cathode_field(cathode_label, "heater_voltage", voltage)
 
                     # Update mode display
                     cv_lbl, cc_lbl = self.cv_cc_labels[i]
@@ -1747,10 +1761,12 @@ class CathodeHeatingSubsystem:
                     self.actual_heater_current_vars[i].set("--")
                     self.actual_heater_voltage_vars[i].set("--")
                     self.operation_mode_var[i].set("Mode: --")
+                    self._publish_cathode_power_readback(i, None, None)
             else:
                 self.actual_heater_current_vars[i].set("--")
                 self.actual_heater_voltage_vars[i].set("--")
                 self.actual_target_current_vars[i].set("--")
+                self._publish_cathode_power_readback(i, None, None)
 
             temperature = self.read_temperature(i)
             if self.logger and hasattr(self.logger, "update_cathode_field"):
