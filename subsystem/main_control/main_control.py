@@ -379,7 +379,7 @@ class MainControlPanel:
 
         return {"mode": mode, "duration_ms": duration, "count": count, "remaining": remaining}
 
-    def _beam_on_description(self, config):
+    def _beam_on_description(self, config, include_remaining=True):
         """Return the mode-specific phrase used in ON status lines."""
         config = self._coerce_beam_config(config)
         mode = config["mode"]
@@ -388,10 +388,13 @@ class MainControlPanel:
         if mode == "PULSE":
             return f"running PULSE for {config['duration_ms']}ms"
         if mode == "PULSE_TRAIN":
-            return (
+            text = (
                 f"running PULSE_TRAIN: set to {config['count']} pulses"
-                f", {config['duration_ms']}ms each. Remaining: {config['remaining']}"
+                f", {config['duration_ms']}ms each"
             )
+            if include_remaining: #for lines 1-3, show remaining count if available
+                text = f"{text}. Remaining: {config['remaining']}"
+            return text
         return "OFF"
 
     def _is_beam_channel_enabled(self, beam_index):
@@ -485,7 +488,7 @@ class MainControlPanel:
         """Build line 4 success text for a beam ON command."""
         return (
             f"Beam {channel_label(beam_index)} successfully set to ON, "
-            f"{self._beam_on_description(config)}"
+            f"{self._beam_on_description(config, include_remaining=False)}"
         )
 
     def _format_sync_start_message(self, configs):
