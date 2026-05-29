@@ -162,7 +162,6 @@ Dashboard-to-BeamPulse calls:
 | Beam A/B/C OFF | `send_channel_off(channel_index)` |
 | Channel enable toggle | `toggle_channel_enable(channel_index)` |
 | Sync Start / Stop | `sync_start()`, `sync_stop_all()` |
-| CSV Sequence tab buttons | `create_csv_buttons(parent_frame)` |
 
 BeamPulse-to-Dashboard callbacks:
 
@@ -187,8 +186,7 @@ count with safe defaults if widgets are unavailable.
 2. Validates mode-specific duration/count.
 3. Blocks non-OFF output if projected emission current is at or above the configured limit.
 4. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
-5. Updates `beam_on_status[ch]`.
-6. Notifies the Dashboard beam callback.
+5. Updates local output state; register polling remains the hardware truth.
 
 `send_channel_off(ch)` sends OFF immediately and does not require arming.
 
@@ -288,7 +286,8 @@ if not bcon.connect():
     raise RuntimeError("Could not connect to BCON")
 
 bcon.arm_beams()
-bcon.set_channel_mode(0, "PULSE", duration_ms=100)
+bcon.set_emission_limit_providers(lambda: 6.0, lambda: [0.0, 0.0, 0.0])
+bcon.send_channel_config(0)
 bcon.stop_all_channels()
 bcon.disconnect()
 ```

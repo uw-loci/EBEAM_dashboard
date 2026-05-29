@@ -140,23 +140,6 @@ class BeamPulseSubsystem:
 
         # GUI variables (populated if parent_frame provided)
         self.channel_vars: list = []      # per-channel widget references
-        self.sync_configs: list = []      # sync-tab per-channel entries
-        self.sync_ch_vars: list = []      # sync-tab include checkboxes
-
-        # Pulse duration variables for external / non-GUI access
-        if parent_frame:
-            self.pulsing_behavior = tk.StringVar(value="DC")
-            self.beam_a_duration = tk.DoubleVar(value=50.0)
-            self.beam_b_duration = tk.DoubleVar(value=50.0)
-            self.beam_c_duration = tk.DoubleVar(value=50.0)
-        else:
-            self.pulsing_behavior = "DC"
-            self.beam_a_duration = 50.0
-            self.beam_b_duration = 50.0
-            self.beam_c_duration = 50.0
-
-        # Duration spinbox references (for enable/disable in pulsing behaviour)
-        self.duration_spinboxes: list = []
 
         # Tk after() ids for scheduled callbacks (used to cancel on shutdown)
         self._ui_after_id = None
@@ -242,7 +225,7 @@ class BeamPulseSubsystem:
         # Tab 2: Auto CSV Sequence
         self.sequence_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.sequence_tab, text="CSV Sequence")
-        self._build_sequence_tab()
+        self._build_csv_sequence_tab()
 
         # Start periodic UI update from driver queue
         self._start_periodic_ui_update()
@@ -400,7 +383,7 @@ class BeamPulseSubsystem:
 
     # ----------------------------- Tab 3: Auto CSV Sequence --------------- #
 
-    def _build_sequence_tab(self):
+    def _build_csv_sequence_tab(self):
         """Build CSV pulse sequence player interface."""
         container = ttk.Frame(self.sequence_tab, padding="5")
         container.pack(fill=tk.BOTH, expand=True)
@@ -411,31 +394,10 @@ class BeamPulseSubsystem:
         self.seq_progress_lbl = ttk.Label(container, text="")
         self.seq_progress_lbl.pack(anchor="w", padx=4, pady=(2, 4))
 
-        self.create_csv_buttons(container, show_title=False)
+        button_container = ttk.Frame(container, padding="0")
+        button_container.pack(fill=tk.X, padx=6, pady=(4, 2))
 
-        # Sequence preview (simple text view)
-        ttk.Label(container, text="Loaded Steps:", font=("Arial", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
-        self.seq_preview_text = tk.Text(container, height=10, width=60, state="disabled", font=("Courier", 9))
-        self.seq_preview_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
-    def create_csv_buttons(self, parent_frame, show_title=True):
-        """Build CSV sequence control buttons in *parent_frame* (always visible).
-
-        The dashboard now hosts these controls directly in the Beam Pulse CSV
-        Sequence tab, but the method remains reusable for simple embedding.
-
-        Parameters:
-            parent_frame: Tkinter frame that will host the CSV controls.
-            show_title: whether to wrap controls in a titled "CSV Sequence" frame.
-        """
-        if show_title:
-            container = ttk.LabelFrame(parent_frame, text="CSV Sequence", padding="4")
-        else:
-            container = ttk.Frame(parent_frame, padding="0")
-        container.pack(fill=tk.X, padx=6, pady=(4, 2))
-
-        # Load CSV / Save Template — file operations; always enabled
-        row1 = ttk.Frame(container)
+        row1 = ttk.Frame(button_container)
         row1.pack(fill=tk.X, pady=1)
         ttk.Button(row1, text="Load CSV",
                    command=self._load_sequence).pack(
@@ -444,16 +406,19 @@ class BeamPulseSubsystem:
                    command=self._save_sequence_template).pack(
                    side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Run / Stop — Run is gated by armed state AND sequence loaded
-        row2 = ttk.Frame(container)
+        row2 = ttk.Frame(button_container)
         row2.pack(fill=tk.X, pady=1)
         self.seq_run_btn = ttk.Button(row2, text="Run Sequence",
                                       state="disabled", command=self._run_sequence)
         self.seq_run_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
-        # Stop Sequence always enabled (safety action)
         self.seq_stop_btn = ttk.Button(row2, text="Stop Sequence",
                                        state="disabled", command=self._stop_sequence)
         self.seq_stop_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Sequence preview (simple text view)
+        ttk.Label(container, text="Loaded Steps:", font=("Arial", 9, "bold")).pack(anchor="w", padx=4, pady=(4, 0))
+        self.seq_preview_text = tk.Text(container, height=10, width=60, state="disabled", font=("Courier", 9))
+        self.seq_preview_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
     # ================================================================== #
     #                    Manual Tab Actions                                #
@@ -1401,12 +1366,6 @@ class BeamPulseSubsystem:
                                        text="Disconnect" if ok else "Reconnect")
         self._log_event("BCON connected" if ok else "BCON connect failed — check port & firmware")
 
-    def _arm_beam(self):
-        """Arm beams in software only (no hardware ARM command)."""
-        self.beams_armed_status = True
-        self._update_armed_button_states(True)
-        self._log_event("Beams armed (software-only)")
-
     def _set_watchdog(self):
         """Write the watchdog timeout register."""
         val = self.watchdog_entry.get().strip()
@@ -1420,20 +1379,6 @@ class BeamPulseSubsystem:
         if self.bcon_driver:
             self.bcon_driver.set_watchdog(ms)
             self._log_event(f"Set watchdog = {ms} ms")
-
-    def _set_telemetry(self):
-        """Write the telemetry interval register."""
-        val = self.telemetry_entry.get().strip()
-        if not val:
-            return
-        try:
-            ms = int(val)
-        except ValueError:
-            messagebox.showerror("Invalid", "Telemetry value must be integer")
-            return
-        if self.bcon_driver:
-            self.bcon_driver.set_telemetry(ms)
-            self._log_event(f"Set telemetry = {ms} ms")
 
     # ================================================================== #
     #           Event Log Helper                                           #
@@ -1603,26 +1548,6 @@ class BeamPulseSubsystem:
         if self.bcon_driver:
             return self.bcon_driver.get_status()
         return {'system': {'state': 'UNKNOWN'}, 'channels': []}
-
-    def set_channel_mode(self, channel_index: int, mode: str, duration_ms: int = 0) -> bool:
-        if not self._require_armed():
-            return False
-        if not self.bcon_driver:
-            return False
-        if not self._bcon_is_connected():
-            return False
-        channel = channel_index + 1
-        if mode == 'OFF':
-            return self.bcon_driver.set_channel_off(channel)
-        elif mode == 'DC':
-            return self.bcon_driver.set_channel_dc(channel)
-        elif mode == 'PULSE':
-            return self.bcon_driver.set_channel_pulse(channel, duration_ms)
-        elif mode == 'PULSE_TRAIN':
-            return self.bcon_driver.set_channel_pulse_train(channel, duration_ms, 2)
-        else:
-            self._log(f"Invalid mode: {mode}", LogLevel.ERROR)
-            return False
 
     def toggle_channel_enable(self, ch_index: int):
         """Toggle one channel enable latch. Returns (ok, enabled, message)."""
