@@ -11,7 +11,8 @@ The subsystem sits between the Tkinter GUI and the hardware drivers. It is respo
 - Managing the temperature-controller connection.
 - Validating operator-entered voltage and current requests.
 - Coordinating immediate sets vs. ramped sets.
-- Polling live voltage, current, mode, and temperature data for display.
+- Keeping live voltage, current, mode, and temperature displays updated.
+- Polling 9104 power-supply readbacks on a background thread.
 
 ## Hardware Relationships
 
@@ -20,7 +21,7 @@ Each cathode channel is backed by:
 - One BK Precision 9104 power supply, used for heater voltage/current control.
 - One temperature-controller input, used for clamp-temperature monitoring.
 
-The subsystem creates and stores three power-supply driver instances in `self.power_supplies`, one for each cathode.
+The subsystem stores three power-supply driver slots in `self.power_supplies`, one for each cathode. Initial startup and COM-port reconfiguration create fresh `PowerSupply9104` objects and publish them into those slots after setup.
 
 ## High-Level Behavior
 
@@ -28,7 +29,9 @@ At runtime the subsystem has three main jobs:
 
 1. Build and maintain the GUI state for each cathode.
 2. Send validated setpoint changes to the power supply drivers.
-3. Refresh measured values and plots on a 500 ms loop.
+3. Refresh GUI values on a 500 ms Tkinter loop by consuming 9104 readbacks from a background poller.
+
+Temperature-controller readings are still owned by the `E5CNModbus` temperature-controller object. `cathode_heating.py` reads the latest cached temperature value from `temperature_controller.temperatures[index]`.
 
 ## UI Structure Per Cathode
 
@@ -53,8 +56,13 @@ The `Main` tab includes:
   - Output toggle button.
   - Output mode dropdown.
   - `STOP RAMP` button.
-- Read-only displays:
-  - Predicted output values.
+- Predicted output panel:
+  - `Lookup Table Dataset` selector.
+  - Predicted emission current.
+  - Predicted grid current.
+  - Predicted heater voltage.
+  - Predicted heater current.
+- Read-only measured displays:
   - Measured heater current and voltage.
   - Clamp temperature.
   - CV/CC mode indicator.
@@ -67,7 +75,7 @@ The `Config` tab includes:
 - Overcurrent protection (OCP).
 - Current slew rate.
 - Voltage slew rate.
-- Query-settings button and status readback.
+- `Log Power Settings` button and status readback.
 
 ## Output Modes
 
@@ -185,22 +193,41 @@ The UI tracks three different kinds of values:
   - Operator-requested targets stored in the subsystem.
   - Shown as the intended current and voltage for the channel.
 - Measured values:
-  - Live readback from `get_voltage_current_mode()`.
-  - Updated every poll cycle.
+  - Latest readback from the 9104 polling thread.
+  - Voltage, current, mode, connection state, and read errors are stored in `self.power_supply_readbacks`.
+  - `update_data()` reads that latest readback snapshot instead of calling `get_voltage_current_mode()` from the Tkinter thread.
 
 This separation is useful during ramps because the sent value can change step-by-step before the measured value settles.
 
 ## Data Refresh Loop
 
-`update_data()` is the main polling loop. It runs every 500 ms and, for each cathode:
+`update_data()` is the main GUI refresh loop. It runs every 500 ms and, for each cathode:
 
-- Verifies or retries the power-supply connection.
-- Reads heater voltage, current, and CV/CC mode from the supply.
-- Updates live GUI displays.
-- Reads clamp temperature from the temperature-controller interface.
+- Flushes queued logs from the temperature controller and power-supply drivers.
+- Reads the latest 9104 voltage, current, and CV/CC mode snapshot.
+- Marks power-supply readbacks unavailable when the snapshot says the supply is disconnected or the read is invalid.
+- Publishes valid heater current and voltage readbacks to the logger.
+- Reads the latest clamp temperature data from the temperature-controller interface.
 - Updates overtemperature state and plot color.
 - Appends plot data on the plot interval.
 - Schedules the next update with `self.parent.after(500, self.update_data)`.
+
+## 9104 Readback Polling Thread
+
+Routine BK Precision 9104 readbacks are handled by `Cathode9104Poller`, started by `start_power_supply_polling()`.
+
+The poller:
+
+- Runs independently of the Tkinter event loop.
+- Polls each configured 9104 roughly every 500 ms.
+- Calls `PowerSupply9104.get_voltage_current_mode(lock_timeout=...)` from the background thread.
+- Writes a small snapshot into `self.power_supply_readbacks` under `self.power_supply_readback_lock`.
+- Uses the existing `PowerSupply9104.serial_lock`, so regular commands and readback polling still serialize through the driver.
+- Marks disconnected, uninitialized, and invalid-read states in the snapshot.
+- Performs best-effort reconnects for disconnected existing supply objects, throttled by `RECONNECT_COOLDOWN`.
+- Stands down while COM-port reconfiguration is replacing the shared supply list.
+
+COM-port changes keep the poller alive, clear the shared supply list, close old supply objects with bounded serial-lock waits, and publish newly initialized supply objects when they are ready. Shutdown still calls `stop_power_supply_polling()` before closing serial ports.
 
 ## Protection and Configuration Handling
 
@@ -210,9 +237,9 @@ Key configuration methods include:
 - `set_overcurrent_limit()`
 - `set_overtemp_limit()`
 - `set_slew_rate()`
-- `query_and_check_settings()`
+- `log_power_and_check_settings()`
 
-These methods are responsible for writing protection settings to the supply, reading them back, and logging mismatches or failures.
+These methods are responsible for writing or reading protection settings on the supply, confirming readbacks, and logging mismatches or failures.
 
 ## Modeling and Predicted Output
 
@@ -222,16 +249,16 @@ The subsystem still initializes cathode models in `init_cathode_model()` for:
 - Heater current to emission current.
 - Heater current to true temperature.
 
-However, the current manual setpoint handlers do not actively update predictions when the operator changes current or voltage:
+The current manual setpoint handlers update predictions when the operator changes current or voltage:
 
-- `on_current_label_click()`
-- `on_voltage_label_click()`
+- `handle_current_entry_set()`
+- `handle_voltage_entry_set()`
 - `adjust_current()`
 - `adjust_voltage()`
 
-Those handlers currently skip prediction updates and focus on validation plus direct output control.
+Those handlers call either `update_predictions_from_current()` or `update_predictions_from_voltage()` after validation. LUT selector changes call `refresh_predictions()`, which recomputes predictions from the currently requested setpoint when one exists.
 
-That means the "Predicted Output" panel should be treated as partial/incomplete documentation of future behavior, not as a fully active feature path for the current manual-control flow.
+The prediction path is still display-side guidance. Output behavior is still governed by validation, output state, and the selected immediate/ramp mode.
 
 ## Main Methods To Read First
 
@@ -239,16 +266,21 @@ If you are trying to understand the file quickly, start with these methods:
 
 - `__init__()`
 - `initialize_power_supplies()`
+- `start_power_supply_polling()`
+- `_power_supply_polling_loop()`
+- `_get_power_supply_readback()`
 - `update_data()`
+- `read_temperature()`
 - `toggle_output()`
-- `on_current_label_click()`
-- `on_voltage_label_click()`
+- `handle_current_entry_set()`
+- `handle_voltage_entry_set()`
 - `update_output_from_current()`
 - `update_output_from_voltage()`
 - `validate_current()`
 - `validate_voltage()`
 - `set_ramp_mode()`
 - `stop_ramp()`
+- `close_com_ports()`
 
 ## Relationship To `power_supply_9104.py`
 
@@ -269,33 +301,80 @@ It handles:
 - Command formatting.
 - Protection-setting commands.
 - Direct set commands.
+- Serialized readback commands used by the cathode polling thread.
 - Background ramp threads.
 - Ramp stop signaling.
+- Bounded serial-lock waits for polling, reconnect, COM-port update, and shutdown paths through optional `lock_timeout` arguments on selected calls.
 
 In short:
 
 - `cathode_heating.py` decides what should happen.
-- `power_supply_9104.py` performs the hardware I/O.
+- `cathode_heating.py` owns the 9104 readback polling/cache used by the GUI.
+- `power_supply_9104.py` performs the hardware I/O and protects each serial port with its own lock.
+
+## Plot Color and Temperature Logging
+
+`read_temperature()` updates plot color state through `set_plot_color()`.
+
+To avoid extra redraw/log churn:
+
+- `set_plot_color()` tracks the current color/error state per cathode and returns early if the state has not changed.
+- Color-state changes still redraw the affected plot immediately.
+- Disconnected temperature-controller logs are throttled by `self.log_interval`.
+- Normal plot data redraws still happen through `update_plot()` on the 5-second plot interval.
+
+Temperature-controller polling itself remains in `E5CNModbus`; this subsystem just reads the latest temperature values.
+
+## Shutdown Behavior
+
+`close_com_ports()` performs shutdown in this order:
+
+1. Cancel the scheduled Tkinter `update_data()` callback.
+2. Stop the `Cathode9104Poller` thread.
+3. Signal any active 9104 ramp threads to stop.
+4. Attempt to disable each power-supply output with a bounded serial-lock wait.
+5. Close each power-supply serial connection with bounded waits.
+6. Stop and disconnect the E5CN temperature controller.
+
+The bounded waits prevent a dead serial transaction from hanging dashboard exit indefinitely.
+
+
+# COM-Port Reconfiguration
+
+COM-port updates keep the 9104 poller thread alive. The subsystem briefly tells the poller to stand down, detaches old supply objects from `self.power_supplies`, closes those old objects with bounded waits, and then publishes freshly initialized replacement objects.
+
+```mermaid
+flowchart TB
+    Start([Update COM ports]) --> Validate{"Required ports present?"}
+    Validate -- No --> ReturnFail([Return false])
+    Validate -- Yes --> PausePoller["Set power_supply_reconfiguring"]
+    PausePoller --> ResetReadbacks["Reset cached 9104 readbacks"]
+    ResetReadbacks --> DetachOld["Detach old power-supply objects"]
+    DetachOld --> CloseOld["Close old supplies with bounded waits"]
+    CloseOld --> SavePorts["Update COM-port dictionary"]
+    SavePorts --> VerifyPorts["Verify requested 9104 ports"]
+    VerifyPorts --> TempInit["Reinitialize temperature controller"]
+    TempInit --> UpdatesOK{"Port checks and temp init OK?"}
+    UpdatesOK -- Yes --> InitSupplies["Initialize fresh 9104 objects"]
+    InitSupplies --> PublishNew["Publish new power_supplies list"]
+    UpdatesOK -- No --> SkipSupplies["Leave supplies unavailable"]
+    PublishNew --> ResumePoller["Clear reconfiguring flag"]
+    SkipSupplies --> ResumePoller
+    ResumePoller --> EnsurePoller["Ensure poller thread is running"]
+    EnsurePoller --> ReturnResult([Return update result])
+```
 
 
 # 9104 Power Supply Initialization
 ```mermaid
 flowchart TB
-    Start([Start]) --> InitArrays[Initialize power_supplies and status arrays]
-    InitArrays --> LoopStart{For each cathode PS}
+    Start([Start]) --> InitLocal["Create local replacement arrays"]
+    InitLocal --> LoopStart{For each cathode PS}
     
     LoopStart --> HasPort{Port exists?}
-    HasPort -- No --> SetNull[Set PS to null & status false]
-    HasPort -- Yes --> TryInit[Try initialization]
-    
-    TryInit --> PSExists{PS exists?}
-    PSExists -- No --> CreatePS[Create new PowerSupply9104]
-    PSExists -- Yes --> CheckConnection{Is connected?}
-    
-    CheckConnection -- No --> UpdatePort[Update COM port]
-    CheckConnection -- Yes --> SetPreset[Normal mode]
-    CreatePS --> SetPreset
-    UpdatePort --> SetPreset
+    HasPort -- No --> SetNull["Leave local PS null and status false"]
+    HasPort -- Yes --> CreatePS["Create fresh PowerSupply9104"]
+    CreatePS --> SetPreset[Normal mode]
     
     SetPreset --> ConfirmPreset{Preset == 3?}
     ConfirmPreset -- No --> LogPresetWarning[Log preset warning]
@@ -316,7 +395,7 @@ flowchart TB
     OCPSuccess -- Yes --> ConfirmOCP{OCP matches?}
     
     ConfirmOCP -- No --> LogOCPMismatch[Log OCP mismatch]
-    ConfirmOCP -- Yes --> SetSuccess[Set PS status true]
+    ConfirmOCP -- Yes --> SetSuccess["Store PS in local list and set status true"]
     LogOCPMismatch --> SetSuccess
     LogOCPFail --> SetSuccess
     
@@ -324,8 +403,9 @@ flowchart TB
     SetNull --> NextPS
     
     NextPS -- Yes --> LoopStart
-    NextPS -- No --> UpdateButtons[Update button states
-    enabled/disabled]
+    NextPS -- No --> PublishArrays["Publish replacement power_supplies and status arrays"]
+    PublishArrays --> UpdateButtons["Update button states
+    enabled/disabled"]
     
     UpdateButtons --> CheckAnyInit{Any PS initialized?}
     CheckAnyInit -- Yes --> SetInitTrue[Set initialized flag true]
@@ -334,98 +414,86 @@ flowchart TB
     SetInitTrue --> UpdateSettings[Update query settings]
     LogNoInit --> UpdateSettings
     
-    UpdateSettings --> End([to idle state])
+    UpdateSettings --> End([Return to caller])
     
-    Error[Handle Exception] --> SetErrorState[Set PS null & status false]
+    Error[Handle exception] --> ClosePartial["Close partially initialized PS"]
+    ClosePartial --> SetErrorState["Leave local PS null and status false"]
     SetErrorState --> NextPS
     
-    TryInit -- Exception --> Error
+    CreatePS -- Exception --> Error
+    SetPreset -- Exception --> Error
 ```
 
 # Idle State Monitoring
-Parallel operations for each Cathode (A, B, C)
+The cathode subsystem has two repeating paths while idle:
+
+- `Cathode9104Poller` reads 9104 power-supply state off the Tkinter thread.
+- `update_data()` runs on the Tkinter thread and updates GUI state from cached values.
+
+Cathode9104Poller background thread:
+
 ```mermaid
 flowchart TB
-    Start["Start Update Cycle
-    (500ms)"] --> ParallelCheck["Check Each Cathode
-    (A, B, C)"]
-    
-    ParallelCheck --> PSCheck{"Power Supply
-    Connected?"}
-    ParallelCheck --> TempCheck{"Temperature
-    Controller Connected?"}
-    
-    PSCheck -->|Yes| PSResume
-    PSCheck -->|No| PSRetry["Retry Connection
-    1. Log Warning
-    2. Max 3 Attempts
-    3. 500ms Delay"]
-    PSRetry --> PSSuccess{"Reconnection
-    Successful?"}
-    
-    PSSuccess -->|Yes| PSResume["Continue
-    1. Update Status
-    2. Enable Controls
-    3. Log Success"]
+    PollStart["Poll cycle
+    about every 500 ms"] --> Reconfiguring{"COM-port reconfiguring?"}
+    Reconfiguring -- Yes --> PollWait["Wait for next poll"]
+    Reconfiguring -- No --> PollEach["For each cathode 9104"]
+    PollEach --> HasPS{"Power supply object exists?"}
+    HasPS -- No --> SnapshotNotInit["Snapshot not_initialized state"]
+    HasPS -- Yes --> CheckConnected["Check connection with bounded lock wait"]
+    CheckConnected --> LockBusy{"Serial lock busy?"}
+    LockBusy -- Yes --> SnapshotBusy["Snapshot busy state"]
+    LockBusy -- No --> Connected{"Driver reports connected?"}
+    Connected -- No --> SnapshotDisconnected["Snapshot disconnected state"]
+    SnapshotDisconnected --> Reopen["Best-effort reopen
+    bounded and throttled"]
+    Connected -- Yes --> Read9104["Read voltage, current, and mode
+    with bounded lock wait"]
+    Read9104 --> ReadValid{"Voltage/current valid?"}
+    ReadValid -- Yes --> SnapshotGood["Snapshot readback values"]
+    ReadValid -- No --> SnapshotInvalid["Snapshot invalid_read state"]
+    SnapshotGood --> PollWait["Wait for next poll"]
+    SnapshotInvalid --> PollWait
+    SnapshotBusy --> PollWait
+    SnapshotNotInit --> PollWait
+    Reopen --> PollWait
+    PollWait --> PollStart
+```
 
-    PSSuccess -->|No| PSFail["Set Disabled
-    1. Disable Controls
-    2. Clear Readings
-    3. Log Error"]
-    
-    TempCheck -->|No| TempFail["Temp Read Failure
-    1. Set Plot Alert (Red)
-    2. Display '--' °C
-    3. Log Error"]
-    TempCheck -->|Yes| ReadTemp["Read Temperature"]
-    
-    ReadTemp --> ValidateTemp{"Temperature
-    Valid?"}
-    ValidateTemp -->|No| TempFail
-    ValidateTemp -->|Yes| CheckOT{"Temperature >
-    Overtemp Limit?"}
-    
-    CheckOT -->|Yes| OTActions[" Set Status 'OVERTEMP!'
-    1. Update Plot (Red)
-    2. Log Critical Error
-    3. Update Label Style"]
-    CheckOT -->|No| NormalTemp["Set Status 'Normal'
-    1. Update Plot (Blue)
-    2. Update Display"]
-    
-    PSResume --> UpdateDisplay["Update GUI Display
-    1. Voltage & Current
-    2. Operation Mode
-    3. Temperature Plot"]
-    PSFail --> UpdateDisplay
-    OTActions --> UpdateDisplay
-    NormalTemp --> UpdateDisplay
-    TempFail --> UpdateDisplay
-    
-    UpdateDisplay --> NextCycle["Schedule Next
-    Update (500ms)"]
-    
-    NextCycle --> Start
-    
-    subgraph GUI_Updates["GUI Status Updates"]
-        direction TB
-        UpdateLabels["Update Display Labels:
-        - Heater Current & Voltage
-        - Target Current
-        - Temperature
-        - Operation Mode"]
-        
-        UpdatePlot["Update Temperature Plot:
-        - Add New Data Point
-        - Adjust Color (Red/Blue)
-        - Update Axes
-        - Redraw"]
-        
-        UpdateControls["Update Control States:
-        - Toggle Buttons
-        - Query Settings
-        - Configuration Options"]
-    end
+Tkinter `update_data()` loop:
+
+```mermaid
+flowchart TB
+    Start["Start GUI update
+    every 500 ms"] --> FlushLogs["Flush queued controller logs"]
+    FlushLogs --> EachCathode["For each cathode"]
+    EachCathode --> ReadCache["Read 9104 data snapshot"]
+    ReadCache --> CacheOK{"Cached 9104 readback valid?"}
+    CacheOK -- Yes --> UpdatePS["Update heater voltage/current
+    and CV/CC display"]
+    CacheOK -- No --> ClearPS["Clear heater readback displays
+    and publish None values"]
+
+    UpdatePS --> ReadTemp["Read cached E5CN temperature"]
+    ClearPS --> ReadTemp
+    ReadTemp --> TempValid{"Temperature is a float?"}
+    TempValid -- No --> TempUnavailable["Show -- C
+    and update plot error state"]
+    TempValid -- Yes --> CheckOT{"Temperature >
+    overtemp limit?"}
+    CheckOT -- Yes --> OTActions["Set OVERTEMP status
+    and red plot state"]
+    CheckOT -- No --> NormalTemp["Set Normal status
+    and normal plot state"]
+
+    OTActions --> PlotCheck{"5-second plot interval elapsed?"}
+    NormalTemp --> PlotCheck
+    TempUnavailable --> PlotCheck
+    PlotCheck -- Yes --> UpdatePlot["Append plot point
+    and redraw plot"]
+    PlotCheck -- No --> ScheduleNext["Schedule next GUI update"]
+    UpdatePlot --> ScheduleNext
+    ScheduleNext --> Start
 ```
 
 # Setting current output via dashboard

@@ -7,12 +7,23 @@ from subsystem.cathode_heating.cathode_heating import CathodeHeatingSubsystem
 from utils import LogLevel
 
 class TestBeamsOff(unittest.TestCase):
+    def make_power_supply(self, disable_result=True, set_result=True, has_disable=True):
+        methods = ['set_output', 'stop_ramp']
+        if has_disable:
+            methods.append('disable_output')
+        ps = MagicMock(spec=methods)
+        ps.set_output.return_value = set_result
+        ps.stop_ramp.return_value = None
+        if has_disable:
+            ps.disable_output.return_value = disable_result
+        return ps
+
     def setUp(self):
         # Bypass __init__ to avoid Tk and image loading
         self.subsys = object.__new__(CathodeHeatingSubsystem)
         # Inject only what turn_off_all_beams uses
         self.subsys.power_supplies_initialized = True
-        self.subsys.power_supplies = [MagicMock(), None, MagicMock()]
+        self.subsys.power_supplies = [self.make_power_supply(), None, self.make_power_supply()]
         self.subsys.power_supply_status = [True, False, True]
         self.subsys.toggle_states = [True, True, True]
         self.subsys.toggle_off_image = object()
@@ -24,15 +35,13 @@ class TestBeamsOff(unittest.TestCase):
         # Alias method under test (name in your file)
         self.turn_off_all_beams = self.subsys.turn_off_all_beams
 
-    def test_turns_off_only_initialized_ps_and_updates_ui_on_success(self):
-        # First and third supply return True; middle is uninitialized
-        self.subsys.power_supplies[0].set_output.return_value = True
-        self.subsys.power_supplies[2].set_output.return_value = True
-
+    def test_turns_off_available_ps_handles_and_updates_ui_on_success(self):
         self.turn_off_all_beams()
 
-        self.subsys.power_supplies[0].set_output.assert_called_once_with("0")
-        self.subsys.power_supplies[2].set_output.assert_called_once_with("0")
+        self.subsys.power_supplies[0].disable_output.assert_called_once_with()
+        self.subsys.power_supplies[2].disable_output.assert_called_once_with()
+        self.subsys.power_supplies[0].set_output.assert_not_called()
+        self.subsys.power_supplies[2].set_output.assert_not_called()
         self.assertFalse(self.subsys.toggle_states[0])
         self.assertFalse(self.subsys.toggle_states[2])
         self.subsys.toggle_buttons[0].config.assert_called_once()
@@ -42,8 +51,7 @@ class TestBeamsOff(unittest.TestCase):
 
     def test_does_not_update_ui_when_off_fails(self):
         # Simulate failure on index 0, success on index 2
-        self.subsys.power_supplies[0].set_output.return_value = False
-        self.subsys.power_supplies[2].set_output.return_value = True
+        self.subsys.power_supplies[0].disable_output.return_value = False
 
         self.turn_off_all_beams()
 
@@ -56,49 +64,57 @@ class TestBeamsOff(unittest.TestCase):
         self.subsys.toggle_buttons[2].config.assert_called_once()
 
     def test_exceptions_are_caught_and_others_continue(self):
-        self.subsys.power_supplies[0].set_output.side_effect = RuntimeError("boom")
-        self.subsys.power_supplies[2].set_output.return_value = True
+        self.subsys.power_supplies[0].disable_output.side_effect = RuntimeError("boom")
 
         # Should not raise
         self.turn_off_all_beams()
 
-        self.subsys.power_supplies[2].set_output.assert_called_once_with("0")
+        self.subsys.power_supplies[2].disable_output.assert_called_once_with()
         self.assertFalse(self.subsys.toggle_states[2])
 
-    def test_returns_early_when_not_initialized(self):
-        # Arrange: pretend subsystem not initialized
+    def test_attempts_available_handles_even_when_not_marked_initialized(self):
+        # Arrange: pretend readback/status tracking says nothing is initialized
         self.subsys.power_supplies_initialized = False
-        # Keep mocks to detect accidental calls
-        self.subsys.power_supplies = [MagicMock(), MagicMock(), MagicMock()]
-        self.subsys.power_supply_status = [True, True, True]
+        self.subsys.power_supplies = [
+            self.make_power_supply(),
+            self.make_power_supply(),
+            self.make_power_supply(),
+        ]
+        self.subsys.power_supply_status = [False, False, False]
 
         # Act
         self.turn_off_all_beams()
 
-        # Assert: no calls made
+        # Assert: E-stop path still tries every existing handle
         for ps in self.subsys.power_supplies:
-            ps.set_output.assert_not_called()
+            ps.disable_output.assert_called_once_with()
+
+    def test_returns_early_when_power_supply_list_empty(self):
+        self.subsys.power_supplies = []
+        self.subsys.power_supplies_initialized = False
+
+        self.turn_off_all_beams()
+
         for btn in self.subsys.toggle_buttons:
             btn.config.assert_not_called()
 
-    def test_skips_when_status_false_even_if_ps_present(self):
-        # Arrange: ps exists but status is False
-        self.subsys.power_supplies = [MagicMock(), MagicMock(), MagicMock()]
+    def test_does_not_skip_existing_handle_when_status_false(self):
+        # Arrange: ps exists but status is False due to a readback failure
+        self.subsys.power_supplies = [
+            self.make_power_supply(),
+            self.make_power_supply(),
+            self.make_power_supply(),
+        ]
         self.subsys.power_supply_status = [True, False, True]
-        self.subsys.power_supplies[0].set_output.return_value = True
-        self.subsys.power_supplies[2].set_output.return_value = True
 
         # Act
         self.turn_off_all_beams()
 
         # Assert
-        self.subsys.power_supplies[1].set_output.assert_not_called()
+        self.subsys.power_supplies[1].disable_output.assert_called_once_with()
+        self.assertFalse(self.subsys.toggle_states[1])
 
     def test_updates_button_with_correct_image_on_success(self):
-        # Arrange
-        self.subsys.power_supplies[0].set_output.return_value = True
-        self.subsys.power_supplies[2].set_output.return_value = True
-
         # Act
         self.turn_off_all_beams()
 
@@ -108,36 +124,42 @@ class TestBeamsOff(unittest.TestCase):
 
     def test_true_status_but_none_power_supply_is_safely_skipped(self):
         # Arrange: ps None but status True for index 1
-        self.subsys.power_supplies = [MagicMock(), None, MagicMock()]
+        self.subsys.power_supplies = [self.make_power_supply(), None, self.make_power_supply()]
         self.subsys.power_supply_status = [True, True, True]
-        self.subsys.power_supplies[0].set_output.return_value = True
-        self.subsys.power_supplies[2].set_output.return_value = True
 
         # Act (should not raise)
         self.turn_off_all_beams()
 
         # Assert: others still called, middle skipped
-        self.subsys.power_supplies[0].set_output.assert_called_once_with("0")
-        self.subsys.power_supplies[2].set_output.assert_called_once_with("0")
+        self.subsys.power_supplies[0].disable_output.assert_called_once_with()
+        self.subsys.power_supplies[2].disable_output.assert_called_once_with()
 
         # Button 1 should not be touched since ps is None
         self.subsys.toggle_buttons[1].config.assert_not_called()
 
     def test_second_call_is_idempotent_and_keeps_off_state(self):
-        # Arrange first call success
-        self.subsys.power_supplies[0].set_output.return_value = True
-        self.subsys.power_supplies[2].set_output.return_value = True
-
         # Act: call twice
         self.turn_off_all_beams()
         self.turn_off_all_beams()
 
-        # Assert: set_output called twice for active channels
-        self.assertEqual(self.subsys.power_supplies[0].set_output.call_count, 2)
-        self.assertEqual(self.subsys.power_supplies[2].set_output.call_count, 2)
+        # Assert: disable_output called twice for available handles
+        self.assertEqual(self.subsys.power_supplies[0].disable_output.call_count, 2)
+        self.assertEqual(self.subsys.power_supplies[2].disable_output.call_count, 2)
         # State remains off
         self.assertFalse(self.subsys.toggle_states[0])
         self.assertFalse(self.subsys.toggle_states[2])
+
+    def test_falls_back_to_set_output_when_disable_output_is_unavailable(self):
+        self.subsys.power_supplies = [
+            self.make_power_supply(has_disable=False),
+            None,
+            self.make_power_supply(has_disable=False),
+        ]
+
+        self.turn_off_all_beams()
+
+        self.subsys.power_supplies[0].set_output.assert_called_once_with("0")
+        self.subsys.power_supplies[2].set_output.assert_called_once_with("0")
 
 if __name__ == '__main__':
     unittest.main()
