@@ -270,11 +270,6 @@ class BCONDriver:
     DEFAULT_TELEMETRY_MS = 500
     WATCHDOG_MIN_MS   = 50
     WATCHDOG_MAX_MS   = 60000
-    # Firmware pulse bounds used by all high-level setters before queueing writes.
-    PULSE_DURATION_MIN_MS = 1
-    PULSE_DURATION_MAX_MS = 60000
-    PULSE_COUNT_MIN = 1
-    PULSE_COUNT_MAX = 10000
     POLL_INTERVAL      = 0.5     # seconds between register polls
     MAX_POLL_ERRORS    = 15      # consecutive failures before auto-disconnect
     SETTLE_TIME        = 4.5     # seconds to wait after opening port (Arduino DTR reset)
@@ -889,8 +884,10 @@ class BCONDriver:
                         self._poll_errors = 0
                         last_error_msg = None
                         with self._regs_lock:
+                            changed = (regs != self._regs)
                             self._regs = regs
-                        self._ui_put("regs", regs)
+                        if changed:
+                            self._ui_put("regs", regs)
 
                 except Exception as e:
                     self._poll_errors += 1
@@ -973,67 +970,37 @@ class BCONDriver:
         mode_code = int(mode_code)
 
         if mode_code not in (int(BCONMode.OFF), int(BCONMode.DC)):
-            params = self._normalize_pulse_params(duration_ms, count)
-            if params is None:
+            if duration_ms is None or not (1 <= int(duration_ms) <= 60000):
+                self._log(f"Invalid pulse duration: {duration_ms}", "ERROR")
                 return False
-            duration_ms, count = params
+            if count is None or not (1 <= int(count) <= 10000):
+                self._log(f"Invalid pulse count: {count}", "ERROR")
+                return False
             self.enqueue_write(base + CH_PULSE_MS_OFF, int(duration_ms))
             self.enqueue_write(base + CH_COUNT_OFF, int(count))
 
         self.enqueue_write(base + CH_MODE_OFF, mode_code)
         return True
 
-    # Keep local parameter validation near the staged-write path so invalid pulse
-    # commands return False before any partial BCON write can be queued.
-    def _normalize_pulse_params(self, duration_ms, count, prefix: str = ""):
-        """Return integer pulse params if they fit firmware limits."""
-        context = f"{prefix}: " if prefix else ""
-        try:
-            duration_ms = int(duration_ms)
-        except (TypeError, ValueError):
-            self._log(f"{context}Invalid pulse duration: {duration_ms}", "ERROR")
-            return None
-        if not (self.PULSE_DURATION_MIN_MS <= duration_ms <= self.PULSE_DURATION_MAX_MS):
-            self._log(f"{context}Invalid pulse duration: {duration_ms}", "ERROR")
-            return None
-
-        try:
-            count = int(count)
-        except (TypeError, ValueError):
-            self._log(f"{context}Invalid pulse count: {count}", "ERROR")
-            return None
-        if not (self.PULSE_COUNT_MIN <= count <= self.PULSE_COUNT_MAX):
-            self._log(f"{context}Invalid pulse count: {count}", "ERROR")
-            return None
-
-        return duration_ms, count
-
-    def apply_staged_modes(self) -> bool:
+    def apply_staged_modes(self) -> None:
         """Commit any staged channel mode writes in the firmware."""
-        return self.send_command(COMMAND_APPLY_STAGED_MODES)
+        self.send_command(COMMAND_APPLY_STAGED_MODES)
 
-    def set_channel_off(self, channel: int) -> bool:
+    def set_channel_off(self, channel: int) -> None:
         """Stage OFF for one channel and apply it immediately."""
         if self._stage_channel_mode(channel, BCONMode.OFF):
-            return self.apply_staged_modes()
-        return False
+            self.apply_staged_modes()
 
-    def set_channel_dc(self, channel: int) -> bool:
+    def set_channel_dc(self, channel: int) -> None:
         """Stage DC for one channel and apply it immediately."""
         if self._stage_channel_mode(channel, BCONMode.DC):
-            return self.apply_staged_modes()
-        return False
+            self.apply_staged_modes()
 
-    def set_channel_pulse(self, channel: int, duration_ms: int, count: int = 1) -> bool:
+    def set_channel_pulse(self, channel: int, duration_ms: int, count: int = 1) -> None:
         """Stage a single pulse request and apply it immediately."""
-        try:
-            count = int(count)
-        except (TypeError, ValueError):
-            self._log(f"PULSE requires count >= 1, got {count}", "ERROR")
-            return False
         if count < 1:
             self._log(f"PULSE requires count >= 1, got {count}", "ERROR")
-            return False
+            return
 
         effective_mode = BCONMode.PULSE if count == 1 else BCONMode.PULSE_TRAIN
         if count > 1:
@@ -1043,61 +1010,46 @@ class BCONDriver:
             )
 
         if self._stage_channel_mode(channel, effective_mode, duration_ms=duration_ms, count=count):
-            return self.apply_staged_modes()
-        return False
+            self.apply_staged_modes()
 
-    def set_channel_pulse_train(self, channel: int, duration_ms: int, count: int) -> bool:
+    def set_channel_pulse_train(self, channel: int, duration_ms: int, count: int) -> None:
         """Stage a pulse-train request and apply it immediately."""
-        try:
-            count = int(count)
-        except (TypeError, ValueError):
-            self._log(f"PULSE_TRAIN requires count >= 2, got {count}", "ERROR")
-            return False
         if count < 2:
             self._log(f"PULSE_TRAIN requires count >= 2, got {count}", "ERROR")
-            return False
+            return
         if self._stage_channel_mode(channel, BCONMode.PULSE_TRAIN, duration_ms=duration_ms, count=count):
-            return self.apply_staged_modes()
-        return False
+            self.apply_staged_modes()
 
     def set_channel_mode(self, channel: int, mode: str,
-                         duration_ms: int = 100, count: int = 1) -> bool:
+                         duration_ms: int = 100, count: int = 1) -> None:
         """Generic immediate mode setter built on the firmware stage/apply flow."""
         mode_upper = mode.strip().upper()
         if mode_upper == "OFF":
-            return self.set_channel_off(channel)
+            self.set_channel_off(channel)
         elif mode_upper == "DC":
-            return self.set_channel_dc(channel)
+            self.set_channel_dc(channel)
         elif mode_upper == "PULSE":
-            return self.set_channel_pulse(channel, duration_ms, count)
+            self.set_channel_pulse(channel, duration_ms, count)
         elif mode_upper == "PULSE_TRAIN":
-            return self.set_channel_pulse_train(channel, duration_ms, count)
+            self.set_channel_pulse_train(channel, duration_ms, count)
         else:
             self._log(f"Unknown mode '{mode}'", "ERROR")
-            return False
 
-    def set_channel_params(self, channel: int, duration_ms: int, count: int) -> bool:
+    def set_channel_params(self, channel: int, duration_ms: int, count: int) -> None:
         """Write pulse parameters without changing staged or active mode."""
         if not self._validate_channel(channel):
-            return False
+            return
         base = CH_BASE[channel - 1]
-        try:
-            duration_ms = int(duration_ms)
-            count = int(count)
-        except (TypeError, ValueError):
-            self._log(f"Invalid pulse params: duration={duration_ms}, count={count}", "ERROR")
-            return False
         if duration_ms > 0:
-            if not (self.PULSE_DURATION_MIN_MS <= duration_ms <= self.PULSE_DURATION_MAX_MS):
+            if not (1 <= int(duration_ms) <= 60000):
                 self._log(f"Invalid pulse duration: {duration_ms}", "ERROR")
-                return False
-            self.enqueue_write(base + CH_PULSE_MS_OFF, duration_ms)
+                return
+            self.enqueue_write(base + CH_PULSE_MS_OFF, int(duration_ms))
         if count > 0:
-            if not (self.PULSE_COUNT_MIN <= count <= self.PULSE_COUNT_MAX):
+            if not (1 <= int(count) <= 10000):
                 self._log(f"Invalid pulse count: {count}", "ERROR")
-                return False
-            self.enqueue_write(base + CH_COUNT_OFF, count)
-        return True
+                return
+            self.enqueue_write(base + CH_COUNT_OFF, int(count))
 
     def set_channel_enable(self, channel: int, enabled: bool) -> bool:
         """Set the channel enable state explicitly (0=disabled, 1=enabled)."""
@@ -1117,15 +1069,15 @@ class BCONDriver:
             return False
         return self.set_channel_enable(channel, not self.is_channel_enabled(channel))
 
-    def stop_all(self) -> bool:
+    def stop_all(self) -> None:
         """Force all three channels OFF using the firmware's dedicated command."""
-        return self.send_command(COMMAND_ALL_OFF)
+        self.send_command(COMMAND_ALL_OFF)
 
     # ================================================================== #
     #              Synchronous Multi-Channel Start/Stop                    #
     # ================================================================== #
 
-    def sync_start(self, configs: List[Dict]) -> bool:
+    def sync_start(self, configs: List[Dict]) -> None:
         """
         Stage multiple channel updates, then commit them together with COMMAND=4.
 
@@ -1134,7 +1086,7 @@ class BCONDriver:
                      ch (int 1-3), mode (str), duration_ms (int), count (int)
         """
         if not configs:
-            return False
+            return
 
         normalized = []
         for cfg in configs:
@@ -1142,40 +1094,38 @@ class BCONDriver:
                 ch = int(cfg['ch'])
             except Exception:
                 self._log(f"Invalid sync config channel: {cfg!r}", "ERROR")
-                return False
+                return
 
             if not self._validate_channel(ch):
-                return False
+                return
 
             mode_label = str(cfg.get('mode', 'OFF')).strip().upper()
             if mode_label not in MODE_LABEL_TO_CODE:
                 self._log(f"Unknown sync mode '{mode_label}' for CH{ch}", "ERROR")
-                return False
+                return
 
-            try:
-                duration_ms = int(cfg.get('duration_ms', 100) or 100)
-                count = int(cfg.get('count', 1) or 1)
-            except (TypeError, ValueError):
-                self._log(f"CH{ch}: invalid pulse params {cfg!r}", "ERROR")
-                return False
+            duration_ms = int(cfg.get('duration_ms', 100) or 100)
+            count = int(cfg.get('count', 1) or 1)
             mode_code = MODE_LABEL_TO_CODE[mode_label]
 
             if mode_code == BCONMode.PULSE:
                 if count < 1:
                     self._log(f"CH{ch}: PULSE requires count >= 1", "ERROR")
-                    return False
+                    return
                 if count > 1:
                     mode_code = BCONMode.PULSE_TRAIN
             elif mode_code == BCONMode.PULSE_TRAIN:
                 if count < 2:
                     self._log(f"CH{ch}: PULSE_TRAIN requires count >= 2", "ERROR")
-                    return False
+                    return
 
             if mode_code not in (BCONMode.OFF, BCONMode.DC):
-                params = self._normalize_pulse_params(duration_ms, count, prefix=f"CH{ch}")
-                if params is None:
-                    return False
-                duration_ms, count = params
+                if not (1 <= duration_ms <= 60000):
+                    self._log(f"CH{ch}: invalid pulse duration {duration_ms}", "ERROR")
+                    return
+                if not (1 <= count <= 10000):
+                    self._log(f"CH{ch}: invalid pulse count {count}", "ERROR")
+                    return
 
             normalized.append({
                 'ch': ch,
@@ -1194,7 +1144,7 @@ class BCONDriver:
         for cfg in normalized:
             self.enqueue_write(CH_BASE[cfg['ch'] - 1] + CH_MODE_OFF, cfg['mode_code'])
 
-        return self.apply_staged_modes()
+        self.apply_staged_modes()
 
     # ================================================================== #
     #                      System Configuration                            #
@@ -1227,7 +1177,7 @@ class BCONDriver:
         """
         self.enqueue_write(REG_TELEMETRY_MS, interval_ms)
 
-    def send_command(self, cmd_code: int) -> bool:
+    def send_command(self, cmd_code: int) -> None:
         """
         Queue a write to the special COMMAND register.
 
@@ -1236,7 +1186,6 @@ class BCONDriver:
         completion handshakes.
         """
         self.enqueue_write(REG_COMMAND, int(cmd_code))
-        return True
 
     # ================================================================== #
     #                     Status / Telemetry Access                        #

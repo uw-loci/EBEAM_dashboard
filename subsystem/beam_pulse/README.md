@@ -14,9 +14,8 @@ sequences.
 flowchart TD
     Main["main.py<br/>COM-port selection"] --> Dashboard["dashboard.py<br/>EBEAMSystemDashboard"]
     Dashboard -->|"hosts UI in Beam Steering/Pulse frame"| BeamPulse["BeamPulseSubsystem<br/>beam_pulse.py"]
-    Dashboard -->|"Arm, E-STOP, Beam A/B/C, CH Enable, Sync controls"| MainControls["Dashboard Main Control panel"]
-    MainControls -->|"manual/sync callbacks"| BeamPulse
-    BeamPulse -->|"CSV Sequence tab controls"| BeamPulse
+    Dashboard -->|"Arm, E-STOP, Beam A/B/C, CH Enable buttons"| BeamPulse
+    BeamPulse -->|"create_external_control_buttons()<br/>create_csv_buttons()"| MainControls["Dashboard Main Control panel"]
 
     BeamPulse -->|"high-level calls"| Driver["BCONDriver<br/>instrumentctl/BCON/bcon_driver.py"]
     Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware<br/>Modbus slave"]
@@ -105,12 +104,11 @@ There are two safety layers:
 Important behavior:
 
 - `BEAMS ARMED` is a software gate, not a hardware arm command.
-- `disarm_beams()` stops any CSV sequence, commands BCON all-off, clears local
-  output state, and disables armed-gated buttons.
+- `disarm_beams()` stops any CSV sequence, sends all channels off through
+  `set_all_beams_status(False)`, calls `bcon_driver.stop_all()`, and disables
+  armed-gated buttons.
 - Dashboard `BEAMS E-STOP` calls `stop_all_channels()`, tells the Cathode
   Heating subsystem to turn off all beams, then disarms Beam Pulse.
-- Beam Pulse owns emission-limit checks before any non-OFF Beam ON, Sync Start,
-  or CSV step command reaches BCON.
 - `Sync Stop`, channel OFF, disarm, disconnect, and safe shutdown do not require
   the armed state.
 
@@ -160,17 +158,18 @@ Dashboard-to-BeamPulse calls:
 | E-STOP | `stop_all_channels()`, `disarm_beams()` |
 | Beam A/B/C ON | `send_channel_config(channel_index)` |
 | Beam A/B/C OFF | `send_channel_off(channel_index)` |
-| Channel enable toggle | `toggle_channel_enable(channel_index)` |
-| Sync Start / Stop | `sync_start()`, `sync_stop_all()` |
+| Channel enable toggle | `bcon_driver.set_channel_enable(channel, enabled)` and, when disabling, `send_channel_off(channel_index)` |
+| Main-control sync row | `create_external_control_buttons(...)` |
+| CSV buttons | `create_csv_buttons(parent_frame)` |
 
 BeamPulse-to-Dashboard callbacks:
 
 | Registration method | Callback shape | Purpose |
 | --- | --- | --- |
-| `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining, config)` | Live register-backed Beam A/B/C button state |
+| `set_dashboard_beam_callback(callback)` | `callback(beam_index, status)` | Immediate Dashboard button updates after subsystem commands |
+| `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining)` | Live register-backed Beam A/B/C button state |
 | `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | Live register-backed channel enable state |
-| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | Action status events, including firmware acknowledgements, for Dashboard displays |
-| `set_emission_limit_providers(limit_provider, currents_provider)` | `limit_provider() -> float`, `currents_provider() -> sequence` | Raw data sources for Beam Pulse-owned emission checks |
+| `set_channel_enable_getter(getter)` | `getter() -> list[bool]` | Lets `Sync Start` skip channels that are not hardware-enabled |
 
 Dashboard stores Beam Pulse in `self.subsystems["Beam Pulse"]`.
 
@@ -184,25 +183,23 @@ count with safe defaults if widgets are unavailable.
 
 1. Requires beams to be armed.
 2. Validates mode-specific duration/count.
-3. Blocks non-OFF output if projected emission current is at or above the configured limit.
-4. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
-5. Updates local output state; register polling remains the hardware truth.
+3. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
+4. Updates `beam_on_status[ch]`.
+5. Notifies the Dashboard beam callback.
 
 `send_channel_off(ch)` sends OFF immediately and does not require arming.
 
 `Sync Start` reads all three Manual Control configurations, filters out
-hardware-disabled channels using Beam Pulse's register-backed channel enable
-state, blocks non-OFF output when projected emission current is at or above the
-configured limit, then calls `bcon_driver.sync_start(configs)`. The driver
-stages pulse parameters and requested modes, then commits them together with the
-firmware apply command.
+hardware-disabled channels using the registered enable getter, then calls
+`bcon_driver.sync_start(configs)`. The driver stages pulse parameters and
+requested modes, then commits them together with the firmware apply command.
 
 `Sync Stop` calls `bcon_driver.stop_all()`.
 
 ## CSV Sequences
 
-CSV controls are hosted inside the Beam Pulse `CSV Sequence` tab above the
-loaded-step preview. The tab shows the loaded file, progress, and parsed preview.
+CSV controls are added to the Dashboard main control panel. The `CSV Sequence`
+tab shows the loaded file, progress, and parsed preview.
 
 Accepted columns:
 
@@ -241,9 +238,9 @@ Running a sequence requires:
 - No currently running sequence worker.
 
 The sequence runner uses a background thread. Each step calls
-the Beam Pulse emission-limit check before `bcon_driver.sync_start(configs)`,
-then sleeps for the step dwell while checking the stop event. Stop, disarm,
-disconnect, and host shutdown all request the worker to stop.
+`bcon_driver.sync_start(configs)`, then sleeps for the step dwell while checking
+the stop event. Stop, disarm, disconnect, and host shutdown all request the
+worker to stop.
 
 ## Threading And Lifecycle
 
@@ -286,8 +283,7 @@ if not bcon.connect():
     raise RuntimeError("Could not connect to BCON")
 
 bcon.arm_beams()
-bcon.set_emission_limit_providers(lambda: 6.0, lambda: [0.0, 0.0, 0.0])
-bcon.send_channel_config(0)
+bcon.set_channel_mode(0, "PULSE", duration_ms=100)
 bcon.stop_all_channels()
 bcon.disconnect()
 ```
