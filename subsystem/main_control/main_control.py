@@ -107,6 +107,8 @@ class MainControlPanel:
             beam_pulse.set_action_feedback_callback(self._handle_action_feedback)
         if hasattr(beam_pulse, "set_channel_enable_status_callback"):
             beam_pulse.set_channel_enable_status_callback(self._on_channel_enable_status_update)
+        if hasattr(beam_pulse, "set_armed_status_callback"):
+            beam_pulse.set_armed_status_callback(self._on_armed_status_update)
         if hasattr(beam_pulse, "set_emission_limit_providers"):
             beam_pulse.set_emission_limit_providers(
                 lambda: self.total_max_emission_current_ma,
@@ -736,6 +738,10 @@ class MainControlPanel:
         self._update_sync_control_states(armed=armed)
         if reset:
             self._clear_all_beam_output_displays()
+
+    def _on_armed_status_update(self, armed):
+        """Mirror Beam Pulse software armed state without changing line 4."""
+        self._set_armed_ui(bool(armed), reset=not bool(armed))
 
     def handle_sync_start(self):
         beam_pulse = self._get_beam_pulse_or_fail("sync start")

@@ -112,6 +112,7 @@ class BeamPulseSubsystem:
 
         # Dashboard integration callbacks
         self._action_feedback_callback = None
+        self._armed_status_callback = None
         self._pending_firmware_acks = deque()
         self._last_send_failure_message = ""
         self._host_toplevel = None
@@ -1026,6 +1027,7 @@ class BeamPulseSubsystem:
             if not ok:
                 self._clear_firmware_acks()
                 self.beams_armed_status = False
+                self._notify_armed_status(False)
                 self.beam_on_status = [False, False, False]
                 self.channel_enable_status = [False, False, False]
                 self._active_channels.clear()
@@ -1433,6 +1435,20 @@ class BeamPulseSubsystem:
         """Register optional callback for action status events."""
         self._action_feedback_callback = callback
 
+    def set_armed_status_callback(self, callback):
+        """Register callback(armed) for software armed-state changes."""
+        self._armed_status_callback = callback
+
+    def _notify_armed_status(self, armed):
+        """Tell the host dashboard when Beam Pulse changes armed state."""
+        callback = getattr(self, "_armed_status_callback", None)
+        if not callable(callback):
+            return
+        try:
+            callback(bool(armed))
+        except Exception:
+            pass
+
     def _notify_action_feedback(self, event_type, message="", outcome="neutral", configs=None):
         """Send one action status update when Dashboard is present."""
         callback = getattr(self, "_action_feedback_callback", None)
@@ -1522,6 +1538,7 @@ class BeamPulseSubsystem:
         self._clear_firmware_acks()
         self.bcon_connection_status = False
         self.beams_armed_status = False
+        self._notify_armed_status(False)
         self.beam_on_status = [False, False, False]
         self.channel_enable_status = [False, False, False]
         self._active_channels.clear()
@@ -1598,12 +1615,14 @@ class BeamPulseSubsystem:
 
     def arm_beams(self) -> bool:
         self.beams_armed_status = True
+        self._notify_armed_status(True)
         self._log("Beams ARMED (software-only)", LogLevel.INFO)
         self._update_armed_button_states(True)
         return True
 
     def disarm_beams(self) -> bool:
         self.beams_armed_status = False
+        self._notify_armed_status(False)
         self._stop_sequence_worker()
         self._clear_output_state()
         if self.bcon_driver:
