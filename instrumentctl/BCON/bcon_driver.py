@@ -889,10 +889,8 @@ class BCONDriver:
                         self._poll_errors = 0
                         last_error_msg = None
                         with self._regs_lock:
-                            changed = (regs != self._regs)
                             self._regs = regs
-                        if changed:
-                            self._ui_put("regs", regs)
+                        self._ui_put("regs", regs)
 
                 except Exception as e:
                     self._poll_errors += 1
