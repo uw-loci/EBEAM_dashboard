@@ -45,7 +45,6 @@ class MainControlPanel:
         logger,
         messages_frame,
         get_com_ports,
-        get_subsystem,
         save_layout_callback,
         update_com_ports_callback,
         toggle_on_image=None,
@@ -56,7 +55,6 @@ class MainControlPanel:
         self.logger = logger
         self.messages_frame = messages_frame
         self._get_com_ports_callback = get_com_ports
-        self._get_subsystem_callback = get_subsystem
         self.save_layout_callback = save_layout_callback
         self.update_com_ports_callback = update_com_ports_callback
         self.toggle_on_image = toggle_on_image
@@ -80,14 +78,6 @@ class MainControlPanel:
                 return {}
         return getattr(self, "com_ports", {})
 
-    def _get_subsystem(self, name):
-        if callable(getattr(self, "_get_subsystem_callback", None)):
-            try:
-                return self._get_subsystem_callback(name)
-            except Exception:
-                return None
-        return getattr(self, "subsystems", {}).get(name)
-
     def save_current_pane_state(self):
         if callable(self.save_layout_callback):
             self.save_layout_callback()
@@ -96,9 +86,6 @@ class MainControlPanel:
         self.com_ports = new_com_ports
         if callable(self.update_com_ports_callback):
             self.update_com_ports_callback(new_com_ports)
-
-    def get_channel_enable_states(self):
-        return list(getattr(self, "_ch_enable_states", [True, True, True]))
 
     def wire_beam_energy(self, beam_energy):
         """Register the Beam Energy +20kV current E-stop callback."""
@@ -110,8 +97,7 @@ class MainControlPanel:
             )
 
     def wire_beam_pulse(self, beam_pulse):
-        """Wire Beam Pulse callbacks and Main Control-hosted manual actions."""
-        self.beam_pulse = beam_pulse
+        """Wire Beam Pulse callbacks and providers."""
         if beam_pulse is None:
             return
 
@@ -144,11 +130,8 @@ class MainControlPanel:
         notebook.add(main_tab, text='Main')
         notebook.add(config_tab, text='Config')
 
-        # TODO: add main control buttons to main tab here
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        # Save reference so beam_pulse subsystem can add its buttons here
-        self.main_control_frame = main_frame
 
         # Add safety beams off button (bottom)
         beams_off_button = tk.Button(
@@ -164,14 +147,12 @@ class MainControlPanel:
         # Script dropdown
         self.create_script_dropdown(main_frame)
 
-        # --- Manual-tab panel: Beam ON/OFF + CH Enable/Disable buttons --
-        self.bp_manual_panel = tk.Frame(main_frame)
-        self.bp_manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
+        manual_panel = tk.Frame(main_frame)
+        manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
 
         # Beam ON/OFF row.
-        self.beam_on_off_frame = tk.Frame(self.bp_manual_panel)
-        self.beam_on_off_frame.pack(side="top", fill="x")
-        buttons_frame = self.beam_on_off_frame
+        buttons_frame = tk.Frame(manual_panel)
+        buttons_frame.pack(side="top", fill="x")
         for i in range(3):
             buttons_frame.grid_columnconfigure(i, weight=1, uniform="button")
 
@@ -191,7 +172,7 @@ class MainControlPanel:
             self.beam_toggle_buttons.append(btn)
 
         # CH Enable/Disable row
-        enable_toggle_frame = tk.Frame(self.bp_manual_panel)
+        enable_toggle_frame = tk.Frame(manual_panel)
         enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
@@ -210,7 +191,7 @@ class MainControlPanel:
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.enable_toggle_buttons.append(btn)
 
-        sync_control_frame = tk.Frame(self.bp_manual_panel)
+        sync_control_frame = tk.Frame(manual_panel)
         sync_control_frame.pack(side="top", fill="x", pady=(4, 0))
         sync_control_frame.grid_columnconfigure(0, weight=1, uniform="sync")
         sync_control_frame.grid_columnconfigure(1, weight=1, uniform="sync")
@@ -723,68 +704,79 @@ class MainControlPanel:
         if hasattr(self, "sync_start_button"):
             self.sync_start_button.config(state="normal" if armed else "disabled")
 
+    def _get_beam_pulse_or_fail(self, action_text):
+        beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
+        if beam_pulse is not None:
+            return beam_pulse
+        self.logger.error("Beam Pulse subsystem not available")
+        self._set_beam_action_status(
+            f"Failed to {action_text}, Beam Pulse subsystem not available",
+            "failure",
+        )
+        return None
+
+    def _set_armed_ui(self, armed, reset=False):
+        if hasattr(self, "beams_ready_button"):
+            toggle_on_image = getattr(self, "toggle_on_image", None)
+            toggle_off_image = getattr(self, "toggle_off_image", None)
+            if toggle_on_image and toggle_off_image:
+                self.beams_ready_button.config(
+                    image=toggle_on_image if armed else toggle_off_image
+                )
+            else:
+                self.beams_ready_button.config(
+                    text="BEAMS ARMED" if armed else "ARM BEAMS",
+                    bg="navy" if armed else "sky blue",
+                )
+        self.update_beam_toggle_states(enabled=armed, reset=reset)
+        self._update_enable_toggle_states(enabled=armed)
+        self._update_sync_control_states(armed=armed)
+        if reset:
+            self._clear_all_beam_output_displays()
+
     def handle_sync_start(self):
-        beam_pulse = self.subsystems.get('Beam Pulse')
-        if not beam_pulse or not hasattr(beam_pulse, "sync_start"):
-            self._set_beam_action_status("Failed to sync start, Beam Pulse subsystem not available", "failure")
+        beam_pulse = self._get_beam_pulse_or_fail("sync start")
+        if beam_pulse is None:
             return
-        beam_pulse.sync_start()
+        sync_start = getattr(beam_pulse, "sync_start", None)
+        if not callable(sync_start):
+            self._set_beam_action_status("Failed to sync start, Beam Pulse API not available", "failure")
+            return
+        sync_start()
 
     def handle_sync_stop(self):
-        beam_pulse = self.subsystems.get('Beam Pulse')
-        if not beam_pulse or not hasattr(beam_pulse, "sync_stop_all"):
-            self._set_beam_action_status("Failed to sync stop, Beam Pulse subsystem not available", "failure")
+        beam_pulse = self._get_beam_pulse_or_fail("sync stop")
+        if beam_pulse is None:
             return
-        beam_pulse.sync_stop_all()
+        sync_stop_all = getattr(beam_pulse, "sync_stop_all", None)
+        if not callable(sync_stop_all):
+            self._set_beam_action_status("Failed to sync stop, Beam Pulse API not available", "failure")
+            return
+        sync_stop_all()
 
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
         try:
-            # Check if Beam Pulse subsystem is available
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                self.logger.error("Beam Pulse subsystem not available")
-                self._set_beam_action_status("Failed to arm beams, Beam Pulse subsystem not available", "failure")
+            beam_pulse = self._get_beam_pulse_or_fail("arm beams")
+            if beam_pulse is None:
                 return
 
-            beam_pulse = self.subsystems['Beam Pulse']
+            get_armed = getattr(beam_pulse, "get_beams_armed_status", None)
+            is_armed = bool(get_armed()) if callable(get_armed) else False
 
-            # Check current armed state
-            if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
-                # Beams are already armed, so disarm them
-                if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
-                    # Successfully disarmed - update toggle to OFF
-                    if self.toggle_on_image and self.toggle_off_image:
-                        self.beams_ready_button.config(image=self.toggle_off_image)
-                    else:
-                        self.beams_ready_button.config(
-                            text="ARM BEAMS",
-                            bg="sky blue"
-                        )
-                    # Disable beam toggle buttons, enable toggle buttons and reset states
-                    self.update_beam_toggle_states(enabled=False, reset=True)
-                    self._update_enable_toggle_states(enabled=False)
-                    self._update_sync_control_states(armed=False)
-                    self._clear_all_beam_output_displays()
+            if is_armed:
+                disarm_beams = getattr(beam_pulse, "disarm_beams", None)
+                if callable(disarm_beams) and disarm_beams():
+                    self._set_armed_ui(False, reset=True)
                     self._set_beam_action_status("Beams disarmed", "neutral")
                     self.logger.info("Beams disarmed via dashboard button")
                 else:
                     self.logger.error("Failed to disarm beams")
                     self._set_beam_action_status("Failed to disarm beams", "failure")
             else:
-                # Beams are not armed, so arm them
-                if hasattr(beam_pulse, 'arm_beams') and beam_pulse.arm_beams():
-                    # Successfully armed - update toggle to ON
-                    if self.toggle_on_image and self.toggle_off_image:
-                        self.beams_ready_button.config(image=self.toggle_on_image)
-                    else:
-                        self.beams_ready_button.config(
-                            text="BEAMS ARMED",
-                            bg="navy"  # Darker shade of blue
-                        )
-                    # Enable beam toggle buttons and enable toggle buttons
-                    self.update_beam_toggle_states(enabled=True)
-                    self._update_enable_toggle_states(enabled=True)
-                    self._update_sync_control_states(armed=True)
+                arm_beams = getattr(beam_pulse, "arm_beams", None)
+                if callable(arm_beams) and arm_beams():
+                    self._set_armed_ui(True)
                     self._set_beam_action_status("Beams armed", "success")
                     self.logger.info("Beams armed via dashboard button")
                 else:
@@ -818,14 +810,7 @@ class MainControlPanel:
                 beam_pulse = self.subsystems['Beam Pulse']
                 if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
                     if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
-                        # Update the ARM BEAMS toggle state to OFF
-                        if self.toggle_on_image and self.toggle_off_image:
-                            self.beams_ready_button.config(image=self.toggle_off_image)
-                        else:
-                            self.beams_ready_button.config(
-                                text="ARM BEAMS",
-                                bg="sky blue"
-                            )
+                        self._set_armed_ui(False)
                         self.logger.info("Beams disarmed via Beams E-stop button")
                     else:
                         self.logger.error("Failed to disarm beams via Beams E-stop")
@@ -842,21 +827,10 @@ class MainControlPanel:
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
     def _toggle_channel_enable(self, ch_index: int):
-        """Toggle the hardware enable for a BCON channel (0-based index).
-
-        Only allowed when beams are armed.  When the channel is being
-        disabled (enabled -> disabled), also send OFF to ensure the
-        channel stops outputting.  Button reflects ON (green) / OFF (gray).
-        """
+        """Toggle one BCON channel enable and mirror the returned state."""
         try:
-            beam_pulse = self.subsystems.get('Beam Pulse')
-            if not beam_pulse or not hasattr(beam_pulse, 'get_beams_armed_status'):
-                self.logger.warning("Beam Pulse subsystem not available")
-                self._set_beam_action_status("Failed to toggle channel enable, Beam Pulse subsystem not available", "failure",)
-                return
-            if not beam_pulse.get_beams_armed_status():
-                self._set_beam_action_status("Failed to toggle channel enable, beams are not armed", "failure", )
-                self.logger.warning("Cannot toggle enable - beams not armed")
+            beam_pulse = self._get_beam_pulse_or_fail("toggle channel enable")
+            if beam_pulse is None:
                 return
             toggler = getattr(beam_pulse, "toggle_channel_enable", None)
             if not callable(toggler):
@@ -895,14 +869,10 @@ class MainControlPanel:
         OFF = send OFF command for the channel.
         """
         try:
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                self.logger.error("Beam Pulse subsystem not available")
-                self._set_beam_action_status("Failed to toggle beam, Beam Pulse subsystem not available", "failure")
+            beam_pulse = self._get_beam_pulse_or_fail("toggle beam")
+            if beam_pulse is None:
                 return
 
-            beam_pulse = self.subsystems['Beam Pulse']
-
-            # Get current beam status
             current_status = beam_pulse.get_beam_status(beam_index)
             btn = self.beam_toggle_buttons[beam_index]
 
@@ -964,10 +934,6 @@ class MainControlPanel:
                 f"Failed to toggle Beam {channel_label(beam_index)}: {str(e)}",
                 "failure",
             )
-
-    def toggle_individual_beam(self, beam_index):
-        """Legacy method - redirects to new method with status bar."""
-        self.toggle_individual_beam_with_status(beam_index)
 
     def _on_channel_status_update(self, ch: int, mode_code: int, remaining: int, status_config=None):
         """Mirror live BCON register state onto Main Control beam displays.

@@ -349,7 +349,6 @@ class EBEAMSystemDashboard:
                     logger=self.logger,
                     messages_frame=self.messages_frame,
                     get_com_ports=lambda: self.com_ports,
-                    get_subsystem=lambda name: getattr(self, "subsystems", {}).get(name),
                     save_layout_callback=self.save_current_pane_state,
                     update_com_ports_callback=self.update_com_ports,
                     toggle_on_image=self.toggle_on_image,

@@ -273,6 +273,7 @@ class TestMainControlEmissionLimit(unittest.TestCase):
 
     def test_channel_enable_does_not_apply_emission_limit(self):
         beam_pulse = FakeBeamPulse(statuses=[False, False, False], mode="PULSE")
+        beam_pulse.get_beams_armed_status = MagicMock(return_value=False)
         dash = make_dashboard(
             limit=1.0,
             emission_values=[6.0, 0.0, 0.0],
@@ -282,8 +283,29 @@ class TestMainControlEmissionLimit(unittest.TestCase):
 
         dash._toggle_channel_enable(0)
 
+        beam_pulse.get_beams_armed_status.assert_not_called()
         beam_pulse.toggle_channel_enable.assert_called_once_with(0)
         dash.logger.error.assert_not_called()
+
+    def test_channel_enable_not_armed_failure_comes_from_beam_pulse(self):
+        beam_pulse = FakeBeamPulse(statuses=[False, False, False], mode="PULSE")
+        beam_pulse.get_beams_armed_status = MagicMock(return_value=True)
+        beam_pulse.toggle_channel_enable.return_value = (
+            False,
+            False,
+            "beams are not armed",
+        )
+        dash = make_dashboard(beam_pulse=beam_pulse)
+
+        dash._toggle_channel_enable(0)
+
+        beam_pulse.get_beams_armed_status.assert_not_called()
+        beam_pulse.toggle_channel_enable.assert_called_once_with(0)
+        self.assertEqual(
+            dash._beam_action_status_text,
+            "Failed to toggle Channel A enable: beams are not armed",
+        )
+        self.assertEqual(dash._beam_action_status_color, "red")
 
     def test_sync_start_handler_calls_beam_pulse_api(self):
         beam_pulse = FakeBeamPulse(statuses=[False, False, False], mode="PULSE")
@@ -307,10 +329,16 @@ class TestMainControlEmissionLimit(unittest.TestCase):
 
         dash.wire_beam_pulse(beam_pulse)
 
+        self.assertFalse(hasattr(dash, "beam_pulse"))
         beam_pulse.set_dashboard_beam_callback.assert_not_called()
         beam_pulse.set_channel_status_callback.assert_called_once_with(
             dash._on_channel_status_update
         )
+
+    def test_stale_main_control_members_are_removed(self):
+        self.assertFalse(hasattr(MainControlPanel, "_get_subsystem"))
+        self.assertFalse(hasattr(MainControlPanel, "get_channel_enable_states"))
+        self.assertFalse(hasattr(MainControlPanel, "toggle_individual_beam"))
 
 
 class TestMainControlBeamStatusText(unittest.TestCase):
