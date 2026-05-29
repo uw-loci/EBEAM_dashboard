@@ -17,10 +17,9 @@ from utils import LogLevel, SetupScripts
 
 CHANNEL_LABELS = ("A", "B", "C")
 BEAM_OUTPUT_ON_COLOR = "green"
-BEAM_OUTPUT_OFF_COLOR = "gray"
-BEAM_ACTION_SUCCESS_COLOR = "green"
+BEAM_OUTPUT_OFF_COLOR = "#383838"
 BEAM_ACTION_FAILURE_COLOR = "red"
-BEAM_ACTION_NEUTRAL_COLOR = "gray"
+BEAM_ACTION_NEUTRAL_COLOR = "#383838"
 
 
 def channel_label(index: int) -> str:
@@ -33,6 +32,16 @@ def channel_label(index: int) -> str:
 def channel_name(index: int) -> str:
     """Return a verbose UI-facing pulser channel name for a 0-based index."""
     return f"Channel {channel_label(index)}"
+
+
+def _safe_widget_config(widget, **kwargs):
+    """Best-effort Tk widget config for optional or test-created widgets."""
+    if widget is None:
+        return
+    try:
+        widget.config(**kwargs)
+    except Exception:
+        pass
 
 
 class MainControlPanel:
@@ -297,6 +306,8 @@ class MainControlPanel:
             ]
         if not hasattr(self, "beam_action_status_var"):
             self.beam_action_status_var = tk.StringVar(value=self._beam_action_status_text)
+        if not hasattr(self, "beam_action_status_prefix_var"):
+            self.beam_action_status_prefix_var = tk.StringVar(value=self._beam_action_status_prefix_text)
 
         status_frame = ttk.Frame(parent_frame)
         status_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, anchor=tk.W)
@@ -313,14 +324,27 @@ class MainControlPanel:
             label.pack(anchor=tk.W, fill=tk.X)
             self.beam_output_status_labels.append(label)
 
+        self.beam_action_status_frame = ttk.Frame(status_frame)
+        self.beam_action_status_frame.pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
+
+        self.beam_action_status_prefix_label = ttk.Label(
+            self.beam_action_status_frame,
+            textvariable=self.beam_action_status_prefix_var,
+            font=("Segoe UI", 8, "bold"),
+            foreground=BEAM_ACTION_FAILURE_COLOR,
+            anchor=tk.W,
+        )
+        if self._beam_action_status_prefix_text:
+            self.beam_action_status_prefix_label.pack(side=tk.LEFT, anchor=tk.W)
+
         self.beam_action_status_label = ttk.Label(
-            status_frame,
+            self.beam_action_status_frame,
             textvariable=self.beam_action_status_var,
             font=("Segoe UI", 8, "bold"),
             foreground=self._beam_action_status_color,
             anchor=tk.W,
         )
-        self.beam_action_status_label.pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
+        self.beam_action_status_label.pack(side=tk.LEFT, anchor=tk.W, fill=tk.X, expand=True)
 
     def _initialize_main_control_beam_status_state(self):
         """Initialize non-Tk state for Main Control beam status displays."""
@@ -333,8 +357,12 @@ class MainControlPanel:
             self._beam_output_status_colors = [BEAM_OUTPUT_OFF_COLOR for _ in range(3)]
         if not hasattr(self, "_beam_action_status_text"):
             self._beam_action_status_text = ""
+        if not hasattr(self, "_beam_action_status_prefix_text"):
+            self._beam_action_status_prefix_text = ""
         if not hasattr(self, "_beam_action_status_color"):
             self._beam_action_status_color = BEAM_ACTION_NEUTRAL_COLOR
+        if not hasattr(self, "_beam_action_status_outcome"):
+            self._beam_action_status_outcome = "neutral"
 
     def _coerce_beam_config(self, config):
         """Normalize a BCON channel config dict for display/state storage."""
@@ -444,10 +472,7 @@ class MainControlPanel:
 
         labels = getattr(self, "beam_output_status_labels", None)
         if labels and beam_index < len(labels):
-            try:
-                labels[beam_index].config(foreground=color)
-            except Exception:
-                pass
+            _safe_widget_config(labels[beam_index], foreground=color)
 
     def _clear_beam_output_display(self, beam_index):
         """Mark one beam output line OFF."""
@@ -461,16 +486,21 @@ class MainControlPanel:
     def _set_beam_action_status(self, message, outcome="neutral"):
         """Update line 4 with an outcome-colored Main Control action message."""
         self._initialize_main_control_beam_status_state()
-        color = {
-            "success": BEAM_ACTION_SUCCESS_COLOR,
-            "failure": BEAM_ACTION_FAILURE_COLOR,
-            "error": BEAM_ACTION_FAILURE_COLOR,
-            "estop": BEAM_ACTION_FAILURE_COLOR,
-            "neutral": BEAM_ACTION_NEUTRAL_COLOR,
-        }.get(str(outcome).strip().lower(), BEAM_ACTION_NEUTRAL_COLOR)
+        outcome_key = str(outcome).strip().lower()
+        message_text = str(message or "")
+        is_failure = outcome_key in ("failure", "error")
+        is_20kv_estop = (
+            outcome_key == "estop"
+            and "20kv" in message_text.lower()
+            and "current limit" in message_text.lower()
+        )
+        prefix = "FAILURE: " if is_failure else ""
+        color = BEAM_ACTION_FAILURE_COLOR if is_20kv_estop else BEAM_ACTION_NEUTRAL_COLOR
 
-        self._beam_action_status_text = str(message or "")
+        self._beam_action_status_prefix_text = prefix
+        self._beam_action_status_text = message_text
         self._beam_action_status_color = color
+        self._beam_action_status_outcome = outcome_key
 
         action_var = getattr(self, "beam_action_status_var", None)
         if action_var is not None:
@@ -479,12 +509,30 @@ class MainControlPanel:
             except Exception:
                 pass
 
-        action_label = getattr(self, "beam_action_status_label", None)
-        if action_label is not None:
+        prefix_var = getattr(self, "beam_action_status_prefix_var", None)
+        if prefix_var is not None:
             try:
-                action_label.config(foreground=color)
+                prefix_var.set(prefix)
             except Exception:
                 pass
+
+        prefix_label = getattr(self, "beam_action_status_prefix_label", None)
+        _safe_widget_config(prefix_label, foreground=BEAM_ACTION_FAILURE_COLOR)
+
+        action_label = getattr(self, "beam_action_status_label", None)
+        _safe_widget_config(action_label, foreground=color)
+
+        try:
+            if prefix_label is not None:
+                prefix_label.pack_forget()
+            if action_label is not None:
+                action_label.pack_forget()
+            if prefix and prefix_label is not None:
+                prefix_label.pack(side=tk.LEFT, anchor=tk.W)
+            if action_label is not None:
+                action_label.pack(side=tk.LEFT, anchor=tk.W, fill=tk.X, expand=True)
+        except Exception:
+            pass
 
     def _beam_success_message(self, beam_index, config):
         """Build line 4 success text for a beam ON command."""
@@ -527,12 +575,14 @@ class MainControlPanel:
             self._clear_all_beam_output_displays()
         elif event_type == "firmware_ack":
             current = getattr(self, "_beam_action_status_text", "")
-            current_color = getattr(self, "_beam_action_status_color", BEAM_ACTION_NEUTRAL_COLOR)
+            current_outcome = getattr(self, "_beam_action_status_outcome", "neutral")
             if current and message:
                 message = f"{current} | {message}"
-                if current_color == BEAM_ACTION_FAILURE_COLOR:
+                if current_outcome in ("failure", "error"):
                     outcome = "failure"
-                elif current_color == BEAM_ACTION_NEUTRAL_COLOR:
+                elif current_outcome == "estop":
+                    outcome = "estop"
+                elif current_outcome == "neutral":
                     outcome = "neutral"
 
         if message:
@@ -707,7 +757,7 @@ class MainControlPanel:
 
     def _update_sync_control_states(self, armed=False):
         if hasattr(self, "sync_start_button"):
-            self.sync_start_button.config(state="normal" if armed else "disabled")
+            _safe_widget_config(self.sync_start_button, state="normal" if armed else "disabled")
 
     def _get_beam_pulse_or_fail(self, action_text):
         beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
@@ -725,11 +775,13 @@ class MainControlPanel:
             toggle_on_image = getattr(self, "toggle_on_image", None)
             toggle_off_image = getattr(self, "toggle_off_image", None)
             if toggle_on_image and toggle_off_image:
-                self.beams_ready_button.config(
+                _safe_widget_config(
+                    self.beams_ready_button,
                     image=toggle_on_image if armed else toggle_off_image
                 )
             else:
-                self.beams_ready_button.config(
+                _safe_widget_config(
+                    self.beams_ready_button,
                     text="BEAMS ARMED" if armed else "ARM BEAMS",
                     bg="navy" if armed else "sky blue",
                 )
@@ -865,7 +917,8 @@ class MainControlPanel:
                 "success",
             )
             if not enabled and ch_index < len(self.beam_toggle_buttons):
-                self.beam_toggle_buttons[ch_index].config(
+                _safe_widget_config(
+                    self.beam_toggle_buttons[ch_index],
                     bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
         except Exception as e:
             self.logger.error(f"Error toggling {channel_name(ch_index)} enable: {e}")
@@ -888,7 +941,7 @@ class MainControlPanel:
             if current_status:
                 # Currently ON -> turn OFF
                 if beam_pulse.send_channel_off(beam_index):
-                    btn.config(bg="gray", text=f"Beam {channel_label(beam_index)} OFF")
+                    _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(beam_index)} OFF")
                     self._clear_beam_output_display(beam_index)
                     self._set_beam_action_status(
                         f"Beam {channel_label(beam_index)} successfully set to OFF",
@@ -915,7 +968,7 @@ class MainControlPanel:
                         self._beam_success_message(beam_index, config),
                         "success",
                     )
-                    btn.config(bg="green", text=f"Beam {channel_label(beam_index)} ON")
+                    _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(beam_index)} ON")
                     self.logger.info(f"Beam {channel_label(beam_index)} config sent to BCON")
                 else:
                     # Prefer Beam Pulse's exact reason so line 4 explains why nothing was sent.
@@ -959,12 +1012,12 @@ class MainControlPanel:
         is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
         try:
             if is_running:
-                btn.config(bg="green", text=f"Beam {channel_label(ch)} ON")
+                _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(ch)} ON")
                 if status_config is not None:
                     self._set_beam_output_display(ch, status_config, is_on=True)
             else:
                 if str(btn.cget('bg')) == 'green':
-                    btn.config(bg="gray", text=f"Beam {channel_label(ch)} OFF")
+                    _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(ch)} OFF")
                 self._clear_beam_output_display(ch)
         except Exception:
             pass
@@ -976,7 +1029,8 @@ class MainControlPanel:
                 self._ch_enable_states[ch] = bool(enabled)
 
             if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                self.enable_toggle_buttons[ch].config(
+                _safe_widget_config(
+                    self.enable_toggle_buttons[ch],
                     bg="#2e7d32" if enabled else "#888888",
                     text=f"CH {channel_label(ch)}: {'Enabled' if enabled else 'Disabled'}",
                 )
@@ -992,7 +1046,10 @@ class MainControlPanel:
             )
 
             if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                self.enable_toggle_buttons[ch].config(state="normal" if armed else "disabled")
+                _safe_widget_config(
+                    self.enable_toggle_buttons[ch],
+                    state="normal" if armed else "disabled",
+                )
 
             self.update_beam_toggle_states(enabled=armed)
             self._update_sync_control_states(armed=armed)
@@ -1013,12 +1070,12 @@ class MainControlPanel:
                         and i < len(self._ch_enable_states)
                         and self._ch_enable_states[i]
                     )
-                    btn.config(state="normal" if ch_enabled else "disabled")
+                    _safe_widget_config(btn, state="normal" if ch_enabled else "disabled")
                     if reset:
-                        btn.config(bg="gray", text=f"Beam {channel_label(i)} OFF")
+                        _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(i)} OFF")
                         self._clear_beam_output_display(i)
                 else:
-                    btn.config(state="disabled", bg="gray", text=f"Beam {channel_label(i)} OFF")
+                    _safe_widget_config(btn,state="disabled",bg="gray",text=f"Beam {channel_label(i)} OFF",)
                     if reset:
                         self._clear_beam_output_display(i)
 
@@ -1035,16 +1092,12 @@ class MainControlPanel:
                 return
             for i, btn in enumerate(self.enable_toggle_buttons):
                 if enabled:
-                    btn.config(state="normal")
+                    _safe_widget_config(btn, state="normal")
                 else:
                     # Disarmed — force all to Disabled appearance and reset tracking
                     if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
                         self._ch_enable_states[i] = False
-                    btn.config(
-                        state="disabled",
-                        bg="#888888",
-                        text=f"CH {channel_label(i)}: Disabled",
-                    )
+                    _safe_widget_config(btn,state="disabled",bg="#888888",text=f"CH {channel_label(i)}: Disabled",)
         except Exception as e:
             self.logger.error(f"Error updating enable toggle states: {str(e)}")
 
@@ -1094,11 +1147,11 @@ class MainControlPanel:
     def toggle_com_port_menu(self):
         if self.com_port_menu.winfo_viewable():
             self.com_port_menu.pack_forget()
-            self.com_port_button.config(text="Configure COM Ports")
+            _safe_widget_config(self.com_port_button, text="Configure COM Ports")
         else:
             self.update_available_ports()
             self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
-            self.com_port_button.config(text="Hide COM Port Configuration")
+            _safe_widget_config(self.com_port_button, text="Hide COM Port Configuration")
 
     def update_available_ports(self):
         """Scan for available COM ports and update dropdown menus."""
