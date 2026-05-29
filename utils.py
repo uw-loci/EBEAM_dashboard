@@ -212,7 +212,9 @@ class Logger:
         if self._closed:
             return
         now = datetime.datetime.now()
-        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        # Timestamp includes microseconds for sub-second logging rates
+        # Less precise sub-second times require truncation, so the downside of including full microseconds is minimal
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         self._enqueue_supabase_update(update_dict, now)
 
