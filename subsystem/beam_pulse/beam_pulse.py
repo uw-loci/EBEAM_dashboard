@@ -165,7 +165,7 @@ class BeamPulseSubsystem:
         return f"Channel {self._channel_label(ch)}"
 
     # ================================================================== #
-    #                          GUI Setup                                   #
+    #                          GUI Setup                                 #
     # ================================================================== #
 
     def setup_ui(self):
@@ -301,7 +301,7 @@ class BeamPulseSubsystem:
         self.log_label = ttk.Label(sys_frame, text="Log: ready", font=("Arial", 8), foreground="gray")
         self.log_label.pack(side=tk.RIGHT, padx=4)
 
-    # ----------------------------- Tab 1: Manual Separate Control --------- #
+    # ----------------------------- Tab 1: Manual Separate Control ----------------------------- #
 
     def _build_manual_tab(self):
         """Build per-channel control cards (like pulser_test_gui channel cards)."""
@@ -381,7 +381,7 @@ class BeamPulseSubsystem:
                 'pulses': pulses_lbl,
             })
 
-    # ----------------------------- Tab 3: Auto CSV Sequence --------------- #
+    # ----------------------------- Tab 2: CSV Sequence ----------------------------- #
 
     def _build_csv_sequence_tab(self):
         """Build CSV pulse sequence player interface."""
@@ -421,7 +421,7 @@ class BeamPulseSubsystem:
         self.seq_preview_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
     # ================================================================== #
-    #                    Manual Tab Actions                                #
+    #                         Manual Tab Actions                         #
     # ================================================================== #
 
     def _require_armed(self) -> bool:
@@ -743,7 +743,7 @@ class BeamPulseSubsystem:
         self._log_event("Sync Stop: all channels -> OFF")
 
     # ================================================================== #
-    #                  CSV Sequence Tab Actions                             #
+    #                      CSV Sequence Tab Actions                      #
     # ================================================================== #
 
     def _load_sequence(self):
@@ -1201,7 +1201,7 @@ class BeamPulseSubsystem:
             pass
 
     # ================================================================== #
-    #                  Status Monitoring                                    #
+    #                         Status Monitoring                          #
     # ================================================================== #
 
     def start_bcon_connection_monitoring(self):
@@ -1291,7 +1291,7 @@ class BeamPulseSubsystem:
         return False
 
     # ================================================================== #
-    #               Safety / System Settings Actions                       #
+    #                  Safety / System Settings Actions                  #
     # ================================================================== #
 
     def _apply_default_bcon_settings(self) -> None:
@@ -1381,7 +1381,7 @@ class BeamPulseSubsystem:
             self._log_event(f"Set watchdog = {ms} ms")
 
     # ================================================================== #
-    #           Event Log Helper                                           #
+    #                          Event Log Helper                          #
     # ================================================================== #
 
     def _log_event(self, text: str):
@@ -1398,7 +1398,7 @@ class BeamPulseSubsystem:
         self._log(text, LogLevel.INFO)
 
     # ================================================================== #
-    #          Public API (backward-compatible with dashboard)             #
+    #           Public API (backward-compatible with dashboard)          #
     # ================================================================== #
 
     # --- Status access ---
