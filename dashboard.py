@@ -14,13 +14,6 @@ try:
 except Exception:
     BeamPulseSubsystem = None
 
-try:
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-    _HAS_MATPLOTLIB = True
-except Exception:
-    _HAS_MATPLOTLIB = False
-
 def resource_path(relative_path):
     """Get absolute path to resource for PyInstaller."""
     try:
@@ -121,15 +114,6 @@ class EBEAMSystemDashboard:
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
-        # Optional Beam Pulse UI attributes (only used if dashboard-managed plotting is enabled)
-        self.beam_pulse = None
-        self._bp_axes = []
-        self._bp_canvas = None
-        self._bp_data = {1: {'past': [], 'future': []}, 2: {'past': [], 'future': []}, 3: {'past': [], 'future': []}}
-        self._bp_history_len = 120
-        self._bp_future_len = 30
-        self._bp_stats = {}
-        self._bp_update_interval_ms = 1000
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
@@ -370,7 +354,6 @@ class EBEAMSystemDashboard:
                     logger=self.logger,
                     messages_frame=self.messages_frame,
                     get_com_ports=lambda: self.com_ports,
-                    get_subsystem=lambda name: getattr(self, "subsystems", {}).get(name),
                     save_layout_callback=self.save_current_pane_state,
                     update_com_ports_callback=self.update_com_ports,
                     toggle_on_image=self.toggle_on_image,
@@ -502,65 +485,6 @@ class EBEAMSystemDashboard:
     def create_machine_status_frame(self):
         """Create a frame for displaying machine status information."""
         self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
-
-    def update_beam_pulse(self):
-        """Poll beam_pulse subsystem for new values and update plots."""
-        try:
-            # Read amplitude registers for beams as a proxy for current waveform
-            # (Amplitude/phase/offset can be combined to synthesize a waveform; for now plot amplitude)
-            if not hasattr(self, 'beam_pulse') or self.beam_pulse is None:
-                return
-
-            for i in (1, 2, 3):
-                regname = f'BEAM_{i}_AMPLITUDE'
-                val = self.beam_pulse.read_register(regname)
-                if val is None:
-                    val = 0
-                # push to history
-                buf = self._bp_data[i]['past']
-                buf.append(val)
-                if len(buf) > self._bp_history_len:
-                    buf.pop(0)
-
-                # naive future prediction: repeat last value (placeholder for real predictive model)
-                fut = [buf[-1]] * self._bp_future_len
-                self._bp_data[i]['future'] = fut
-
-                # update stats
-                try:
-                    last = buf[-1]
-                    mean = sum(buf) / len(buf)
-                    vmin = min(buf)
-                    vmax = max(buf)
-                    stats = self._bp_stats.get(i)
-                    if stats:
-                        stats['last'].config(text=f'Last: {last}')
-                        stats['mean'].config(text=f'Mean: {mean:.1f}')
-                        stats['min'].config(text=f'Min: {vmin}')
-                        stats['max'].config(text=f'Max: {vmax}')
-                except Exception:
-                    pass
-
-            # redraw plots
-            for idx, ax in enumerate(self._bp_axes, start=1):
-                ax.cla()
-                past = self._bp_data[idx]['past']
-                future = self._bp_data[idx]['future']
-                ax.plot(range(-len(past), 0), past, label='past')
-                ax.plot(range(0, len(future)), future, linestyle='--', label='predicted')
-                ax.set_title(f'Beam {idx} amplitude')
-                ax.legend()
-
-            if self._bp_canvas:
-                self._bp_canvas.draw()
-
-        except Exception as e:
-            self.logger.error(f'Error updating Beam Pulse UI: {e}')
-
-        finally:
-            # schedule next update
-            interval = getattr(self, '_bp_update_interval_ms', 1000)
-            self.root.after(interval, self.update_beam_pulse)
 
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports

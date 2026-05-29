@@ -671,17 +671,17 @@ class BeamEnergySubsystem:
             voltage_value is not None
             and (
                 voltage_value < limits["min_voltage_v"]
-                or voltage_value > limits["max_voltage_v"]
+                or voltage_value >= limits["max_voltage_v"]
             )
         )
         current_warning = (
             current_value is not None
-            and current_value > limits["max_current_ma"]
+            and current_value >= limits["max_current_ma"]
         )
         current_estop = (
             supply_key == POS20KV_SUPPLY_KEY
             and current_value is not None
-            and current_value > limits[BEAMS_ESTOP_CURRENT_FIELD]
+            and current_value >= limits[BEAMS_ESTOP_CURRENT_FIELD]
         )
 
         if voltage_warning:

@@ -17,10 +17,11 @@ from utils import LogLevel, SetupScripts
 
 CHANNEL_LABELS = ("A", "B", "C")
 BEAM_OUTPUT_ON_COLOR = "green"
-BEAM_OUTPUT_OFF_COLOR = "gray"
-BEAM_ACTION_SUCCESS_COLOR = "green"
+BEAM_OUTPUT_LOW_COLOR = "#70A070"
+BEAM_OUTPUT_OFF_COLOR = "#383838"
 BEAM_ACTION_FAILURE_COLOR = "red"
-BEAM_ACTION_NEUTRAL_COLOR = "gray"
+BEAM_ACTION_NEUTRAL_COLOR = "#383838"
+PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 
 
 def channel_label(index: int) -> str:
@@ -35,6 +36,16 @@ def channel_name(index: int) -> str:
     return f"Channel {channel_label(index)}"
 
 
+def _safe_widget_config(widget, **kwargs):
+    """Best-effort Tk widget config for optional or test-created widgets."""
+    if widget is None:
+        return
+    try:
+        widget.config(**kwargs)
+    except Exception:
+        pass
+
+
 class MainControlPanel:
     """Main Control subpanel and coordinator for beam-related dashboard actions."""
 
@@ -45,7 +56,6 @@ class MainControlPanel:
         logger,
         messages_frame,
         get_com_ports,
-        get_subsystem,
         save_layout_callback,
         update_com_ports_callback,
         toggle_on_image=None,
@@ -56,7 +66,6 @@ class MainControlPanel:
         self.logger = logger
         self.messages_frame = messages_frame
         self._get_com_ports_callback = get_com_ports
-        self._get_subsystem_callback = get_subsystem
         self.save_layout_callback = save_layout_callback
         self.update_com_ports_callback = update_com_ports_callback
         self.toggle_on_image = toggle_on_image
@@ -80,14 +89,6 @@ class MainControlPanel:
                 return {}
         return getattr(self, "com_ports", {})
 
-    def _get_subsystem(self, name):
-        if callable(getattr(self, "_get_subsystem_callback", None)):
-            try:
-                return self._get_subsystem_callback(name)
-            except Exception:
-                return None
-        return getattr(self, "subsystems", {}).get(name)
-
     def save_current_pane_state(self):
         if callable(self.save_layout_callback):
             self.save_layout_callback()
@@ -96,9 +97,6 @@ class MainControlPanel:
         self.com_ports = new_com_ports
         if callable(self.update_com_ports_callback):
             self.update_com_ports_callback(new_com_ports)
-
-    def get_channel_enable_states(self):
-        return list(getattr(self, "_ch_enable_states", [True, True, True]))
 
     def wire_beam_energy(self, beam_energy):
         """Register the Beam Energy +20kV current E-stop callback."""
@@ -110,39 +108,34 @@ class MainControlPanel:
             )
 
     def wire_beam_pulse(self, beam_pulse):
-        """Wire Beam Pulse controls and callbacks into the Main Control panel."""
-        self.beam_pulse = beam_pulse
+        """Wire Beam Pulse callbacks and providers."""
         if beam_pulse is None:
             return
 
-        if hasattr(beam_pulse, "set_dashboard_beam_callback"):
-            beam_pulse.set_dashboard_beam_callback(self.handle_beam_pulse_callback)
-
-        if hasattr(beam_pulse, "create_external_control_buttons") and hasattr(self, "main_control_frame"):
-            beam_pulse.create_external_control_buttons(
-                self.main_control_frame,
-                manual_panel_override=getattr(self, "bp_manual_panel", None),
-                beam_on_off_frame=getattr(self, "beam_on_off_frame", None),
-                csv_frame=getattr(self, "csv_buttons_frame", None),
-            )
-
-        if hasattr(beam_pulse, "create_csv_buttons") and hasattr(self, "csv_buttons_frame"):
-            beam_pulse.create_csv_buttons(self.csv_buttons_frame)
-
         if hasattr(beam_pulse, "set_channel_status_callback"):
             beam_pulse.set_channel_status_callback(self._on_channel_status_update)
-        if hasattr(beam_pulse, "set_main_control_feedback_callback"):
-            beam_pulse.set_main_control_feedback_callback(self._handle_main_control_feedback)
+        if hasattr(beam_pulse, "set_action_feedback_callback"):
+            beam_pulse.set_action_feedback_callback(self._handle_action_feedback)
         if hasattr(beam_pulse, "set_channel_enable_status_callback"):
             beam_pulse.set_channel_enable_status_callback(self._on_channel_enable_status_update)
         if hasattr(beam_pulse, "set_connection_status_callback"):
             beam_pulse.set_connection_status_callback(
                 lambda connected: self._update_laser_monitor_beams_on(clear=not connected)
             )
-        if hasattr(beam_pulse, "set_channel_enable_getter"):
-            beam_pulse.set_channel_enable_getter(self.get_channel_enable_states)
-        if hasattr(beam_pulse, "set_emission_limit_checker"):
-            beam_pulse.set_emission_limit_checker(self.check_total_emission_current_limit)
+        if hasattr(beam_pulse, "set_armed_status_callback"):
+            beam_pulse.set_armed_status_callback(self._on_armed_status_update)
+        if hasattr(beam_pulse, "set_emission_limit_providers"):
+            beam_pulse.set_emission_limit_providers(
+                lambda: self.total_max_emission_current_ma,
+                self._get_predicted_emission_currents_for_beam_pulse,
+            )
+
+    def _get_predicted_emission_currents_for_beam_pulse(self):
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        getter = getattr(cathode, "get_predicted_emission_currents_ma", None)
+        if not callable(getter):
+            raise RuntimeError("Cathode Heating predicted emission current provider unavailable")
+        return getter()
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -154,11 +147,8 @@ class MainControlPanel:
         notebook.add(main_tab, text='Main')
         notebook.add(config_tab, text='Config')
 
-        # TODO: add main control buttons to main tab here
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        # Save reference so beam_pulse subsystem can add its buttons here
-        self.main_control_frame = main_frame
 
         # Add safety beams off button (bottom)
         beams_off_button = tk.Button(
@@ -174,21 +164,12 @@ class MainControlPanel:
         # Script dropdown
         self.create_script_dropdown(main_frame)
 
-        # Placeholder frame for CSV sequence buttons — populated by
-        # BeamPulseSubsystem.create_csv_buttons() in create_subsystems().
-        # Not packed here; shown only when the CSV Sequence tab is active.
-        self.csv_buttons_frame = ttk.Frame(main_frame)
+        manual_panel = tk.Frame(main_frame)
+        manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
 
-        # --- Manual-tab panel: Beam ON/OFF + CH Enable/Disable buttons --
-        # Stored as self.bp_manual_panel so the beam_pulse subsystem can swap
-        # it in/out when the Beam Pulse notebook tab changes.
-        self.bp_manual_panel = tk.Frame(main_frame)
-        self.bp_manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
-
-        # Beam ON/OFF row — saved so the tab-change handler can show/hide it
-        self.beam_on_off_frame = tk.Frame(self.bp_manual_panel)
-        self.beam_on_off_frame.pack(side="top", fill="x")
-        buttons_frame = self.beam_on_off_frame
+        # Beam ON/OFF row.
+        buttons_frame = tk.Frame(manual_panel)
+        buttons_frame.pack(side="top", fill="x")
         for i in range(3):
             buttons_frame.grid_columnconfigure(i, weight=1, uniform="button")
 
@@ -208,7 +189,7 @@ class MainControlPanel:
             self.beam_toggle_buttons.append(btn)
 
         # CH Enable/Disable row
-        enable_toggle_frame = tk.Frame(self.bp_manual_panel)
+        enable_toggle_frame = tk.Frame(manual_panel)
         enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
@@ -226,6 +207,33 @@ class MainControlPanel:
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.enable_toggle_buttons.append(btn)
+
+        sync_control_frame = tk.Frame(manual_panel)
+        sync_control_frame.pack(side="top", fill="x", pady=(4, 0))
+        sync_control_frame.grid_columnconfigure(0, weight=1, uniform="sync")
+        sync_control_frame.grid_columnconfigure(1, weight=1, uniform="sync")
+
+        self.sync_start_button = tk.Button(
+            sync_control_frame,
+            text="Sync Start",
+            bg="#1565C0",
+            fg="white",
+            font=("Helvetica", 9, "bold"),
+            state="disabled",
+            command=self.handle_sync_start,
+        )
+        self.sync_start_button.grid(row=0, column=0, sticky="ew", padx=(2, 1))
+
+        self.sync_stop_button = tk.Button(
+            sync_control_frame,
+            text="Sync Stop",
+            bg="#B71C1C",
+            fg="white",
+            font=("Helvetica", 9, "bold"),
+            state="normal",
+            command=self.handle_sync_stop,
+        )
+        self.sync_stop_button.grid(row=0, column=1, sticky="ew", padx=(1, 2))
 
         # Add beams armed toggle
         beams_armed_control_frame = tk.Frame(main_frame)
@@ -282,7 +290,7 @@ class MainControlPanel:
         self.create_log_level_dropdown(config_frame)
         self.file_create_log_level_dropdown(config_frame)
 
-        # Expose the limit used by manual beam starts, Sync Start, and CSV sequences.
+        # Expose the limit used by beam-output start paths.
         self.create_total_max_emission_current_controls(config_frame)
 
         # Add F1 help hint
@@ -304,6 +312,8 @@ class MainControlPanel:
             ]
         if not hasattr(self, "beam_action_status_var"):
             self.beam_action_status_var = tk.StringVar(value=self._beam_action_status_text)
+        if not hasattr(self, "beam_action_status_prefix_var"):
+            self.beam_action_status_prefix_var = tk.StringVar(value=self._beam_action_status_prefix_text)
 
         status_frame = ttk.Frame(parent_frame)
         status_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, anchor=tk.W)
@@ -320,14 +330,27 @@ class MainControlPanel:
             label.pack(anchor=tk.W, fill=tk.X)
             self.beam_output_status_labels.append(label)
 
+        self.beam_action_status_frame = ttk.Frame(status_frame)
+        self.beam_action_status_frame.pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
+
+        self.beam_action_status_prefix_label = ttk.Label(
+            self.beam_action_status_frame,
+            textvariable=self.beam_action_status_prefix_var,
+            font=("Segoe UI", 8, "bold"),
+            foreground=BEAM_ACTION_FAILURE_COLOR,
+            anchor=tk.W,
+        )
+        if self._beam_action_status_prefix_text:
+            self.beam_action_status_prefix_label.pack(side=tk.LEFT, anchor=tk.W)
+
         self.beam_action_status_label = ttk.Label(
-            status_frame,
+            self.beam_action_status_frame,
             textvariable=self.beam_action_status_var,
             font=("Segoe UI", 8, "bold"),
             foreground=self._beam_action_status_color,
             anchor=tk.W,
         )
-        self.beam_action_status_label.pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
+        self.beam_action_status_label.pack(side=tk.LEFT, anchor=tk.W, fill=tk.X, expand=True)
 
     def _initialize_main_control_beam_status_state(self):
         """Initialize non-Tk state for Main Control beam status displays."""
@@ -340,17 +363,21 @@ class MainControlPanel:
             self._beam_output_status_colors = [BEAM_OUTPUT_OFF_COLOR for _ in range(3)]
         if not hasattr(self, "_beam_action_status_text"):
             self._beam_action_status_text = ""
+        if not hasattr(self, "_beam_action_status_prefix_text"):
+            self._beam_action_status_prefix_text = ""
         if not hasattr(self, "_beam_action_status_color"):
             self._beam_action_status_color = BEAM_ACTION_NEUTRAL_COLOR
         if not hasattr(self, "_laser_monitor_active_channels"):
             self._laser_monitor_active_channels = set()
         if not hasattr(self, "_laser_monitor_beams_on_sent"):
             self._laser_monitor_beams_on_sent = None
+        if not hasattr(self, "_beam_action_status_outcome"):
+            self._beam_action_status_outcome = "neutral"
 
     def _coerce_beam_config(self, config):
         """Normalize a BCON channel config dict for display/state storage."""
         if not isinstance(config, dict):
-            return {"mode": "OFF", "duration_ms": 0, "count": 1}
+            return {"mode": "OFF", "duration_ms": 0, "count": 1, "remaining": 0,  "output_level": None}
 
         mode = str(config.get("mode", "OFF")).strip().upper()
         # Unknown modes are displayed as OFF because they should not imply output.
@@ -366,6 +393,16 @@ class MainControlPanel:
             count = int(float(config.get("count", 1) or 1))
         except (TypeError, ValueError):
             count = 1
+
+        output_level = config.get("output_level", None)
+        try:
+            output_level_value = float(output_level)
+        except (TypeError, ValueError):
+            output_level_value = None
+        if output_level_value in (0.0, 1.0):
+            output_level = int(output_level_value)
+        else:
+            output_level = None
 
         remaining = config.get("remaining", config.get("remaining_pulses", None))
         try:
@@ -390,9 +427,9 @@ class MainControlPanel:
             elif remaining < 0:
                 remaining = 0
 
-        return {"mode": mode, "duration_ms": duration, "count": count, "remaining": remaining}
+        return {"mode": mode, "duration_ms": duration, "count": count, "remaining": remaining, "output_level": output_level}
 
-    def _beam_on_description(self, config):
+    def _beam_on_description(self, config, include_remaining=True):
         """Return the mode-specific phrase used in ON status lines."""
         config = self._coerce_beam_config(config)
         mode = config["mode"]
@@ -401,11 +438,33 @@ class MainControlPanel:
         if mode == "PULSE":
             return f"running PULSE for {config['duration_ms']}ms"
         if mode == "PULSE_TRAIN":
-            return (
+            text = (
                 f"running PULSE_TRAIN: set to {config['count']} pulses"
-                f", {config['duration_ms']}ms each. Remaining: {config['remaining']}"
+                f", {config['duration_ms']}ms each"
             )
+            if include_remaining: #for lines 1-3, show remaining count if available
+                text = f"{text}. Remaining: {config['remaining']}"
+                if self._shows_live_pulse_waveform(config):
+                    waveform = "high" if config["output_level"] == 1 else "low"
+                    text = f"{text} | Pulse waveform={waveform}"
+            return text
         return "OFF"
+
+    def _shows_live_pulse_waveform(self, config):
+        config = self._coerce_beam_config(config)
+        return (
+            config["mode"] == "PULSE_TRAIN"
+            and config["duration_ms"] >= PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS
+            and config["output_level"] is not None
+        )
+
+    def _beam_output_status_color(self, config, is_output_on):
+        if not is_output_on:
+            return BEAM_OUTPUT_OFF_COLOR
+        config = self._coerce_beam_config(config)
+        if self._shows_live_pulse_waveform(config) and config["output_level"] == 0:
+            return BEAM_OUTPUT_LOW_COLOR
+        return BEAM_OUTPUT_ON_COLOR
 
     def _is_beam_channel_enabled(self, beam_index):
         states = getattr(self, "_ch_enable_states", None)
@@ -419,7 +478,10 @@ class MainControlPanel:
     def _beam_output_display_is_on(self, beam_index):
         if not 0 <= beam_index < len(getattr(self, "_beam_output_status_colors", [])):
             return False
-        return self._beam_output_status_colors[beam_index] == BEAM_OUTPUT_ON_COLOR
+        return self._beam_output_status_colors[beam_index] in (
+            BEAM_OUTPUT_ON_COLOR,
+            BEAM_OUTPUT_LOW_COLOR,
+        )
 
     def _format_beam_output_status(self, beam_index, config=None):
         """Format one Beam A/B/C output line from a normalized sent config."""
@@ -438,7 +500,7 @@ class MainControlPanel:
         config = self._coerce_beam_config(config)
         is_output_on = bool(is_on) and config["mode"] != "OFF"
         text = self._format_beam_output_status(beam_index, config if is_output_on else None)
-        color = BEAM_OUTPUT_ON_COLOR if is_output_on else BEAM_OUTPUT_OFF_COLOR
+        color = self._beam_output_status_color(config, is_output_on)
 
         self._beam_output_status_text[beam_index] = text
         self._beam_output_status_colors[beam_index] = color
@@ -452,10 +514,7 @@ class MainControlPanel:
 
         labels = getattr(self, "beam_output_status_labels", None)
         if labels and beam_index < len(labels):
-            try:
-                labels[beam_index].config(foreground=color)
-            except Exception:
-                pass
+            _safe_widget_config(labels[beam_index], foreground=color)
 
     def _clear_beam_output_display(self, beam_index):
         """Mark one beam output line OFF."""
@@ -469,16 +528,21 @@ class MainControlPanel:
     def _set_beam_action_status(self, message, outcome="neutral"):
         """Update line 4 with an outcome-colored Main Control action message."""
         self._initialize_main_control_beam_status_state()
-        color = {
-            "success": BEAM_ACTION_SUCCESS_COLOR,
-            "failure": BEAM_ACTION_FAILURE_COLOR,
-            "error": BEAM_ACTION_FAILURE_COLOR,
-            "estop": BEAM_ACTION_FAILURE_COLOR,
-            "neutral": BEAM_ACTION_NEUTRAL_COLOR,
-        }.get(str(outcome).strip().lower(), BEAM_ACTION_NEUTRAL_COLOR)
+        outcome_key = str(outcome).strip().lower()
+        message_text = str(message or "")
+        is_failure = outcome_key in ("failure", "error")
+        is_20kv_estop = (
+            outcome_key == "estop"
+            and "20kv" in message_text.lower()
+            and "current limit" in message_text.lower()
+        )
+        prefix = "FAILURE: " if is_failure else ""
+        color = BEAM_ACTION_FAILURE_COLOR if is_20kv_estop else BEAM_ACTION_NEUTRAL_COLOR
 
-        self._beam_action_status_text = str(message or "")
+        self._beam_action_status_prefix_text = prefix
+        self._beam_action_status_text = message_text
         self._beam_action_status_color = color
+        self._beam_action_status_outcome = outcome_key
 
         action_var = getattr(self, "beam_action_status_var", None)
         if action_var is not None:
@@ -487,22 +551,59 @@ class MainControlPanel:
             except Exception:
                 pass
 
-        action_label = getattr(self, "beam_action_status_label", None)
-        if action_label is not None:
+        prefix_var = getattr(self, "beam_action_status_prefix_var", None)
+        if prefix_var is not None:
             try:
-                action_label.config(foreground=color)
+                prefix_var.set(prefix)
             except Exception:
                 pass
+
+        prefix_label = getattr(self, "beam_action_status_prefix_label", None)
+        _safe_widget_config(prefix_label, foreground=BEAM_ACTION_FAILURE_COLOR)
+
+        action_label = getattr(self, "beam_action_status_label", None)
+        _safe_widget_config(action_label, foreground=color)
+
+        try:
+            if prefix_label is not None:
+                prefix_label.pack_forget()
+            if action_label is not None:
+                action_label.pack_forget()
+            if prefix and prefix_label is not None:
+                prefix_label.pack(side=tk.LEFT, anchor=tk.W)
+            if action_label is not None:
+                action_label.pack(side=tk.LEFT, anchor=tk.W, fill=tk.X, expand=True)
+        except Exception:
+            pass
 
     def _beam_success_message(self, beam_index, config):
         """Build line 4 success text for a beam ON command."""
         return (
             f"Beam {channel_label(beam_index)} successfully set to ON, "
-            f"{self._beam_on_description(config)}"
+            f"{self._beam_on_description(config, include_remaining=False)}"
         )
 
-    def _handle_main_control_feedback(self, event_type, message="", outcome="neutral", configs=None):
-        """Handle optional Beam Pulse feedback for Main Control-hosted actions."""
+    def _format_sync_start_message(self, configs):
+        parts = []
+        for config in configs or []:
+            try:
+                index = int(config.get("ch")) - 1
+            except (TypeError, ValueError, AttributeError):
+                continue
+            label = channel_label(index)
+            mode = str(config.get("mode", "")).strip().upper()
+            if mode == "DC":
+                parts.append(f"{label}=DC")
+            elif mode == "PULSE":
+                parts.append(f"{label}=PULSE({config.get('duration_ms')}ms)")
+            else:
+                parts.append(
+                    f"{label}={mode}({config.get('duration_ms')}ms x{config.get('count')})"
+                )
+        return "Sync Start: " + ", ".join(parts) if parts else "Sync Start"
+
+    def _handle_action_feedback(self, event_type, message="", outcome="neutral", configs=None):
+        """Handle Beam Pulse action feedback for Main Control status displays."""
         if event_type == "beams_sent":
             for config in configs or []:
                 try:
@@ -510,8 +611,21 @@ class MainControlPanel:
                 except (TypeError, ValueError, AttributeError):
                     continue
                 self._set_beam_output_display(beam_index, config, is_on=True)
+            if not message:
+                message = self._format_sync_start_message(configs)
         elif event_type == "all_off":
             self._clear_all_beam_output_displays()
+        elif event_type == "firmware_ack":
+            current = getattr(self, "_beam_action_status_text", "")
+            current_outcome = getattr(self, "_beam_action_status_outcome", "neutral")
+            if current and message:
+                message = f"{current} | {message}"
+                if current_outcome in ("failure", "error"):
+                    outcome = "failure"
+                elif current_outcome == "estop":
+                    outcome = "estop"
+                elif current_outcome == "neutral":
+                    outcome = "neutral"
 
         if message:
             self._set_beam_action_status(message, outcome)
@@ -683,53 +797,90 @@ class MainControlPanel:
         elif selected_level == "VERBOSE":
             self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
 
+    def _update_sync_control_states(self, armed=False):
+        if hasattr(self, "sync_start_button"):
+            _safe_widget_config(self.sync_start_button, state="normal" if armed else "disabled")
+
+    def _get_beam_pulse_or_fail(self, action_text):
+        beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
+        if beam_pulse is not None:
+            return beam_pulse
+        self.logger.error("Beam Pulse subsystem not available")
+        self._set_beam_action_status(
+            f"Failed to {action_text}, Beam Pulse subsystem not available",
+            "failure",
+        )
+        return None
+
+    def _set_armed_ui(self, armed, reset=False):
+        if hasattr(self, "beams_ready_button"):
+            toggle_on_image = getattr(self, "toggle_on_image", None)
+            toggle_off_image = getattr(self, "toggle_off_image", None)
+            if toggle_on_image and toggle_off_image:
+                _safe_widget_config(
+                    self.beams_ready_button,
+                    image=toggle_on_image if armed else toggle_off_image
+                )
+            else:
+                _safe_widget_config(
+                    self.beams_ready_button,
+                    text="BEAMS ARMED" if armed else "ARM BEAMS",
+                    bg="navy" if armed else "sky blue",
+                )
+        self.update_beam_toggle_states(enabled=armed, reset=reset)
+        self._update_enable_toggle_states(enabled=armed)
+        self._update_sync_control_states(armed=armed)
+        if reset:
+            self._clear_all_beam_output_displays()
+
+    def _on_armed_status_update(self, armed):
+        """Mirror Beam Pulse software armed state without changing line 4."""
+        self._set_armed_ui(bool(armed), reset=not bool(armed))
+
+    def handle_sync_start(self):
+        beam_pulse = self._get_beam_pulse_or_fail("sync start")
+        if beam_pulse is None:
+            return
+        sync_start = getattr(beam_pulse, "sync_start", None)
+        if not callable(sync_start):
+            self._set_beam_action_status("Failed to sync start, Beam Pulse API not available", "failure")
+            return
+        sync_start()
+
+    def handle_sync_stop(self):
+        beam_pulse = self._get_beam_pulse_or_fail("sync stop")
+        if beam_pulse is None:
+            return
+        sync_stop_all = getattr(beam_pulse, "sync_stop_all", None)
+        if not callable(sync_stop_all):
+            self._set_beam_action_status("Failed to sync stop, Beam Pulse API not available", "failure")
+            return
+        sync_stop_all()
+
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
         try:
-            # Check if Beam Pulse subsystem is available
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+            beam_pulse = self._get_beam_pulse_or_fail("arm beams")
+            if beam_pulse is None:
                 self._update_laser_monitor_beams_on(clear=True)
-                self.logger.error("Beam Pulse subsystem not available")
-                self._set_beam_action_status("Failed to arm beams, Beam Pulse subsystem not available", "failure")
                 return
 
-            beam_pulse = self.subsystems['Beam Pulse']
+            get_armed = getattr(beam_pulse, "get_beams_armed_status", None)
+            is_armed = bool(get_armed()) if callable(get_armed) else False
 
-            # Check current armed state
-            if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
-                # Beams are already armed, so disarm them
-                if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
-                    # Successfully disarmed - update toggle to OFF
-                    if self.toggle_on_image and self.toggle_off_image:
-                        self.beams_ready_button.config(image=self.toggle_off_image)
-                    else:
-                        self.beams_ready_button.config(
-                            text="ARM BEAMS",
-                            bg="sky blue"
-                        )
-                    # Disable beam toggle buttons, enable toggle buttons and reset states
-                    self.update_beam_toggle_states(enabled=False, reset=True)
-                    self._update_enable_toggle_states(enabled=False)
-                    self._clear_all_beam_output_displays()
+            if is_armed:
+                disarm_beams = getattr(beam_pulse, "disarm_beams", None)
+                if callable(disarm_beams) and disarm_beams():
+                    self._set_armed_ui(False, reset=True)
                     self._set_beam_action_status("Beams disarmed", "neutral")
                     self.logger.info("Beams disarmed via dashboard button")
                 else:
                     self.logger.error("Failed to disarm beams")
                     self._set_beam_action_status("Failed to disarm beams", "failure")
             else:
-                # Beams are not armed, so arm them
-                if hasattr(beam_pulse, 'arm_beams') and beam_pulse.arm_beams():
-                    # Successfully armed - update toggle to ON
-                    if self.toggle_on_image and self.toggle_off_image:
-                        self.beams_ready_button.config(image=self.toggle_on_image)
-                    else:
-                        self.beams_ready_button.config(
-                            text="BEAMS ARMED",
-                            bg="navy"  # Darker shade of blue
-                        )
-                    # Enable beam toggle buttons and enable toggle buttons
-                    self.update_beam_toggle_states(enabled=True)
-                    self._update_enable_toggle_states(enabled=True)
+                arm_beams = getattr(beam_pulse, "arm_beams", None)
+                if callable(arm_beams) and arm_beams():
+                    self._set_armed_ui(True)
                     self._set_beam_action_status("Beams armed", "success")
                     self.logger.info("Beams armed via dashboard button")
                 else:
@@ -765,19 +916,13 @@ class MainControlPanel:
                 beam_pulse = self.subsystems['Beam Pulse']
                 if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
                     if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
-                        # Update the ARM BEAMS toggle state to OFF
-                        if self.toggle_on_image and self.toggle_off_image:
-                            self.beams_ready_button.config(image=self.toggle_off_image)
-                        else:
-                            self.beams_ready_button.config(
-                                text="ARM BEAMS",
-                                bg="sky blue"
-                            )
+                        self._set_armed_ui(False)
                         self.logger.info("Beams disarmed via Beams E-stop button")
                     else:
                         self.logger.error("Failed to disarm beams via Beams E-stop")
                 self.update_beam_toggle_states(enabled=False, reset=True)
                 self._update_enable_toggle_states(enabled=False)
+                self._update_sync_control_states(armed=False)
             self._clear_all_beam_output_displays()
             if reason:
                 self._set_beam_action_status(str(reason), "estop")
@@ -787,100 +932,46 @@ class MainControlPanel:
             self.logger.error(f"Error in handle_beams_off: {str(e)}")
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
-    def check_total_emission_current_limit(self, action, channel_indices, configs=None):
-        """Return True when the projected emission total is below the configured limit."""
-        # Only requested BCON channels A/B/C participate in this limit.
-        unique_channels = sorted({
-            int(index)
-            for index in channel_indices
-            if isinstance(index, int) and 0 <= index < 3
-        })
-        if not unique_channels:
-            return True
-
-        currents = [0.0, 0.0, 0.0]
-        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
-        getter = getattr(cathode, "get_predicted_emission_currents_ma", None)
-        if callable(getter):
-            try:
-                for index, value in enumerate(list(getter())[:3]):
-                    try:
-                        numeric_value = float(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if math.isfinite(numeric_value) and numeric_value >= 0:
-                        currents[index] = numeric_value
-            except Exception as e:
-                self.logger.error(f"Could not read Cathode Heating predicted emission currents: {e}")
-
-        projected_total = sum(currents[index] for index in unique_channels)
-        limit = self.total_max_emission_current_ma
-
-        # The limit is exclusive: matching the configured cap blocks the action.
-        if projected_total < limit:
-            return True
-
-        breakdown = ", ".join(
-            f"{channel_label(index)}={currents[index]:.3f}mA"
-            for index in unique_channels
-        )
-        self.logger.error(
-            f"{action} blocked: predicted total emission current "
-            f"{projected_total:.3f}mA is at or above limit {limit:g}mA "
-            f"({breakdown})."
-        )
-        action_key = str(action).strip().lower()
-        if action_key == "sync start":
-            message = "Failed to sync start, total emission current limit exceeded"
-        elif action_key.startswith("beam ") and action_key.endswith(" on"):
-            message = f"Failed to set {action}, total emission current limit exceeded"
-        else:
-            message = f"Failed to {action}, total emission current limit exceeded"
-        self._set_beam_action_status(message, "failure")
-        return False
-
     def _toggle_channel_enable(self, ch_index: int):
-        """Toggle the hardware enable for a BCON channel (0-based index).
-
-        Only allowed when beams are armed.  When the channel is being
-        disabled (enabled -> disabled), also send OFF to ensure the
-        channel stops outputting.  Button reflects ON (green) / OFF (gray).
-        """
+        """Toggle one BCON channel enable and mirror the returned state."""
         try:
-            beam_pulse = self.subsystems.get('Beam Pulse')
-            if not beam_pulse or not hasattr(beam_pulse, 'get_beams_armed_status'):
-                self.logger.warning("Beam Pulse subsystem not available")
-                self._set_beam_action_status("Failed to toggle channel enable, Beam Pulse subsystem not available", "failure",)
+            beam_pulse = self._get_beam_pulse_or_fail("toggle channel enable")
+            if beam_pulse is None:
                 return
-            if not beam_pulse.get_beams_armed_status():
-                self._set_beam_action_status("Failed to toggle channel enable, beams are not armed", "failure", )
-                self.logger.warning("Cannot toggle enable — beams not armed")
+            toggler = getattr(beam_pulse, "toggle_channel_enable", None)
+            if not callable(toggler):
+                self._set_beam_action_status(
+                    "Failed to toggle channel enable, Beam Pulse API not available",
+                    "failure",
+                )
                 return
-            if beam_pulse.bcon_driver:
-                was_enabled = beam_pulse.bcon_driver.is_channel_enabled(ch_index + 1)
-                new_enabled = not was_enabled
-                if not beam_pulse.bcon_driver.set_channel_enable(ch_index + 1, new_enabled):
-                    self.logger.warning(
-                        f"Failed to set {channel_name(ch_index)} enable -> "
-                        f"{'Enabled' if new_enabled else 'Disabled'}"
-                    )
-                    self._set_beam_action_status(f"Failed to set Channel {channel_label(ch_index)} enable", "failure", )
-                    return
-                self._on_channel_enable_status_update(ch_index, new_enabled)
-                self.logger.info(
-                    f"{channel_name(ch_index)} enable -> {'Enabled' if new_enabled else 'Disabled'}")
-                self._set_beam_action_status(f"Channel {channel_label(ch_index)} successfully " f"{'enabled' if new_enabled else 'disabled'}", "success",)
-                # If we just disabled the channel, force it OFF
-                if was_enabled:
-                    if beam_pulse.send_channel_off(ch_index):
-                        self._clear_beam_output_display(ch_index)
-                        self._update_laser_monitor_beams_on(ch_index, False)
-                    if ch_index < len(self.beam_toggle_buttons):
-                        self.beam_toggle_buttons[ch_index].config(
-                            bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
-            else:
-                self.logger.warning("BCON driver not available for enable toggle")
-                self._set_beam_action_status("Failed to toggle channel enable, BCON driver not available", "failure")
+
+            ok, enabled, detail = toggler(ch_index)
+            if not ok:
+                self.logger.warning(detail)
+                self._set_beam_action_status(
+                    f"Failed to toggle Channel {channel_label(ch_index)} enable: {detail}",
+                    "failure",
+                )
+                return
+
+            self._on_channel_enable_status_update(ch_index, enabled)
+            self.logger.info(f"{channel_name(ch_index)} enable -> {'Enabled' if enabled else 'Disabled'}")
+            self._set_beam_action_status(
+                f"Channel {channel_label(ch_index)} successfully {'enabled' if enabled else 'disabled'}",
+                "success",
+            )
+            if not enabled:
+                self._clear_beam_output_display(ch_index)
+                self._update_laser_monitor_beams_on(ch_index, False)
+            if (
+                not enabled
+                and hasattr(self, "beam_toggle_buttons")
+                and ch_index < len(self.beam_toggle_buttons)
+            ):
+                _safe_widget_config(
+                    self.beam_toggle_buttons[ch_index],
+                    bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
         except Exception as e:
             self.logger.error(f"Error toggling {channel_name(ch_index)} enable: {e}")
             self._set_beam_action_status(f"Failed to toggle Channel {channel_label(ch_index)} enable: {e}", "failure")
@@ -892,23 +983,20 @@ class MainControlPanel:
         OFF = send OFF command for the channel.
         """
         try:
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
+            beam_pulse = self._get_beam_pulse_or_fail("toggle beam")
+            if beam_pulse is None:
                 self._update_laser_monitor_beams_on(clear=True)
-                self.logger.error("Beam Pulse subsystem not available")
-                self._set_beam_action_status("Failed to toggle beam, Beam Pulse subsystem not available", "failure")
                 return
 
-            beam_pulse = self.subsystems['Beam Pulse']
-
-            # Get current beam status
             current_status = beam_pulse.get_beam_status(beam_index)
             btn = self.beam_toggle_buttons[beam_index]
 
             if current_status:
                 # Currently ON -> turn OFF
                 if beam_pulse.send_channel_off(beam_index):
-                    btn.config(bg="gray", text=f"Beam {channel_label(beam_index)} OFF")
+                    _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(beam_index)} OFF")
                     self._clear_beam_output_display(beam_index)
+                    self._update_laser_monitor_beams_on(beam_index, False)
                     self._set_beam_action_status(
                         f"Beam {channel_label(beam_index)} successfully set to OFF",
                         "success",
@@ -927,22 +1015,6 @@ class MainControlPanel:
                     if hasattr(beam_pulse, 'get_channel_config')
                     else {'mode': 'PULSE'}
                 )
-                mode_label = str(config.get('mode', 'PULSE')).strip().upper()
-                # OFF-mode configs do not create beam output, so they skip the emission guard.
-                if mode_label != 'OFF':
-                    # Include beams that are already ON because the limit applies to total output.
-                    projected_channels = [
-                        idx for idx in range(3)
-                        if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(idx)
-                    ]
-                    if beam_index not in projected_channels:
-                        projected_channels.append(beam_index)
-                    if not self.check_total_emission_current_limit(
-                        f"Beam {channel_label(beam_index)} ON",
-                        projected_channels,
-                    ):
-                        return
-
                 ok = beam_pulse.send_channel_config(beam_index)
                 if ok:
                     self._set_beam_output_display(beam_index, config, is_on=True)
@@ -950,14 +1022,27 @@ class MainControlPanel:
                         self._beam_success_message(beam_index, config),
                         "success",
                     )
-                    btn.config(bg="green", text=f"Beam {channel_label(beam_index)} ON")
+                    _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(beam_index)} ON")
                     self.logger.info(f"Beam {channel_label(beam_index)} config sent to BCON")
                 else:
-                    self._set_beam_action_status(
-                        f"Failed to send Beam {channel_label(beam_index)} config",
-                        "failure",
-                    )
-                    self.logger.error(f"Failed to send Beam {channel_label(beam_index)} config")
+                    # Prefer Beam Pulse's exact reason so line 4 explains why nothing was sent.
+                    failure_message = ""
+                    getter = getattr(beam_pulse, "get_last_send_failure_message", None)
+                    if callable(getter):
+                        try:
+                            failure_message = getter()
+                        except Exception:
+                            failure_message = ""
+                    if failure_message:
+                        if not str(failure_message).lower().startswith("failed "):
+                            failure_message = (
+                                f"Failed to send Beam {channel_label(beam_index)} config: "
+                                f"{failure_message}"
+                            )
+                    else:
+                        failure_message = f"Failed to send Beam {channel_label(beam_index)} config"
+                    self._set_beam_action_status(failure_message,"failure",)
+                    self.logger.error(failure_message)
 
         except Exception as e:
             self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
@@ -965,85 +1050,6 @@ class MainControlPanel:
                 f"Failed to toggle Beam {channel_label(beam_index)}: {str(e)}",
                 "failure",
             )
-
-    def toggle_individual_beam(self, beam_index):
-        """Legacy method - redirects to new method with status bar."""
-        self.toggle_individual_beam_with_status(beam_index)
-
-    def get_beam_pulse_duration(self, beam_index):
-        """Get the pulse duration for a specific beam."""
-        try:
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                return 0
-
-            beam_pulse = self.subsystems['Beam Pulse']
-
-            # Get duration from the beam pulse subsystem
-            if beam_index == 0 and hasattr(beam_pulse, 'beam_a_duration'):
-                return beam_pulse.beam_a_duration.get()
-            elif beam_index == 1 and hasattr(beam_pulse, 'beam_b_duration'):
-                return beam_pulse.beam_b_duration.get()
-            elif beam_index == 2 and hasattr(beam_pulse, 'beam_c_duration'):
-                return beam_pulse.beam_c_duration.get()
-
-            return 100.0  # Default fallback
-        except Exception as e:
-            self.logger.error(f"Error getting beam {beam_index} duration: {str(e)}")
-            return 100.0
-
-    def auto_turn_off_beam(self, beam_index):
-        """Automatically turn off a beam after pulse duration."""
-        try:
-            if 'Beam Pulse' not in self.subsystems or self.subsystems['Beam Pulse'] is None:
-                return
-
-            beam_pulse = self.subsystems['Beam Pulse']
-            beam_names = ["A", "B", "C"]
-
-            # Check if beam is still on before turning off
-            if hasattr(beam_pulse, 'get_beam_status') and beam_pulse.get_beam_status(beam_index):
-                # Turn off the beam
-                if hasattr(beam_pulse, 'set_beam_status'):
-                    beam_pulse.set_beam_status(beam_index, False)
-
-                    # Update button appearance
-                    btn = self.beam_toggle_buttons[beam_index]
-                    btn.config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                    self._clear_beam_output_display(beam_index)
-                    self._update_laser_monitor_beams_on(beam_index, False)
-
-                    self.logger.info(f"Beam {beam_names[beam_index]} automatically turned OFF after pulse duration")
-
-        except Exception as e:
-            self.logger.error(f"Error auto-turning off beam {beam_index}: {str(e)}")
-
-    def handle_beam_pulse_callback(self, beam_index, status, duration=0):
-        """Handle beam pulse callback for button updates.
-
-        This method is called by the beam pulse subsystem when beam status changes.
-        """
-        try:
-            beam_names = ["A", "B", "C"]
-
-            if status:
-                # Beam turned ON - update button display
-                if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="green", text=f"Beam {beam_names[beam_index]} ON")
-
-                if duration > 0:
-                    self.logger.info(f"Beam {beam_names[beam_index]} pulsed for {duration}ms")
-                    # Schedule auto turn-off after pulse duration
-                    self.root.after(int(duration), lambda: self.auto_turn_off_beam(beam_index))
-                else:
-                    self.logger.info(f"Beam {beam_names[beam_index]} turned ON, running DC")
-            else:
-                # Beam turned OFF - update button display
-                if beam_index < len(self.beam_toggle_buttons):
-                    self.beam_toggle_buttons[beam_index].config(bg="gray", text=f"Beam {beam_names[beam_index]} OFF")
-                self._clear_beam_output_display(beam_index)
-
-        except Exception as e:
-            self.logger.error(f"Error in beam pulse callback for beam {beam_index}: {str(e)}")
 
     def _update_laser_monitor_beams_on(self, ch=None, active=None, clear=False):
         """Track active Beam A/B/C channels and send their OR to Laser Monitor."""
@@ -1062,7 +1068,7 @@ class MainControlPanel:
             if beams_on == getattr(self, "_laser_monitor_beams_on_sent", None):
                 return
 
-            laser_monitor = self._get_subsystem("Laser Monitor")
+            laser_monitor = getattr(self, "subsystems", {}).get("Laser Monitor")
             if laser_monitor is None or not hasattr(laser_monitor, "set_beams_on"):
                 return
 
@@ -1088,17 +1094,13 @@ class MainControlPanel:
         btn = self.beam_toggle_buttons[ch]
         try:
             if is_running:
-                btn.config(bg="green", text=f"Beam {channel_label(ch)} ON")
+                _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(ch)} ON")
                 if status_config is not None:
                     self._set_beam_output_display(ch, status_config, is_on=True)
-                if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                    self.subsystems['Beam Pulse'].beam_on_status[ch] = True
             else:
                 if str(btn.cget('bg')) == 'green':
-                    btn.config(bg="gray", text=f"Beam {channel_label(ch)} OFF")
+                    _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(ch)} OFF")
                 self._clear_beam_output_display(ch)
-                if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                    self.subsystems['Beam Pulse'].beam_on_status[ch] = False
         except Exception:
             pass
 
@@ -1109,7 +1111,8 @@ class MainControlPanel:
                 self._ch_enable_states[ch] = bool(enabled)
 
             if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                self.enable_toggle_buttons[ch].config(
+                _safe_widget_config(
+                    self.enable_toggle_buttons[ch],
                     bg="#2e7d32" if enabled else "#888888",
                     text=f"CH {channel_label(ch)}: {'Enabled' if enabled else 'Disabled'}",
                 )
@@ -1127,9 +1130,13 @@ class MainControlPanel:
             )
 
             if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                self.enable_toggle_buttons[ch].config(state="normal" if armed else "disabled")
+                _safe_widget_config(
+                    self.enable_toggle_buttons[ch],
+                    state="normal" if armed else "disabled",
+                )
 
             self.update_beam_toggle_states(enabled=armed)
+            self._update_sync_control_states(armed=armed)
         except Exception as e:
             self.logger.error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
 
@@ -1150,22 +1157,14 @@ class MainControlPanel:
                         and i < len(self._ch_enable_states)
                         and self._ch_enable_states[i]
                     )
-                    btn.config(state="normal" if ch_enabled else "disabled")
+                    _safe_widget_config(btn, state="normal" if ch_enabled else "disabled")
                     if reset:
-                        btn.config(bg="gray", text=f"Beam {channel_label(i)} OFF")
+                        _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(i)} OFF")
                         self._clear_beam_output_display(i)
-                        if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                            beam_pulse = self.subsystems['Beam Pulse']
-                            if hasattr(beam_pulse, 'set_beam_status'):
-                                beam_pulse.set_beam_status(i, False)
                 else:
-                    btn.config(state="disabled", bg="gray", text=f"Beam {channel_label(i)} OFF")
+                    _safe_widget_config(btn,state="disabled",bg="gray",text=f"Beam {channel_label(i)} OFF",)
                     if reset:
                         self._clear_beam_output_display(i)
-                        if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                            beam_pulse = self.subsystems['Beam Pulse']
-                            if hasattr(beam_pulse, 'set_beam_status'):
-                                beam_pulse.set_beam_status(i, False)
 
         except Exception as e:
             self.logger.error(f"Error updating beam toggle states: {str(e)}")
@@ -1180,16 +1179,12 @@ class MainControlPanel:
                 return
             for i, btn in enumerate(self.enable_toggle_buttons):
                 if enabled:
-                    btn.config(state="normal")
+                    _safe_widget_config(btn, state="normal")
                 else:
                     # Disarmed — force all to Disabled appearance and reset tracking
                     if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
                         self._ch_enable_states[i] = False
-                    btn.config(
-                        state="disabled",
-                        bg="#888888",
-                        text=f"CH {channel_label(i)}: Disabled",
-                    )
+                    _safe_widget_config(btn,state="disabled",bg="#888888",text=f"CH {channel_label(i)}: Disabled",)
         except Exception as e:
             self.logger.error(f"Error updating enable toggle states: {str(e)}")
 
@@ -1240,11 +1235,11 @@ class MainControlPanel:
     def toggle_com_port_menu(self):
         if self.com_port_menu.winfo_viewable():
             self.com_port_menu.pack_forget()
-            self.com_port_button.config(text="Configure COM Ports")
+            _safe_widget_config(self.com_port_button, text="Configure COM Ports")
         else:
             self.update_available_ports()
             self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
-            self.com_port_button.config(text="Hide COM Port Configuration")
+            _safe_widget_config(self.com_port_button, text="Hide COM Port Configuration")
 
     def update_available_ports(self):
         """Scan for available COM ports and update dropdown menus."""
