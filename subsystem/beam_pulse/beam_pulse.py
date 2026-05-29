@@ -125,6 +125,7 @@ class BeamPulseSubsystem:
 
         # Channel status callback — set_channel_status_callback(cb) registers
         # cb(ch, mode_code, remaining, config) called from register polling.
+        # config includes mode, duration_ms, count, remaining, and output_level.
         self._channel_status_callback = None
 
         # Channel enable status callback — set_channel_enable_status_callback(cb)
@@ -1129,6 +1130,7 @@ class BeamPulseSubsystem:
                             "duration_ms": pulse_ms,
                             "count": count_val,
                             "remaining": remaining,
+                            "output_level": output_level,
                         },
                     )
                 except Exception:
@@ -1419,6 +1421,7 @@ class BeamPulseSubsystem:
 
         The dashboard uses this to keep the Beam A/B/C toggle buttons in sync
         with live hardware state without polling from the dashboard side.
+        config includes mode, duration_ms, count, remaining, and output_level.
         """
         self._channel_status_callback = callback
 

@@ -17,9 +17,11 @@ from utils import LogLevel, SetupScripts
 
 CHANNEL_LABELS = ("A", "B", "C")
 BEAM_OUTPUT_ON_COLOR = "green"
+BEAM_OUTPUT_LOW_COLOR = "#90EE90"
 BEAM_OUTPUT_OFF_COLOR = "#383838"
 BEAM_ACTION_FAILURE_COLOR = "red"
 BEAM_ACTION_NEUTRAL_COLOR = "#383838"
+PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 
 
 def channel_label(index: int) -> str:
@@ -367,7 +369,7 @@ class MainControlPanel:
     def _coerce_beam_config(self, config):
         """Normalize a BCON channel config dict for display/state storage."""
         if not isinstance(config, dict):
-            return {"mode": "OFF", "duration_ms": 0, "count": 1}
+            return {"mode": "OFF", "duration_ms": 0, "count": 1, "remaining": 0,  "output_level": None}
 
         mode = str(config.get("mode", "OFF")).strip().upper()
         # Unknown modes are displayed as OFF because they should not imply output.
@@ -383,6 +385,16 @@ class MainControlPanel:
             count = int(float(config.get("count", 1) or 1))
         except (TypeError, ValueError):
             count = 1
+
+        output_level = config.get("output_level", None)
+        try:
+            output_level_value = float(output_level)
+        except (TypeError, ValueError):
+            output_level_value = None
+        if output_level_value in (0.0, 1.0):
+            output_level = int(output_level_value)
+        else:
+            output_level = None
 
         remaining = config.get("remaining", config.get("remaining_pulses", None))
         try:
@@ -407,7 +419,7 @@ class MainControlPanel:
             elif remaining < 0:
                 remaining = 0
 
-        return {"mode": mode, "duration_ms": duration, "count": count, "remaining": remaining}
+        return {"mode": mode, "duration_ms": duration, "count": count, "remaining": remaining, "output_level": output_level}
 
     def _beam_on_description(self, config, include_remaining=True):
         """Return the mode-specific phrase used in ON status lines."""
@@ -424,8 +436,27 @@ class MainControlPanel:
             )
             if include_remaining: #for lines 1-3, show remaining count if available
                 text = f"{text}. Remaining: {config['remaining']}"
+                if self._shows_live_pulse_waveform(config):
+                    waveform = "high" if config["output_level"] == 1 else "low"
+                    text = f"{text} | Pulse waveform={waveform}"
             return text
         return "OFF"
+
+    def _shows_live_pulse_waveform(self, config):
+        config = self._coerce_beam_config(config)
+        return (
+            config["mode"] == "PULSE_TRAIN"
+            and config["duration_ms"] >= PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS
+            and config["output_level"] is not None
+        )
+
+    def _beam_output_status_color(self, config, is_output_on):
+        if not is_output_on:
+            return BEAM_OUTPUT_OFF_COLOR
+        config = self._coerce_beam_config(config)
+        if self._shows_live_pulse_waveform(config) and config["output_level"] == 0:
+            return BEAM_OUTPUT_LOW_COLOR
+        return BEAM_OUTPUT_ON_COLOR
 
     def _is_beam_channel_enabled(self, beam_index):
         states = getattr(self, "_ch_enable_states", None)
@@ -439,7 +470,10 @@ class MainControlPanel:
     def _beam_output_display_is_on(self, beam_index):
         if not 0 <= beam_index < len(getattr(self, "_beam_output_status_colors", [])):
             return False
-        return self._beam_output_status_colors[beam_index] == BEAM_OUTPUT_ON_COLOR
+        return self._beam_output_status_colors[beam_index] in (
+            BEAM_OUTPUT_ON_COLOR,
+            BEAM_OUTPUT_LOW_COLOR,
+        )
 
     def _format_beam_output_status(self, beam_index, config=None):
         """Format one Beam A/B/C output line from a normalized sent config."""
@@ -458,7 +492,7 @@ class MainControlPanel:
         config = self._coerce_beam_config(config)
         is_output_on = bool(is_on) and config["mode"] != "OFF"
         text = self._format_beam_output_status(beam_index, config if is_output_on else None)
-        color = BEAM_OUTPUT_ON_COLOR if is_output_on else BEAM_OUTPUT_OFF_COLOR
+        color = self._beam_output_status_color(config, is_output_on)
 
         self._beam_output_status_text[beam_index] = text
         self._beam_output_status_colors[beam_index] = color
