@@ -249,7 +249,7 @@ The subsystem still initializes cathode models in `init_cathode_model()` for:
 - Heater current to emission current.
 - Heater current to true temperature.
 
-The current manual setpoint handlers update predictions when the operator changes current or voltage:
+Manual setpoint handlers now actively update predictions before applying output changes:
 
 - `handle_current_entry_set()`
 - `handle_voltage_entry_set()`
