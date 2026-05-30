@@ -212,7 +212,8 @@ class Logger:
         if self._closed:
             return
         now = datetime.datetime.now()
-        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        # Timestamp includes microseconds for sub-second logging rates by cbmark logger
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         self._enqueue_supabase_update(update_dict, now)
 
