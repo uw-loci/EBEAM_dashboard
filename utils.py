@@ -212,8 +212,7 @@ class Logger:
         if self._closed:
             return
         now = datetime.datetime.now()
-        # Timestamp includes microseconds for sub-second logging rates
-        # Less precise sub-second times require truncation, so the downside of including full microseconds is minimal
+        # Timestamp includes microseconds for sub-second logging rates by cbmark logger
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         self._enqueue_supabase_update(update_dict, now)
