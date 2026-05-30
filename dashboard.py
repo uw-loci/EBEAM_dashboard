@@ -171,17 +171,23 @@ class EBEAMSystemDashboard:
         """Closes all open com ports before quitting the application."""
 
         print("Cleaning up com ports...")
-        for subsystem in self.subsystems.values():
+        for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'close_com_ports'):
-                subsystem.close_com_ports()
+                try:
+                    subsystem.close_com_ports()
+                except Exception as e:
+                    self.logger.error(f"Error closing COM ports for {subsystem_name}: {e}")
         print("Cleaned up com ports.")
 
         '''Cancels all scheduled Dashboard updates before quitting the application.'''
         # First cancel updates in each subsystem
         print("Cancelling scheduled Dashboard updates...")
-        for subsystem in self.subsystems.values():
+        for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'cancel_updates'):
-                subsystem.cancel_updates()
+                try:
+                    subsystem.cancel_updates()
+                except Exception as e:
+                    self.logger.error(f"Error cancelling updates for {subsystem_name}: {e}")
         # Now cancel com port checks
         if self.ports_after_id is not None:
             try:
@@ -192,7 +198,10 @@ class EBEAMSystemDashboard:
                 self.logger.debug("Failed to cancel scheduled com port checks.")
         # Now cancel machine status updates
         if hasattr(self.machine_status_frame, 'cancel_updates'):
-            self.machine_status_frame.cancel_updates()
+            try:
+                self.machine_status_frame.cancel_updates()
+            except Exception as e:
+                self.logger.error(f"Error cancelling machine status updates: {e}")
         print("Dashboard upates cancelled.")
 
     def setup_main_pane(self):
