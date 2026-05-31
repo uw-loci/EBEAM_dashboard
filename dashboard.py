@@ -7,7 +7,6 @@ from tkinter import ttk
 from tkinter import messagebox
 import time
 from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
-from usr.com_port_config import get_beam_pulse_com_port
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -1045,7 +1044,7 @@ class EBEAMSystemDashboard:
 
         # Beam Pulse subsystem (BCON)
         try:
-            bp_port = get_beam_pulse_com_port(self.com_ports)
+            bp_port = self.com_ports.get('BeamPulse', '')
             # Host Beam Pulse UI inside the merged pane
             parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
             beam_pulse_subsystem = subsystem.BeamPulseSubsystem(
@@ -1194,7 +1193,7 @@ class EBEAMSystemDashboard:
             frame = ttk.Frame(self.com_port_menu)
             frame.pack(fill=tk.X, padx=5, pady=2)
             ttk.Label(frame, text="Beam Pulse:").pack(side=tk.LEFT)
-            port_var = tk.StringVar(value=get_beam_pulse_com_port(self.com_ports))
+            port_var = tk.StringVar(value=self.com_ports.get('BeamPulse', ''))
             self.port_selections['BeamPulse'] = port_var
             dropdown = ttk.Combobox(frame, textvariable=port_var)
             dropdown.pack(side=tk.RIGHT)
