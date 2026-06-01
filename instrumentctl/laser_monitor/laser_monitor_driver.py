@@ -103,7 +103,20 @@ class LaserMonitorDriver:
             return self._connected
 
     def disconnect(self) -> None:
-        """Stop the worker thread and close the serial connection."""
+        """Set beams off, stop the worker thread, and close the serial connection."""
+        with self._state_lock:
+            radiation_indicator = self._radiation_indicator
+            self._beams_on = False
+
+        if self._serial_is_open():
+            state = (False, radiation_indicator)
+            try:
+                command = self._build_state_command(*state)
+                self._write_line_expect(command, STATE_OK_RESPONSE)
+                self._last_sent_state = state
+            except Exception as exc:
+                self._record_error(exc)
+
         self._stop_event.set()
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
