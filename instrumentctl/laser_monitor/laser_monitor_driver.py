@@ -6,7 +6,7 @@ import time
 # Laser Monitor driver
 #
 # This driver talks to an Arduino Uno over USB serial. The Arduino drives the physical
-# beam/laser indicator LEDs. The dashboard will later call set_beams_on() and set_voltage_active();
+# beam/laser indicator LEDs. The dashboard calls set_beams_on() and set_radiation_indicator().
 
 try:
     import serial
@@ -27,7 +27,7 @@ THREAD_JOIN_TIMEOUT_SECONDS = 2.0
 # Line-delimited ASCII protocol:
 #   Host -> Arduino:  PING
 #   Arduino -> Host:  PONG
-#   Host -> Arduino:  STATE beams=<0|1> voltage=<0|1>
+#   Host -> Arduino:  STATE beams=<0|1> radiation=<0|1>
 #   Arduino -> Host:  OK
 PING_COMMAND = "PING\n"
 PONG_RESPONSE = "PONG"
@@ -68,7 +68,7 @@ class LaserMonitorDriver:
         # Desired output state. These values are updated by public setters and
         # sent by the worker thread after a successful communication poll.
         self._beams_on = False
-        self._voltage_active = False
+        self._radiation_indicator = False
         self._last_sent_state = None
 
         # Status state. These values are intentionally separate from desired
@@ -92,10 +92,10 @@ class LaserMonitorDriver:
         with self._state_lock:
             self._beams_on = bool(active)
 
-    def set_voltage_active(self, active: bool) -> None:
-        """Update the desired voltage-active state for the next worker-cycle send."""
+    def set_radiation_indicator(self, active: bool) -> None:
+        """Update the desired radiation-indicator state for the next worker-cycle send."""
         with self._state_lock:
-            self._voltage_active = bool(active)
+            self._radiation_indicator = bool(active)
 
     def is_connected(self) -> bool:
         """Return True when the most recent poll exchange succeeded."""
@@ -252,13 +252,13 @@ class LaserMonitorDriver:
 
     def _get_state(self):
         with self._state_lock:
-            return self._beams_on, self._voltage_active
+            return self._beams_on, self._radiation_indicator
 
     @staticmethod
-    def _build_state_command(beams_on: bool, voltage_active: bool) -> str:
+    def _build_state_command(beams_on: bool, radiation_indicator: bool) -> str:
         beams_value = 1 if beams_on else 0
-        voltage_value = 1 if voltage_active else 0
-        return f"STATE beams={beams_value} voltage={voltage_value}\n"
+        radiation_value = 1 if radiation_indicator else 0
+        return f"STATE beams={beams_value} radiation={radiation_value}\n"
 
     def _serial_is_open(self) -> bool:
         with self._serial_lock:
