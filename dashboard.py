@@ -3,6 +3,7 @@ import os
 import subsystem
 import tkinter as tk
 from tkinter import ttk
+from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
 from utils import MessagesFrame, MachineStatus
 from usr.com_port_config import get_beam_pulse_com_port
@@ -437,6 +438,15 @@ class EBEAMSystemDashboard:
         if hasattr(self, "main_control"):
             self.main_control.subsystems = self.subsystems
             self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
+
+        laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()
+        try:
+            self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
+            self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
+        except Exception as e:
+                self.logger.error(f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}")
+        else:
+            self.logger.info("Laser Monitor driver not started; no COM port configured")
 
         # Beam Pulse subsystem (BCON)
         try:
