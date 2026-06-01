@@ -18,6 +18,11 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def _is_configured_real_com_port(port):
+    port_text = str(port or "").strip()
+    return bool(port_text) and not port_text.upper().startswith("DUMMY_COM")
+
+
 # Total row width = 1916. Vertical guides (from left):
 #   x = w_be     — Oil | Process Monitor  lines up with  Beam Energy | Cathode Heating
 #   x = w_bp     — Process Monitor | Messages  lines up with  Beam Pulse | Main Control
@@ -439,13 +444,14 @@ class EBEAMSystemDashboard:
             self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
 
         laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()
-        try:
-            self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
-            self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
-        except Exception as e:
+        if _is_configured_real_com_port(laser_monitor_port):
+            try:
+                self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
+                self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
+            except Exception as e:
                 self.logger.error(f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}")
         else:
-            self.logger.info("Laser Monitor driver not started; no COM port configured")
+            self.logger.info("Laser Monitor driver not started; no real COM port configured")
 
         # Beam Pulse subsystem (BCON)
         try:
@@ -461,6 +467,13 @@ class EBEAMSystemDashboard:
             )
 
             self.subsystems['Beam Pulse'] = beam_pulse_subsystem
+            laser_monitor = self.subsystems.get('Laser Monitor')
+            if (
+                laser_monitor is not None
+                and hasattr(laser_monitor, 'set_beams_on')
+                and hasattr(beam_pulse_subsystem, 'set_beam_activity_callback')
+            ):
+                beam_pulse_subsystem.set_beam_activity_callback(laser_monitor.set_beams_on)
             if hasattr(self, "main_control"):
                 self.main_control.subsystems = self.subsystems
                 self.main_control.wire_beam_pulse(beam_pulse_subsystem)
