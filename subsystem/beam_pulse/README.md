@@ -265,33 +265,6 @@ Cleanup paths:
 - `cancel_updates()` cancels Beam Pulse `after()` callbacks.
 - `safe_shutdown(reason)` disarms, turns all beams off, and logs the shutdown.
 
-## Standalone Use
-
-For a quick hardware/status check from the repository root:
-
-```powershell
-python -m subsystem.beam_pulse.beam_pulse --port COM3 --unit 1 --test-status
-```
-
-Headless use is also supported by constructing `BeamPulseSubsystem` with
-`parent_frame=None`. In that mode no Tk widgets are created, but the connection,
-status, and channel-control APIs are available when a `port` is supplied.
-
-```python
-from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem
-
-bcon = BeamPulseSubsystem(parent_frame=None, port="COM3", unit=1, baudrate=115200)
-
-if not bcon.connect():
-    raise RuntimeError("Could not connect to BCON")
-
-bcon.arm_beams()
-bcon.set_emission_limit_providers(lambda: 6.0, lambda: [0.0, 0.0, 0.0])
-bcon.send_channel_config(0)
-bcon.stop_all_channels()
-bcon.disconnect()
-```
-
 ## Dependencies
 
 - Python standard library: `tkinter`, `threading`, `queue`, `time`, `pathlib`,
