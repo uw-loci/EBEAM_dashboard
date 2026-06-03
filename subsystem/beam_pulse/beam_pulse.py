@@ -1547,6 +1547,7 @@ class BeamPulseSubsystem:
         self._active_channels.clear()
         self._update_armed_button_states(False)
         self._notify_all_channel_enables(False)
+        self._notify_all_channel_enables(False)
         if self.bcon_driver:
             self.bcon_driver.disconnect()
 

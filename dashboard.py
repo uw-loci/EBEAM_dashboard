@@ -5,7 +5,6 @@ import tkinter as tk
 from tkinter import ttk
 from subsystem.main_control import MainControlPanel
 from utils import MessagesFrame, MachineStatus
-from usr.com_port_config import get_beam_pulse_com_port
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -134,17 +133,23 @@ class EBEAMSystemDashboard:
         """Closes all open com ports before quitting the application."""
 
         print("Cleaning up com ports...")
-        for subsystem in self.subsystems.values():
+        for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'close_com_ports'):
-                subsystem.close_com_ports()
+                try:
+                    subsystem.close_com_ports()
+                except Exception as e:
+                    self.logger.error(f"Error closing COM ports for {subsystem_name}: {e}")
         print("Cleaned up com ports.")
 
         '''Cancels all scheduled Dashboard updates before quitting the application.'''
         # First cancel updates in each subsystem
         print("Cancelling scheduled Dashboard updates...")
-        for subsystem in self.subsystems.values():
+        for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'cancel_updates'):
-                subsystem.cancel_updates()
+                try:
+                    subsystem.cancel_updates()
+                except Exception as e:
+                    self.logger.error(f"Error cancelling updates for {subsystem_name}: {e}")
         # Now cancel com port checks
         if self.ports_after_id is not None:
             try:
@@ -155,7 +160,10 @@ class EBEAMSystemDashboard:
                 self.logger.debug("Failed to cancel scheduled com port checks.")
         # Now cancel machine status updates
         if hasattr(self.machine_status_frame, 'cancel_updates'):
-            self.machine_status_frame.cancel_updates()
+            try:
+                self.machine_status_frame.cancel_updates()
+            except Exception as e:
+                self.logger.error(f"Error cancelling machine status updates: {e}")
         print("Dashboard upates cancelled.")
 
     def setup_main_pane(self):
@@ -431,7 +439,7 @@ class EBEAMSystemDashboard:
 
         # Beam Pulse subsystem (BCON)
         try:
-            bp_port = get_beam_pulse_com_port(self.com_ports)
+            bp_port = self.com_ports.get('BeamPulse', '')
             # Host Beam Pulse UI inside the merged pane
             parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
             beam_pulse_subsystem = subsystem.BeamPulseSubsystem(
