@@ -49,7 +49,7 @@ flowchart TD
 | `F11` | Toggle Fullscreen | Switch between fullscreen and windowed mode |
 | `Escape` | Exit Fullscreen | Exit fullscreen mode |
 | `Ctrl + M` | Toggle Maximize | Switch between maximized and normal window size |
-| `Ctrl + S` | Help | Save Logs |
+| `Ctrl + S` | Save Logs | Save Output Logs to a txt file |
 | `Ctrl + Q` | Quit | Close the application (with confirmation) |
 | `Ctrl + W` | Quit (alternative) | Close the application (with confirmation) |
 
