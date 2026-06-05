@@ -1,60 +1,70 @@
 # Beam Pulse Subsystem
 
-`BeamPulseSubsystem` is the Dashboard-facing control layer for the BCON beam
-pulser. It provides a Tkinter UI for three pulser channels, A/B/C, and delegates
-hardware communication to `instrumentctl.BCON.BCONDriver`.
+`BeamPulseSubsystem` is the dashboard-facing control layer for the BCON beam
+pulser. It owns the Beam Pulse subpanel UI, BCON driver connection, channel
+configuration validation, synchronized starts, CSV sequence playback, and the
+software checks that run before output-producing BCON commands.
 
-The current implementation controls channel mode, pulse duration, pulse count,
-hardware enable state, synchronized starts, all-channel stop, and CSV pulse
-sequences.
+Main Control is the operator control surface for most beam actions. Beam Pulse
+keeps the hardware-facing state and reports live status back to Main Control.
 
 ## Top-Level Flow
 
 ```mermaid
 flowchart TD
     Main["main.py<br/>COM-port selection"] --> Dashboard["dashboard.py<br/>EBEAMSystemDashboard"]
-    Dashboard -->|"hosts UI in Beam Steering/Pulse frame"| BeamPulse["BeamPulseSubsystem<br/>beam_pulse.py"]
-    Dashboard -->|"Arm, E-STOP, Beam A/B/C, CH Enable, Sync controls"| MainControls["Dashboard Main Control panel"]
-    MainControls -->|"manual/sync callbacks"| BeamPulse
-    BeamPulse -->|"CSV Sequence tab controls"| BeamPulse
 
-    BeamPulse -->|"high-level calls"| Driver["BCONDriver<br/>instrumentctl/BCON/bcon_driver.py"]
-    Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware<br/>Modbus slave"]
+    Dashboard -->|"creates Beam Pulse frame<br/>port key: BeamPulse"| BeamPulse["BeamPulseSubsystem<br/>beam_pulse.py"]
+    Dashboard -->|"creates and wires"| MainControl["MainControlPanel<br/>subsystem/main_control"]
+    Dashboard --> BeamEnergy["Beam Energy"]
+    Dashboard --> Cathode["Cathode Heating"]
 
-    Driver -->|"connected / regs / wrote / error / command_result"| UIQueue["thread-safe UI queue"]
-    UIQueue -->|"Tk after(), every 200 ms"| BeamPulse
-    BeamPulse -->|"live channel status callback"| Dashboard
-    BeamPulse -->|"live channel enable callback"| Dashboard
-    Dashboard -->|"E-STOP also disables"| Cathode["Cathode Heating subsystem"]
+    MainControl -->|"Arm/Disarm, Beam A/B/C, CH Enable,<br/>Sync Start/Stop, Beams E-stop"| BeamPulse
+    BeamPulse -->|"channel status, channel enable,<br/>armed state, action feedback"| MainControl
+    MainControl -->|"emission limit provider"| BeamPulse
+    Cathode -->|"predicted emission currents"| MainControl
+
+    BeamEnergy -->|"+20kV current E-stop callback"| MainControl
+    MainControl -->|"turn_off_all_beams()"| Cathode
+
+    BeamPulse -->|"high-level channel/sync/stop calls"| Driver["BCONDriver<br/>instrumentctl/BCON"]
+    Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware"]
+    Driver -->|"connected / regs / wrote / error / command_result"| Queue["Beam Pulse UI queue"]
+    Queue -->|"Tk after(), 200 ms"| BeamPulse
 ```
 
-## Active UI
+## UI Structure
 
-The status bar shows:
+Beam Pulse itself has a compact status bar and two tabs.
 
-- BCON connection indicator.
-- Hardware interlock and watchdog state from BCON registers.
-- Watchdog setting entry and `Set` button.
-- A one-line event/status log.
-- `Connect` / `Reconnect` / `Disconnect` button.
+- Status bar: BCON connection indicator, hardware interlock/watchdog text,
+  watchdog setting entry, event log line, and Connect/Reconnect/Disconnect.
+- `Manual Control`: one card per channel A/B/C with mode, pulse duration,
+  pulse count, live status, and remaining pulse count.
+- `CSV Sequence`: loaded file name, progress, Load CSV, Save Template, Run,
+  Stop, and a preview of parsed steps.
 
-The notebook has two active tabs:
+Main Control is a separate subpanel, but it is the normal place operators start
+beam actions. It hosts ARM BEAMS, BEAMS E-STOP, Beam A/B/C ON/OFF buttons,
+CH A/B/C enable buttons, Sync Start/Stop, and the four-line beam status/action
+display.
 
-- `Manual Control`: one card per channel. Each card has mode, duration, count,
-  live status, and remaining pulse count.
-- `CSV Sequence`: loaded-file name, sequence progress, and a text preview of
-  the parsed sequence.
+## Code Structure
 
-## Hardware Interface
+- `subsystem/beam_pulse/beam_pulse.py`: Tk UI, BCON lifecycle, channel config
+  validation, arming state, emission-limit checks, CSV parsing/playback, and
+  callback registration for Main Control.
+- `instrumentctl/BCON/bcon_driver.py`: register-level Modbus RTU driver. It owns
+  the serial port, write queue, register cache, background poll thread, staged
+  channel mode writes, command writes, and firmware status reads.
+- `subsystem/main_control/main_control.py`: calls Beam Pulse APIs for operator
+  actions and receives Beam Pulse callbacks for live status/action displays.
 
-BCON communication is register-based Modbus RTU over a serial port.
+## BCON Interface
 
-`BeamPulseSubsystem` imports register constants and mode labels from
-`instrumentctl.BCON` and creates a `BCONDriver` when a `port` is provided. The
-driver owns the serial port, write queue, register cache, and background poll
-thread.
-
-Important register groups used by Beam Pulse:
+BCON communication is register-based Modbus RTU over serial. Beam Pulse creates
+a `BCONDriver` when a port is configured; otherwise the subpanel can still be
+constructed but cannot connect or send commands.
 
 | Registers | Purpose |
 | --- | --- |
@@ -69,7 +79,7 @@ Important register groups used by Beam Pulse:
 
 The driver sends register snapshots to `BeamPulseSubsystem` through `_ui_queue`
 as `("regs", regs)` messages. The subsystem consumes the queue on the Tk main
-thread every 200 ms, updates widgets, and forwards live state to Dashboard
+thread every 200 ms, updates widgets, and forwards live state to Main Control
 callbacks.
 
 On connect, the subsystem applies its preferred defaults:
@@ -85,43 +95,34 @@ The current mode set mirrors `BCONMode`:
 | --- | --- | --- |
 | `OFF` | Channel output off | Duration/count ignored |
 | `DC` | Continuous output while active | Duration/count ignored |
-| `PULSE` | Single pulse | Duration must be greater than 0 ms; count is forced to 1 |
-| `PULSE_TRAIN` | Multiple pulses | Duration must be greater than 0 ms; count must be at least 2 |
+| `PULSE` | Single pulse | Duration must be 1-60000 ms; count is forced to 1 |
+| `PULSE_TRAIN` | Multiple pulses | Duration must be 1-60000 ms; count must be 2-10000 |
 
 The UI only allows whole-number text entry for duration/count and validates
 again before sending commands. The driver also enforces firmware-facing limits
 for pulse duration and count.
 
-## Safety Model
+## Safety And Guard Rails
 
-There are two safety layers:
+There are three layers of safety/status behavior to keep distinct:
 
-- Dashboard software arming: `arm_beams()` and `disarm_beams()` gate user actions
-  in the GUI. Actions that start output call `_require_armed()`. Stop, off,
-  disarm, and E-STOP paths remain available.
-- BCON firmware safety: hardware interlock and watchdog state are enforced below
-  the Dashboard and reported through registers.
+- Beam Pulse software arming: `arm_beams()` allows output-producing actions;
+  `disarm_beams()` stops CSV playback, clears local output state, commands BCON
+  all-off, resets channel-enable state, and disables armed-gated controls.
+- BCON firmware safety: hardware interlock and watchdog state remain enforced by
+  BCON firmware and are reported through registers.
+- Emission-current limit: Beam Pulse blocks non-OFF Beam ON, Sync Start, and CSV
+  step commands when the projected predicted emission current is at or above the
+  Main Control limit.
 
-Important behavior:
+### Main Control Arm Beams Button
 
-- `BEAMS ARMED` is a software gate, not a hardware arm command.
-- `disarm_beams()` stops any CSV sequence, commands BCON all-off, clears local
-  output state, and disables armed-gated buttons.
-- Dashboard `BEAMS E-STOP` calls `stop_all_channels()`, tells the Cathode
-  Heating subsystem to turn off all beams, then disarms Beam Pulse.
-- Beam Pulse owns emission-limit checks before any non-OFF Beam ON, Sync Start,
-  or CSV step command reaches BCON.
-- `Sync Stop`, channel OFF, disarm, disconnect, and safe shutdown do not require
-  the armed state.
-
-### Dashboard Arm Beams Button
-
-The Dashboard `ARM BEAMS` / `BEAMS ARMED` control is the software
+The Main Control `ARM BEAMS` / `BEAMS ARMED` control is the software
 permission switch for Beam Pulse actions.Arming does
 NOT start output, enable a channel, turn on cathode heating, or send a hardware
 arm command to BCON. It only allows armed-gated Dashboard controls to be used.
 
-When beams are armed, the operator can:
+When BCON is connected and beams are armed, the operator can:
 
 - Toggle BCON channel enable states with the `CH A/B/C` enable buttons.
 - Turn individual Beam A/B/C outputs on from their Dashboard buttons, for
@@ -135,60 +136,46 @@ driver is available, disables armed-gated controls, and resets Dashboard beam
 buttons to OFF. It does not turn off cathode heater power-supply outputs; use
 `BEAMS E-STOP` when cathode heater outputs must also be shut off.
 
-## Dashboard Interfaces
+## Main Control API
 
-`dashboard.py` integrates Beam Pulse in `create_subsystems()`:
+Main Control calls these Beam Pulse methods:
 
-```python
-beam_pulse_subsystem = BeamPulseSubsystem(
-    parent_frame=parent,
-    port=bp_port if bp_port else None,
-    unit=1,
-    baudrate=115200,
-    logger=self.logger,
-)
-```
-
-The COM-port key is normally `BeamPulse` from `main.py`; Dashboard also accepts
-`Beam Pulse` as a fallback.
-
-Dashboard-to-BeamPulse calls:
-
-| Dashboard action | Beam Pulse API |
+| Main Control action | Beam Pulse API |
 | --- | --- |
-| Arm/disarm button | `arm_beams()`, `disarm_beams()`, `get_beams_armed_status()` |
-| E-STOP | `stop_all_channels()`, `disarm_beams()` |
+| Arm/disarm | `arm_beams()`, `disarm_beams()`, `get_beams_armed_status()` |
+| Beams E-stop | `stop_all_channels()`, then `disarm_beams()` |
 | Beam A/B/C ON | `send_channel_config(channel_index)` |
 | Beam A/B/C OFF | `send_channel_off(channel_index)` |
-| Channel enable toggle | `toggle_channel_enable(channel_index)` |
-| Sync Start / Stop | `sync_start()`, `sync_stop_all()` |
+| CH A/B/C enable | `toggle_channel_enable(channel_index)` |
+| Sync Start/Stop | `sync_start()`, `sync_stop_all()` |
 
-BeamPulse-to-Dashboard callbacks:
+Main Control registers these callbacks/providers on Beam Pulse:
 
 | Registration method | Callback shape | Purpose |
 | --- | --- | --- |
-| `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining, config)` | Live register-backed Beam A/B/C button state |
-| `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | Live register-backed channel enable state |
-| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | Action status events, including firmware acknowledgements, for Dashboard displays |
-| `set_emission_limit_providers(limit_provider, currents_provider)` | `limit_provider() -> float`, `currents_provider() -> sequence` | Raw data sources for Beam Pulse-owned emission checks |
-
-Dashboard stores Beam Pulse in `self.subsystems["Beam Pulse"]`.
+| `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining, config)` | live Beam A/B/C output display |
+| `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | live CH enable button state |
+| `set_armed_status_callback(callback)` | `callback(armed)` | mirror software armed state |
+| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | action line and firmware acknowledgement display |
+| `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data |
 
 ## Manual And Sync Operation
 
-Manual Control stores one GUI configuration per channel in `channel_vars`.
-`get_channel_config(ch)` returns that channel's selected mode, duration, and
-count with safe defaults if widgets are unavailable.
+`get_channel_config(ch)` reads the next intended Manual Control config for one
+channel. Live BCON status is shown in the status text labels in the channel cards.
+When register status shows a channel running, Beam Pulse locks that channel's
+mode/duration/count controls until the channel is no longer running. DC mode is
+treated as running even though it has no remaining pulse countdown.
 
 `send_channel_config(ch)`:
 
-1. Requires beams to be armed.
-2. Validates mode-specific duration/count.
-3. Blocks non-OFF output if projected emission current is at or above the configured limit.
+1. Requires beams to be armed and BCON to be connected.
+2. Validates mode, duration, and count.
+3. Runs the emission-current check for non-OFF output.
 4. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
 5. Updates local output state; register polling remains the hardware truth.
 
-`send_channel_off(ch)` sends OFF immediately and does not require arming.
+`send_channel_off(ch)` sends OFF command to BCON and does not require arming.
 
 `Sync Start` reads all three Manual Control configurations, filters out
 hardware-disabled channels using Beam Pulse's register-backed channel enable
@@ -197,7 +184,7 @@ configured limit, then calls `bcon_driver.sync_start(configs)`. The driver
 stages pulse parameters and requested modes, then commits them together with the
 firmware apply command.
 
-`Sync Stop` calls `bcon_driver.stop_all()`.
+`sync_stop_all()` calls `bcon_driver.stop_all()` and clears local output state.
 
 ## CSV Sequences
 
@@ -214,13 +201,12 @@ Rules:
 
 - Blank lines and lines beginning with `#` are ignored.
 - A header line starting with `step` is ignored.
-- `step` is an integer. Rows with the same step number are launched together.
+- Rows with the same `step` value are launched together.
 - `ch` is `1`, `2`, `3`, or `ALL`.
 - `mode` is `OFF`, `DC`, `PULSE`, or `PULSE_TRAIN`.
-- `duration_ms` defaults to `100` if omitted.
-- `count` defaults to `1` if omitted.
-- `dwell_ms` is the wait after the step before the next step. If multiple rows
-  share a step, the last parsed row's dwell value is used for that step.
+- Empty `duration_ms` defaults to `100`; empty `count` defaults to `1`.
+- `dwell_ms` is the wait after the step before the next step. When multiple
+  rows share a step, the last parsed dwell value for that step is used.
 - `PULSE_TRAIN` requires `count >= 2`.
 
 Example:
