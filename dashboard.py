@@ -6,7 +6,6 @@ from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
 from utils import MessagesFrame, MachineStatus
-from usr.com_port_config import get_beam_pulse_com_port
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -462,7 +461,7 @@ class EBEAMSystemDashboard:
 
         # Beam Pulse subsystem (BCON)
         try:
-            bp_port = get_beam_pulse_com_port(self.com_ports)
+            bp_port = self.com_ports.get('BeamPulse', '')
             # Host Beam Pulse UI inside the merged pane
             parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
             beam_pulse_subsystem = subsystem.BeamPulseSubsystem(
