@@ -354,16 +354,24 @@ class BeamPulseSubsystem:
             def _on_mode_change(event, d=dur_entry, c=cnt_entry, m=mode_cb):
                 mode = m.get()
                 if mode in ("OFF", "DC"):
+                    d.config(state="normal")
+                    c.config(state="normal")
+                    self._safe_fill(d, "100")
+                    self._safe_fill(c, "1")
                     d.config(state="disabled")
                     c.config(state="disabled")
                 elif mode == "PULSE":
                     d.config(state="normal")
-                    c.config(state="disabled")
+                    self._safe_fill(d, "100")
+                    c.config(state="normal")
                     c.delete(0, "end")
                     c.insert(0, "1")
+                    c.config(state="disabled")
                 else:  # PULSE_TRAIN
                     d.config(state="normal")
                     c.config(state="normal")
+                    self._safe_fill(d, "100")
+                    self._safe_fill(c, "2")
 
             mode_cb.bind("<<ComboboxSelected>>", _on_mode_change)
             # Apply initial state (PULSE: count grayed out)
@@ -1097,7 +1105,7 @@ class BeamPulseSubsystem:
             remaining = regs[status_base + 3]
             enabled_state = bool(regs[status_base + 4])
             output_level = regs[status_base + 8]
-            # Duration/count are reused for Dashboard status text and local entry auto-fill.
+            # Duration/count feed Dashboard status text.
             base = CH_BASE[ch]
             pulse_ms = regs[base + CH_PULSE_MS_OFF]
             count_val = regs[base + CH_COUNT_OFF]
@@ -1148,11 +1156,6 @@ class BeamPulseSubsystem:
             # would overwrite the user's intended configuration.  The status label
             # above already shows the live running mode.
 
-            # Auto-fill duration/count from param registers if widget is empty or '0'
-            if has_channel_widgets:
-                self._safe_fill(channel_vars[ch]['duration'], pulse_ms)
-                self._safe_fill(channel_vars[ch]['count'], count_val)
-
         self._notify_beam_activity(bool(self._active_channels))
 
         # Interlock / watchdog / state
@@ -1163,20 +1166,14 @@ class BeamPulseSubsystem:
                 text=f"Interlock: {'ok' if interlock_ok else 'locked'} | "
                      f"Watchdog: {'ok' if watchdog_ok else 'expired'}")
 
-        # Watchdog entry
-        if hasattr(self, 'watchdog_entry'):
-            self._safe_fill(self.watchdog_entry, regs[REG_WATCHDOG_MS])
-
         # Update pulser enabled/overcurrent canvases
         for i in range(3):
             self.update_pulser_status_display(i)
 
     @staticmethod
     def _safe_fill(entry_widget, value):
-        """Overwrite entry only if empty or '0', and only when the widget is not disabled."""
+        """Overwrite entry only if empty or '0'."""
         try:
-            if str(entry_widget.cget("state")) == "disabled":
-                return
             cur = entry_widget.get().strip()
         except Exception:
             return
