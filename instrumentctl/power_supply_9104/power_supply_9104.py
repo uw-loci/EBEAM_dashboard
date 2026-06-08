@@ -9,24 +9,44 @@ class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display reading attempts
     CURRENT_SETTLE_TOLERANCE = 0.10  # 9104 current resolution is 100 mA
     VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
+    DEFAULT_SERIAL_LOCK_TIMEOUT = 0.5
 
-    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False, serial_lock_timeout=DEFAULT_SERIAL_LOCK_TIMEOUT):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self.serial_lock_timeout = serial_lock_timeout
         self._main_thread_ident = threading.get_ident()
         self._log_queue = Queue()
         self.serial_lock = threading.Lock()
+        self.ser = None
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
 
+    def _acquire_serial_lock(self, action, lock_timeout=None):
+        timeout = self.serial_lock_timeout if lock_timeout is None else lock_timeout
+        if timeout is None:
+            self.serial_lock.acquire()
+            return True
+
+        acquired = self.serial_lock.acquire(timeout=timeout)
+        if not acquired:
+            self.log(f"Timed out waiting for serial lock while {action}", LogLevel.WARNING)
+        return acquired
+
     # Public serial interface methods with locking to ensure thread safety
-    def setup_serial(self):
-        with self.serial_lock:
+    def setup_serial(self, lock_timeout=None):
+        if not self._acquire_serial_lock(f"setting up serial connection on {self.port}", lock_timeout):
+            return False
+
+        try:
             self._setup_serial_unlocked()
+            return self.ser is not None
+        finally:
+            self.serial_lock.release()
     
     # The unlocked version of setup_serial, should only be called within a serial_lock context like in setup_serial or update_com_port
     def _setup_serial_unlocked(self):
@@ -40,14 +60,8 @@ class PowerSupply9104:
     def update_com_port(self, new_port, lock_timeout=None):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
 
-        if lock_timeout is None:
-            with self.serial_lock:
-                return self._update_com_port_unlocked(new_port)
-
-        # COM reconfiguration uses a bounded wait so a stuck serial transaction cannot hang the GUI.
-        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        acquired = self._acquire_serial_lock(f"updating COM port to {new_port}", lock_timeout)
         if not acquired:
-            self.log(f"Timed out waiting for serial lock while updating COM port to {new_port}", LogLevel.WARNING)
             return False
 
         try:
@@ -78,14 +92,9 @@ class PowerSupply9104:
 
     # Thread-safe method to check connection status
     def is_connected(self, lock_timeout=None):
-        if lock_timeout is None:
-            with self.serial_lock:
-                return self._is_connected_unlocked()
-
         # Returning None means "busy", distinct from a confirmed disconnected port.
-        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        acquired = self._acquire_serial_lock("checking connection", lock_timeout)
         if not acquired:
-            self.log("Timed out waiting for serial lock while checking connection", LogLevel.WARNING)
             return None
 
         try:
@@ -98,9 +107,15 @@ class PowerSupply9104:
         return self.ser is not None and self.ser.is_open
 
     # Thread-safe method to flush serial input buffer
-    def flush_serial(self):
-        with self.serial_lock:
+    def flush_serial(self, lock_timeout=None):
+        if not self._acquire_serial_lock("flushing serial input buffer", lock_timeout):
+            return False
+
+        try:
             self._flush_serial_unlocked()
+            return True
+        finally:
+            self.serial_lock.release()
 
     # Unlocked version of flush_serial, should only be called within a serial_lock context like in flush_serial or send_command
     def _flush_serial_unlocked(self):
@@ -112,16 +127,11 @@ class PowerSupply9104:
 
     def send_command(self, command, lock_timeout=None):
         """Send a command to the power supply and read the response."""
-        # Normal runtime calls preserve the original blocking lock behavior so
-        # command ordering stays simple. Shutdown paths pass lock_timeout so a
-        # dead-port poll cannot keep the dashboard waiting forever on this lock.
-        if lock_timeout is None:
-            with self.serial_lock:
-                return self._send_command_unlocked(command)
-
-        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        # All public command paths use a bounded lock wait by default so GUI
+        # callbacks fail visibly instead of waiting forever behind a stuck poll
+        # or ramp transaction.
+        acquired = self._acquire_serial_lock(f"sending '{command}'", lock_timeout)
         if not acquired:
-            self.log(f"Timed out waiting for serial lock while sending '{command}'", LogLevel.WARNING)
             return None
 
         try:
@@ -585,10 +595,6 @@ class PowerSupply9104:
         """
         for attempt in range(self.MAX_RETRIES):
             try:
-                # Bounded callers already acquire through send_command; avoid a second lock wait here.
-                if lock_timeout is None and not self.is_connected():
-                    break
-
                 reading = self.get_display_readings(lock_timeout=lock_timeout)
 
                 if not reading:
@@ -794,9 +800,6 @@ class PowerSupply9104:
     
     def disable_output(self, lock_timeout=None):
         """Disable the power supply output unconditionally (no OVP validation)."""
-        if lock_timeout is None and not self.is_connected():
-            self.log("Cannot disable output: not connected.", LogLevel.WARNING)
-            return False
         command = "SOUT0"
         response = self.send_command(command, lock_timeout=lock_timeout)
         if response and "OK" in response:
@@ -806,7 +809,7 @@ class PowerSupply9104:
             self.log(f"Failed to disable output: {response}", LogLevel.ERROR)
             return False
 
-    def close(self, ramp_join_timeout=2.0, serial_lock_timeout=1.0):
+    def close(self, ramp_join_timeout=2.0):
         """Close the serial connection and stop threads."""
         self.log("Stopping threads and closing serial connection.", LogLevel.INFO)
 
@@ -827,7 +830,7 @@ class PowerSupply9104:
         # Prefer closing while holding serial_lock, but do not let a stuck serial
         # transaction prevent shutdown. If the lock is unavailable, make a
         # best-effort close and clear self.ser so later calls fail fast.
-        acquired = self.serial_lock.acquire(timeout=serial_lock_timeout)
+        acquired = self._acquire_serial_lock("closing serial connection")
         if acquired:
             try:
                 if self.ser and self.ser.is_open:
