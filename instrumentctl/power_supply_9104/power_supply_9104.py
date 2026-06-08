@@ -380,10 +380,18 @@ class PowerSupply9104:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_current:.2f}A", LogLevel.INFO)
 
                 # Longer delay between steps
-                time.sleep(step_delay)
+                if self.stop_event.wait(step_delay):
+                    self.log("Ramping thread stopped.", LogLevel.INFO)
+                    if callback:
+                        callback(False)
+                    return
 
             # Final verification after settling
-            time.sleep(1.0)  # Extra settling time
+            if self.stop_event.wait(1.0):  # Extra settling time
+                self.log("Ramping thread stopped.", LogLevel.INFO)
+                if callback:
+                    callback(False)
+                return
             _, final_current, _ = self.get_voltage_current_mode()
 
             if final_current is None:
@@ -505,10 +513,18 @@ class PowerSupply9104:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
                     
                 # Longer delay between steps
-                time.sleep(step_delay)
+                if self.stop_event.wait(step_delay):
+                    self.log("Ramping thread stopped.", LogLevel.INFO)
+                    if callback:
+                        callback(False)
+                    return
             
             # Final verification after settling
-            time.sleep(1.0)  # Extra settling time
+            if self.stop_event.wait(1.0):  # Extra settling time
+                self.log("Ramping thread stopped.", LogLevel.INFO)
+                if callback:
+                    callback(False)
+                return
             final_voltage, _, _ = self.get_voltage_current_mode()
             
             if final_voltage is None:

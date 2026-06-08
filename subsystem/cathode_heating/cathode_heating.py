@@ -3221,10 +3221,12 @@ class CathodeHeatingSubsystem:
         UI callback - user pressed STOP RAMP.
         """
         ps = self.power_supplies[index]
+        was_ramping = self.is_ramping(index)
         if ps:
             ps.stop_ramp()
         self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
-        self.on_ramp_complete(index)
+        if not was_ramping:
+            self.on_ramp_complete(index)
 
     def set_curr_adjustment_buttons_state(self, index: int, state: str):
         """Enable or disable the current +/- adjustment buttons for one cathode."""
