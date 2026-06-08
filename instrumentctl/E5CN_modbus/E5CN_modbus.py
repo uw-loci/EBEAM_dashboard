@@ -10,6 +10,8 @@ class E5CNModbus:
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
     MAX_VALID_TEMPERATURE_C = 999.9
     SENSOR_ERROR = "ERROR"
+    THREAD_JOIN_TIMEOUT = 2.0
+    MODBUS_CLOSE_LOCK_TIMEOUT = 0.5
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
         """
@@ -111,25 +113,40 @@ class E5CNModbus:
         """Stop all temperature reading threads and clean up connections."""
         self.log("Stopping temperature reading threads...", LogLevel.DEBUG)
         self.stop_event.set()
+        self.connected = False
         
         # Wait for threads to finish
         for thread in self.threads:
-            thread.join(timeout=2.0)
-            self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
+            thread.join(timeout=self.THREAD_JOIN_TIMEOUT)
+            if thread.is_alive():
+                self.log(f"Thread {thread.name} did not stop before timeout", LogLevel.WARNING)
+            else:
+                self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
             
         self.threads.clear()
         
         # Clean up the connection
-        with self.modbus_lock:
+        acquired = self.modbus_lock.acquire(timeout=self.MODBUS_CLOSE_LOCK_TIMEOUT)
+        try:
+            if not acquired:
+                self.log(
+                    "Timed out waiting for E5CN Modbus lock while closing connection; "
+                    "continuing without blocking shutdown",
+                    LogLevel.WARNING
+                )
+                return
+
             try:
                 if self.client.is_socket_open():
                     self.client.close()
                     self.log("Modbus connection closed", LogLevel.DEBUG)
             except Exception as e:
                 self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
-                
-        self.is_initialized.clear()
-        self.flush_queued_logs()
+        finally:
+            if acquired:
+                self.modbus_lock.release()
+            self.is_initialized.clear()
+            self.flush_queued_logs()
 
     def connect(self):
         """
