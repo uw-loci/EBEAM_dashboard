@@ -191,6 +191,8 @@ class CathodeHeatingSubsystem:
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
         self.start_power_supply_polling()           # Poll 9104 readbacks off the Tk thread
+        self.after_id = None
+        self._updates_cancelled = False
         self.update_data()                          # Start the data update loop
 
     def _style_lut_dropdown_items(self, combobox, options, retries=4):
@@ -1929,6 +1931,22 @@ class CathodeHeatingSubsystem:
 
     
     def update_data(self):
+        if getattr(self, "_updates_cancelled", False):
+            return
+
+        try:
+            self._update_data_once()
+        except Exception as e:
+            message = f"Cathode heating update_data failed: {type(e).__name__}: {e}"
+            try:
+                self.log(message, LogLevel.ERROR)
+            except Exception:
+                print(f"{LogLevel.ERROR.name}: {message}")
+        finally:
+            if not getattr(self, "_updates_cancelled", False):
+                self.after_id = self.parent.after(500, self.update_data)
+
+    def _update_data_once(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
@@ -2031,20 +2049,19 @@ class CathodeHeatingSubsystem:
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
 
-        # Schedule next update
-        self.after_id = self.parent.after(500, self.update_data)
-
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        self._updates_cancelled = True
         if hasattr(self, 'after_id') and self.after_id:
             try:
                 self.parent.after_cancel(self.after_id)
-                self.after_id = None
                 if self.logger:
                     self.log('Canceled scheduled cathode heating display update.', LogLevel.DEBUG)
             except Exception as e:
                 if self.logger:
                     self.log('Failed to cancel scheduled cathode heating display update.', LogLevel.DEBUG)
+            finally:
+                self.after_id = None
 
     def update_plot(self, index):
         if len(self.time_data[index]) == 0:
