@@ -1134,7 +1134,7 @@ class CathodeHeatingSubsystem:
             if ps is not None:
                 try:
                     if hasattr(ps, 'close'):
-                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                        ps.close(ramp_join_timeout=2.0)
                     elif hasattr(ps, 'disconnect'):
                         ps.disconnect()
                     self.log(f"Disconnected power supply {idx + 1}", LogLevel.DEBUG)
@@ -1327,7 +1327,7 @@ class CathodeHeatingSubsystem:
                 except Exception as e:
                     if ps is not None and hasattr(ps, 'close'):
                         try:
-                            ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                            ps.close(ramp_join_timeout=2.0)
                         except Exception:
                             pass
                     self.log(f"Failed to initialize {cathode} on port {port}: {str(e)}", LogLevel.ERROR)
@@ -1847,7 +1847,7 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            ps.update_com_port(port, lock_timeout=1.0)
+            ps.update_com_port(port)
         except Exception:
             # PowerSupply9104 logs serial failures itself; keep this worker quiet.
             pass
@@ -1875,7 +1875,7 @@ class CathodeHeatingSubsystem:
                     continue
 
                 try:
-                    connected = ps.is_connected(lock_timeout=0.25)
+                    connected = ps.is_connected()
                     if connected is None:
                         # Another command owns the serial lock; keep the GUI responsive and retry later.
                         self._set_power_supply_readback(index, error="busy")
@@ -1887,7 +1887,7 @@ class CathodeHeatingSubsystem:
                             self._attempt_power_supply_reopen(index, ps)
                         continue
 
-                    voltage, current, mode = ps.get_voltage_current_mode(lock_timeout=0.25)
+                    voltage, current, mode = ps.get_voltage_current_mode()
                     if voltage is None or current is None:
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
@@ -3247,12 +3247,12 @@ class CathodeHeatingSubsystem:
                     if hasattr(ps, 'disable_output'):
                         # Try to turn output off, but continue closing if a dead serial transaction owns the lock.
                         self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
-                        ps.disable_output(lock_timeout=1.0)
+                        ps.disable_output()
                 except Exception as e:
                     self.log(f"Error disabling output on cathode {chr(65 + i)}: {e}", LogLevel.ERROR)
                 if hasattr(ps, 'close'):
                     try:
-                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                        ps.close(ramp_join_timeout=2.0)
                     except TypeError:
                         ps.close()
 
