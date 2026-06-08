@@ -113,6 +113,8 @@ class BeamPulseSubsystem:
         # Dashboard integration callbacks
         self._action_feedback_callback = None
         self._armed_status_callback = None
+        self._beam_activity_callback = None
+        self._last_beam_activity_sent = None
         self._pending_firmware_acks = deque()
         self._last_send_failure_message = ""
         self._host_toplevel = None
@@ -1029,9 +1031,8 @@ class BeamPulseSubsystem:
                 self._clear_firmware_acks()
                 self.beams_armed_status = False
                 self._notify_armed_status(False)
-                self.beam_on_status = [False, False, False]
+                self._clear_output_state()
                 self.channel_enable_status = [False, False, False]
-                self._active_channels.clear()
                 self._update_armed_button_states(False)
                 self._notify_all_channel_enables(False)
             self.update_bcon_connection_status()
@@ -1086,10 +1087,10 @@ class BeamPulseSubsystem:
 
     def _update_ui_from_registers(self, regs):
         """Mirror register data into GUI widgets (like pulser_test_gui._handle_msg 'regs')."""
-        # Update manual-tab channel cards
+        # Update channel state first; manual-tab widgets are optional for headless use.
+        channel_vars = getattr(self, "channel_vars", [])
         for ch in range(3):
-            if ch >= len(self.channel_vars):
-                continue
+            has_channel_widgets = ch < len(channel_vars)
             status_base = REG_CH_STATUS_BASE + ch * REG_CH_STATUS_STRIDE
 
             mode_code = regs[status_base + 0]
@@ -1101,9 +1102,10 @@ class BeamPulseSubsystem:
             pulse_ms = regs[base + CH_PULSE_MS_OFF]
             count_val = regs[base + CH_COUNT_OFF]
 
-            st_text = MODE_CODE_TO_LABEL.get(mode_code, "unknown")
-            self.channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
-            self.channel_vars[ch]['pulses'].configure(text=f"Remaining: {remaining}")
+            if has_channel_widgets:
+                st_text = MODE_CODE_TO_LABEL.get(mode_code, "unknown")
+                channel_vars[ch]['status'].configure(text=f"Status: {st_text} | O:{output_level}")
+                channel_vars[ch]['pulses'].configure(text=f"Remaining: {remaining}")
 
             # DC mode never counts down (remaining stays 0) — treat it as
             # running whenever mode != OFF so the manual controls stay locked
@@ -1115,10 +1117,10 @@ class BeamPulseSubsystem:
             self.channel_enable_status[ch] = enabled_state
             if is_running:
                 self._active_channels.add(ch)
-                self._set_manual_channel_lock(ch, True)
             else:
                 self._active_channels.discard(ch)
-                self._set_manual_channel_lock(ch, False)
+            if has_channel_widgets:
+                self._set_manual_channel_lock(ch, is_running)
 
             # Notify dashboard so beam toggle button colour tracks hardware state
             if callable(getattr(self, '_channel_status_callback', None)):
@@ -1147,8 +1149,11 @@ class BeamPulseSubsystem:
             # above already shows the live running mode.
 
             # Auto-fill duration/count from param registers if widget is empty or '0'
-            self._safe_fill(self.channel_vars[ch]['duration'], pulse_ms)
-            self._safe_fill(self.channel_vars[ch]['count'], count_val)
+            if has_channel_widgets:
+                self._safe_fill(channel_vars[ch]['duration'], pulse_ms)
+                self._safe_fill(channel_vars[ch]['count'], count_val)
+
+        self._notify_beam_activity(bool(self._active_channels))
 
         # Interlock / watchdog / state
         interlock_ok = regs[REG_INTERLOCK_OK]
@@ -1442,6 +1447,26 @@ class BeamPulseSubsystem:
         """Register callback(armed) for software armed-state changes."""
         self._armed_status_callback = callback
 
+    def set_beam_activity_callback(self, callback):
+        """Register callback(active) for live any-channel output state."""
+        self._beam_activity_callback = callback
+        self._last_beam_activity_sent = None
+        self._notify_beam_activity(bool(getattr(self, "_active_channels", set())))
+
+    def _notify_beam_activity(self, active: bool) -> None:
+        """Notify when any Beam Pulse channel transitions between active/off."""
+        active = bool(active)
+        if active == getattr(self, "_last_beam_activity_sent", None):
+            return
+        callback = getattr(self, "_beam_activity_callback", None)
+        if not callable(callback):
+            return
+        self._last_beam_activity_sent = active
+        try:
+            callback(active)
+        except Exception:
+            pass
+
     def _notify_armed_status(self, armed):
         """Tell the host dashboard when Beam Pulse changes armed state."""
         callback = getattr(self, "_armed_status_callback", None)
@@ -1501,6 +1526,7 @@ class BeamPulseSubsystem:
             active_channels.clear()
         else:
             self._active_channels = set()
+        self._notify_beam_activity(False)
 
     def _notify_all_channel_enables(self, enabled: bool) -> None:
         """Mirror a known all-channel enable state to dashboard controls."""
@@ -1542,11 +1568,9 @@ class BeamPulseSubsystem:
         self.bcon_connection_status = False
         self.beams_armed_status = False
         self._notify_armed_status(False)
-        self.beam_on_status = [False, False, False]
+        self._clear_output_state()
         self.channel_enable_status = [False, False, False]
-        self._active_channels.clear()
         self._update_armed_button_states(False)
-        self._notify_all_channel_enables(False)
         self._notify_all_channel_enables(False)
         if self.bcon_driver:
             self.bcon_driver.disconnect()
