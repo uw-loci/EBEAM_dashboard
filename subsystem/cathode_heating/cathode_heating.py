@@ -147,6 +147,8 @@ class CathodeHeatingSubsystem:
         self.power_supply_poll_thread = None
         self.power_supply_poll_stop_event = threading.Event()
         self.power_supply_poll_stop = self.power_supply_poll_stop_event
+        self.disable_ccs_output_on_bcon_disconnect = True
+        self.bcon_is_connected = None
         # Tells the long-lived poller to pause while COM-port updates swap driver objects.
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
@@ -2152,6 +2154,22 @@ class CathodeHeatingSubsystem:
         new_state = not self.toggle_states[index]
 
         if new_state:  # If turning output ON
+            if self.disable_ccs_output_on_bcon_disconnect:
+                bcon_is_connected = getattr(self, "bcon_is_connected", None)
+                try:
+                    bcon_connected = (
+                        bool(bcon_is_connected()) if callable(bcon_is_connected) else False
+                    )
+                except Exception:
+                    bcon_connected = False
+                if not bcon_connected:
+                    cathode = ['A', 'B', 'C'][index]
+                    self.log(
+                        f"CCS output enable blocked for Cathode {cathode}: BCON device not connected.",
+                        LogLevel.WARNING,
+                    )
+                    return
+
             # Retrieve target voltage and current
             target_voltage = self.user_set_voltages[index]
             if target_voltage is None:
