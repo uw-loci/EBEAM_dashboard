@@ -1677,7 +1677,18 @@ class CathodeHeatingSubsystem:
             try:
                 # Attempt to read temperature from the connected temperature controller
                 temperature = self.temperature_controller.temperatures[index]
-                if isinstance(temperature, float):
+                if isinstance(temperature, (int, float)):
+                    temperature = float(temperature)
+                    if temperature > E5CNModbus.MAX_VALID_TEMPERATURE_C:
+                        self.clamp_temperature_vars[index].set("ERR")
+                        self.set_plot_color(index, 'ERROR')
+                        self.log(
+                            f"Invalid temperature for cathode {index+1}: {temperature:.2f} C "
+                            f"exceeds hard maximum {E5CNModbus.MAX_VALID_TEMPERATURE_C:.2f} C",
+                            LogLevel.ERROR
+                        )
+                        return None
+
                     self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
 
                     # Check for overtemperature condition
@@ -1688,9 +1699,9 @@ class CathodeHeatingSubsystem:
 
                     return temperature
                 elif isinstance(temperature, str):
-                    self.clamp_temperature_vars[index].set("-- C")
+                    self.clamp_temperature_vars[index].set("ERR")
                     self.set_plot_color(index, 'ERROR')
-                    self.log(f"Reading temperature for cathode {index+1} returned an error",
+                    self.log(f"Reading temperature for cathode {index+1} returned an error: {temperature}",
                               LogLevel.ERROR)
                 else:
                     self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
@@ -1953,12 +1964,6 @@ class CathodeHeatingSubsystem:
 
             if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
-            elif isinstance(temperature, str):
-                self.clamp_temperature_vars[i].set("-- C")
-                self.clamp_temp_labels[i].config(foreground='oragne')
-            else:
-                self.clamp_temperature_vars[i].set("-- C")
-                self.clamp_temp_labels[i].config(foreground='black')
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
