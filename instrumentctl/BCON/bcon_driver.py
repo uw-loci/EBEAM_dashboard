@@ -276,7 +276,7 @@ class BCONDriver:
     PULSE_COUNT_MIN = 1
     PULSE_COUNT_MAX = 10000
     POLL_INTERVAL      = 0.5     # seconds between register polls
-    MAX_POLL_ERRORS    = 15      # consecutive failures before auto-disconnect
+    MAX_POLL_ERRORS    = 10      # consecutive failures before auto-disconnect
     SETTLE_TIME        = 4.5     # seconds to wait after opening port (Arduino DTR reset)
     WATCHDOG_HEARTBEAT_S = 0.5   # refresh at least once per poll cycle
     COMMAND_CONFIRM_RETRIES = 4
