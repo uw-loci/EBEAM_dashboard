@@ -340,8 +340,14 @@ class BCONDriver:
 
     def _log(self, message: str, level: str = "INFO"):
         """Internal logging helper."""
-        if self.debug or level in ("ERROR", "WARNING"):
-            print(f"[BCON {level}] {message}")
+        level = str(level).upper()
+        if not (self.debug or level in ("ERROR", "WARNING")):
+            return
+
+        # Hand logs to Beam Pulse so Tk writes happen on the main thread.
+        if self._ui_queue:
+            self._ui_put("log", message, level)
+            return
 
     def _reset_cached_state(self):
         """Clear cached registers."""
