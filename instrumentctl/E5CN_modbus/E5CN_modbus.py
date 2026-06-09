@@ -1,7 +1,7 @@
 import threading
 import time
 import math
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
 
@@ -10,6 +10,9 @@ class E5CNModbus:
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
     MAX_VALID_TEMPERATURE_C = 999.9
     SENSOR_ERROR = "ERROR"
+    THREAD_JOIN_TIMEOUT = 2.0
+    MODBUS_CLOSE_LOCK_TIMEOUT = 0.5
+    WORKER_LOG_QUEUE_MAXSIZE = 1000
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
         """
@@ -36,7 +39,9 @@ class E5CNModbus:
         self.port = port
         self.connected = False
         self._main_thread_ident = threading.get_ident()
-        self._log_queue = Queue()
+        self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
+        self._dropped_worker_log_count = 0
+        self._dropped_worker_log_lock = threading.Lock()
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -111,25 +116,40 @@ class E5CNModbus:
         """Stop all temperature reading threads and clean up connections."""
         self.log("Stopping temperature reading threads...", LogLevel.DEBUG)
         self.stop_event.set()
+        self.connected = False
         
         # Wait for threads to finish
         for thread in self.threads:
-            thread.join(timeout=2.0)
-            self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
+            thread.join(timeout=self.THREAD_JOIN_TIMEOUT)
+            if thread.is_alive():
+                self.log(f"Thread {thread.name} did not stop before timeout", LogLevel.WARNING)
+            else:
+                self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
             
         self.threads.clear()
         
         # Clean up the connection
-        with self.modbus_lock:
+        acquired = self.modbus_lock.acquire(timeout=self.MODBUS_CLOSE_LOCK_TIMEOUT)
+        try:
+            if not acquired:
+                self.log(
+                    "Timed out waiting for E5CN Modbus lock while closing connection; "
+                    "continuing without blocking shutdown",
+                    LogLevel.WARNING
+                )
+                return
+
             try:
                 if self.client.is_socket_open():
                     self.client.close()
                     self.log("Modbus connection closed", LogLevel.DEBUG)
             except Exception as e:
                 self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
-                
-        self.is_initialized.clear()
-        self.flush_queued_logs()
+        finally:
+            if acquired:
+                self.modbus_lock.release()
+            self.is_initialized.clear()
+            self.flush_queued_logs()
 
     def connect(self):
         """
@@ -231,12 +251,48 @@ class E5CNModbus:
         if threading.get_ident() == self._main_thread_ident:
             self.logger.log(message, level)
         else:
-            self._log_queue.put((message, level))
+            self._enqueue_worker_log(message, level)
+
+    def _enqueue_worker_log(self, message, level):
+        """Queue one worker log without blocking if the UI drain is stalled."""
+        try:
+            self._log_queue.put_nowait((message, level))
+            return
+        except Full:
+            pass
+
+        try:
+            self._log_queue.get_nowait()
+            self._record_dropped_worker_log()
+        except Empty:
+            pass
+
+        try:
+            self._log_queue.put_nowait((message, level))
+        except Full:
+            self._record_dropped_worker_log()
+            pass
+
+    def _record_dropped_worker_log(self):
+        with self._dropped_worker_log_lock:
+            self._dropped_worker_log_count += 1
+
+    def _pop_dropped_worker_log_count(self):
+        with self._dropped_worker_log_lock:
+            count = self._dropped_worker_log_count
+            self._dropped_worker_log_count = 0
+        return count
 
     def flush_queued_logs(self, max_messages=200):
         """Flush queued worker-thread log messages on the calling thread."""
         if not self.logger:
             return
+        dropped_count = self._pop_dropped_worker_log_count()
+        if dropped_count:
+            self.logger.log(
+                f"Dropped {dropped_count} queued E5CN worker log message(s) because the log queue was full.",
+                LogLevel.WARNING,
+            )
         processed = 0
         while processed < max_messages:
             try:
