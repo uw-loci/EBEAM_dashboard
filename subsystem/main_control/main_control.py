@@ -71,6 +71,7 @@ class MainControlPanel:
         self.toggle_off_image = toggle_off_image
         self.subsystems = {}
         self.com_ports = self._get_com_ports()
+        self.disable_ccs_output_on_bcon_disconnect = True
 
         self.total_max_emission_current_ma = load_total_max_emission_current(logger=self.logger)
         self.total_max_emission_current_entry_var = tk.StringVar(value="")
@@ -124,6 +125,17 @@ class MainControlPanel:
                 lambda: self.total_max_emission_current_ma,
                 self._get_predicted_emission_currents_for_beam_pulse,
             )
+        if hasattr(beam_pulse, "set_manual_disconnect_callback"):
+            beam_pulse.set_manual_disconnect_callback(self._confirm_manual_bcon_disconnect)
+        if hasattr(beam_pulse, "set_disconnect_callback"):
+            beam_pulse.set_disconnect_callback(self._handle_bcon_disconnected)
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        if cathode is not None:
+            cathode.disable_ccs_output_on_bcon_disconnect = (
+                self.disable_ccs_output_on_bcon_disconnect
+            )
+            if callable(getattr(beam_pulse, "is_connected", None)):
+                cathode.bcon_is_connected = beam_pulse.is_connected
 
     def _get_predicted_emission_currents_for_beam_pulse(self):
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
@@ -266,11 +278,22 @@ class MainControlPanel:
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 1. COM Port Configuration
-        self.create_com_port_frame(config_frame)
+        section_frame = ttk.Frame(config_frame)
+        section_frame.pack(side=tk.TOP, anchor='nw', fill=tk.X)
 
-        # 2. Save Layout button
-        save_layout_frame = ttk.Frame(config_frame)
+        general_frame = ttk.LabelFrame(section_frame, text="General", padding=(8, 6))
+        general_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
+
+        beam_cathode_frame = ttk.LabelFrame(
+            section_frame,
+            text="Beam and Cathode Enable Settings",
+            padding=(8, 6),
+        )
+        beam_cathode_frame.pack(side=tk.LEFT, anchor='nw', pady=5)
+
+        self.create_com_port_frame(general_frame)
+
+        save_layout_frame = ttk.Frame(general_frame)
         save_layout_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
         ttk.Button(
             save_layout_frame,
@@ -278,15 +301,13 @@ class MainControlPanel:
             command=self.save_current_pane_state
         ).pack(side=tk.LEFT, padx=5)
 
-        # 3. Post Processor button
-        self.create_post_processor_button(config_frame)
+        self.create_post_processor_button(general_frame)
 
-        # 4. Log Level dropdown
-        self.create_log_level_dropdown(config_frame)
-        self.file_create_log_level_dropdown(config_frame)
+        self.create_log_level_dropdown(general_frame)
+        self.file_create_log_level_dropdown(general_frame)
 
-        # Expose the limit used by beam-output start paths.
-        self.create_total_max_emission_current_controls(config_frame)
+        self.create_total_max_emission_current_controls(beam_cathode_frame)
+        self.create_disable_ccs_output_on_bcon_disconnect_toggle(beam_cathode_frame)
 
         # Add F1 help hint
         help_label = ttk.Label(
@@ -659,6 +680,64 @@ class MainControlPanel:
             foreground="gray",
         ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
 
+    def create_disable_ccs_output_on_bcon_disconnect_toggle(self, parent_frame):
+        section = ttk.Frame(parent_frame)
+        section.pack(side=tk.TOP, anchor='nw', padx=5, pady=(6, 2))
+        ttk.Label(
+            section,
+            text="Disable CCS Output on BCON Disconnect",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 2))
+
+        if self.toggle_on_image and self.toggle_off_image:
+            self.disable_ccs_bcon_disconnect_button = tk.Button(
+                section,
+                image=self.toggle_on_image,
+                command=self.toggle_disable_ccs_output_on_bcon_disconnect,
+                relief=tk.FLAT,
+                bd=0,
+                bg="white",
+            )
+        else:
+            self.disable_ccs_bcon_disconnect_button = tk.Button(
+                section,
+                command=self.toggle_disable_ccs_output_on_bcon_disconnect,
+                width=8,
+            )
+        self.disable_ccs_bcon_disconnect_button.pack(anchor=tk.W)
+        self._update_disable_ccs_bcon_disconnect_toggle()
+
+    def toggle_disable_ccs_output_on_bcon_disconnect(self):
+        self.disable_ccs_output_on_bcon_disconnect = (
+            not self.disable_ccs_output_on_bcon_disconnect
+        )
+        self._update_disable_ccs_bcon_disconnect_toggle()
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        if cathode is not None:
+            cathode.disable_ccs_output_on_bcon_disconnect = (
+                self.disable_ccs_output_on_bcon_disconnect
+            )
+        state = "enabled" if self.disable_ccs_output_on_bcon_disconnect else "disabled"
+        self.logger.info(f"Disable CCS Output on BCON Disconnect {state}")
+
+    def _update_disable_ccs_bcon_disconnect_toggle(self):
+        btn = getattr(self, "disable_ccs_bcon_disconnect_button", None)
+        if btn is None:
+            return
+        enabled = bool(self.disable_ccs_output_on_bcon_disconnect)
+        if self.toggle_on_image and self.toggle_off_image:
+            _safe_widget_config(
+                btn,
+                image=self.toggle_on_image if enabled else self.toggle_off_image,
+            )
+        else:
+            _safe_widget_config(
+                btn,
+                text="ON" if enabled else "OFF",
+                bg="#2e7d32" if enabled else "#888888",
+                fg="white",
+            )
+
     def set_total_max_emission_current_limit(self):
         """UI callback for committing the Main Control total emission limit."""
         raw_text = str(self.total_max_emission_current_entry_var.get()).strip()
@@ -802,6 +881,65 @@ class MainControlPanel:
             "failure",
         )
         return None
+
+    def _ask_bcon_disconnect_confirmation(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Disconnect BCON")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        result = {"confirmed": False}
+
+        ttk.Label(
+            dialog,
+            text=(
+                "CCS Output will be disabled if BCON is disconnected. "
+                "Are you sure you want to disconnect?"
+            ),
+            wraplength=360,
+            justify=tk.LEFT,
+            padding=(12, 12),
+        ).pack(fill=tk.X)
+
+        buttons = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        buttons.pack(fill=tk.X)
+
+        def confirm():
+            result["confirmed"] = True
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Yes, disconnect", command=confirm).pack(
+            side=tk.LEFT, padx=(0, 8)
+        )
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.wait_window()
+        return result["confirmed"]
+
+    def _confirm_manual_bcon_disconnect(self):
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        ccs_output_active = bool(cathode and any(getattr(cathode, "toggle_states", [])))
+        if self.disable_ccs_output_on_bcon_disconnect and ccs_output_active:
+            if not self._ask_bcon_disconnect_confirmation():
+                self.logger.info("BCON disconnect canceled; CCS output remains enabled")
+                return False
+            turn_off = getattr(cathode, "turn_off_all_beams", None)
+            if callable(turn_off):
+                self.logger.warning(
+                    "BCON manual disconnect requested; disabling CCS output"
+                )
+                turn_off()
+        return True
+
+    def _handle_bcon_disconnected(self):
+        if not self.disable_ccs_output_on_bcon_disconnect:
+            return
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        if not cathode or not any(getattr(cathode, "toggle_states", [])):
+            return
+        turn_off = getattr(cathode, "turn_off_all_beams", None)
+        if callable(turn_off):
+            self.logger.warning("BCON disconnected; disabling CCS output")
+            turn_off()
 
     def _set_armed_ui(self, armed, reset=False):
         if hasattr(self, "beams_ready_button"):
