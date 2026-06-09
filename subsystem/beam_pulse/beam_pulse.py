@@ -1047,6 +1047,12 @@ class BeamPulseSubsystem:
         elif typ == "regs":
             regs = msg[1]
             self._update_ui_from_registers(regs)
+        elif typ == "log":
+            # BCON driver queued this from a worker thread; _log handles main-thread UI logging.
+            text = str(msg[1])
+            level_name = str(msg[2]).upper() if len(msg) > 2 else "INFO"
+            level = getattr(LogLevel, level_name, LogLevel.INFO)
+            self._log(f"BCON: {text}", level)
         elif typ == "wrote":
             reg, val = msg[1], msg[2]
             if reg == REG_COMMAND and val != 0:
