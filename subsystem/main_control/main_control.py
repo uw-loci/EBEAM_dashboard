@@ -883,37 +883,14 @@ class MainControlPanel:
         return None
 
     def _ask_bcon_disconnect_confirmation(self):
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Disconnect BCON")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        result = {"confirmed": False}
-
-        ttk.Label(
-            dialog,
-            text=(
+        return messagebox.askokcancel(
+            "Disconnect BCON",
+            (
                 "CCS Output will be disabled if BCON is disconnected. "
-                "Are you sure you want to disconnect?"
+                "Click 'OK' if you still want to disconnect."
             ),
-            wraplength=360,
-            justify=tk.LEFT,
-            padding=(12, 12),
-        ).pack(fill=tk.X)
-
-        buttons = ttk.Frame(dialog, padding=(12, 0, 12, 12))
-        buttons.pack(fill=tk.X)
-
-        def confirm():
-            result["confirmed"] = True
-            dialog.destroy()
-
-        ttk.Button(buttons, text="Yes, disconnect", command=confirm).pack(
-            side=tk.LEFT, padx=(0, 8)
+            parent=self.root,
         )
-        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT)
-        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
-        dialog.wait_window()
-        return result["confirmed"]
 
     def _confirm_manual_bcon_disconnect(self):
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
