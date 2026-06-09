@@ -265,7 +265,7 @@ class BCONDriver:
     # Defaults
     DEFAULT_BAUD       = 115200
     DEFAULT_UNIT       = 1
-    DEFAULT_TIMEOUT    = 1.0
+    DEFAULT_TIMEOUT    = 0.1
     DEFAULT_WATCHDOG_MS = 1500
     DEFAULT_TELEMETRY_MS = 500
     WATCHDOG_MIN_MS   = 50
@@ -867,20 +867,26 @@ class BCONDriver:
                             self._log(f"  read_block({start}, {count}) FAILED: {e}", "WARNING")
                             return False
 
-                    ok = True
                     # Read only the register addresses that the firmware actually
                     # defines. Registers 3-9, 14-19, and 24-29 are gaps in the
                     # control map, while channel status omits the +9 stride slot.
-                    ok &= read_block(0, 3)       # control: watchdog(0), telemetry(1), command(2)
-                    ok &= read_block(10, 4)      # CH1 params: mode, pulse_ms, count, enable_toggle
-                    ok &= read_block(20, 4)      # CH2 params
-                    ok &= read_block(30, 4)      # CH3 params
-                    ok &= read_block(100, 10)    # system + supervisor status (100-109)
-                    ok &= read_block(110, 9)     # CH1 status (110-118)
-                    ok &= read_block(120, 9)     # CH2 status (120-128)
-                    ok &= read_block(130, 9)     # CH3 status (130-138)
-                    ok &= read_block(140, 12)    # CH1-CH3 supervisor status (140-151)
-                    ok &= read_block(152, 2)     # last reject reason + last cmd seq
+                    poll_blocks = (
+                        (0, 3),       # control: watchdog(0), telemetry(1), command(2)
+                        (10, 4),      # CH1 params: mode, pulse_ms, count, enable_toggle
+                        (20, 4),      # CH2 params
+                        (30, 4),      # CH3 params
+                        (100, 10),    # system + supervisor status (100-109)
+                        (110, 9),     # CH1 status (110-118)
+                        (120, 9),     # CH2 status (120-128)
+                        (130, 9),     # CH3 status (130-138)
+                        (140, 12),    # CH1-CH3 supervisor status (140-151)
+                        (152, 2),     # last reject reason + last cmd seq
+                    )
+                    ok = True
+                    for start, count in poll_blocks:
+                        if not read_block(start, count):
+                            ok = False
+                            break
 
                     if not ok:
                         self._poll_errors += 1

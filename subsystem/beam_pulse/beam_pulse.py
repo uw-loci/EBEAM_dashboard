@@ -92,7 +92,7 @@ class BeamPulseSubsystem:
                 port=port,
                 baudrate=baudrate,
                 unit=unit,
-                timeout=1.0,
+                timeout=BCONDriver.DEFAULT_TIMEOUT,
                 debug=debug,
             )
         else:
