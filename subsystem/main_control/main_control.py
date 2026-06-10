@@ -906,8 +906,8 @@ class MainControlPanel:
     def _confirm_manual_bcon_disconnect(self):
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
         ccs_output_active = bool(cathode and any(getattr(cathode, "toggle_states", [])))
-        if self.disable_ccs_output_on_bcon_disconnect and ccs_output_active:
-            if not self._ask_bcon_disconnect_confirmation():
+        if self.disable_ccs_output_on_bcon_disconnect and cathode:
+            if ccs_output_active and not self._ask_bcon_disconnect_confirmation():
                 self.logger.info("BCON disconnect canceled; CCS output remains enabled")
                 return False
             turn_off = getattr(cathode, "turn_off_all_beams", None)
@@ -922,7 +922,7 @@ class MainControlPanel:
         if not self.disable_ccs_output_on_bcon_disconnect:
             return
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
-        if not cathode or not any(getattr(cathode, "toggle_states", [])):
+        if not cathode:
             return
         turn_off = getattr(cathode, "turn_off_all_beams", None)
         if callable(turn_off):
