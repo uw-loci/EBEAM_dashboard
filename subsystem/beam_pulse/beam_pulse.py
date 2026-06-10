@@ -371,7 +371,7 @@ class BeamPulseSubsystem:
                     d.config(state="normal")
                     c.config(state="normal")
                     self._safe_fill(d, "100")
-                    self._safe_fill(c, "2")
+                    self._safe_fill(c, "1")
 
             mode_cb.bind("<<ComboboxSelected>>", _on_mode_change)
             # Apply initial state (PULSE: count grayed out)
