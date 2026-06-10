@@ -75,6 +75,9 @@ def start_main_app(com_ports, logger=None):
                     logger.error(f"Error during cleanup: {e}")
                 except Exception:
                     pass
+            except BaseException:
+                cleanup_complete = False
+                raise
 
     def close_logger_once():
         nonlocal logger_closed
