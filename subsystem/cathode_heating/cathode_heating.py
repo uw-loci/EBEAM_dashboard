@@ -191,6 +191,8 @@ class CathodeHeatingSubsystem:
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
         self.start_power_supply_polling()           # Poll 9104 readbacks off the Tk thread
+        self.after_id = None
+        self._updates_cancelled = False
         self.update_data()                          # Start the data update loop
 
     def _style_lut_dropdown_items(self, combobox, options, retries=4):
@@ -1134,7 +1136,7 @@ class CathodeHeatingSubsystem:
             if ps is not None:
                 try:
                     if hasattr(ps, 'close'):
-                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                        ps.close(ramp_join_timeout=2.0)
                     elif hasattr(ps, 'disconnect'):
                         ps.disconnect()
                     self.log(f"Disconnected power supply {idx + 1}", LogLevel.DEBUG)
@@ -1144,9 +1146,16 @@ class CathodeHeatingSubsystem:
         # Disconnect temperature controller
         if self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
-                self.temperature_controller.disconnect()
-                self.log("Disconnected temperature controller", LogLevel.DEBUG)
+                closed = self.temperature_controller.stop_reading()
+                self.temp_controllers_connected = False
+                if closed:
+                    self.temperature_controller = None
+                    self.log("Disconnected temperature controller", LogLevel.DEBUG)
+                else:
+                    self.log(
+                        "Temperature controller did not close cleanly; keeping old handle until cleanup succeeds",
+                        LogLevel.WARNING,
+                    )
             except Exception as e:
                 self.log(f"Error disconnecting temperature controller: {str(e)}", LogLevel.WARNING)
 
@@ -1327,7 +1336,7 @@ class CathodeHeatingSubsystem:
                 except Exception as e:
                     if ps is not None and hasattr(ps, 'close'):
                         try:
-                            ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                            ps.close(ramp_join_timeout=2.0)
                         except Exception:
                             pass
                     self.log(f"Failed to initialize {cathode} on port {port}: {str(e)}", LogLevel.ERROR)
@@ -1644,9 +1653,20 @@ class CathodeHeatingSubsystem:
         # Ensure any existing controller is properly cleaned up
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
+                closed = self.temperature_controller.stop_reading()
+                if not closed:
+                    self.temp_controllers_connected = False
+                    self.log(
+                        "Existing temperature controller did not close; "
+                        "skipping reinitialization to avoid reopening an in-use COM port.",
+                        LogLevel.WARNING,
+                    )
+                    return False
+                self.temperature_controller = None
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
+                self.temp_controllers_connected = False
+                return False
                 
         try:
             tc = E5CNModbus(port=port, logger=self.logger)
@@ -1846,7 +1866,7 @@ class CathodeHeatingSubsystem:
             return
 
         try:
-            ps.update_com_port(port, lock_timeout=1.0)
+            ps.update_com_port(port)
         except Exception:
             # PowerSupply9104 logs serial failures itself; keep this worker quiet.
             pass
@@ -1874,7 +1894,7 @@ class CathodeHeatingSubsystem:
                     continue
 
                 try:
-                    connected = ps.is_connected(lock_timeout=0.25)
+                    connected = ps.is_connected()
                     if connected is None:
                         # Another command owns the serial lock; keep the GUI responsive and retry later.
                         self._set_power_supply_readback(index, error="busy")
@@ -1886,7 +1906,7 @@ class CathodeHeatingSubsystem:
                             self._attempt_power_supply_reopen(index, ps)
                         continue
 
-                    voltage, current, mode = ps.get_voltage_current_mode(lock_timeout=0.25)
+                    voltage, current, mode = ps.get_voltage_current_mode()
                     if voltage is None or current is None:
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
@@ -1928,6 +1948,22 @@ class CathodeHeatingSubsystem:
 
     
     def update_data(self):
+        if getattr(self, "_updates_cancelled", False):
+            return
+
+        try:
+            self._update_data_once()
+        except Exception as e:
+            message = f"Cathode heating update_data failed: {type(e).__name__}: {e}"
+            try:
+                self.log(message, LogLevel.ERROR)
+            except Exception:
+                print(f"{LogLevel.ERROR.name}: {message}")
+        finally:
+            if not getattr(self, "_updates_cancelled", False):
+                self.after_id = self.parent.after(500, self.update_data)
+
+    def _update_data_once(self):
         current_time = datetime.datetime.now()
         plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
 
@@ -2030,20 +2066,19 @@ class CathodeHeatingSubsystem:
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
 
-        # Schedule next update
-        self.after_id = self.parent.after(500, self.update_data)
-
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        self._updates_cancelled = True
         if hasattr(self, 'after_id') and self.after_id:
             try:
                 self.parent.after_cancel(self.after_id)
-                self.after_id = None
                 if self.logger:
                     self.log('Canceled scheduled cathode heating display update.', LogLevel.DEBUG)
             except Exception as e:
                 if self.logger:
                     self.log('Failed to cancel scheduled cathode heating display update.', LogLevel.DEBUG)
+            finally:
+                self.after_id = None
 
     def update_plot(self, index):
         if len(self.time_data[index]) == 0:
@@ -3204,10 +3239,12 @@ class CathodeHeatingSubsystem:
         UI callback - user pressed STOP RAMP.
         """
         ps = self.power_supplies[index]
+        was_ramping = self.is_ramping(index)
         if ps:
             ps.stop_ramp()
         self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
-        self.on_ramp_complete(index)
+        if not was_ramping:
+            self.on_ramp_complete(index)
 
     def set_curr_adjustment_buttons_state(self, index: int, state: str):
         """Enable or disable the current +/- adjustment buttons for one cathode."""
@@ -3246,19 +3283,20 @@ class CathodeHeatingSubsystem:
                     if hasattr(ps, 'disable_output'):
                         # Try to turn output off, but continue closing if a dead serial transaction owns the lock.
                         self.log(f"Disabling output on cathode {chr(65 + i)} power supply", LogLevel.INFO)
-                        ps.disable_output(lock_timeout=1.0)
+                        ps.disable_output()
                 except Exception as e:
                     self.log(f"Error disabling output on cathode {chr(65 + i)}: {e}", LogLevel.ERROR)
                 if hasattr(ps, 'close'):
                     try:
-                        ps.close(ramp_join_timeout=2.0, serial_lock_timeout=1.0)
+                        ps.close(ramp_join_timeout=2.0)
                     except TypeError:
                         ps.close()
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
+                closed = self.temperature_controller.stop_reading()
+                if not closed:
+                    self.log("Temperature controller did not close cleanly during shutdown", LogLevel.WARNING)
                 self.temp_controllers_connected = False
-                self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
