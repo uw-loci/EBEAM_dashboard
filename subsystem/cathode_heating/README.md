@@ -13,6 +13,8 @@ The subsystem sits between the Tkinter GUI and the hardware drivers. It is respo
 - Coordinating immediate sets vs. ramped sets.
 - Keeping live voltage, current, mode, and temperature displays updated.
 - Polling 9104 power-supply readbacks on a background thread.
+- Cooperating with Main Control's BCON-disconnect guard so CCS outputs are not
+  enabled when BCON is unavailable, unless that guard is intentionally disabled.
 
 ## Hardware Relationships
 
@@ -32,6 +34,10 @@ At runtime the subsystem has three main jobs:
 3. Refresh GUI values on a 500 ms Tkinter loop by consuming 9104 readbacks from a background poller.
 
 Temperature-controller readings are still owned by the `E5CNModbus` temperature-controller object. `cathode_heating.py` reads the latest cached temperature value from `temperature_controller.temperatures[index]`.
+
+Main Control may also provide a BCON connection checker and a runtime guard
+setting. When that guard is enabled, Cathode Heating treats a disconnected BCON
+as a reason to block new CCS output enables.
 
 ## UI Structure Per Cathode
 
@@ -155,12 +161,30 @@ Before sending a new setpoint, the subsystem validates it against current driver
 
 When the output toggle is switched on, `toggle_output()` also verifies:
 
+- BCON is connected, when Main Control's BCON-disconnect guard is enabled.
 - A stored target voltage exists.
 - A stored target current exists.
 - The stored target voltage is within OVP.
 - The stored target current is within OCP.
 
 If any of those checks fail, output is not enabled.
+
+## BCON Disconnect Guard
+
+Main Control gives Cathode Heating:
+
+- `disable_ccs_output_on_bcon_disconnect`: the runtime guard setting, defaulted
+  on by Main Control.
+- `bcon_is_connected`: a callable that reports the current Beam Pulse/BCON
+  connection state.
+
+With the guard enabled, `toggle_output()` refuses to enable a cathode output
+when BCON is disconnected and logs a warning naming the affected cathode. This
+prevents CCS output from being turned on after BCON communication has been lost.
+
+For an actual BCON disconnect event, Main Control calls Cathode Heating's
+existing `turn_off_all_beams()` helper when any cathode output is active. That
+path turns off all active 9104 outputs and updates the cathode output button state.
 
 ## Ramping Behavior
 

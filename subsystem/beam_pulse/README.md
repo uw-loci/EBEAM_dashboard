@@ -23,6 +23,8 @@ flowchart TD
     BeamPulse -->|"channel status, channel enable,<br/>armed state, action feedback"| MainControl
     MainControl -->|"emission limit provider"| BeamPulse
     Cathode -->|"predicted emission currents"| MainControl
+    BeamPulse -->|"manual disconnect check,<br/>disconnect notification"| MainControl
+    MainControl -->|"BCON-connected provider,<br/>guard setting, turn_off_all_beams()"| Cathode
 
     BeamEnergy -->|"+20kV current E-stop callback"| MainControl
     MainControl -->|"turn_off_all_beams()"| Cathode
@@ -82,10 +84,19 @@ as `("regs", regs)` messages. The subsystem consumes the queue on the Tk main
 thread every 200 ms, updates widgets, and forwards live state to Main Control
 callbacks.
 
+Driver warning/error logs are also routed through the same UI queue, so BCON
+worker-thread diagnostics are displayed through the dashboard logging path
+instead of being printed directly from the worker.
+
 On connect, the subsystem applies its preferred defaults:
 
 - Watchdog: `BCONDriver.DEFAULT_WATCHDOG_MS` currently 1500 ms.
 - Telemetry: `BCONDriver.DEFAULT_TELEMETRY_MS` currently 500 ms.
+
+The driver uses a short serial read timeout and disconnects itself after a
+bounded number of consecutive polling failures. When that happens, Beam Pulse
+clears its local armed/output/channel-enable mirrors, updates its UI, and emits
+the registered disconnect callback.
 
 ## Channel Modes
 
@@ -104,7 +115,7 @@ for pulse duration and count.
 
 ## Safety And Guard Rails
 
-There are three layers of safety/status behavior to keep distinct:
+There are four layers of safety/status behavior to keep distinct:
 
 - Beam Pulse software arming: `arm_beams()` allows output-producing actions;
   `disarm_beams()` stops CSV playback, clears local output state, commands BCON
@@ -114,13 +125,15 @@ There are three layers of safety/status behavior to keep distinct:
 - Emission-current limit: Beam Pulse blocks non-OFF Beam ON, Sync Start, and CSV
   step commands when the projected predicted emission current is at or above the
   Main Control limit.
+- BCON/CCS disconnect guard: Beam Pulse reports BCON disconnects to Main Control. Main Control then
+  decides whether Cathode Heating should disable or block CCS output.
 
 ### Main Control Arm Beams Button
 
 The Main Control `ARM BEAMS` / `BEAMS ARMED` control is the software
-permission switch for Beam Pulse actions.Arming does
-NOT start output, enable a channel, turn on cathode heating, or send a hardware
-arm command to BCON. It only allows armed-gated Dashboard controls to be used.
+permission switch for Beam Pulse actions. Arming does NOT start output, enable
+a channel, turn on cathode heating, or send a hardware arm command to BCON. It
+only allows armed-gated Dashboard controls to be used.
 
 When BCON is connected and beams are armed, the operator can:
 
@@ -135,6 +148,22 @@ stops any running CSV sequence, commands all BCON beam channels off when a BCON
 driver is available, disables armed-gated controls, and resets Dashboard beam
 buttons to OFF. It does not turn off cathode heater power-supply outputs; use
 `BEAMS E-STOP` when cathode heater outputs must also be shut off.
+
+### BCON Disconnect Integration
+
+Beam Pulse exposes two disconnect-related hooks for Main Control:
+
+- A manual-disconnect callback, called before an operator-requested BCON
+  disconnect proceeds.
+- A disconnect callback, called after Beam Pulse observes that BCON is no longer
+  connected.
+
+This keeps the BCON hardware lifecycle inside Beam Pulse while leaving the
+cross-subsystem safety decision in Main Control. In the current dashboard
+wiring, Main Control uses those hooks to warn the operator before a manual BCON
+disconnect would shut down active CCS outputs, and to call Cathode Heating's
+`turn_off_all_beams()` path when BCON is lost unexpectedly and the guard is
+enabled.
 
 ## Main Control API
 
@@ -158,6 +187,8 @@ Main Control registers these callbacks/providers on Beam Pulse:
 | `set_armed_status_callback(callback)` | `callback(armed)` | mirror software armed state |
 | `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | action line and firmware acknowledgement display |
 | `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data |
+| `set_manual_disconnect_callback(callback)` | `callback() -> bool` | ask Main Control whether a user-requested BCON disconnect may continue |
+| `set_disconnect_callback(callback)` | `callback()` | notify Main Control after BCON disconnects |
 
 ## Manual And Sync Operation
 
