@@ -57,23 +57,65 @@ def start_main_app(com_ports, logger=None):
     fullscreen = False
     # app is assigned later, set to None for now to be safe in case of early quit attempt
     app = None
-  
-    def quit_app(event=None):
-        if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            # If the main app instance exists, try to run its cleanup method.
-            if app is not None and hasattr(app, 'cleanup'):
-                try:
-                    app.cleanup()
-                except Exception as e:
-                    try:
-                        logger.error(f"Error during cleanup: {e}")
-                    except Exception:
-                        pass
+    cleanup_complete = False
+    logger_closed = False
+    shutdown_started = False
+
+    def run_cleanup():
+        nonlocal cleanup_complete
+        if cleanup_complete:
+            return
+        cleanup_complete = True
+        # If the main app instance exists, try to run its cleanup method.
+        if app is not None and hasattr(app, 'cleanup'):
             try:
-                logger.close()
+                app.cleanup()
             except Exception as e:
-                print(f"Error closing logger: {e}")
-            root.destroy()
+                try:
+                    logger.error(f"Error during cleanup: {e}")
+                except Exception:
+                    pass
+            except BaseException:
+                cleanup_complete = False
+                raise
+
+    def close_logger_once():
+        nonlocal logger_closed
+        if logger_closed:
+            return
+        logger_closed = True
+        try:
+            logger.close()
+        except Exception as e:
+            print(f"Error closing logger: {e}")
+
+    def close_root():
+        try:
+            root.quit()
+        except tk.TclError:
+            pass
+        try:
+            if root.winfo_exists():
+                root.destroy()
+        except tk.TclError:
+            pass
+
+    def finish_shutdown():
+        try:
+            run_cleanup()
+        finally:
+            try:
+                close_root()
+            finally:
+                close_logger_once()
+
+    def quit_app(event=None):
+        nonlocal shutdown_started
+        if shutdown_started:
+            return "break"
+        if messagebox.askokcancel("Quit", "Do you want to quit?", parent=root):
+            shutdown_started = True
+            finish_shutdown()
         return "break"
     
     """Esnure that quit_app is called when the window is closed, not just when Ctrl+Q is pressed."""
@@ -197,10 +239,7 @@ def start_main_app(com_ports, logger=None):
     try:
         root.mainloop()
     finally:
-        try:
-            logger.close()
-        except Exception as e:
-            print(f"Error closing logger: {e}")
+        finish_shutdown()
 
 def config_com_ports(saved_com_ports, logger=None):
     """
@@ -230,6 +269,23 @@ def config_com_ports(saved_com_ports, logger=None):
     config_root.title("Configure COM Ports")
 
     selections = {}
+    selected_ports_result = None
+    config_closing = False
+
+    def close_config():
+        nonlocal config_closing
+        if config_closing:
+            return
+        config_closing = True
+        try:
+            config_root.quit()
+        except tk.TclError:
+            pass
+        try:
+            if config_root.winfo_exists():
+                config_root.destroy()
+        except tk.TclError:
+            pass
 
     main_frame = ttk.Frame(config_root, padding="20 20 20 20")
     main_frame.pack(side=tk.TOP, fill=tk.X)
@@ -266,6 +322,7 @@ def config_com_ports(saved_com_ports, logger=None):
         selected. If not, offers to fill those with dummy ports. If the user
         refuses, they remain in the config window.
         """
+        nonlocal selected_ports_result
         selected_ports = {key: value.get() for key, value in selections.items()}
         
         # check that all COM ports are selected
@@ -289,25 +346,30 @@ def config_com_ports(saved_com_ports, logger=None):
         save_com_ports(selected_ports, logger=logger)
         if logger is not None:
             logger.info(f"COM-port selection submitted: {selected_ports}")
-        config_root.destroy()
-        
-        # Launch the main application
-        start_main_app(selected_ports, logger=logger)
+        selected_ports_result = selected_ports
+        close_config()
 
     submit_button = tk.Button(config_root, text="Submit", command=on_submit)
     submit_button.pack(pady=20)
     
+    config_root.protocol("WM_DELETE_WINDOW", close_config)
     config_root.bind('<Return>', lambda event: on_submit())
     config_root.mainloop()
+    return selected_ports_result
 
 
 if __name__ == "__main__":
     bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
-    bootstrap_logger.info("Process launch")
+    try:
+        bootstrap_logger.info("Process launch")
 
-    # Load previously saved COM ports, if any
-    saved_com_ports = load_com_ports(logger=bootstrap_logger)
-    bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available")
+        # Load previously saved COM ports, if any
+        saved_com_ports = load_com_ports(logger=bootstrap_logger)
+        bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available")
 
-    # Prompt the user to confirm or change COM ports
-    config_com_ports(saved_com_ports, logger=bootstrap_logger)
+        # Prompt the user to confirm or change COM ports
+        selected_com_ports = config_com_ports(saved_com_ports, logger=bootstrap_logger)
+        if selected_com_ports:
+            start_main_app(selected_com_ports, logger=bootstrap_logger)
+    finally:
+        bootstrap_logger.close()
