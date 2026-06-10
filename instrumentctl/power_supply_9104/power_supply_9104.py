@@ -338,7 +338,8 @@ class PowerSupply9104:
                         callback(False)
                     return
 
-                if not self.is_connected():
+                connected = self.is_connected()
+                if connected is False:
                     self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
@@ -475,7 +476,8 @@ class PowerSupply9104:
                         callback(False)
                     return
             
-                if not self.is_connected():
+                connected = self.is_connected()
+                if connected is False:
                     self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
