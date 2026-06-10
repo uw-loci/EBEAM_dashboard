@@ -328,7 +328,8 @@ It handles:
 - Serialized readback commands used by the cathode polling thread.
 - Background ramp threads.
 - Ramp stop signaling.
-- A default 0.5 s bounded serial-lock wait on public serial command paths, including GUI-triggered reads/writes, polling, reconnect, COM-port update, and shutdown output-disable calls.
+- A default 0.5 s bounded serial-lock wait on public serial command paths, including GUI-triggered reads/writes, polling, reconnect, and COM-port updates.
+- Shutdown output-disable calls use a serial-lock wait of 1.5s.
 
 In short:
 

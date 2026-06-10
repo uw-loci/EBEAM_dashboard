@@ -93,6 +93,9 @@ class E5CNModbus:
         while not self.stop_event.is_set():
             try:
                 temperature = self.read_temperature(unit)
+                if self.stop_event.is_set():
+                    self.connected = False
+                    break
                 if isinstance(temperature, (int, float)):
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
@@ -109,6 +112,9 @@ class E5CNModbus:
                     self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
                 time.sleep(0.5)  # small delay between reads
             except Exception as e:
+                if self.stop_event.is_set():
+                    self.connected = False
+                    break
                 self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
                 time.sleep(1)  # Longer delay on error
 
@@ -128,26 +134,9 @@ class E5CNModbus:
             
         self.threads.clear()
         
-        # Clean up the connection
-        acquired = self.modbus_lock.acquire(timeout=self.MODBUS_CLOSE_LOCK_TIMEOUT)
         try:
-            if not acquired:
-                self.log(
-                    "Timed out waiting for E5CN Modbus lock while closing connection; "
-                    "continuing without blocking shutdown",
-                    LogLevel.WARNING
-                )
-                return
-
-            try:
-                if self.client.is_socket_open():
-                    self.client.close()
-                    self.log("Modbus connection closed", LogLevel.DEBUG)
-            except Exception as e:
-                self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
+            return self.disconnect()
         finally:
-            if acquired:
-                self.modbus_lock.release()
             self.is_initialized.clear()
             self.flush_queued_logs()
 
@@ -177,22 +166,48 @@ class E5CNModbus:
                 return False
 
     def disconnect(self):
-        """Disconnect from the Modbus device with proper locking."""
-       # with self.modbus_lock:
+        """Disconnect from the Modbus device without blocking indefinitely on modbus_lock."""
+        if self.modbus_lock.acquire(timeout=self.MODBUS_CLOSE_LOCK_TIMEOUT):
+            try:
+                return self._close_client()
+            finally:
+                self.modbus_lock.release()
+
+        self.log("Timed out waiting for E5CN lock; force-closing client", LogLevel.WARNING)
+        return self._close_client()
+
+    def _close_client(self):
+        """Best-effort close without acquiring modbus_lock."""
+        self.connected = False
+
+        if self.client is None:
+            self.log("E5CN Modbus client is unavailable while closing connection", LogLevel.ERROR)
+            return False
+
         try:
             if self.client.is_socket_open():
                 self.client.close()
-                self.log("Disconnected from the E5CN Modbus device.", LogLevel.INFO)
+                self.log("Modbus connection closed", LogLevel.DEBUG)
             else:
-                self.log("Client already disconnected from E5CN Modbus device", LogLevel.INFO)
+                self.log("Modbus connection already closed", LogLevel.DEBUG)
+
+            if self.client.is_socket_open():
+                self.log("E5CN Modbus client still reports open after close", LogLevel.ERROR)
+                return False
+
+            return True
         except Exception as e:
-            self.log(f"Error in disconnect: {str(e)}", LogLevel.ERROR)
+            self.log(f"Error closing connection: {str(e)}", LogLevel.ERROR)
+            return False
 
     def read_temperature(self, unit):
         attempts = 3
-        while attempts > 0:
+        while attempts > 0 and not self.stop_event.is_set():
             try:
                 with self.modbus_lock:
+                    if self.stop_event.is_set():
+                        return None
+
                     if not self.client.is_socket_open():
                         try:
                             if self.client.connect():

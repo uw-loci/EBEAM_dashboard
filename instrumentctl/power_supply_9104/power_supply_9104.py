@@ -338,7 +338,8 @@ class PowerSupply9104:
                         callback(False)
                     return
 
-                if not self.is_connected():
+                connected = self.is_connected()
+                if connected is False:
                     self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
@@ -475,7 +476,8 @@ class PowerSupply9104:
                         callback(False)
                     return
             
-                if not self.is_connected():
+                connected = self.is_connected()
+                if connected is False:
                     self.log("Connection lost during ramping. Aborting ramp.", LogLevel.ERROR)
                     if callback:
                         callback(False)
@@ -817,7 +819,7 @@ class PowerSupply9104:
         command = f"SETM{setv1:04}{seti1:04}{swtime1:03}{setv2:04}{seti2:04}{swtime2:03}{setv3:04}{seti3:04}{swtime3:03}"
         return self.send_command(command)
     
-    def disable_output(self, lock_timeout=None):
+    def disable_output(self, lock_timeout=1.5):
         """Disable the power supply output unconditionally (no OVP validation)."""
         command = "SOUT0"
         response = self.send_command(command, lock_timeout=lock_timeout)
