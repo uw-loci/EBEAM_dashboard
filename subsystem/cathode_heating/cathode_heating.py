@@ -1146,9 +1146,16 @@ class CathodeHeatingSubsystem:
         # Disconnect temperature controller
         if self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
-                self.temperature_controller.disconnect()
-                self.log("Disconnected temperature controller", LogLevel.DEBUG)
+                closed = self.temperature_controller.stop_reading()
+                self.temp_controllers_connected = False
+                if closed:
+                    self.temperature_controller = None
+                    self.log("Disconnected temperature controller", LogLevel.DEBUG)
+                else:
+                    self.log(
+                        "Temperature controller did not close cleanly; keeping old handle until cleanup succeeds",
+                        LogLevel.WARNING,
+                    )
             except Exception as e:
                 self.log(f"Error disconnecting temperature controller: {str(e)}", LogLevel.WARNING)
 
@@ -1646,9 +1653,20 @@ class CathodeHeatingSubsystem:
         # Ensure any existing controller is properly cleaned up
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
+                closed = self.temperature_controller.stop_reading()
+                if not closed:
+                    self.temp_controllers_connected = False
+                    self.log(
+                        "Existing temperature controller did not close; "
+                        "skipping reinitialization to avoid reopening an in-use COM port.",
+                        LogLevel.WARNING,
+                    )
+                    return False
+                self.temperature_controller = None
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
+                self.temp_controllers_connected = False
+                return False
                 
         try:
             tc = E5CNModbus(port=port, logger=self.logger)
@@ -3277,8 +3295,9 @@ class CathodeHeatingSubsystem:
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
-                self.temperature_controller.stop_reading()
+                closed = self.temperature_controller.stop_reading()
+                if not closed:
+                    self.log("Temperature controller did not close cleanly during shutdown", LogLevel.WARNING)
                 self.temp_controllers_connected = False
-                self.temperature_controller.disconnect()
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
