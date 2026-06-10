@@ -717,6 +717,17 @@ class MainControlPanel:
             cathode.disable_ccs_output_on_bcon_disconnect = (
                 self.disable_ccs_output_on_bcon_disconnect
             )
+        # When turning this setting on, immediately check BCON connection and update 
+        # CCS output to off if needed so the UI state is consistent with the setting.
+        if self.disable_ccs_output_on_bcon_disconnect:
+            beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
+            is_connected = getattr(beam_pulse, "is_connected", None)
+            try:
+                bcon_connected = bool(is_connected()) if callable(is_connected) else False
+            except Exception:
+                bcon_connected = False
+            if not bcon_connected:
+                self._handle_bcon_disconnected()
         state = "enabled" if self.disable_ccs_output_on_bcon_disconnect else "disabled"
         self.logger.info(f"Disable CCS Output on BCON Disconnect {state}")
 
