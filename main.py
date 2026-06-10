@@ -97,14 +97,22 @@ def start_main_app(com_ports, logger=None):
         except tk.TclError:
             pass
 
+    def finish_shutdown():
+        try:
+            run_cleanup()
+        finally:
+            try:
+                close_root()
+            finally:
+                close_logger_once()
+
     def quit_app(event=None):
         nonlocal shutdown_started
         if shutdown_started:
             return "break"
         if messagebox.askokcancel("Quit", "Do you want to quit?", parent=root):
             shutdown_started = True
-            run_cleanup()
-            close_root()
+            finish_shutdown()
         return "break"
     
     """Esnure that quit_app is called when the window is closed, not just when Ctrl+Q is pressed."""
@@ -228,9 +236,7 @@ def start_main_app(com_ports, logger=None):
     try:
         root.mainloop()
     finally:
-        run_cleanup()
-        close_root()
-        close_logger_once()
+        finish_shutdown()
 
 def config_com_ports(saved_com_ports, logger=None):
     """
