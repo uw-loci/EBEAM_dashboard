@@ -45,6 +45,7 @@ Main Control is a two-tab subpanel.
 - Launch Log Post-processor button.
 - UI log-level and file log-level dropdowns.
 - Total Max Emission Current control.
+- Disable CCS Output on BCON Disconnect toggle.
 - F1 keyboard shortcut hint.
 
 ## Code Structure
@@ -55,12 +56,15 @@ Main Control is a two-tab subpanel.
 - `create_beam_output_status_panel()` builds the Beam A/B/C output lines and
   latest-action line.
 - `wire_beam_pulse()` registers Main Control as the callback target for Beam
-  Pulse status updates and gives Beam Pulse the emission-limit providers.
+  Pulse status updates, gives Beam Pulse the emission-limit providers, and wires
+  BCON disconnect notifications into Cathode Heating.
 - `wire_beam_energy()` registers the Beam Energy +20 kV current E-stop callback.
 - `create_com_port_frame()`, `apply_com_port_changes()`, and related helpers
   manage COM-port selection through the parent Dashboard.
 - `set_total_max_emission_current_limit()` validates and persists the emission
   limit through `usr/main_control_config.py`.
+- `toggle_disable_ccs_output_on_bcon_disconnect()` updates the runtime
+  BCON/CCS guard setting and propagates it to Cathode Heating.
 
 ## Major Action Handlers
 
@@ -75,6 +79,7 @@ Main Control is a two-tab subpanel.
 | `_on_channel_status_update()` | Mirrors live BCON channel output state into Beam A/B/C buttons and status lines. |
 | `_on_channel_enable_status_update()` | Mirrors live BCON channel enable state into CH A/B/C buttons and beam-button availability. |
 | `_handle_action_feedback()` | Converts Beam Pulse action callbacks into the latest-action status line. |
+| `_handle_bcon_disconnected()` | Disables CCS output through Cathode Heating when BCON disconnects and the guard is enabled. |
 
 ## Subsystem Relationships
 
@@ -100,16 +105,22 @@ Beam Pulse calls back into Main Control with:
 - Live channel enable status.
 - Software armed status.
 - Action feedback and firmware acknowledgement text.
+- Manual-disconnect confirmation requests.
+- BCON disconnect notifications.
 
 ### Cathode Heating
 
-Main Control uses Cathode Heating in two ways:
+Main Control uses Cathode Heating in three ways:
 
 - It exposes `get_predicted_emission_currents_ma()` to Beam Pulse so Beam Pulse
   can block output commands that would exceed the configured total predicted
   emission-current limit.
 - During BEAMS E-STOP, Main Control calls `turn_off_all_beams()` to turn off the
   cathode heating power-supply outputs.
+- When the BCON-disconnect guard is enabled, Main Control also calls
+  `turn_off_all_beams()` if BCON disconnects while any cathode output is active.
+  The same setting is passed to Cathode Heating so it can block new CCS output
+  enables while BCON is disconnected.
 
 ### Beam Energy
 
@@ -137,4 +148,8 @@ Dashboard callbacks.
   performs output checks before sending the synchronized start to BCON.
 - BEAMS E-STOP is the Main Control path that combines BCON stop, Cathode Heating
   output shutdown, Beam Pulse disarm, and Main Control UI reset.
-  
+- Disable CCS Output on BCON Disconnect is a runtime Main Control setting. When
+  enabled, an unexpected BCON disconnect turns off active CCS outputs, and a
+  manual BCON disconnect asks for confirmation before it shuts those outputs
+  down. When disabled, BCON disconnects no longer drive CCS output shutdown or
+  block cathode output enable requests.

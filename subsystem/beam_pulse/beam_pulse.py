@@ -92,7 +92,7 @@ class BeamPulseSubsystem:
                 port=port,
                 baudrate=baudrate,
                 unit=unit,
-                timeout=1.0,
+                timeout=BCONDriver.DEFAULT_TIMEOUT,
                 debug=debug,
             )
         else:
@@ -114,6 +114,8 @@ class BeamPulseSubsystem:
         self._action_feedback_callback = None
         self._armed_status_callback = None
         self._beam_activity_callback = None
+        self._manual_disconnect_callback = None
+        self._disconnect_callback = None
         self._last_beam_activity_sent = None
         self._pending_firmware_acks = deque()
         self._last_send_failure_message = ""
@@ -1043,10 +1045,22 @@ class BeamPulseSubsystem:
                 self.channel_enable_status = [False, False, False]
                 self._update_armed_button_states(False)
                 self._notify_all_channel_enables(False)
+                callback = getattr(self, "_disconnect_callback", None)
+                if callable(callback):
+                    try:
+                        callback()
+                    except Exception:
+                        pass
             self.update_bcon_connection_status()
         elif typ == "regs":
             regs = msg[1]
             self._update_ui_from_registers(regs)
+        elif typ == "log":
+            # BCON driver queued this from a worker thread; _log handles main-thread UI logging.
+            text = str(msg[1])
+            level_name = str(msg[2]).upper() if len(msg) > 2 else "INFO"
+            level = getattr(LogLevel, level_name, LogLevel.INFO)
+            self._log(f"BCON: {text}", level)
         elif typ == "wrote":
             reg, val = msg[1], msg[2]
             if reg == REG_COMMAND and val != 0:
@@ -1342,6 +1356,13 @@ class BeamPulseSubsystem:
             return
         if self.bcon_driver.is_connected():
             # User clicked "Disconnect" — only tear down, do NOT reconnect.
+            callback = getattr(self, "_manual_disconnect_callback", None)
+            if callable(callback):
+                try:
+                    if not callback():
+                        return
+                except Exception:
+                    return
             self.disconnect()
             if hasattr(self, 'connect_btn'):
                 self.connect_btn.configure(text="Reconnect", state="normal")
@@ -1449,6 +1470,12 @@ class BeamPulseSubsystem:
         self._beam_activity_callback = callback
         self._last_beam_activity_sent = None
         self._notify_beam_activity(bool(getattr(self, "_active_channels", set())))
+
+    def set_manual_disconnect_callback(self, callback):
+        self._manual_disconnect_callback = callback if callable(callback) else None
+
+    def set_disconnect_callback(self, callback):
+        self._disconnect_callback = callback if callable(callback) else None
 
     def _notify_beam_activity(self, active: bool) -> None:
         """Notify when any Beam Pulse channel transitions between active/off."""
