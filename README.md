@@ -168,7 +168,7 @@ All code development intended to impact a future release is done on the latest `
 The `main` branch contains the latest production code.
 
 #### Development Process 
-Clone the repo to your machine. Current libraries require the use of Python version 3.11.
+Clone the repo to your machine. Current libraries require the use of Python version 3.11; `pip` will refuse to install on other versions.
 
 > Note: Python 3.11 is in the security-fix-only phase and is scheduled to reach End of Life (EOL) on 2027-10-31. The PSF support window for each major release is five years, typically split into bugfix and security phases. See https://devguide.python.org/versions/ and https://endoflife.date/python.
 
@@ -190,7 +190,7 @@ Activate the virtual environment (assuming on Windows)*:
 Install the requirements:
 ```
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -e .
 ```
 Run the main application:
 ```
