@@ -13,8 +13,8 @@ state back into a compact operator panel.
 At runtime it is responsible for:
 
 - Building the Main Control `Main` and `Config` tabs.
-- Providing ARM BEAMS, BEAMS E-STOP, Beam A/B/C, CH A/B/C enable, and Sync
-  Start/Stop controls.
+- Providing ARM BEAMS, BEAMS E-STOP, Beam A/B/C, CH A/B/C enable,
+  Activate Enabled Beams, and Disable All Beams controls.
 - Displaying Beam A/B/C output status and the result of the latest beam action.
 - Saving dashboard layout and updating COM-port assignments through Dashboard
   callbacks.
@@ -31,7 +31,7 @@ Main Control is a two-tab subpanel.
 - Setup script dropdown.
 - Beam A/B/C ON/OFF buttons.
 - CH A/B/C enable buttons, which mirror BCON channel enable state.
-- Sync Start and Sync Stop buttons.
+- Activate Enabled Beams and Disable All Beams buttons.
 - ARM BEAMS / BEAMS ARMED toggle.
 - Four-line beam status/action display:
   - Lines 1-3 show Beam A/B/C enabled/output state.
@@ -74,8 +74,8 @@ Main Control is a two-tab subpanel.
 | `handle_beams_off()` | Stops all BCON channels, turns off cathode heating outputs, disarms Beam Pulse, resets controls, and posts the E-stop action message. |
 | `toggle_individual_beam_with_status()` | Turns one Beam A/B/C output on or off using the current Beam Pulse manual channel configuration. |
 | `_toggle_channel_enable()` | Toggles a BCON channel enable state through Beam Pulse. |
-| `handle_sync_start()` | Starts all enabled/manual-configured Beam Pulse channels together. |
-| `handle_sync_stop()` | Stops synchronized Beam Pulse output. |
+| `handle_activate_enabled_beams()` | Starts all enabled/manual-configured Beam Pulse channels together. |
+| `handle_disable_all_beams()` | Stops all Beam Pulse output. |
 | `_on_channel_status_update()` | Mirrors live BCON channel output state into Beam A/B/C buttons and status lines. |
 | `_on_channel_enable_status_update()` | Mirrors live BCON channel enable state into CH A/B/C buttons and beam-button availability. |
 | `_handle_action_feedback()` | Converts Beam Pulse action callbacks into the latest-action status line. |
@@ -95,8 +95,8 @@ Main Control calls Beam Pulse for operator actions:
 - `send_channel_config(channel_index)`
 - `send_channel_off(channel_index)`
 - `toggle_channel_enable(channel_index)`
-- `sync_start()`
-- `sync_stop_all()`
+- `activate_enabled_beams()`
+- `disable_all_beams()`
 - `stop_all_channels()`
 
 Beam Pulse calls back into Main Control with:
@@ -144,7 +144,7 @@ Dashboard callbacks.
   Manual Control tab.
 - Beam A/B/C buttons are only enabled when Beam Pulse is armed and the matching
   BCON channel is enabled.
-- Sync Start is delegated to Beam Pulse, which filters disabled channels and
+- Activate Enabled Beams is delegated to Beam Pulse, which filters disabled channels and
   performs output checks before sending the synchronized start to BCON.
 - BEAMS E-STOP is the Main Control path that combines BCON stop, Cathode Heating
   output shutdown, Beam Pulse disarm, and Main Control UI reset.

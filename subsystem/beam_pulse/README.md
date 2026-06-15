@@ -2,7 +2,7 @@
 
 `BeamPulseSubsystem` is the dashboard-facing control layer for the BCON beam
 pulser. It owns the Beam Pulse subpanel UI, BCON driver connection, channel
-configuration validation, synchronized starts, CSV sequence playback, and the
+configuration validation, enabled-beam activation, CSV sequence playback, and the
 software checks that run before output-producing BCON commands.
 
 Main Control is the operator control surface for most beam actions. Beam Pulse
@@ -19,7 +19,7 @@ flowchart TD
     Dashboard --> BeamEnergy["Beam Energy"]
     Dashboard --> Cathode["Cathode Heating"]
 
-    MainControl -->|"Arm/Disarm, Beam A/B/C, CH Enable,<br/>Sync Start/Stop, Beams E-stop"| BeamPulse
+    MainControl -->|"Arm/Disarm, Beam A/B/C, CH Enable,<br/>Activate Enabled Beams / Disable All Beams, Beams E-stop"| BeamPulse
     BeamPulse -->|"channel status, channel enable,<br/>armed state, action feedback"| MainControl
     MainControl -->|"emission limit provider"| BeamPulse
     Cathode -->|"predicted emission currents"| MainControl
@@ -29,7 +29,7 @@ flowchart TD
     BeamEnergy -->|"+20kV current E-stop callback"| MainControl
     MainControl -->|"turn_off_all_beams()"| Cathode
 
-    BeamPulse -->|"high-level channel/sync/stop calls"| Driver["BCONDriver<br/>instrumentctl/BCON"]
+    BeamPulse -->|"high-level channel activation/stop calls"| Driver["BCONDriver<br/>instrumentctl/BCON"]
     Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware"]
     Driver -->|"connected / regs / wrote / error / command_result"| Queue["Beam Pulse UI queue"]
     Queue -->|"Tk after(), 200 ms"| BeamPulse
@@ -48,8 +48,8 @@ Beam Pulse itself has a compact status bar and two tabs.
 
 Main Control is a separate subpanel, but it is the normal place operators start
 beam actions. It hosts ARM BEAMS, BEAMS E-STOP, Beam A/B/C ON/OFF buttons,
-CH A/B/C enable buttons, Sync Start/Stop, and the four-line beam status/action
-display.
+CH A/B/C enable buttons, Activate Enabled Beams / Disable All Beams, and the
+four-line beam status/action display.
 
 ## Code Structure
 
@@ -122,7 +122,7 @@ There are four layers of safety/status behavior to keep distinct:
   all-off, resets channel-enable state, and disables armed-gated controls.
 - BCON firmware safety: hardware interlock and watchdog state remain enforced by
   BCON firmware and are reported through registers.
-- Emission-current limit: Beam Pulse blocks non-OFF Beam ON, Sync Start, and CSV
+- Emission-current limit: Beam Pulse blocks non-OFF Beam ON, Activate Enabled Beams, and CSV
   step commands when the projected predicted emission current is at or above the
   Main Control limit.
 - BCON/CCS disconnect guard: Beam Pulse reports BCON disconnects to Main Control. Main Control then
@@ -140,7 +140,7 @@ When BCON is connected and beams are armed, the operator can:
 - Toggle BCON channel enable states with the `CH A/B/C` enable buttons.
 - Turn individual Beam A/B/C outputs on from their Dashboard buttons, for
   channels that are currently hardware-enabled.
-- Use `Sync Start` from the Manual Control configuration.
+- Use `Activate Enabled Beams` from the Manual Control configuration.
 - Run a loaded CSV sequence, when BCON is connected.
 
 Press the same button again while beams are armed to disarm Beam Pulse. Disarm
@@ -176,7 +176,7 @@ Main Control calls these Beam Pulse methods:
 | Beam A/B/C ON | `send_channel_config(channel_index)` |
 | Beam A/B/C OFF | `send_channel_off(channel_index)` |
 | CH A/B/C enable | `toggle_channel_enable(channel_index)` |
-| Sync Start/Stop | `sync_start()`, `sync_stop_all()` |
+| Activate Enabled Beams / Disable All Beams | `activate_enabled_beams()`, `disable_all_beams()` |
 
 Main Control registers these callbacks/providers on Beam Pulse:
 
@@ -190,7 +190,7 @@ Main Control registers these callbacks/providers on Beam Pulse:
 | `set_manual_disconnect_callback(callback)` | `callback() -> bool` | ask Main Control whether a user-requested BCON disconnect may continue |
 | `set_disconnect_callback(callback)` | `callback()` | notify Main Control after BCON disconnects |
 
-## Manual And Sync Operation
+## Manual And Enabled-Beam Operation
 
 `get_channel_config(ch)` reads the next intended Manual Control config for one
 channel. Live BCON status is shown in the status text labels in the channel cards.
@@ -208,14 +208,14 @@ treated as running even though it has no remaining pulse countdown.
 
 `send_channel_off(ch)` sends OFF command to BCON and does not require arming.
 
-`Sync Start` reads all three Manual Control configurations, filters out
+`Activate Enabled Beams` reads all three Manual Control configurations, filters out
 hardware-disabled channels using Beam Pulse's register-backed channel enable
 state, blocks non-OFF output when projected emission current is at or above the
 configured limit, then calls `bcon_driver.sync_start(configs)`. The driver
 stages pulse parameters and requested modes, then commits them together with the
 firmware apply command.
 
-`sync_stop_all()` calls `bcon_driver.stop_all()` and clears local output state.
+`disable_all_beams()` calls `bcon_driver.stop_all()` and clears local output state.
 
 ## CSV Sequences
 
