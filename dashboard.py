@@ -21,27 +21,27 @@ def resource_path(relative_path):
 # Total row width = 1916. Vertical guides (from left):
 #   x = 350      - Vacuum | Process Monitor
 #   x = 958      - Process Monitor | Messages  lines up with  Beam Pulse | Main Control
-# Row 1 keeps the hidden Oil System slot assigned to Process Monitor.
+# Row 1 keeps the hidden Oil System slot
 frames_config = [
     # Row 0 - safety strip (full width)
-    ("Interlocks", 0, 1916, 41),
+    ("Interlocks", 0, 1916, 30),
 
     # Row 1 - Vacuum | Process Monitor | Messages (left to right)
-    ("Vacuum System", 1, 350, 400),
+    ("Vacuum System", 1, 505, 236),
     # ("Oil System", 1, 350, 400),
-    ("Process Monitor", 1, 608, 400),
-    ("Messages Frame", 1, 958, 400),
+    ("Process Monitor", 1, 580, 236),
+    ("Messages Frame", 1, 831, 236),
 
     # Row 2 - Beam Energy | Cathode Heating
-    ("Beam Energy", 2, 700, 400),
-    ("Cathode Heating", 2, 1216, 400),
+    ("Beam Energy", 2, 700, 444),
+    ("Cathode Heating", 2, 1216, 444),
 
     # Row 3 - Beam Pulse | Main Control
-    ("Beam Pulse", 3, 958, 450),
-    ("Main Control", 3, 958, 450),
+    ("Beam Pulse", 3, 958, 318),
+    ("Main Control", 3, 958, 318),
 
     # Row 4 - machine status
-    ("Machine Status", 4, 1916, 38),
+    ("Machine Status", 4, 1916, 29),
 ]
 
 
