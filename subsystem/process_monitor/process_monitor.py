@@ -8,45 +8,71 @@ class TemperatureBar(tk.Canvas):
 
     DISCONNECTED = -1
     SENSOR_ERROR = -2
+    TOP_PADDING = 6
     SCALE_LABELS = {
-        'Solenoids': [15 , 120, 24], 
-        'Chambers' : [15, 100, 20], 
-        'Air': [15, 50, 10],
-        None: [15, 100, 10]
+        'Solenoids': [10 , 120], 
+        'Chambers' : [10, 100], 
+        'Air': [10, 50],
+        None: [10, 100]
     } 
     ERROR_COLORS = {
         DISCONNECTED: '#808080',  # Grey for disconnected state
         SENSOR_ERROR: '#FFA500',  # Keep orange for actual sensor errors
     }
 
-    def __init__(self, parent, name: str, height: int = 400, width: int = 40):
-        super().__init__(parent, height=height, width=width)
+    def __init__(self, parent, name: str, height: int = 58, width: int = 580):
+        super().__init__(parent, height=height, width=width, highlightthickness=0)
         self.name = name
         self.height = height
         self.width = width
-        self.bar_width = 15
-        self.value = 0
-        # Create title
-        self.create_text(
-            width//2, 
-            75, 
-            text=name, 
-            font=('Arial', 8, 'bold'), 
-            anchor='n',
-            angle=90  # Rotate text 90 degrees
-        )
-        
-        # Create scale marks
+        self.bar_height = 14
+        self.value = None
+
+        self.bind('<Configure>', self._handle_resize)
+        self._redraw_all()
+
+    def _handle_resize(self, event):
+        """Redraw the horizontal gauge when the canvas is resized."""
+        if event.width == self.width and event.height == self.height:
+            return
+        self.width = event.width
+        self.height = event.height
+        self._redraw_all()
+
+    def _redraw_all(self):
+        self.delete('all')
+        self.create_title()
         self.create_scale()
+        self._draw_bar()
+
+    def create_title(self):
+        title_x = 8
+        title_y = self.TOP_PADDING + (self.bar_height // 2)
+        self.create_text(
+            title_x,
+            title_y,
+            text=self.name, 
+            font=('Arial', 8, 'bold'), 
+            anchor='w',
+            tags='static'
+        )
         
     def create_scale(self):
         # Scale line
-        scale_x = self.width - 20
-        top_y = 35
-        bottom_y = self.height - 20
-        scale_height = bottom_y - top_y
-        
-        self.create_line(scale_x, top_y, scale_x, bottom_y)
+        self.scale_left = 90
+        self.scale_right = max(self.scale_left + 40, self.width - 55)
+        self.bar_top = self.TOP_PADDING
+        self.bar_bottom = self.bar_top + self.bar_height
+        scale_width = self.scale_right - self.scale_left
+
+        self.create_rectangle(
+            self.scale_left,
+            self.bar_top,
+            self.scale_right,
+            self.bar_bottom,
+            outline='#444444',
+            tags='static'
+        )
 
         # Determine scale based on name
         if 'Solenoid' in self.name:
@@ -58,79 +84,90 @@ class TemperatureBar(tk.Canvas):
         else:
             scale_key = None  # Default behavior if name does not match
 
-        self.temp_min, self.temp_max, self.ticks = self.SCALE_LABELS.get(scale_key, self.SCALE_LABELS[None])
+        self.temp_min, self.temp_max = self.SCALE_LABELS.get(scale_key, self.SCALE_LABELS[None])
         temp_range = self.temp_max - self.temp_min
 
         # Scale marks and labels
         for i in range(self.temp_min, self.temp_max + 1, 10):    
             relative_pos = (i - self.temp_min) / temp_range
-            y = bottom_y - (relative_pos * scale_height)
-            self.create_line(scale_x-2, y, scale_x+2, y)
-            self.create_text(
-                scale_x-6, 
-                y, 
-                text=str(i), 
-                anchor='w', 
-                font=('Arial', 7),
-                angle=90,
+            x = self.scale_left + (relative_pos * scale_width)
+            self.create_line(
+                x,
+                self.bar_bottom,
+                x,
+                self.bar_bottom + 4,
                 tags='scale_labels'
             )
-                
-        self.scale_top = top_y
-        self.scale_bottom = bottom_y
+            self.create_text(
+                x,
+                self.bar_bottom + 6,
+                text=str(i), 
+                anchor='n',
+                font=('Arial', 7),
+                tags='scale_labels'
+            )
         
     def update_value(self, name, value: float):
         """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
-        self.delete('bar')
+        self.value = value
+        self._draw_bar()
 
-        if value == self.DISCONNECTED:
+    def _draw_bar(self):
+        self.delete('bar')
+        self.delete('value')
+
+        if self.value is None:
+            return
+
+        if self.value == self.DISCONNECTED:
             # grey out bar area with hatched pattern
             self.create_rectangle(
-                5,
-                self.scale_top,
-                5 + self.bar_width,
-                self.scale_bottom,
+                self.scale_left,
+                self.bar_top,
+                self.scale_right,
+                self.bar_bottom,
                 fill='#E0E0E0',
                 stipple='gray50', # hatched pattern
                 tags='bar'
             )
             value_text = "---"
-        elif value == self.SENSOR_ERROR:
+        elif self.value == self.SENSOR_ERROR:
             # Show orange bar for sensor error
             self.create_rectangle(
-                5,
-                self.scale_bottom,
-                5 + self.bar_width,
-                self.scale_bottom,
+                self.scale_left,
+                self.bar_top,
+                self.scale_right,
+                self.bar_bottom,
                 fill=self.ERROR_COLORS[self.SENSOR_ERROR],
                 tags='bar'
             )
             value_text = "ERR"
         else:
             # Normal temperature display
-            bar_height = (((value - self.temp_min) / (self.temp_max - self.temp_min)) * (self.scale_bottom - self.scale_top))
-            color = self.get_temperature_color(name, value)
+            relative_value = ((self.value - self.temp_min) / (self.temp_max - self.temp_min))
+            bar_width = max(0, min(1, relative_value)) * (self.scale_right - self.scale_left)
+            color = self.get_temperature_color(self.name, self.value)
             self.create_rectangle(
-                5,
-                self.scale_bottom - bar_height,
-                5 + self.bar_width,
-                self.scale_bottom,
+                self.scale_left,
+                self.bar_top,
+                self.scale_left + bar_width,
+                self.bar_bottom,
                 fill=color,
                 tags='bar'
             )
-            value_text = f'{value:.1f}'
+            value_text = f'{self.value:.1f}'
 
         # ensure labels are on top
         self.tag_raise('scale_labels')
 
         # Update value label
-        self.delete('value')
         self.create_text(
-            self.width//2,
-            self.height-5,
+            self.width - 8,
+            self.TOP_PADDING + (self.bar_height // 2),
             text=value_text,
             font=('Arial', 9, 'bold'),
-            fill='#808080' if value == self.DISCONNECTED else 'black',
+            fill='#808080' if self.value == self.DISCONNECTED else 'black',
+            anchor='e',
             tags='value'
         )
         
@@ -212,14 +249,15 @@ class ProcessMonitorSubsystem:
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         
         # Configure grid weights for responsive layout
+        self.frame.grid_columnconfigure(0, weight=1)
         for i in range(len(self.thermometers)):
-            self.frame.grid_columnconfigure(i, weight=1)
+            self.frame.grid_rowconfigure(i, weight=1)
         
         # Create temperature bars
         self.temp_bars: Dict[str, TemperatureBar] = {}
         for i, name in enumerate(self.thermometers):
             bar = TemperatureBar(self.frame, name)
-            bar.grid(row=0, column=i, padx=5, sticky='nsew')
+            bar.grid(row=i, column=0, padx=5, pady=2, sticky='nsew')
             self.temp_bars[name] = bar
 
     def update_temperatures(self):
