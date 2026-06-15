@@ -389,7 +389,7 @@ class CathodeHeatingSubsystem:
         self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
         for i in range(3):
-            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
+            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding= (2,5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
             self.cathode_frames.append(frame)
 
@@ -397,7 +397,7 @@ class CathodeHeatingSubsystem:
             frame.columnconfigure(2, weight=0)
 
             notebook = ttk.Notebook(frame)
-            notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
+            notebook.grid(row=0, column=0, columnspan=2, sticky='w', pady=2)
 
             # Create the main tab
             main_tab = ttk.Frame(notebook)
@@ -418,14 +418,14 @@ class CathodeHeatingSubsystem:
             control_frame.rowconfigure(0, weight=0)
             control_frame.rowconfigure(1, weight=0)
 
-            left_control_frame = ttk.Frame(control_frame)
-            left_control_frame.grid(row=0, column=0, sticky='w')
-            left_control_frame.columnconfigure(0, weight=0)
-            left_control_frame.columnconfigure(1, weight=0)
+            heater_controls_frame = ttk.Frame(control_frame)
+            heater_controls_frame.grid(row=0, column=0, sticky='ew')
+            heater_controls_frame.columnconfigure(0, weight=1, uniform='heater_controls')
+            heater_controls_frame.columnconfigure(1, weight=1, uniform='heater_controls')
 
             # Create current control section
-            current_control_frame = ttk.LabelFrame(left_control_frame, text='Heater Current Control', padding=(6, 4), style='Subpanel.TLabelframe')
-            current_control_frame.grid(row=0, column=1, sticky='nw', padx=(4, 0))
+            current_control_frame = ttk.LabelFrame(heater_controls_frame, text='Heater Current Control', padding=(6, 4), style='Subpanel.TLabelframe')
+            current_control_frame.grid(row=0, column=1, sticky='ew', padx=(4, 0))
 
             # Set target current entry box
             current_entry_frame = ttk.Frame(current_control_frame)
@@ -465,8 +465,8 @@ class CathodeHeatingSubsystem:
             dec_current_button.grid(row=3, column=2, sticky='w', padx=(2, 0), pady=(3, 0))
 
             # Create voltage control section
-            voltage_control_frame = ttk.LabelFrame(left_control_frame, text='Heater Voltage Control', padding=(6, 4), style='Subpanel.TLabelframe')
-            voltage_control_frame.grid(row=0, column=0, sticky='nw')
+            voltage_control_frame = ttk.LabelFrame(heater_controls_frame, text='Heater Voltage Control', padding=(6, 4), style='Subpanel.TLabelframe')
+            voltage_control_frame.grid(row=0, column=0, sticky='ew')
 
             voltage_entry_frame = ttk.Frame(voltage_control_frame)
             voltage_entry_frame.grid(row=0, column=0, sticky='w')

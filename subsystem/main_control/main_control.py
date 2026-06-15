@@ -166,7 +166,7 @@ class MainControlPanel:
             font=("Helvetica",14,"bold"),
             command=self.handle_beams_off
         )
-        beams_off_button.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
+        beams_off_button.pack(side="bottom", fill="x", padx=10, pady=2)
 
         # Script dropdown
         self.create_script_dropdown(main_frame)

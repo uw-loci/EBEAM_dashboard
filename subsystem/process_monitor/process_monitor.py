@@ -8,7 +8,7 @@ class TemperatureBar(tk.Canvas):
 
     DISCONNECTED = -1
     SENSOR_ERROR = -2
-    TOP_PADDING = 6
+    TOP_PADDING = 2
     SCALE_LABELS = {
         'Solenoids': [10 , 120], 
         'Chambers' : [10, 100], 
