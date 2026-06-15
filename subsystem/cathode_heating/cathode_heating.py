@@ -46,6 +46,8 @@ class CathodeHeatingSubsystem:
 
     def _init_ovl_live_values(self):
         self.ovl_live_values = [None, None, None]
+
+    TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     OUTPUT_MODE_LABEL_TO_VALUE = {
@@ -723,21 +725,22 @@ class CathodeHeatingSubsystem:
 
             self.clamp_temp_labels.append(actual_temp_label)
 
-            # Create plot for each cathode
-            fig, ax = plt.subplots(figsize=(2.8, 1.2))
-            line, = ax.plot([], [])
-            self.temperature_data[i].append(line)
-            ax.set_xlabel('Time', fontsize=8)
-            ax.set_ylim(15, 80)
-            ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-            ax.xaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(axis='x', labelsize=6)
-            ax.tick_params(axis='y', labelsize=6)
-            fig.tight_layout(pad=0.01)
-            fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
-            canvas = FigureCanvasTkAgg(fig, master=main_tab)
-            canvas.draw()
-            canvas.get_tk_widget().grid(row=3, column=0, sticky='ew', padx=2, pady=(4, 0))
+            if self.TEMPERATURE_GRAPHS_ENABLED:
+                # Create plot for each cathode
+                fig, ax = plt.subplots(figsize=(2.8, 1.2))
+                line, = ax.plot([], [])
+                self.temperature_data[i].append(line)
+                ax.set_xlabel('Time', fontsize=8)
+                ax.set_ylim(15, 80)
+                ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
+                ax.xaxis.set_major_locator(MaxNLocator(4))
+                ax.tick_params(axis='x', labelsize=6)
+                ax.tick_params(axis='y', labelsize=6)
+                fig.tight_layout(pad=0.01)
+                fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
+                canvas = FigureCanvasTkAgg(fig, master=main_tab)
+                canvas.draw()
+                canvas.get_tk_widget().grid(row=3, column=0, sticky='ew', padx=2, pady=(4, 0))
             # ===== Config Tab =====
             ttk.Label(config_tab, text="Power Supply", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
@@ -1698,6 +1701,9 @@ class CathodeHeatingSubsystem:
                 - 'overtemp': Red for over-temperature condition
                 - None: Blue for normal operation
         """
+        if not self.TEMPERATURE_GRAPHS_ENABLED or not self.temperature_data[index]:
+            return
+
         state = error_type if error_type else 'normal'
         if self.plot_color_states[index] == state:
             return
@@ -1968,7 +1974,10 @@ class CathodeHeatingSubsystem:
 
     def _update_data_once(self):
         current_time = datetime.datetime.now()
-        plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
+        plot_this_cycle = (
+            self.TEMPERATURE_GRAPHS_ENABLED
+            and (current_time - self.last_plot_time) >= self.plot_interval
+        )
 
         # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
@@ -2084,7 +2093,11 @@ class CathodeHeatingSubsystem:
                 self.after_id = None
 
     def update_plot(self, index):
-        if len(self.time_data[index]) == 0:
+        if (
+            not self.TEMPERATURE_GRAPHS_ENABLED
+            or len(self.time_data[index]) == 0
+            or not self.temperature_data[index]
+        ):
             return
         
         time_data = self.time_data[index]
