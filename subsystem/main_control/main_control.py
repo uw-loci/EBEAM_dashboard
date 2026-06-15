@@ -160,7 +160,7 @@ class MainControlPanel:
         # Add safety beams off button (bottom)
         beams_off_button = tk.Button(
             main_frame,
-            text="BEAMS E-STOP",
+            text="E-STOP: BEAMS & CCS",
             bg="red",
             fg="white",
             font=("Helvetica",14,"bold"),
@@ -215,32 +215,32 @@ class MainControlPanel:
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.enable_toggle_buttons.append(btn)
 
-        sync_control_frame = tk.Frame(manual_panel)
-        sync_control_frame.pack(side="top", fill="x", pady=(4, 0))
-        sync_control_frame.grid_columnconfigure(0, weight=1, uniform="sync")
-        sync_control_frame.grid_columnconfigure(1, weight=1, uniform="sync")
+        beam_action_control_frame = tk.Frame(manual_panel)
+        beam_action_control_frame.pack(side="top", fill="x", pady=(4, 0))
+        beam_action_control_frame.grid_columnconfigure(0, weight=1, uniform="beam_action")
+        beam_action_control_frame.grid_columnconfigure(1, weight=1, uniform="beam_action")
 
-        self.sync_start_button = tk.Button(
-            sync_control_frame,
-            text="Sync Start",
+        self.activate_enabled_beams_button = tk.Button(
+            beam_action_control_frame,
+            text="Activate Enabled Beams",
             bg="#1565C0",
             fg="white",
             font=("Helvetica", 9, "bold"),
             state="disabled",
-            command=self.handle_sync_start,
+            command=self.handle_activate_enabled_beams,
         )
-        self.sync_start_button.grid(row=0, column=0, sticky="ew", padx=(2, 1))
+        self.activate_enabled_beams_button.grid(row=0, column=0, sticky="ew", padx=(2, 1))
 
-        self.sync_stop_button = tk.Button(
-            sync_control_frame,
-            text="Sync Stop",
+        self.disable_all_beams_button = tk.Button(
+            beam_action_control_frame,
+            text="Disable All Beams",
             bg="#B71C1C",
             fg="white",
             font=("Helvetica", 9, "bold"),
             state="normal",
-            command=self.handle_sync_stop,
+            command=self.handle_disable_all_beams,
         )
-        self.sync_stop_button.grid(row=0, column=1, sticky="ew", padx=(1, 2))
+        self.disable_all_beams_button.grid(row=0, column=1, sticky="ew", padx=(1, 2))
 
         # Add beams armed toggle
         beams_armed_control_frame = tk.Frame(main_frame)
@@ -595,7 +595,7 @@ class MainControlPanel:
             f"{self._beam_on_description(config, include_remaining=False)}"
         )
 
-    def _format_sync_start_message(self, configs):
+    def _format_activate_enabled_beams_message(self, configs):
         parts = []
         for config in configs or []:
             try:
@@ -612,7 +612,7 @@ class MainControlPanel:
                 parts.append(
                     f"{label}={mode}({config.get('duration_ms')}ms x{config.get('count')})"
                 )
-        return "Sync Start: " + ", ".join(parts) if parts else "Sync Start"
+        return "Activate Enabled Beams: " + ", ".join(parts) if parts else "Activate Enabled Beams"
 
     def _handle_action_feedback(self, event_type, message="", outcome="neutral", configs=None):
         """Handle Beam Pulse action feedback for Main Control status displays."""
@@ -624,7 +624,7 @@ class MainControlPanel:
                     continue
                 self._set_beam_output_display(beam_index, config, is_on=True)
             if not message:
-                message = self._format_sync_start_message(configs)
+                message = self._format_activate_enabled_beams_message(configs)
         elif event_type == "all_off":
             self._clear_all_beam_output_displays()
         elif event_type == "firmware_ack":
@@ -878,9 +878,9 @@ class MainControlPanel:
         elif selected_level == "VERBOSE":
             self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
 
-    def _update_sync_control_states(self, armed=False):
-        if hasattr(self, "sync_start_button"):
-            _safe_widget_config(self.sync_start_button, state="normal" if armed else "disabled")
+    def _update_activate_enabled_beams_control_state(self, armed=False):
+        if hasattr(self, "activate_enabled_beams_button"):
+            _safe_widget_config(self.activate_enabled_beams_button, state="normal" if armed else "disabled")
 
     def _get_beam_pulse_or_fail(self, action_text):
         beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
@@ -946,7 +946,7 @@ class MainControlPanel:
                 )
         self.update_beam_toggle_states(enabled=armed, reset=reset)
         self._update_enable_toggle_states(enabled=armed)
-        self._update_sync_control_states(armed=armed)
+        self._update_activate_enabled_beams_control_state(armed=armed)
         if reset:
             self._clear_all_beam_output_displays()
 
@@ -954,25 +954,25 @@ class MainControlPanel:
         """Mirror Beam Pulse software armed state without changing line 4."""
         self._set_armed_ui(bool(armed), reset=not bool(armed))
 
-    def handle_sync_start(self):
-        beam_pulse = self._get_beam_pulse_or_fail("sync start")
+    def handle_activate_enabled_beams(self):
+        beam_pulse = self._get_beam_pulse_or_fail("activate enabled beams")
         if beam_pulse is None:
             return
-        sync_start = getattr(beam_pulse, "sync_start", None)
-        if not callable(sync_start):
-            self._set_beam_action_status("Failed to sync start, Beam Pulse API not available", "failure")
+        activate_enabled_beams = getattr(beam_pulse, "activate_enabled_beams", None)
+        if not callable(activate_enabled_beams):
+            self._set_beam_action_status("Failed to activate enabled beams, Beam Pulse API not available", "failure")
             return
-        sync_start()
+        activate_enabled_beams()
 
-    def handle_sync_stop(self):
-        beam_pulse = self._get_beam_pulse_or_fail("sync stop")
+    def handle_disable_all_beams(self):
+        beam_pulse = self._get_beam_pulse_or_fail("disable all beams")
         if beam_pulse is None:
             return
-        sync_stop_all = getattr(beam_pulse, "sync_stop_all", None)
-        if not callable(sync_stop_all):
-            self._set_beam_action_status("Failed to sync stop, Beam Pulse API not available", "failure")
+        disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
+        if not callable(disable_all_beams):
+            self._set_beam_action_status("Failed to disable all beams, Beam Pulse API not available", "failure")
             return
-        sync_stop_all()
+        disable_all_beams()
 
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
@@ -1036,7 +1036,7 @@ class MainControlPanel:
                         self.logger.error("Failed to disarm beams via Beams E-stop")
                 self.update_beam_toggle_states(enabled=False, reset=True)
                 self._update_enable_toggle_states(enabled=False)
-                self._update_sync_control_states(armed=False)
+                self._update_activate_enabled_beams_control_state(armed=False)
             self._clear_all_beam_output_displays()
             if reason:
                 self._set_beam_action_status(str(reason), "estop")
@@ -1211,7 +1211,7 @@ class MainControlPanel:
                 )
 
             self.update_beam_toggle_states(enabled=armed)
-            self._update_sync_control_states(armed=armed)
+            self._update_activate_enabled_beams_control_state(armed=armed)
         except Exception as e:
             self.logger.error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
 

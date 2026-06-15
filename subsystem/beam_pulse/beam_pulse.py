@@ -52,7 +52,7 @@ class BeamPulseSubsystem:
 
     Provides three control tabs aligned with pulser_test_gui functionality:
       1. Manual Separate Control  — per-channel parameters, mode buttons, enable toggle
-      2. Sync Manual Control      — write params + synchronous start/stop across channels
+      2. Manual All Beams Control — activate enabled beams / disable all beams
       3. Auto CSV Sequence        — load/run/stop CSV pulse sequences
 
     Hardware communication uses the BCONDriver (Modbus RTU).
@@ -590,8 +590,8 @@ class BeamPulseSubsystem:
     def _emission_block_message(self, action: str, detail: str = "total emission current limit exceeded") -> str:
         action_text = str(action or "output start").strip()
         action_key = action_text.lower()
-        if action_key == "sync start":
-            return f"Failed to sync start, {detail}"
+        if action_key == "activate enabled beams":
+            return f"Failed to activate enabled beams, {detail}"
         if action_key.startswith("beam ") and action_key.endswith(" on"):
             return f"Failed to set {action_text}, {detail}"
         return f"Failed to {action_text}, {detail}"
@@ -658,7 +658,7 @@ class BeamPulseSubsystem:
         )
         return False, self._emission_block_message(action)
 
-    def sync_start(self):
+    def activate_enabled_beams(self):
         """Synchronous start of enabled channels using Manual Control tab configuration.
 
         Only channels that are currently hardware-enabled are included.
@@ -666,21 +666,21 @@ class BeamPulseSubsystem:
         if not self._require_armed():
             self._notify_action_feedback(
                 "status",
-                "Failed to sync start, beams are not armed",
+                "Failed to activate enabled beams, beams are not armed",
                 "failure",
             )
             return
         if not self.bcon_driver:
             self._notify_action_feedback(
                 "status",
-                "Failed to sync start, BCON driver not available",
+                "Failed to activate enabled beams, BCON driver not available",
                 "failure",
             )
             return
         if not self._bcon_is_connected():
             self._notify_action_feedback(
                 "status",
-                "Failed to sync start, BCON device not connected",
+                "Failed to activate enabled beams, BCON device not connected",
                 "failure",
             )
             return
@@ -692,14 +692,14 @@ class BeamPulseSubsystem:
             if ch >= len(self.channel_vars):
                 continue
             if not enable_states[ch] if ch < len(enable_states) else False:
-                self._log_event(f"Sync Start: {self._channel_name(ch)} skipped (not enabled)")
+                self._log_event(f"Activate Enabled Beams: {self._channel_name(ch)} skipped (not enabled)")
                 continue
             config = self._validate_and_get_config(ch)
             if config is None:
                 message = self.get_last_send_failure_message() or "invalid configuration"
                 self._notify_action_feedback(
                     "status",
-                    f"Failed to sync start: {message}",
+                    f"Failed to activate enabled beams: {message}",
                     "failure",
                 )
                 return
@@ -711,50 +711,50 @@ class BeamPulseSubsystem:
             })
 
         if configs:
-            allowed, error_message = self._emission_limit_allows_output("Sync Start", configs)
+            allowed, error_message = self._emission_limit_allows_output("Activate Enabled Beams", configs)
             if not allowed:
                 # Surface guard-rail failures without writing to BCON.
                 if error_message:
                     self._log_event(error_message)
                     message = error_message
                 else:
-                    message = "Failed to sync start, total emission current limit exceeded"
+                    message = "Failed to activate enabled beams, total emission current limit exceeded"
                 self._notify_action_feedback("status", message, "failure")
                 return
 
-            ack = self._queue_firmware_ack("Sync Start")
+            ack = self._queue_firmware_ack("Activate Enabled Beams")
             if not self.bcon_driver.sync_start(configs):
                 self._cancel_firmware_ack(ack)
                 self._notify_action_feedback(
                     "status",
-                    "Failed to sync start, BCON did not queue command",
+                    "Failed to activate enabled beams, BCON did not queue command",
                     "failure",
                 )
-                self._log_event("Sync Start failed: BCON did not queue command")
+                self._log_event("Activate Enabled Beams failed: BCON did not queue command")
                 return
             self._notify_action_feedback("beams_sent", "", "success", configs)
-            self._log_event("Sync Start sent to BCON")
+            self._log_event("Activate Enabled Beams sent to BCON")
         else:
             # No channels were eligible, so line 4 gets status but lines 1-3 stay unchanged.
             self._notify_action_feedback(
                 "status",
-                "Sync Start skipped: no enabled channels",
+                "Activate Enabled Beams skipped: no enabled channels",
                 "neutral",
             )
 
-    def sync_stop_all(self):
+    def disable_all_beams(self):
         """Stop all channels immediately."""
         if self.bcon_driver:
-            ack = self._queue_firmware_ack("Sync Stop")
+            ack = self._queue_firmware_ack("Disable All Beams")
             if not self.bcon_driver.stop_all():
                 self._cancel_firmware_ack(ack)
             self._clear_output_state()
         self._notify_action_feedback(
             "all_off",
-            "Sync Stop: all channels -> OFF",
+            "Disable All Beams: all channels -> OFF",
             "neutral",
         )
-        self._log_event("Sync Stop: all channels -> OFF")
+        self._log_event("Disable All Beams: all channels -> OFF")
 
     # ================================================================== #
     #                      CSV Sequence Tab Actions                      #
@@ -1264,7 +1264,7 @@ class BeamPulseSubsystem:
                 self._pulser_mon_after_id = None
 
     def update_bcon_connection_status(self):
-        """Repaint the BCON connection indicator and sync button label."""
+        """Repaint the BCON connection indicator and connect button label."""
         if hasattr(self, 'bcon_connection_canvas'):
             self.bcon_connection_canvas.delete("indicator")
             color = "green" if self.bcon_connection_status else "red"
@@ -1718,8 +1718,8 @@ class BeamPulseSubsystem:
         """Read, validate, and return the configuration for channel *ch* (0-based).
 
         Shows an "Invalid Configuration" messagebox and returns None on any
-        input error.  All callers (Beam ON/OFF button, Apply, Sync Start,
-        Sync Write Params) delegate here so validation is in one place.
+        input error. Manual channel output and Activate Enabled Beams delegate
+        here so validation is in one place.
 
         Validation rules:
           OFF / DC      — always valid; duration and count are not used.
