@@ -300,6 +300,8 @@ class BCONDriver:
         self.unit = unit
         self.timeout = timeout
         self.debug = debug
+        self.disable_logging_when_hvolt_off = False
+        self.hvolt_on_provider = None
 
         # Serial port (raw pyserial — replaces pymodbus which has a v3 framer bug)
         self._serial: Optional[serial.Serial] = None
@@ -340,6 +342,8 @@ class BCONDriver:
 
     def _log(self, message: str, level: str = "INFO"):
         """Internal logging helper."""
+        if self._logging_suppressed():
+            return
         level = str(level).upper()
         if not (self.debug or level in ("ERROR", "WARNING")):
             return
@@ -348,6 +352,14 @@ class BCONDriver:
         if self._ui_queue:
             self._ui_put("log", message, level)
             return
+
+    def _logging_suppressed(self) -> bool:
+        if not self.disable_logging_when_hvolt_off or self.hvolt_on_provider is None:
+            return False
+        try:
+            return not bool(self.hvolt_on_provider())
+        except Exception:
+            return False
 
     def _reset_cached_state(self):
         """Clear cached registers."""

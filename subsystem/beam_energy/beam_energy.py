@@ -130,6 +130,9 @@ class BeamEnergySubsystem:
         self.ccs_power_var = tk.StringVar(value="OFF")
         self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, green=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
+        self.ccs_power_on = False
+        self.disable_logging_when_hvolt_off = False
+        self.hvolt_on_provider = None
         # Beam Energy owns the +20kV threshold; Dashboard provides the actual stop handler.
         self.beams_estop_current_entry_var = tk.StringVar(value="")
         self.beams_estop_current_value_var = tk.StringVar(
@@ -647,6 +650,25 @@ class BeamEnergySubsystem:
             self.latest_actual_voltage_values[self._get_pos20kv_index()]
         )
 
+    def set_logging_suppression(self, disable_when_hvolt_off, hvolt_on_provider=None):
+        self.disable_logging_when_hvolt_off = bool(disable_when_hvolt_off)
+        self.hvolt_on_provider = hvolt_on_provider if callable(hvolt_on_provider) else None
+        self.apply_knob_box_driver_logging_suppression(self.knob_box_controller)
+
+    def apply_knob_box_driver_logging_suppression(self, controller):
+        if controller is None:
+            return
+        controller.disable_logging_when_hvolt_off = self.disable_logging_when_hvolt_off
+        controller.hvolt_on_provider = self.hvolt_on_provider
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_hvolt_off or self.hvolt_on_provider is None:
+            return False
+        try:
+            return not bool(self.hvolt_on_provider())
+        except Exception:
+            return False
+
     def _update_radiation_indicator(self, voltage):
         # Missing/invalid +20kV readback clears the indicator; valid readings
         # at or above the threshold assert it.
@@ -936,6 +958,7 @@ class BeamEnergySubsystem:
         if controller is None:
             controller = KnobBoxModbus(port=port, logger=self.logger)
             self.knob_box_controller = controller
+        self.apply_knob_box_driver_logging_suppression(controller)
 
         if time.time() < getattr(controller, "_next_connect_time", 0.0):
             return False
@@ -1057,6 +1080,7 @@ class BeamEnergySubsystem:
 
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
         """Update system status indicators."""
+        self.ccs_power_on = bool(ccs_power)
         if index < len(self.ui_elements):
             self.arm_beams_var.set("ARMED" if arm_beams else "UNARMED")
             self.ccs_power_var.set("ON" if ccs_power else "OFF")
@@ -1412,6 +1436,8 @@ class BeamEnergySubsystem:
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
+        if self._logging_suppressed():
+            return
         if self.logger:
             self.logger.log(message, level)
         else:

@@ -14,7 +14,19 @@ class E5CNModbus:
     MODBUS_CLOSE_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
+    def __init__(
+        self,
+        port,
+        baudrate=9600,
+        timeout=1,
+        parity='E',
+        stopbits=2,
+        bytesize=8,
+        logger=None,
+        debug_mode=False,
+        disable_logging_when_ccs_power_off=False,
+        ccs_power_on_provider=None,
+    ):
         """
         Initialize the E5CNModbus instance with serial communication parameters and optional logging.
         
@@ -30,6 +42,8 @@ class E5CNModbus:
         """
         self.logger = logger
         self.debug_mode = debug_mode
+        self.disable_logging_when_ccs_power_off = bool(disable_logging_when_ccs_power_off)
+        self.ccs_power_on_provider = ccs_power_on_provider if callable(ccs_power_on_provider) else None
         self.stop_event = threading.Event()
         self.threads = [] # for each unit
         self.temperatures = [None, None, None] 
@@ -57,6 +71,14 @@ class E5CNModbus:
 
         if self.debug_mode:
             self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_ccs_power_off or self.ccs_power_on_provider is None:
+            return False
+        try:
+            return not bool(self.ccs_power_on_provider())
+        except Exception:
+            return False
 
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
@@ -257,6 +279,8 @@ class E5CNModbus:
         return None
 
     def log(self, message, level=LogLevel.INFO):
+        if self._logging_suppressed():
+            return
         if not self.logger:
             print(f"{level.name}: {message}")
             return
@@ -301,6 +325,14 @@ class E5CNModbus:
     def flush_queued_logs(self, max_messages=200):
         """Flush queued worker-thread log messages on the calling thread."""
         if not self.logger:
+            return
+        if self._logging_suppressed():
+            self._pop_dropped_worker_log_count()
+            while True:
+                try:
+                    self._log_queue.get_nowait()
+                except Empty:
+                    break
             return
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:

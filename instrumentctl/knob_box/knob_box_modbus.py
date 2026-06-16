@@ -126,6 +126,8 @@ class KnobBoxModbus:
         """
         self.logger = logger
         self.debug_mode = debug_mode
+        self.disable_logging_when_hvolt_off = False
+        self.hvolt_on_provider = None
         self.modbus_lock = threading.Lock()  # Lock for Modbus communication
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
@@ -167,6 +169,14 @@ class KnobBoxModbus:
             timeout=timeout,
             retries=0  # avoid double-retry (manual retries handled in poll_one)
         )
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_hvolt_off or self.hvolt_on_provider is None:
+            return False
+        try:
+            return not bool(self.hvolt_on_provider())
+        except Exception:
+            return False
 
     def connect(self):
         """
@@ -583,12 +593,16 @@ class KnobBoxModbus:
                 queued_message, queued_level = self._background_log_queue.get_nowait()
             except queue.Empty:
                 break
+            if self._logging_suppressed():
+                continue
             if self.logger:
                 self.logger.log(queued_message, queued_level)
             else:
                 print(f"{queued_level.name}: {queued_message}")
 
     def log(self, message, level=LogLevel.INFO):
+        if self._logging_suppressed():
+            return
         if threading.get_ident() == self._main_thread_id:
             self.flush_queued_logs()
             if self.logger:
