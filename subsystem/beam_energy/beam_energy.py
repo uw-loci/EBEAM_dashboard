@@ -275,8 +275,8 @@ class BeamEnergySubsystem:
                 textvariable=self.interlock_log_vars[index],
                 font=("Segoe UI", 7),
                 foreground="red",
-                width=24,
-                wraplength=150,
+                width=26,
+                wraplength=175,
                 anchor=tk.W,
                 justify=tk.LEFT,
             ).pack(fill=tk.X, anchor=tk.W, pady=1)
