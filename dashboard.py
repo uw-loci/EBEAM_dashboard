@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
-from utils import MessagesFrame, MachineStatus
+from utils import MessagesFrame, MachineStatus, tag_log_message
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -103,9 +103,9 @@ class EBEAMSystemDashboard:
         # Restore saved pane state if one exists.
         if self.load_saved_pane_state():
             if self.logger is not None:
-                self.logger.info("Pane-state restore result: restored saved pane state")
+                self.logger.info(tag_log_message("Pane-state restore result: restored saved pane state", "Dashboard"))
         elif self.logger is not None:
-            self.logger.info("Pane-state restore result: no saved pane state applied")
+            self.logger.info(tag_log_message("Pane-state restore result: no saved pane state applied", "Dashboard"))
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
@@ -123,12 +123,12 @@ class EBEAMSystemDashboard:
 
         # Set up different subsystems within their respective frames
         if self.logger is not None:
-            self.logger.info("Subsystem initialization start")
+            self.logger.info(tag_log_message("Subsystem initialization start", "Dashboard"))
         self.create_subsystems()
 
         self._check_ports()
         if self.logger is not None:
-            self.logger.info("Dashboard ready")
+            self.logger.info(tag_log_message("Dashboard ready", "Dashboard"))
 
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
@@ -139,7 +139,7 @@ class EBEAMSystemDashboard:
                 try:
                     subsystem.close_com_ports()
                 except Exception as e:
-                    self.logger.error(f"Error closing COM ports for {subsystem_name}: {e}")
+                    self.logger.error(tag_log_message(f"Error closing COM ports for {subsystem_name}: {e}", "Dashboard"))
         print("Cleaned up com ports.")
 
         '''Cancels all scheduled Dashboard updates before quitting the application.'''
@@ -150,21 +150,21 @@ class EBEAMSystemDashboard:
                 try:
                     subsystem.cancel_updates()
                 except Exception as e:
-                    self.logger.error(f"Error cancelling updates for {subsystem_name}: {e}")
+                    self.logger.error(tag_log_message(f"Error cancelling updates for {subsystem_name}: {e}", "Dashboard"))
         # Now cancel com port checks
         if self.ports_after_id is not None:
             try:
                 self.root.after_cancel(self.ports_after_id)
                 self.ports_after_id = None
-                self.logger.debug("Cancelled scheduled com port checks.")
+                self.logger.debug(tag_log_message("Cancelled scheduled com port checks.", "Dashboard"))
             except Exception as e:
-                self.logger.debug("Failed to cancel scheduled com port checks.")
+                self.logger.debug(tag_log_message("Failed to cancel scheduled com port checks.", "Dashboard"))
         # Now cancel machine status updates
         if hasattr(self.machine_status_frame, 'cancel_updates'):
             try:
                 self.machine_status_frame.cancel_updates()
             except Exception as e:
-                self.logger.error(f"Error cancelling machine status updates: {e}")
+                self.logger.error(tag_log_message(f"Error cancelling machine status updates: {e}", "Dashboard"))
         print("Dashboard upates cancelled.")
 
     def setup_main_pane(self):
@@ -452,11 +452,26 @@ class EBEAMSystemDashboard:
         laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()
         try:
             self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
-            self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
+            self.logger.info(
+                tag_log_message(
+                    f"Laser Monitor driver started for port {laser_monitor_port}",
+                    "Laser Monitor",
+                )
+            )
         except Exception as e:
-                self.logger.error(f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}")
+                self.logger.error(
+                    tag_log_message(
+                        f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}",
+                        "Laser Monitor",
+                    )
+                )
         else:
-            self.logger.info("Laser Monitor driver not started; no real COM port configured")
+            self.logger.info(
+                tag_log_message(
+                    "Laser Monitor driver not started; no real COM port configured",
+                    "Laser Monitor",
+                )
+            )
 
         beam_energy = self.subsystems.get('Beam Energy')
         laser_monitor = self.subsystems.get('Laser Monitor')
@@ -495,7 +510,7 @@ class EBEAMSystemDashboard:
                 self.main_control.subsystems = self.subsystems
                 self.main_control.wire_beam_pulse(beam_pulse_subsystem)
         except Exception as e:
-            self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}")
+            self.logger.error(tag_log_message(f"Failed to initialize Beam Pulse subsystem: {e}", "Dashboard"))
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
@@ -520,8 +535,8 @@ class EBEAMSystemDashboard:
                 elif subsystem_name == 'Beam Energy':
                     subsystem.update_com_port(new_com_ports)
             else:
-                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
-        self.logger.info(f"COM ports updated: {self.com_ports}")
+                self.logger.warning(tag_log_message(f"Subsystem {subsystem_name} does not have an update_com_port method", "Dashboard"))
+        self.logger.info(tag_log_message(f"COM ports updated: {self.com_ports}", "Dashboard"))
 
 
     def _check_ports(self):
@@ -531,7 +546,7 @@ class EBEAMSystemDashboard:
         Finally:
             Calls itself to be check again
         """
-        self.logger.info("checking com ports")
+        self.logger.info(tag_log_message("checking com ports", "Dashboard"))
         current_ports = set(serial.tools.list_ports.comports())
 
         dif = self.set_com_ports - current_ports
@@ -543,7 +558,7 @@ class EBEAMSystemDashboard:
                 if port.serial_number in self.PORT_INFO:
                     subsystem_name = self.PORT_INFO[port.serial_number]
                     self.logger.warning(
-                        f"Lost connection to {subsystem_name} on {port}"
+                        tag_log_message(f"Lost connection to {subsystem_name} on {port}", "Dashboard")
                     )
                     self._update_com_ports(subsystem_name, None)
 
@@ -551,10 +566,14 @@ class EBEAMSystemDashboard:
             for port in added_ports:
                 if port.serial_number in self.PORT_INFO:
                     self.logger.info(
-                        f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}")
+                        tag_log_message(
+                            f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}",
+                            "Dashboard",
+                        )
+                    )
                     self._update_com_ports(self.PORT_INFO[port.serial_number], port)
         except Exception as e:
-            self.logger.warning(f"Error was thrown when either removing or adding a comport: {e}")
+            self.logger.warning(tag_log_message(f"Error was thrown when either removing or adding a comport: {e}", "Dashboard"))
 
         finally:
             self.set_com_ports = current_ports
@@ -577,6 +596,6 @@ class EBEAMSystemDashboard:
                 try:
                     self.logger.clear_value(comp)
                 except KeyError:
-                    self.logger.debug(f"Key {comp} not found in dict_logger (already cleared?)")
+                    self.logger.debug(tag_log_message(f"Key {comp} not found in dict_logger (already cleared?)", "Dashboard"))
 
-        self.logger.info(f"COM ports updated: {self.com_ports}")
+        self.logger.info(tag_log_message(f"COM ports updated: {self.com_ports}", "Dashboard"))

@@ -3,7 +3,7 @@ import threading
 import time
 import math
 from queue import Queue, Empty, Full
-from utils import LogLevel
+from utils import LogLevel, tag_log_message
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display reading attempts
@@ -896,6 +896,7 @@ class PowerSupply9104:
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
+        message = tag_log_message(message, "CCS-9104")
         if not self.logger:
             print(f"{level.name}: {message}")
             return
@@ -952,7 +953,10 @@ class PowerSupply9104:
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:
             self.logger.log(
-                f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full.",
+                tag_log_message(
+                    f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full.",
+                    "CCS-9104",
+                ),
                 LogLevel.WARNING,
             )
         processed = 0
@@ -961,5 +965,5 @@ class PowerSupply9104:
                 message, level = self._log_queue.get_nowait()
             except Empty:
                 break
-            self.logger.log(message, level)
+            self.logger.log(tag_log_message(message, "CCS-9104"), level)
             processed += 1

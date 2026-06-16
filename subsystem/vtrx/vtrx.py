@@ -4,7 +4,7 @@ from tkinter import messagebox
 import datetime
 import serial
 import threading
-from utils import LogLevel
+from utils import LogLevel, tag_log_message
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import ttk
 import matplotlib.pyplot as plt
@@ -280,6 +280,7 @@ class VTRXSubsystem:
             self.error_state = True
 
     def log(self, message, level=LogLevel.INFO):
+        message = tag_log_message(message, "VTRX")
         if self.logger:
             self.logger.log(message, level)
         else:

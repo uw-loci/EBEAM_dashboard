@@ -96,8 +96,8 @@ class TestComPortConfigLogging(unittest.TestCase):
             loaded = load_com_ports(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, expected)
-        logger.info.assert_any_call(f"COM ports saved to {filepath}.")
-        logger.info.assert_any_call(f"COM ports loaded from {filepath}.")
+        logger.info.assert_any_call(f"<Config> COM ports saved to {filepath}.")
+        logger.info.assert_any_call(f"<Config> COM ports loaded from {filepath}.")
         mock_print.assert_not_called()
 
     def test_load_com_ports_missing_logs_without_print(self):
@@ -108,7 +108,7 @@ class TestComPortConfigLogging(unittest.TestCase):
             loaded = load_com_ports(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, {})
-        logger.info.assert_called_with("No COM port configuration file found.")
+        logger.info.assert_called_with("<Config> No COM port configuration file found.")
         mock_print.assert_not_called()
 
     def test_load_com_ports_invalid_json_logs_error_without_print(self):
@@ -143,7 +143,7 @@ class TestPanelConfigLogging(unittest.TestCase):
             loaded = load_pane_states(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, expected)
-        logger.info.assert_called_with(f"Pane state loaded from {filepath}.")
+        logger.info.assert_called_with(f"<Config> Pane state loaded from {filepath}.")
         mock_print.assert_not_called()
 
     def test_load_pane_states_missing_logs_without_print(self):
@@ -154,7 +154,7 @@ class TestPanelConfigLogging(unittest.TestCase):
             loaded = load_pane_states(filepath=filepath, logger=logger)
 
         self.assertIsNone(loaded)
-        logger.info.assert_called_with("No previous pane state saved.")
+        logger.info.assert_called_with("<Config> No previous pane state saved.")
         mock_print.assert_not_called()
 
     def test_load_pane_states_invalid_json_logs_error_without_print(self):

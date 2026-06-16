@@ -41,6 +41,15 @@ class LogLevel(enum.IntEnum):
     ERROR = 4
     CRITICAL = 5
 
+
+def tag_log_message(message, tag):
+    message = str(message)
+    prefix = f"<{tag}>"
+    if message.startswith("<"):
+        return message
+    return f"{prefix} {message}"
+
+
 class Logger:
     STARTUP_BUFFER_MAX = 500
     SUPABASE_WRITE_MIN_INTERVAL_SECONDS = 2
@@ -123,7 +132,7 @@ class Logger:
             self.log_filepath = os.path.join(log_dir, log_file_name)
             self.log_file = open(self.log_filepath, 'w')
             self.log_start_time = datetime.datetime.now()
-            self.info(f"Log file created at {self.log_filepath}")
+            self.info(tag_log_message(f"Log file created at {self.log_filepath}", "Utils"))
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
 
@@ -140,7 +149,7 @@ class Logger:
             self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
             self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
             self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+            self.info(tag_log_message(f"WebMonitor log file created at {self.webMonitor_log_filepath}", "Utils"))
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
 
@@ -440,7 +449,7 @@ class MessagesFrame:
             self.logger.attach_text_widget(self.text_widget)
 
         self.file_logging_enabled = self.logger.log_to_file
-        self.logger.info("Messages pane attached to logger")
+        self.logger.info(tag_log_message("Messages pane attached to logger", "Utils"))
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
@@ -456,7 +465,7 @@ class MessagesFrame:
     def toggle_file_logging(self):
         if self.file_logging_enabled:
             # Currently ON, turn it OFF
-            self.logger.info("Log recording has been turned OFF.")
+            self.logger.info(tag_log_message("Log recording has been turned OFF.", "Utils"))
             self.file_logging_enabled = False
             self.logger.log_to_file = False
             if self.logger.log_file:
@@ -487,7 +496,7 @@ class MessagesFrame:
                 self.logging_indicator_circle, 
                 fill="#00FF24"
             )
-            self.logger.info("Log recording has been turned ON.")
+            self.logger.info(tag_log_message("Log recording has been turned ON.", "Utils"))
 
     def set_log_level(self, level):
         self.logger.set_log_level(level)

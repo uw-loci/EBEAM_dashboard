@@ -11,7 +11,7 @@ from usr.main_control_config import (
     load_total_max_emission_current,
     save_total_max_emission_current,
 )
-from utils import LogLevel, SetupScripts
+from utils import LogLevel, SetupScripts, tag_log_message
 
 
 CHANNEL_LABELS = ("A", "B", "C")
@@ -96,6 +96,15 @@ class MainControlPanel:
     def save_current_pane_state(self):
         if callable(self.save_layout_callback):
             self.save_layout_callback()
+
+    def _log_info(self, message):
+        self.logger.info(tag_log_message(message, "Main Control"))
+
+    def _log_warning(self, message):
+        self.logger.warning(tag_log_message(message, "Main Control"))
+
+    def _log_error(self, message):
+        self.logger.error(tag_log_message(message, "Main Control"))
 
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
@@ -777,7 +786,7 @@ class MainControlPanel:
             if not bcon_connected:
                 self._handle_bcon_disconnected()
         state = "enabled" if enabled else "disabled"
-        self.logger.info(f"Disable CCS Output on BCON Disconnect {state}")
+        self._log_info(f"Disable CCS Output on BCON Disconnect {state}")
 
     def create_logging_suppression_toggles(self, parent_frame):
         for label, setting_attr, command in (
@@ -803,7 +812,7 @@ class MainControlPanel:
         enabled = self._toggle_setting_value(setting_attr)
         self._apply_logging_suppression_settings()
         state = "enabled" if enabled else "disabled"
-        self.logger.info(f"{label} {state}")
+        self._log_info(f"{label} {state}")
 
     def toggle_disable_knob_box_logging_when_hvolt_off(self):
         self._toggle_logging_suppression_setting(
@@ -830,7 +839,7 @@ class MainControlPanel:
         # Keep validation here so UI callbacks and tests use the same rules.
         if not raw_text:
             message = f"{context}: please enter a limit value in mA."
-            self.logger.error(message)
+            self._log_error(message)
             messagebox.showerror("Invalid Input", message)
             return
 
@@ -838,14 +847,14 @@ class MainControlPanel:
             new_value = float(raw_text)
         except ValueError:
             message = f"{context}: please enter a valid number in mA."
-            self.logger.error(message)
+            self._log_error(message)
             messagebox.showerror("Invalid Input", message)
             return
 
         # Reject values that would make the limit comparison ambiguous.
         if not math.isfinite(new_value) or new_value < 0:
             message = f"{context}: value must be a finite, non-negative number in mA."
-            self.logger.error(message)
+            self._log_error(message)
             messagebox.showerror("Invalid Input", message)
             return
 
@@ -858,7 +867,7 @@ class MainControlPanel:
         # Runtime updates still apply even if persisting to disk fails.
         if not save_total_max_emission_current(new_value, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
-            self.logger.warning(message)
+            self._log_warning(message)
             messagebox.showwarning("Save Failed", message)
 
     def create_post_processor_button(self, parent_frame):
@@ -895,9 +904,9 @@ class MainControlPanel:
                 # On other platforms
                 subprocess.Popen([sys.executable, post_processor_path])
 
-            self.logger.info("Log post-processor launched successfully")
+            self._log_info("Log post-processor launched successfully")
         except Exception as e:
-            self.logger.error(f"Failed to launch log post-processor: {str(e)}")
+            self._log_error(f"Failed to launch log post-processor: {str(e)}")
             messagebox.showerror("Error",
                             f"Failed to launch log post-processor:\n{str(e)}")
 
@@ -960,7 +969,7 @@ class MainControlPanel:
         beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
         if beam_pulse is not None:
             return beam_pulse
-        self.logger.error("Beam Pulse subsystem not available")
+        self._log_error("Beam Pulse subsystem not available")
         self._set_beam_action_status(
             f"Failed to {action_text}, Beam Pulse subsystem not available",
             "failure",
@@ -982,11 +991,11 @@ class MainControlPanel:
         ccs_output_active = bool(cathode and any(getattr(cathode, "toggle_states", [])))
         if self.disable_ccs_output_on_bcon_disconnect and cathode:
             if ccs_output_active and not self._ask_bcon_disconnect_confirmation():
-                self.logger.info("BCON disconnect canceled; CCS output remains enabled")
+                self._log_info("BCON disconnect canceled; CCS output remains enabled")
                 return False
             turn_off = getattr(cathode, "turn_off_all_beams", None)
             if callable(turn_off):
-                self.logger.warning(
+                self._log_warning(
                     "BCON manual disconnect requested; disabling CCS output"
                 )
                 turn_off()
@@ -1000,7 +1009,7 @@ class MainControlPanel:
             return
         turn_off = getattr(cathode, "turn_off_all_beams", None)
         if callable(turn_off):
-            self.logger.warning("BCON disconnected; disabling CCS output")
+            self._log_warning("BCON disconnected; disabling CCS output")
             turn_off()
 
     def _set_armed_ui(self, armed, reset=False):
@@ -1063,22 +1072,22 @@ class MainControlPanel:
                 if callable(disarm_beams) and disarm_beams():
                     self._set_armed_ui(False, reset=True)
                     self._set_beam_action_status("Beams disarmed", "neutral")
-                    self.logger.info("Beams disarmed via dashboard button")
+                    self._log_info("Beams disarmed via dashboard button")
                 else:
-                    self.logger.error("Failed to disarm beams")
+                    self._log_error("Failed to disarm beams")
                     self._set_beam_action_status("Failed to disarm beams", "failure")
             else:
                 arm_beams = getattr(beam_pulse, "arm_beams", None)
                 if callable(arm_beams) and arm_beams():
                     self._set_armed_ui(True)
                     self._set_beam_action_status("Beams armed", "success")
-                    self.logger.info("Beams armed via dashboard button")
+                    self._log_info("Beams armed via dashboard button")
                 else:
-                    self.logger.error("Failed to arm beams")
+                    self._log_error("Failed to arm beams")
                     self._set_beam_action_status("Failed to arm beams", "failure")
 
         except Exception as e:
-            self.logger.error(f"Error in handle_arm_beams: {str(e)}")
+            self._log_error(f"Error in handle_arm_beams: {str(e)}")
             self._set_beam_action_status(f"Failed to arm beams: {str(e)}", "failure")
 
     def handle_beams_off(self, reason=None):
@@ -1090,14 +1099,14 @@ class MainControlPanel:
                 beam_pulse = self.subsystems['Beam Pulse']
                 if hasattr(beam_pulse, 'stop_all_channels'):
                     beam_pulse.stop_all_channels()
-                    self.logger.info("All BCON channels force-stopped via E-STOP")
+                    self._log_info("All BCON channels force-stopped via E-STOP")
 
             # Turn off cathode heating power supplies
             if 'Cathode Heating' in self.subsystems and self.subsystems['Cathode Heating'] is not None:
                 cathode = self.subsystems['Cathode Heating']
                 if hasattr(cathode, 'turn_off_all_beams'):
                     cathode.turn_off_all_beams()
-                    self.logger.info("Cathode heating turned off via Beams E-stop button")
+                    self._log_info("Cathode heating turned off via Beams E-stop button")
 
             # Disarm beams
             if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
@@ -1105,9 +1114,9 @@ class MainControlPanel:
                 if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
                     if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
                         self._set_armed_ui(False)
-                        self.logger.info("Beams disarmed via Beams E-stop button")
+                        self._log_info("Beams disarmed via Beams E-stop button")
                     else:
-                        self.logger.error("Failed to disarm beams via Beams E-stop")
+                        self._log_error("Failed to disarm beams via Beams E-stop")
                 self.update_beam_toggle_states(enabled=False, reset=True)
                 self._update_enable_toggle_states(enabled=False)
                 self._update_activate_enabled_beams_control_state(armed=False)
@@ -1117,7 +1126,7 @@ class MainControlPanel:
             else:
                 self._set_beam_action_status("Beams E-STOP pressed: All Beams Disabled", "estop")
         except Exception as e:
-            self.logger.error(f"Error in handle_beams_off: {str(e)}")
+            self._log_error(f"Error in handle_beams_off: {str(e)}")
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
     def _toggle_channel_enable(self, ch_index: int):
@@ -1136,7 +1145,7 @@ class MainControlPanel:
 
             ok, enabled, detail = toggler(ch_index)
             if not ok:
-                self.logger.warning(detail)
+                self._log_warning(detail)
                 self._set_beam_action_status(
                     f"Failed to toggle Channel {channel_label(ch_index)} enable: {detail}",
                     "failure",
@@ -1144,7 +1153,7 @@ class MainControlPanel:
                 return
 
             self._on_channel_enable_status_update(ch_index, enabled)
-            self.logger.info(f"{channel_name(ch_index)} enable -> {'Enabled' if enabled else 'Disabled'}")
+            self._log_info(f"{channel_name(ch_index)} enable -> {'Enabled' if enabled else 'Disabled'}")
             self._set_beam_action_status(
                 f"Channel {channel_label(ch_index)} successfully {'enabled' if enabled else 'disabled'}",
                 "success",
@@ -1154,7 +1163,7 @@ class MainControlPanel:
                     self.beam_toggle_buttons[ch_index],
                     bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
         except Exception as e:
-            self.logger.error(f"Error toggling {channel_name(ch_index)} enable: {e}")
+            self._log_error(f"Error toggling {channel_name(ch_index)} enable: {e}")
             self._set_beam_action_status(f"Failed to toggle Channel {channel_label(ch_index)} enable: {e}", "failure")
 
     def toggle_individual_beam_with_status(self, beam_index):
@@ -1180,13 +1189,13 @@ class MainControlPanel:
                         f"Beam {channel_label(beam_index)} successfully set to OFF",
                         "success",
                     )
-                    self.logger.info(f"Beam {channel_label(beam_index)} turned OFF")
+                    self._log_info(f"Beam {channel_label(beam_index)} turned OFF")
                 else:
                     self._set_beam_action_status(
                         f"Failed to set Beam {channel_label(beam_index)} OFF",
                         "failure",
                     )
-                    self.logger.error(f"Failed to set Beam {channel_label(beam_index)} OFF")
+                    self._log_error(f"Failed to set Beam {channel_label(beam_index)} OFF")
             else:
                 # Currently OFF -> send channel config to BCON
                 config = (
@@ -1202,7 +1211,7 @@ class MainControlPanel:
                         "success",
                     )
                     _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(beam_index)} ON")
-                    self.logger.info(f"Beam {channel_label(beam_index)} config sent to BCON")
+                    self._log_info(f"Beam {channel_label(beam_index)} config sent to BCON")
                 else:
                     # Prefer Beam Pulse's exact reason so line 4 explains why nothing was sent.
                     failure_message = ""
@@ -1221,10 +1230,10 @@ class MainControlPanel:
                     else:
                         failure_message = f"Failed to send Beam {channel_label(beam_index)} config"
                     self._set_beam_action_status(failure_message,"failure",)
-                    self.logger.error(failure_message)
+                    self._log_error(failure_message)
 
         except Exception as e:
-            self.logger.error(f"Error toggling beam {beam_index}: {str(e)}")
+            self._log_error(f"Error toggling beam {beam_index}: {str(e)}")
             self._set_beam_action_status(
                 f"Failed to toggle Beam {channel_label(beam_index)}: {str(e)}",
                 "failure",
@@ -1287,7 +1296,7 @@ class MainControlPanel:
             self.update_beam_toggle_states(enabled=armed)
             self._update_activate_enabled_beams_control_state(armed=armed)
         except Exception as e:
-            self.logger.error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
+            self._log_error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
 
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
@@ -1313,7 +1322,7 @@ class MainControlPanel:
                         self._clear_beam_output_display(i)
 
         except Exception as e:
-            self.logger.error(f"Error updating beam toggle states: {str(e)}")
+            self._log_error(f"Error updating beam toggle states: {str(e)}")
 
     def _update_enable_toggle_states(self, enabled=True):
         """Enable or disable the CH Enable toggle buttons based on armed status.
@@ -1332,7 +1341,7 @@ class MainControlPanel:
                         self._ch_enable_states[i] = False
                     _safe_widget_config(btn,state="disabled",bg="#888888",text=f"CH {channel_label(i)}: Disabled",)
         except Exception as e:
-            self.logger.error(f"Error updating enable toggle states: {str(e)}")
+            self._log_error(f"Error updating enable toggle states: {str(e)}")
 
     def create_com_port_frame(self, parent_frame):
         """

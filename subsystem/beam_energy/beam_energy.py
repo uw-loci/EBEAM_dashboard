@@ -4,7 +4,7 @@ import math
 import threading
 import time
 from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
-from utils import LogLevel
+from utils import LogLevel, tag_log_message
 import tkinter.messagebox as messagebox
 from usr.beam_energy_warning_config import (
     BEAMS_ESTOP_CURRENT_FIELD,
@@ -1303,6 +1303,7 @@ class BeamEnergySubsystem:
         """Log a message with the specified level if a logger is configured."""
         if self._logging_suppressed():
             return
+        message = tag_log_message(message, "Knob Box")
         if self.logger:
             self.logger.log(message, level)
         else:

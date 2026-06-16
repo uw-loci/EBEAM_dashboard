@@ -3,7 +3,7 @@ import struct
 import threading
 import time
 
-from utils import LogLevel
+from utils import LogLevel, tag_log_message
 
 try:
     import serial
@@ -709,6 +709,7 @@ class DP16ProcessMonitor:
             self._emit_log(queued_message, queued_level)
 
     def _emit_log(self, message, level=LogLevel.INFO):
+        message = tag_log_message(message, "PMON")
         try:
             if self.logger:
                 self.logger.log(message, level)
