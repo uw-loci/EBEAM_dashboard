@@ -16,7 +16,7 @@ from utils import ToolTip
 import os, sys
 import numpy as np
 import pandas as pd
-from utils import LogLevel
+from utils import LogLevel, tag_log_message
 from decimal import Decimal
 
 def resource_path(relative_path):
@@ -119,11 +119,17 @@ class CathodeHeatingSubsystem:
                         self.current_options[filename] = df if validate_lut(df) else None
                     except Exception as e:
                         if self.logger:
-                            self.logger.log(f"Failed to load LUT {filename}: {e}", LogLevel.ERROR)
+                            self.logger.log(
+                                tag_log_message(f"Failed to load LUT {filename}: {e}", "CCS"),
+                                LogLevel.ERROR,
+                            )
                         self.current_options[filename] = None
         else:
             if self.logger:
-                self.logger.log(f"LUT directory not found: {lut_dir}", LogLevel.WARNING)
+                self.logger.log(
+                    tag_log_message(f"LUT directory not found: {lut_dir}", "CCS"),
+                    LogLevel.WARNING,
+                )
 
         self.valid_lut_keys = sorted(
             [name for name, table in self.current_options.items() if isinstance(table, pd.DataFrame)],
@@ -649,7 +655,10 @@ class CathodeHeatingSubsystem:
                         self.lookup_table_setting[idx] = self.current_options.get(fallback, None)
                         if self.logger:
                             self.logger.log(
-                                f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
+                                tag_log_message(
+                                    f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
+                                    "CCS",
+                                ),
                                 LogLevel.WARNING,
                             )
                         self.refresh_predictions(idx)
@@ -3192,6 +3201,7 @@ class CathodeHeatingSubsystem:
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
+        message = tag_log_message(message, "CCS")
         if self.logger:
             self.logger.log(message, level)
         else:

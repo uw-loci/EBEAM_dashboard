@@ -2,6 +2,8 @@ import json
 import math
 import os
 
+from utils import tag_log_message
+
 
 CONFIG_FILE = "usr/usr_data/main_control_config.json"
 DEFAULT_TOTAL_MAX_EMISSION_CURRENT_MA = 6.0
@@ -11,6 +13,7 @@ _LEGACY_FIELD = "total_max_emission_current_ma"
 def _log(logger, level, message):
     if logger is None:
         return
+    message = tag_log_message(message, "Config")
     log_func = getattr(logger, level, None) or getattr(logger, "log", None)
     if log_func:
         log_func(message)

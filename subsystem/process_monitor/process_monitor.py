@@ -2,7 +2,7 @@ import time
 import tkinter as tk
 from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
-from utils import LogLevel
+from utils import LogLevel, tag_log_message
 
 class TemperatureBar(tk.Canvas):
 
@@ -372,6 +372,7 @@ class ProcessMonitorSubsystem:
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
+        message = tag_log_message(message, "PMON")
         if self.logger:
             self.logger.log(message, level)
         else:
