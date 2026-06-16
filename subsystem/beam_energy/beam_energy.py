@@ -50,6 +50,16 @@ class BeamEnergySubsystem:
         "pos20kv": ("vcomp_20k_flag", "icomp_20k_flag"),
         "pos3kv": ("vcomp_3k_flag", "icomp_3k_flag"),
     }
+    interlock_log_entries = (
+        ("vcomp_1k_flag", "+1kV Matsusada Voltage interlock tripped"),
+        ("icomp_1k_flag", "+1kV Matsusada Current interlock tripped"),
+        ("neg_vcomp_1k_flag", "-1kV Matsusada Voltage interlock tripped"),
+        ("neg_icomp_1k_flag", "-1kV Matsusada Current interlock tripped"),
+        ("vcomp_20k_flag", "+20kV Bertan Voltage interlock tripped"),
+        ("icomp_20k_flag", "+20kV Bertan Current interlock tripped"),
+        ("vcomp_3k_flag", "+3kV Bertan Voltage interlock tripped"),
+        ("icomp_3k_flag", "+3kV Bertan Current interlock tripped"),
+    )
     beam_energy_flag_keys = (
         "3kV_enable",
         "nomop_flag",
@@ -105,6 +115,13 @@ class BeamEnergySubsystem:
         self.reset_status_colors = [tk.StringVar(value="white") for _ in range(2)]
         self.voltage_interlock_colors = [tk.StringVar(value="white") for _ in range(len(self.power_supplies))]
         self.current_interlock_colors = [tk.StringVar(value="white") for _ in range(len(self.power_supplies))]
+        self.interlock_log_vars = [
+            tk.StringVar(value="") for _flag_key, _message in self.interlock_log_entries
+        ]
+        self.interlock_log_var_by_flag = {
+            flag_key: self.interlock_log_vars[index]
+            for index, (flag_key, _message) in enumerate(self.interlock_log_entries)
+        }
         self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertan
 
         # Indicator Panel -> not power supply specific
@@ -243,7 +260,26 @@ class BeamEnergySubsystem:
         add_row("CCS Power:",      self.ccs_power_var)
         add_row("Arm 80kV:",     self.glassman_interlock_var)
         add_row("Logic Comms:",    color_var=self.logic_comms_color)
-        add_row("Interlocks:",     color_var=self.interlocks_color)        
+        add_row("Interlocks:",     color_var=self.interlocks_color)
+
+        self.create_interlock_log(parent_frame)
+
+    def create_interlock_log(self, parent_frame):
+        """Create the Beam Energy interlock warning log below the system status panel."""
+        panel = ttk.LabelFrame(parent_frame, text="Interlock Log", padding=5)
+        panel.pack(fill=tk.X, anchor=tk.N, pady=(8, 0))
+
+        for index, (_flag_key, _message) in enumerate(self.interlock_log_entries):
+            ttk.Label(
+                panel,
+                textvariable=self.interlock_log_vars[index],
+                font=("Segoe UI", 7),
+                foreground="red",
+                width=24,
+                wraplength=150,
+                anchor=tk.W,
+                justify=tk.LEFT,
+            ).pack(fill=tk.X, anchor=tk.W, pady=1)
 
     def create_warning_config_tab(self, parent_frame):
         """Create configurable warning-limit controls for Beam Energy readbacks."""
@@ -998,6 +1034,17 @@ class BeamEnergySubsystem:
                 global_data.get(current_flag_key) if global_data else None,
                 connected=connected,
             )
+
+        self.update_interlock_log(global_data)
+
+    def update_interlock_log(self, data):
+        """Append observed comparator interlock trips to the log display."""
+        if not data:
+            return
+
+        for flag_key, message in self.interlock_log_entries:
+            if bool(data.get(flag_key, 0)):
+                self.interlock_log_var_by_flag[flag_key].set(message)
 
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
         """Update system status indicators."""
