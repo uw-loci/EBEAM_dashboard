@@ -72,6 +72,10 @@ class MainControlPanel:
         self.subsystems = {}
         self.com_ports = self._get_com_ports()
         self.disable_ccs_output_on_bcon_disconnect = True
+        self.disable_knob_box_logging_when_hvolt_off = True
+        self.disable_bcon_logging_when_hvolt_off = True
+        self.disable_ccs_logging_when_ccs_power_off = True
+        self._setting_checkbutton_vars = {}
 
         self.total_max_emission_current_ma = load_total_max_emission_current(logger=self.logger)
         self.total_max_emission_current_entry_var = tk.StringVar(value="")
@@ -106,6 +110,7 @@ class MainControlPanel:
                     "20kV E-Stop Current Limit exceeded: All Beams Disabled"
                 )
             )
+        self._apply_logging_suppression_settings()
 
     def wire_beam_pulse(self, beam_pulse):
         """Wire Beam Pulse callbacks and providers."""
@@ -136,6 +141,7 @@ class MainControlPanel:
             )
             if callable(getattr(beam_pulse, "is_connected", None)):
                 cathode.bcon_is_connected = beam_pulse.is_connected
+        self._apply_logging_suppression_settings()
 
     def _get_predicted_emission_currents_for_beam_pulse(self):
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
@@ -143,6 +149,37 @@ class MainControlPanel:
         if not callable(getter):
             raise RuntimeError("Cathode Heating predicted emission current provider unavailable")
         return getter()
+
+    def _get_hvolt_on(self):
+        interlocks = getattr(self, "subsystems", {}).get("Interlocks")
+        return bool(getattr(interlocks, "hvolt_on", False))
+
+    def _get_ccs_power_on(self):
+        beam_energy = getattr(self, "subsystems", {}).get("Beam Energy")
+        return bool(getattr(beam_energy, "ccs_power_on", False))
+
+    def _apply_logging_suppression_settings(self):
+        subsystems = getattr(self, "subsystems", {})
+        beam_energy = subsystems.get("Beam Energy")
+        if beam_energy is not None and hasattr(beam_energy, "set_logging_suppression"):
+            beam_energy.set_logging_suppression(
+                self.disable_knob_box_logging_when_hvolt_off,
+                self._get_hvolt_on,
+            )
+
+        beam_pulse = subsystems.get("Beam Pulse")
+        if beam_pulse is not None and hasattr(beam_pulse, "set_logging_suppression"):
+            beam_pulse.set_logging_suppression(
+                self.disable_bcon_logging_when_hvolt_off,
+                self._get_hvolt_on,
+            )
+
+        cathode = subsystems.get("Cathode Heating")
+        if cathode is not None and hasattr(cathode, "set_logging_suppression"):
+            cathode.set_logging_suppression(
+                self.disable_ccs_logging_when_ccs_power_off,
+                self._get_ccs_power_on,
+            )
 
     def create_main_control_notebook(self, frame):
         notebook = ttk.Notebook(frame)
@@ -284,6 +321,13 @@ class MainControlPanel:
         general_frame = ttk.LabelFrame(section_frame, text="General", padding=(8, 6))
         general_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
 
+        log_settings_frame = ttk.LabelFrame(
+            section_frame,
+            text="Log Settings",
+            padding=(8, 6),
+        )
+        log_settings_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
+
         beam_cathode_frame = ttk.LabelFrame(
             section_frame,
             text="Beam and Cathode Enable Settings",
@@ -303,8 +347,9 @@ class MainControlPanel:
 
         self.create_post_processor_button(general_frame)
 
-        self.create_log_level_dropdown(general_frame)
-        self.file_create_log_level_dropdown(general_frame)
+        self.create_log_level_dropdown(log_settings_frame)
+        self.file_create_log_level_dropdown(log_settings_frame)
+        self.create_logging_suppression_toggles(log_settings_frame)
 
         self.create_total_max_emission_current_controls(beam_cathode_frame)
         self.create_disable_ccs_output_on_bcon_disconnect_toggle(beam_cathode_frame)
@@ -680,46 +725,49 @@ class MainControlPanel:
             foreground="gray",
         ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
 
-    def create_disable_ccs_output_on_bcon_disconnect_toggle(self, parent_frame):
-        section = ttk.Frame(parent_frame)
-        section.pack(side=tk.TOP, anchor='nw', padx=5, pady=(6, 2))
-        ttk.Label(
-            section,
-            text="Disable CCS Output on BCON Disconnect",
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor=tk.W, pady=(0, 2))
+    def _create_setting_checkbutton(self, parent_frame, label, setting_attr, command):
+        if not hasattr(self, "_setting_checkbutton_vars"):
+            self._setting_checkbutton_vars = {}
+        variable = tk.BooleanVar(value=bool(getattr(self, setting_attr)))
+        self._setting_checkbutton_vars[setting_attr] = variable
 
-        if self.toggle_on_image and self.toggle_off_image:
-            self.disable_ccs_bcon_disconnect_button = tk.Button(
-                section,
-                image=self.toggle_on_image,
-                command=self.toggle_disable_ccs_output_on_bcon_disconnect,
-                relief=tk.FLAT,
-                bd=0,
-                bg="white",
-            )
+        button = ttk.Checkbutton(
+            parent_frame,
+            text=label,
+            variable=variable,
+            command=command,
+        )
+        button.pack(side=tk.TOP, anchor='nw', padx=5, pady=(6, 2))
+
+    def _toggle_setting_value(self, setting_attr):
+        current = bool(getattr(self, setting_attr))
+        variable = getattr(self, "_setting_checkbutton_vars", {}).get(setting_attr)
+        if variable is None:
+            enabled = not current
         else:
-            self.disable_ccs_bcon_disconnect_button = tk.Button(
-                section,
-                command=self.toggle_disable_ccs_output_on_bcon_disconnect,
-                width=8,
-            )
-        self.disable_ccs_bcon_disconnect_button.pack(anchor=tk.W)
-        self._update_disable_ccs_bcon_disconnect_toggle()
+            variable_value = bool(variable.get())
+            enabled = variable_value if variable_value != current else not current
+            variable.set(enabled)
+
+        setattr(self, setting_attr, enabled)
+        return enabled
+
+    def create_disable_ccs_output_on_bcon_disconnect_toggle(self, parent_frame):
+        self._create_setting_checkbutton(
+            parent_frame,
+            "Disable CCS Output on BCON Disconnect",
+            "disable_ccs_output_on_bcon_disconnect",
+            self.toggle_disable_ccs_output_on_bcon_disconnect,
+        )
 
     def toggle_disable_ccs_output_on_bcon_disconnect(self):
-        self.disable_ccs_output_on_bcon_disconnect = (
-            not self.disable_ccs_output_on_bcon_disconnect
-        )
-        self._update_disable_ccs_bcon_disconnect_toggle()
+        enabled = self._toggle_setting_value("disable_ccs_output_on_bcon_disconnect")
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
         if cathode is not None:
-            cathode.disable_ccs_output_on_bcon_disconnect = (
-                self.disable_ccs_output_on_bcon_disconnect
-            )
+            cathode.disable_ccs_output_on_bcon_disconnect = enabled
         # When turning this setting on, immediately check BCON connection and update 
         # CCS output to off if needed so the UI state is consistent with the setting.
-        if self.disable_ccs_output_on_bcon_disconnect:
+        if enabled:
             beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
             is_connected = getattr(beam_pulse, "is_connected", None)
             try:
@@ -728,26 +776,52 @@ class MainControlPanel:
                 bcon_connected = False
             if not bcon_connected:
                 self._handle_bcon_disconnected()
-        state = "enabled" if self.disable_ccs_output_on_bcon_disconnect else "disabled"
+        state = "enabled" if enabled else "disabled"
         self.logger.info(f"Disable CCS Output on BCON Disconnect {state}")
 
-    def _update_disable_ccs_bcon_disconnect_toggle(self):
-        btn = getattr(self, "disable_ccs_bcon_disconnect_button", None)
-        if btn is None:
-            return
-        enabled = bool(self.disable_ccs_output_on_bcon_disconnect)
-        if self.toggle_on_image and self.toggle_off_image:
-            _safe_widget_config(
-                btn,
-                image=self.toggle_on_image if enabled else self.toggle_off_image,
-            )
-        else:
-            _safe_widget_config(
-                btn,
-                text="ON" if enabled else "OFF",
-                bg="#2e7d32" if enabled else "#888888",
-                fg="white",
-            )
+    def create_logging_suppression_toggles(self, parent_frame):
+        for label, setting_attr, command in (
+            (
+                "Disable Knob Box logging when HV subpanel is off",
+                "disable_knob_box_logging_when_hvolt_off",
+                self.toggle_disable_knob_box_logging_when_hvolt_off,
+            ),
+            (
+                "Disable BCON logging when HV subpanel is off",
+                "disable_bcon_logging_when_hvolt_off",
+                self.toggle_disable_bcon_logging_when_hvolt_off,
+            ),
+            (
+                "Disable CCS logging when CCS power is off",
+                "disable_ccs_logging_when_ccs_power_off",
+                self.toggle_disable_ccs_logging_when_ccs_power_off,
+            ),
+        ):
+            self._create_setting_checkbutton(parent_frame, label, setting_attr, command)
+
+    def _toggle_logging_suppression_setting(self, setting_attr, label):
+        enabled = self._toggle_setting_value(setting_attr)
+        self._apply_logging_suppression_settings()
+        state = "enabled" if enabled else "disabled"
+        self.logger.info(f"{label} {state}")
+
+    def toggle_disable_knob_box_logging_when_hvolt_off(self):
+        self._toggle_logging_suppression_setting(
+            "disable_knob_box_logging_when_hvolt_off",
+            "Disable Knob Box logging when HV subpanel is off",
+        )
+
+    def toggle_disable_bcon_logging_when_hvolt_off(self):
+        self._toggle_logging_suppression_setting(
+            "disable_bcon_logging_when_hvolt_off",
+            "Disable BCON logging when HV subpanel is off",
+        )
+
+    def toggle_disable_ccs_logging_when_ccs_power_off(self):
+        self._toggle_logging_suppression_setting(
+            "disable_ccs_logging_when_ccs_power_off",
+            "Disable CCS logging when CCS power is off",
+        )
 
     def set_total_max_emission_current_limit(self):
         """UI callback for committing the Main Control total emission limit."""

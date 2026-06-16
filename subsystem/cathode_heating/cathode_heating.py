@@ -151,6 +151,8 @@ class CathodeHeatingSubsystem:
         self.power_supply_poll_stop = self.power_supply_poll_stop_event
         self.disable_ccs_output_on_bcon_disconnect = True
         self.bcon_is_connected = None
+        self.disable_logging_when_ccs_power_off = False
+        self.ccs_power_on_provider = None
         # Tells the long-lived poller to pause while COM-port updates swap driver objects.
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
@@ -1070,6 +1072,29 @@ class CathodeHeatingSubsystem:
         else:
             self.clear_prediction_variables(cathode_idx)
 
+    def set_logging_suppression(self, disable_when_ccs_power_off, ccs_power_on_provider=None):
+        self.disable_logging_when_ccs_power_off = bool(disable_when_ccs_power_off)
+        self.ccs_power_on_provider = ccs_power_on_provider if callable(ccs_power_on_provider) else None
+        self._apply_ccs_logging_suppression_to_drivers()
+
+    def _apply_ccs_logging_suppression_to_drivers(self):
+        for power_supply in getattr(self, "power_supplies", []):
+            if power_supply is not None:
+                power_supply.disable_logging_when_ccs_power_off = self.disable_logging_when_ccs_power_off
+                power_supply.ccs_power_on_provider = self.ccs_power_on_provider
+        controller = getattr(self, "temperature_controller", None)
+        if controller is not None:
+            controller.disable_logging_when_ccs_power_off = self.disable_logging_when_ccs_power_off
+            controller.ccs_power_on_provider = self.ccs_power_on_provider
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_ccs_power_off or self.ccs_power_on_provider is None:
+            return False
+        try:
+            return not bool(self.ccs_power_on_provider())
+        except Exception:
+            return False
+
     def update_com_ports(self, new_com_ports):
         """
         Update COM port assignments for power supplies and temperature controllers.
@@ -1265,7 +1290,12 @@ class CathodeHeatingSubsystem:
             if port:
                 ps = None
                 try:
-                    ps = PowerSupply9104(port=port, logger=self.logger)
+                    ps = PowerSupply9104(
+                        port=port,
+                        logger=self.logger,
+                        disable_logging_when_ccs_power_off=self.disable_logging_when_ccs_power_off,
+                        ccs_power_on_provider=self.ccs_power_on_provider,
+                    )
 
                     # Set preset mode to 3 (normal mode)
                     set_preset_response = ps.set_preset_selection(3)
@@ -1364,7 +1394,12 @@ class CathodeHeatingSubsystem:
         """Single lightweight reconnect attempt — no retries, no full reconfiguration."""
         try:
             port = self.com_ports[f'Cathode{chr(65+index)} PS']
-            new_ps = PowerSupply9104(port=port, logger=self.logger)
+            new_ps = PowerSupply9104(
+                port=port,
+                logger=self.logger,
+                disable_logging_when_ccs_power_off=self.disable_logging_when_ccs_power_off,
+                ccs_power_on_provider=self.ccs_power_on_provider,
+            )
             if not new_ps.is_connected():
                 return False
             # Quick probe: if the port opened but the device isn't responding, bail
@@ -1668,7 +1703,12 @@ class CathodeHeatingSubsystem:
                 return False
                 
         try:
-            tc = E5CNModbus(port=port, logger=self.logger)
+            tc = E5CNModbus(
+                port=port,
+                logger=self.logger,
+                disable_logging_when_ccs_power_off=self.disable_logging_when_ccs_power_off,
+                ccs_power_on_provider=self.ccs_power_on_provider,
+            )
             if tc.start_reading_temperatures():
                 self.temperature_controller = tc
                 self.temp_controllers_connected = True
@@ -3149,6 +3189,8 @@ class CathodeHeatingSubsystem:
             self.log("Invalid input for overtemperature limit", LogLevel.ERROR)
 
     def log(self, message, level=LogLevel.INFO):
+        if self._logging_suppressed():
+            return
         if self.logger:
             self.logger.log(message, level)
         else:

@@ -12,12 +12,24 @@ class PowerSupply9104:
     DEFAULT_SERIAL_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
 
-    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False, serial_lock_timeout=DEFAULT_SERIAL_LOCK_TIMEOUT):
+    def __init__(
+        self,
+        port,
+        baudrate=9600,
+        timeout=0.5,
+        logger=None,
+        debug_mode=False,
+        serial_lock_timeout=DEFAULT_SERIAL_LOCK_TIMEOUT,
+        disable_logging_when_ccs_power_off=False,
+        ccs_power_on_provider=None,
+    ):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self.disable_logging_when_ccs_power_off = bool(disable_logging_when_ccs_power_off)
+        self.ccs_power_on_provider = ccs_power_on_provider if callable(ccs_power_on_provider) else None
         self.serial_lock_timeout = serial_lock_timeout
         self._main_thread_ident = threading.get_ident()
         self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
@@ -28,6 +40,14 @@ class PowerSupply9104:
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_ccs_power_off or self.ccs_power_on_provider is None:
+            return False
+        try:
+            return not bool(self.ccs_power_on_provider())
+        except Exception:
+            return False
 
     def _acquire_serial_lock(self, action, lock_timeout=None):
         timeout = self.serial_lock_timeout if lock_timeout is None else lock_timeout
@@ -874,6 +894,8 @@ class PowerSupply9104:
         self.flush_queued_logs()
 
     def log(self, message, level=LogLevel.INFO):
+        if self._logging_suppressed():
+            return
         if not self.logger:
             print(f"{level.name}: {message}")
             return
@@ -918,6 +940,14 @@ class PowerSupply9104:
     def flush_queued_logs(self, max_messages=200):
         """Flush queued worker-thread log messages on the calling thread."""
         if not self.logger:
+            return
+        if self._logging_suppressed():
+            self._pop_dropped_worker_log_count()
+            while True:
+                try:
+                    self._log_queue.get_nowait()
+                except Empty:
+                    break
             return
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:

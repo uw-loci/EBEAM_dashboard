@@ -85,6 +85,8 @@ class BeamPulseSubsystem:
         self.parent_frame = parent_frame
         self.logger = logger
         self.debug = debug
+        self.disable_logging_when_hvolt_off = False
+        self.hvolt_on_provider = None
 
         # Instantiate BCONDriver if port is provided
         if port:
@@ -95,6 +97,7 @@ class BeamPulseSubsystem:
                 timeout=BCONDriver.DEFAULT_TIMEOUT,
                 debug=debug,
             )
+            self._apply_bcon_driver_logging_suppression()
         else:
             self.bcon_driver = None
 
@@ -1471,6 +1474,25 @@ class BeamPulseSubsystem:
         self._last_beam_activity_sent = None
         self._notify_beam_activity(bool(getattr(self, "_active_channels", set())))
 
+    def set_logging_suppression(self, disable_when_hvolt_off, hvolt_on_provider=None):
+        self.disable_logging_when_hvolt_off = bool(disable_when_hvolt_off)
+        self.hvolt_on_provider = hvolt_on_provider if callable(hvolt_on_provider) else None
+        self._apply_bcon_driver_logging_suppression()
+
+    def _apply_bcon_driver_logging_suppression(self):
+        if not getattr(self, "bcon_driver", None):
+            return
+        self.bcon_driver.disable_logging_when_hvolt_off = self.disable_logging_when_hvolt_off
+        self.bcon_driver.hvolt_on_provider = self.hvolt_on_provider
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_hvolt_off or self.hvolt_on_provider is None:
+            return False
+        try:
+            return not bool(self.hvolt_on_provider())
+        except Exception:
+            return False
+
     def set_manual_disconnect_callback(self, callback):
         self._manual_disconnect_callback = callback if callable(callback) else None
 
@@ -1850,6 +1872,8 @@ class BeamPulseSubsystem:
         Always thread-safe: when called from a background thread the write is
         scheduled on the main thread via parent_frame.after(0, ...).
         """
+        if self._logging_suppressed():
+            return
         if self.debug:
             print(f"[{level.name}] {msg}")
         if self.logger:
