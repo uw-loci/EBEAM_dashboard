@@ -51,14 +51,14 @@ class BeamEnergySubsystem:
         "pos3kv": ("vcomp_3k_flag", "icomp_3k_flag"),
     }
     interlock_log_entries = (
-        ("vcomp_1k_flag", "+1kV Matsusada Voltage interlock tripped"),
-        ("icomp_1k_flag", "+1kV Matsusada Current interlock tripped"),
-        ("neg_vcomp_1k_flag", "-1kV Matsusada Voltage interlock tripped"),
-        ("neg_icomp_1k_flag", "-1kV Matsusada Current interlock tripped"),
-        ("vcomp_20k_flag", "+20kV Bertan Voltage interlock tripped"),
-        ("icomp_20k_flag", "+20kV Bertan Current interlock tripped"),
-        ("vcomp_3k_flag", "+3kV Bertan Voltage interlock tripped"),
-        ("icomp_3k_flag", "+3kV Bertan Current interlock tripped"),
+        ("vcomp_1k_flag", "+1kV Matsusada Voltage tripped"),
+        ("icomp_1k_flag", "+1kV Matsusada Current tripped"),
+        ("neg_vcomp_1k_flag", "-1kV Matsusada Voltage tripped"),
+        ("neg_icomp_1k_flag", "-1kV Matsusada Current tripped"),
+        ("vcomp_20k_flag", "+20kV Bertan Voltage tripped"),
+        ("icomp_20k_flag", "+20kV Bertan Current tripped"),
+        ("vcomp_3k_flag", "+3kV Bertan Voltage tripped"),
+        ("icomp_3k_flag", "+3kV Bertan Current tripped"),
     )
     beam_energy_flag_keys = (
         "3kV_enable",
@@ -1042,9 +1042,18 @@ class BeamEnergySubsystem:
         if not data:
             return
 
+        if bool(data.get("nomop_flag", 0)):
+            self.clear_interlock_log()
+            return
+
         for flag_key, message in self.interlock_log_entries:
             if bool(data.get(flag_key, 0)):
                 self.interlock_log_var_by_flag[flag_key].set(message)
+
+    def clear_interlock_log(self):
+        """Clear all displayed comparator interlock trip messages."""
+        for interlock_log_var in self.interlock_log_vars:
+            interlock_log_var.set("")
 
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
         """Update system status indicators."""
