@@ -45,6 +45,8 @@ Important values:
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `STATUS_RUNNING` | `0x0006` | Expected running state |
+| `SPARE_UNIT_EXPECTED_STATUSES` | `{6: 0x0001}` | Unit-specific expected status for installed spare channels |
+| `SPARE_ZERO_READING_UNITS` | `{6}` | Units where a zero process value is expected because no sensor input is connected |
 | `DISCONNECTED` | `-1` | Driver-level disconnected state for UI display |
 | `SENSOR_ERROR` | `-2` | Driver-level sensor/error state for UI display |
 
@@ -93,6 +95,9 @@ The loop:
 5. Reads `PROCESS_VALUE_REG` as two holding registers.
 6. Interprets the two registers as a big-endian IEEE-754 float.
 7. Validates that the value is nonzero and within `MIN_TEMP` to `MAX_TEMP`.
+   Unit 6 is the current installed spare channel, so status `0x0001` and a
+   zero process value are treated as expected communication, not a sensor
+   failure.
 8. Updates `temperature_readings` and `last_good_readings`.
 
 On transient per-unit errors, the driver keeps showing the last known good
