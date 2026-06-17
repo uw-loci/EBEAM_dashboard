@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
-from utils import MessagesFrame, MachineStatus, tag_log_message
+from utils import MessagesFrame, MachineStatus, tag_log_message, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -98,7 +98,7 @@ class EBEAMSystemDashboard:
         except Exception as e:
             self.toggle_on_image = None
             self.toggle_off_image = None
-            print(f"Could not load toggle images: {e}")
+            self._log_dashboard(f"Could not load toggle images: {e}", LogLevel.WARNING)
 
         # Restore saved pane state if one exists.
         if self.load_saved_pane_state():
@@ -130,21 +130,40 @@ class EBEAMSystemDashboard:
         if self.logger is not None:
             self.logger.info(tag_log_message("Dashboard ready", "Dashboard"))
 
+    def _log_dashboard(self, message, level=LogLevel.INFO):
+        tagged_message = tag_log_message(message, "Dashboard")
+        if self.logger is not None:
+            self.logger.log(tagged_message, level)
+        else:
+            print(tagged_message)
+
+    @staticmethod
+    def _is_real_com_port(port):
+        port_text = str(port or "").strip()
+        return bool(port_text) and not port_text.upper().startswith("DUMMY_COM")
+
+    def _initialize_subsystem(self, subsystem_name, factory):
+        try:
+            return factory()
+        except Exception as e:
+            self._log_dashboard(f"Failed to initialize {subsystem_name} subsystem: {e}", LogLevel.ERROR)
+            raise
+
     def cleanup(self):
         """Closes all open com ports before quitting the application."""
 
-        print("Cleaning up com ports...")
+        self._log_dashboard("Cleaning up com ports...", LogLevel.DEBUG)
         for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'close_com_ports'):
                 try:
                     subsystem.close_com_ports()
                 except Exception as e:
                     self.logger.error(tag_log_message(f"Error closing COM ports for {subsystem_name}: {e}", "Dashboard"))
-        print("Cleaned up com ports.")
+        self._log_dashboard("Cleaned up com ports.", LogLevel.INFO)
 
         '''Cancels all scheduled Dashboard updates before quitting the application.'''
         # First cancel updates in each subsystem
-        print("Cancelling scheduled Dashboard updates...")
+        self._log_dashboard("Cancelling scheduled Dashboard updates...", LogLevel.DEBUG)
         for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'cancel_updates'):
                 try:
@@ -165,7 +184,7 @@ class EBEAMSystemDashboard:
                 self.machine_status_frame.cancel_updates()
             except Exception as e:
                 self.logger.error(tag_log_message(f"Error cancelling machine status updates: {e}", "Dashboard"))
-        print("Dashboard upates cancelled.")
+        self._log_dashboard("Dashboard updates cancelled.", LogLevel.INFO)
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
@@ -381,7 +400,12 @@ class EBEAMSystemDashboard:
 
     # saves data to file when button is pressed
     def save_current_pane_state(self):
-        save_pane_states(frames_config, self.frames, self.main_pane)
+        try:
+            save_pane_states(frames_config, self.frames, self.main_pane)
+        except Exception as e:
+            self._log_dashboard(f"Failed to save pane state: {e}", LogLevel.ERROR)
+            raise
+        self._log_dashboard("Pane state saved", LogLevel.INFO)
 
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):
@@ -410,38 +434,53 @@ class EBEAMSystemDashboard:
         Each subsystem is configured with appropriate COM ports and logging.
         """
         self.subsystems = {
-            'Vacuum System': subsystem.VTRXSubsystem(
-                self.frames['Vacuum System'],
-                serial_port=self.com_ports['VTRXSubsystem'],
-                logger=self.logger
+            'Vacuum System': self._initialize_subsystem(
+                'Vacuum System',
+                lambda: subsystem.VTRXSubsystem(
+                    self.frames['Vacuum System'],
+                    serial_port=self.com_ports['VTRXSubsystem'],
+                    logger=self.logger
+                ),
             ),
-            'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
-                self.frames['Process Monitor'],
-                com_port=self.com_ports['ProcessMonitors'],
-                logger=self.logger,
-                active = self.machine_status_frame.MACHINE_STATUS
+            'Process Monitor [°C]': self._initialize_subsystem(
+                'Process Monitor',
+                lambda: subsystem.ProcessMonitorSubsystem(
+                    self.frames['Process Monitor'],
+                    com_port=self.com_ports['ProcessMonitors'],
+                    logger=self.logger,
+                    active = self.machine_status_frame.MACHINE_STATUS
+                ),
             ),
-            'Interlocks': subsystem.InterlocksSubsystem(
-                self.frames['Interlocks'],
-                com_ports = self.com_ports['Interlocks'],
-                logger=self.logger,
-                frames = self.frames,
-                active = self.machine_status_frame.MACHINE_STATUS
+            'Interlocks': self._initialize_subsystem(
+                'Interlocks',
+                lambda: subsystem.InterlocksSubsystem(
+                    self.frames['Interlocks'],
+                    com_ports = self.com_ports['Interlocks'],
+                    logger=self.logger,
+                    frames = self.frames,
+                    active = self.machine_status_frame.MACHINE_STATUS
+                ),
             ),
             # 'Oil System': subsystem.OilSubsystem(
             #     self.frames['Oil System'],
             #     logger=self.logger,
             # ),
-            'Cathode Heating': subsystem.CathodeHeatingSubsystem(
-                self.frames['Cathode Heating'],
-                com_ports=self.com_ports,
-                logger=self.logger,
-                active = self.machine_status_frame.MACHINE_STATUS
+            'Cathode Heating': self._initialize_subsystem(
+                'Cathode Heating',
+                lambda: subsystem.CathodeHeatingSubsystem(
+                    self.frames['Cathode Heating'],
+                    com_ports=self.com_ports,
+                    logger=self.logger,
+                    active = self.machine_status_frame.MACHINE_STATUS
+                ),
             ),
-            'Beam Energy': subsystem.BeamEnergySubsystem(
-                self.frames['Beam Energy'],
-                com_ports=self.com_ports,
-                logger=self.logger
+            'Beam Energy': self._initialize_subsystem(
+                'Beam Energy',
+                lambda: subsystem.BeamEnergySubsystem(
+                    self.frames['Beam Energy'],
+                    com_ports=self.com_ports,
+                    logger=self.logger
+                ),
             )
         }
 
@@ -450,15 +489,14 @@ class EBEAMSystemDashboard:
             self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
 
         laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()
-        try:
-            self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
-            self.logger.info(
-                tag_log_message(
-                    f"Laser Monitor driver started for port {laser_monitor_port}",
-                    "Laser Monitor",
-                )
-            )
-        except Exception as e:
+        laser_monitor_configured = self._is_real_com_port(laser_monitor_port)
+        laser_monitor_start_failed = False
+        if laser_monitor_configured:
+            try:
+                self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
+                self.logger.info(tag_log_message(f"Laser Monitor driver started for port {laser_monitor_port}", "Laser Monitor"))
+            except Exception as e:
+                laser_monitor_start_failed = True
                 self.logger.error(
                     tag_log_message(
                         f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}",
@@ -484,6 +522,10 @@ class EBEAMSystemDashboard:
             beam_energy.set_radiation_indicator_callback(
                 laser_monitor.set_radiation_indicator
             )
+        elif laser_monitor_configured and not laser_monitor_start_failed:
+            self.logger.warning(tag_log_message("Laser Monitor radiation indicator callback was not wired", "Laser Monitor"))
+        elif not laser_monitor_configured:
+            self.logger.debug(tag_log_message("Laser Monitor radiation indicator callback not wired; no real COM port configured", "Laser Monitor"))
 
         # Beam Pulse subsystem (BCON)
         try:
@@ -506,6 +548,10 @@ class EBEAMSystemDashboard:
                 and hasattr(beam_pulse_subsystem, 'set_beam_activity_callback')
             ):
                 beam_pulse_subsystem.set_beam_activity_callback(laser_monitor.set_beams_on)
+            elif laser_monitor_configured and not laser_monitor_start_failed:
+                self.logger.warning(tag_log_message("Laser Monitor beam activity callback was not wired", "Laser Monitor"))
+            elif not laser_monitor_configured:
+                self.logger.debug(tag_log_message("Laser Monitor beam activity callback not wired; no real COM port configured", "Laser Monitor"))
             if hasattr(self, "main_control"):
                 self.main_control.subsystems = self.subsystems
                 self.main_control.wire_beam_pulse(beam_pulse_subsystem)
@@ -546,18 +592,19 @@ class EBEAMSystemDashboard:
         Finally:
             Calls itself to be check again
         """
-        self.logger.info(tag_log_message("checking com ports", "Dashboard"))
-        current_ports = set(serial.tools.list_ports.comports())
-
-        dif = self.set_com_ports - current_ports
-        added_ports = current_ports - self.set_com_ports
+        self._log_dashboard("checking com ports", LogLevel.VERBOSE)
+        current_ports = self.set_com_ports
 
         try:
+            current_ports = set(serial.tools.list_ports.comports())
+            dif = self.set_com_ports - current_ports
+            added_ports = current_ports - self.set_com_ports
+
             # Process removed ports
             for port in dif:
                 if port.serial_number in self.PORT_INFO:
                     subsystem_name = self.PORT_INFO[port.serial_number]
-                    self.logger.warning(
+                    self.logger.error(
                         tag_log_message(f"Lost connection to {subsystem_name} on {port}", "Dashboard")
                     )
                     self._update_com_ports(subsystem_name, None)
@@ -573,7 +620,7 @@ class EBEAMSystemDashboard:
                     )
                     self._update_com_ports(self.PORT_INFO[port.serial_number], port)
         except Exception as e:
-            self.logger.warning(tag_log_message(f"Error was thrown when either removing or adding a comport: {e}", "Dashboard"))
+            self.logger.error(tag_log_message(f"Error checking COM ports: {e}", "Dashboard"))
 
         finally:
             self.set_com_ports = current_ports
@@ -583,8 +630,9 @@ class EBEAMSystemDashboard:
         """
         Calls to update subsystems with change in comport
         """
-        print("here, updating com port")
+        self._log_dashboard("Updating COM port", LogLevel.DEBUG)
         if subsystem_str is None:
+            self._log_dashboard("_update_com_ports was called with invalid args", LogLevel.ERROR)
             raise ValueError("_update_com_ports was called with invalid args")
         str_port = port.device if port is not None else None
         if subsystem_str in self.subsystems:
