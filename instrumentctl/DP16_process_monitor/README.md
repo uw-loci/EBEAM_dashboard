@@ -100,6 +100,30 @@ reading when one exists. After `ERROR_THRESHOLD` consecutive errors for a unit,
 that unit is marked `DISCONNECTED`. If no good reading has ever been seen, the
 unit is marked `SENSOR_ERROR` until the threshold is reached.
 
+## Logging Behavior
+
+The driver logs PMON events through the shared dashboard logger, tagged as
+`<PMON>`. Background polling-thread messages are queued and flushed from the
+main thread by `get_all_temperatures()` or `disconnect()`.
+
+Logging is centered on state changes instead of every repeated polling symptom:
+
+- Connection probes log one summary per attempt: `INFO` when all configured
+  units respond, `WARNING` when only some units respond, and keyed
+  rate-limited `ERROR` when no configured unit responds after the serial port
+  opens.
+- Individual connect-probe failures are keyed `DEBUG` details, so one missing
+  unit does not create repeated warning noise during reconnect attempts.
+- Per-unit polling errors move units through `unknown`, `healthy`, `degraded`,
+  and `disconnected` states. The driver logs degradation, threshold-crossing
+  disconnection, and recovery, but suppresses repeated identical symptoms.
+- Rate limiting is keyed by event family, unit, and error type. A timeout on
+  one unit does not suppress a different error from another unit.
+- Abnormal status-register values are logged only when the status changes.
+  Returning to `STATUS_RUNNING` logs an `INFO` recovery event.
+- Local echo stripping is logged once per serial connection, not once per
+  Modbus transaction.
+
 ## Timing
 
 | Constant | Value | Purpose |

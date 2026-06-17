@@ -214,6 +214,7 @@ class ProcessMonitorSubsystem:
         self.error_count = 0
         self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
+        self._monitor_missing_logged = False
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.thermometer_map = {
@@ -264,14 +265,18 @@ class ProcessMonitorSubsystem:
         current_time = time.time()
         try:
             if not self.monitor:
-                self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
+                if not self._monitor_missing_logged:
+                    self.log("DP16 monitor not connected", LogLevel.WARNING)
+                    self._monitor_missing_logged = True
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
                     if self.logger and hasattr(self.logger, "clear_value"):
                         self.logger.clear_value("temperatures")
-                    self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
             else:
+                if self._monitor_missing_logged:
+                    self.log("DP16 monitor connection available", LogLevel.INFO)
+                    self._monitor_missing_logged = False
                 temps = self.monitor.get_all_temperatures()
                 
                 # Format both valid readings and error states
@@ -286,7 +291,7 @@ class ProcessMonitorSubsystem:
                     else:
                         formatted_temps[unit] = str(value)
                         
-                self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
+                self.log(f"PMON temps: {formatted_temps}", LogLevel.VERBOSE)
                 if self.logger and hasattr(self.logger, "update_field"):
                     self.logger.update_field("temperatures", formatted_temps)
 
@@ -301,8 +306,6 @@ class ProcessMonitorSubsystem:
                 else:
                     # Update each temperature bar
                     for name, unit in self.thermometer_map.items():
-                        temp = temps.get(unit)
-                        self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.VERBOSE)
                         temp = temps.get(unit)
                         if temp is None:
                             self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
@@ -319,7 +322,6 @@ class ProcessMonitorSubsystem:
                                 if -90 <= temp_value <= 500:  # Valid temperature range
                                     self.temp_bars[name].update_value(name, temp_value)
                                     self.active['Environment Pass'] = True # Update Machine Status Progress Bar
-                                    self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
                                 else:
                                     self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                                     self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
