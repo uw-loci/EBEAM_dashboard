@@ -23,6 +23,8 @@ class DP16ProcessMonitor:
     STATUS_REG = 0x240          # Page 9: CNPt Series Programming User's Guide Modbus Interface
 
     STATUS_RUNNING = 0x0006
+    SPARE_UNIT_EXPECTED_STATUSES = {6: 0x0001}
+    SPARE_ZERO_READING_UNITS = {6}
 
     # PT100 RTD temperature range
     MIN_TEMP = -90      # [C]
@@ -167,11 +169,13 @@ class DP16ProcessMonitor:
             return self._serial_is_open_unlocked()
 
     def _mark_pmon_unavailable(self, current_time=None):
+        """Track the start of a PMON outage for later reconnect logging."""
         if self._pmon_unavailable_since is None:
             self._pmon_unavailable_since = time.time() if current_time is None else current_time
             self._first_valid_reading_logged.clear()
 
     def _mark_pmon_available(self, current_time=None):
+        """Clear PMON outage state and log reconnect duration when applicable."""
         if self._pmon_unavailable_since is not None and self._has_connected_once:
             if current_time is None:
                 current_time = time.time()
@@ -556,6 +560,7 @@ class DP16ProcessMonitor:
             return False
 
     def _mark_all_disconnected(self, reason=None, level=LogLevel.WARNING, log=False):
+        """Set every configured unit to DISCONNECTED and optionally log why."""
         with self.response_lock:
             for unit in self.unit_numbers:
                 self.temperature_readings[unit] = self.DISCONNECTED
@@ -569,6 +574,7 @@ class DP16ProcessMonitor:
             self._all_units_disconnected_logged = True
 
     def _log_rate_limited(self, key, message, level=LogLevel.ERROR, interval=None, current_time=None):
+        """Emit a log only when the keyed rate-limit interval has elapsed."""
         if current_time is None:
             current_time = time.time()
         if interval is None:
@@ -654,28 +660,32 @@ class DP16ProcessMonitor:
                 )
 
     def _record_status(self, unit, status):
+        """Track status-register transitions and log only meaningful changes."""
         previous_status = self._last_status_by_unit.get(unit)
         self._last_status_by_unit[unit] = status
+        expected_status = self.SPARE_UNIT_EXPECTED_STATUSES.get(unit, self.STATUS_RUNNING)
+        expected_label = "RUNNING" if expected_status == self.STATUS_RUNNING else f"expected {expected_status}"
 
         if previous_status == status:
             return
 
-        if status != self.STATUS_RUNNING:
+        if status != expected_status:
             if previous_status is None:
                 self.log(
-                    f"DP16 Unit {unit} status {status} differs from expected {self.STATUS_RUNNING}",
+                    f"DP16 Unit {unit} status {status} differs from expected {expected_status}",
                     LogLevel.WARNING,
                 )
             else:
                 self.log(
                     f"DP16 Unit {unit} status changed: {previous_status} -> {status} "
-                    f"(expected {self.STATUS_RUNNING})",
+                    f"(expected {expected_status})",
                     LogLevel.WARNING,
                 )
-        elif previous_status is not None and previous_status != self.STATUS_RUNNING:
-            self.log(f"DP16 Unit {unit} status returned to RUNNING", LogLevel.INFO)
+        elif previous_status is not None and previous_status != expected_status:
+            self.log(f"DP16 Unit {unit} status returned to {expected_label}", LogLevel.INFO)
 
     def _record_successful_reading(self, unit, value):
+        """Record a valid unit reading and log first-read or recovery events."""
         previous_error_count = self.consecutive_error_counts.get(unit, 0)
         previous_state = self._unit_states.get(unit, self.UNIT_UNKNOWN)
 
@@ -684,20 +694,24 @@ class DP16ProcessMonitor:
         self._last_error_type_by_unit[unit] = None
         self._all_units_disconnected_logged = False
         self._mark_pmon_available()
+        is_expected_spare_zero = unit in self.SPARE_ZERO_READING_UNITS and abs(value) < 0.001
+        reading_text = "spare channel zero reading" if is_expected_spare_zero else f"temperature={value:.1f} C"
 
         if previous_error_count > 0:
             poll_word = "poll" if previous_error_count == 1 else "polls"
             self.log(
-                f"DP16 Unit {unit} recovered after {previous_error_count} failed {poll_word}; "
-                f"temperature={value:.1f} C",
+                f"DP16 Unit {unit} recovered after {previous_error_count} failed {poll_word}; {reading_text}",
                 LogLevel.INFO,
             )
             self._first_valid_reading_logged.add(unit)
         elif previous_state == self.UNIT_DISCONNECTED:
-            self.log(f"DP16 Unit {unit} recovered; temperature={value:.1f} C", LogLevel.INFO)
+            self.log(f"DP16 Unit {unit} recovered; {reading_text}", LogLevel.INFO)
             self._first_valid_reading_logged.add(unit)
         elif unit not in self._first_valid_reading_logged:
-            self.log(f"DP16 Unit {unit} first valid reading: {value:.1f} C", LogLevel.INFO)
+            if is_expected_spare_zero:
+                self.log(f"DP16 Unit {unit} spare channel responding with zero reading", LogLevel.INFO)
+            else:
+                self.log(f"DP16 Unit {unit} first valid reading: {value:.1f} C", LogLevel.INFO)
             self._first_valid_reading_logged.add(unit)
 
     def _poll_single_unit(self, unit):
@@ -730,7 +744,7 @@ class DP16ProcessMonitor:
             value = struct.unpack(">f", raw_float)[0]
 
             # In-line validation.
-            if abs(value) < 0.001:
+            if abs(value) < 0.001 and unit not in self.SPARE_ZERO_READING_UNITS:
                 raise ValueError("Zero reading indicates communication error")
             if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                 raise ValueError(f"Temperature out of range: {value}")
@@ -742,6 +756,7 @@ class DP16ProcessMonitor:
             self._record_successful_reading(unit, value)
 
     def _classify_poll_error(self, unit: int, exception: Exception):
+        """Map a poll exception to a stable error type, message, level, and actions."""
         err_str = str(exception).lower()
         is_modbus_error = isinstance(exception, DP16ModbusError)
 
