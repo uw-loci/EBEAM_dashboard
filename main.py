@@ -47,7 +47,7 @@ def start_main_app(com_ports, logger=None):
     :param com_ports: Dict mapping subsystems to their selected COM ports.
     """
     if logger is None:
-        logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+        logger = Logger(text_widget=None, log_level=LogLevel.INFO, file_log_level=LogLevel.VERBOSE, log_to_file=True)
     logger.info(tag_log_message("Dashboard init start", "Main"))
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
@@ -359,7 +359,7 @@ def config_com_ports(saved_com_ports, logger=None):
 
 
 if __name__ == "__main__":
-    bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+    bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.INFO, file_log_level=LogLevel.VERBOSE, log_to_file=True)
     try:
         bootstrap_logger.info(tag_log_message("Process launch", "Main"))
 
