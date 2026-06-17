@@ -390,14 +390,13 @@ class VTRXSubsystem:
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(4, 6), pady=(3, 5)) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.97, bottom=0.05)
+        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.94, bottom=0.18)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
         self.ax.set_title('')
-        self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
@@ -408,7 +407,7 @@ class VTRXSubsystem:
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=3)
      
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """
