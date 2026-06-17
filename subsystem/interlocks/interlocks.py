@@ -283,7 +283,7 @@ class InterlocksSubsystem:
                 
                 sitsf_bits, sitdf_bits, g9_output, unit_status, input_terms, output_terms, debug_data = status
 
-                # Log debug data for web monitor
+                # Log debug data for the datalog.
                 self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.DEBUG)
                 self.log(f"Safety Input Terminal Data Flags: {debug_data['sitdf']}", LogLevel.DEBUG)
 

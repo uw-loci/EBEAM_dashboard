@@ -56,7 +56,7 @@ class TestStartupLogger(unittest.TestCase):
             contents = file.read()
 
         self.assertIn("Log file created at", contents)
-        self.assertIn("WebMonitor log file created at", contents)
+        self.assertIn("Datalog file created at", contents)
         self.assertIn("Process launch", contents)
 
     def test_attach_text_widget_replays_buffer_without_creating_second_file(self):

@@ -216,7 +216,7 @@ class VTRXSubsystem:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
 
-        #Clear the webmonitor fields if error state
+        # Clear the datalog fields if error state.
         if self.logger and hasattr(self.logger, "clear_value"):
             self.logger.clear_value("vacuumBits")
             self.logger.clear_value("pressure")

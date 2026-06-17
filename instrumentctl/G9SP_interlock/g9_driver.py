@@ -252,7 +252,7 @@ class G9Driver:
             self.logger.update_field("safetyOutputStatusFlags", binary_data["sotsf"])
             self.logger.update_field("safetyInputStatusFlags", binary_data["sitsf"])
 
-        # Store data flags to be logged in interlock.py for web monitor
+        # Store data flags to be logged in interlock.py for the datalog.
         debug_data = {
             'sotdf': binary_data['sotdf'],
             'sitdf': binary_data['sitdf']

@@ -645,7 +645,7 @@ class BeamEnergySubsystem:
                 self.update_connection_status(index, comms)
                 self.update_forced_off_status(index, reset_counter_3kv > 0)
             
-            # Build a web monitor log payload
+            # Build a datalog payload.
             if self.logger and hasattr(self.logger, "update_field"):
 
                 # Build keyed per-supply payload entries.
