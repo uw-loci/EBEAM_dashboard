@@ -1179,6 +1179,10 @@ class CathodeHeatingSubsystem:
             if not new_port:
                 self.log(f"No port specified for {cathode}", LogLevel.WARNING)
                 continue
+
+            if self._is_dummy_or_blank_port(new_port):
+                self.log(f"Skipping {cathode} port verification; dummy COM port configured: {new_port}", LogLevel.INFO)
+                continue
                 
             if idx >= len(self.power_supplies):
                 self.log(f"Cannot update {cathode}. Power supply index out of range.", LogLevel.ERROR)
@@ -1212,6 +1216,12 @@ class CathodeHeatingSubsystem:
         if not new_port:
             self.log("No port specified for temperature controllers", LogLevel.ERROR)
             return False
+
+        if self._is_dummy_or_blank_port(new_port):
+            self.log(f"Skipping temperature controller port verification; dummy COM port configured: {new_port}", LogLevel.INFO)
+            self.temp_controllers_connected = False
+            self.active["Cathode Heating"] = False
+            return True
             
         try:
             if not self._verify_port_available(new_port):
@@ -1253,6 +1263,10 @@ class CathodeHeatingSubsystem:
             self.log(f"Error verifying port availability: {str(e)}", LogLevel.ERROR)
             return False
 
+    def _is_dummy_or_blank_port(self, port):
+        port_text = str(port or "").strip()
+        return not port_text or port_text.upper().startswith("DUMMY")
+
     def initialize_power_supplies(self):
         # Build a complete replacement list locally, then publish it in one assignment.
         new_power_supplies = [None, None, None]
@@ -1266,6 +1280,10 @@ class CathodeHeatingSubsystem:
 
         for idx, (cathode, port) in enumerate(cathode_ports.items()):
             if port:
+                if self._is_dummy_or_blank_port(port):
+                    self.log(f"Skipping {cathode} initialization; dummy COM port configured: {port}", LogLevel.INFO)
+                    continue
+
                 ps = None
                 try:
                     ps = PowerSupply9104(port=port, logger=self.logger)
@@ -1367,6 +1385,10 @@ class CathodeHeatingSubsystem:
         """Single lightweight reconnect attempt — no retries, no full reconfiguration."""
         try:
             port = self.com_ports[f'Cathode{chr(65+index)} PS']
+            if self._is_dummy_or_blank_port(port):
+                self.log(f"Skipping reconnect for cathode {chr(65+index)}; dummy COM port configured: {port}", LogLevel.DEBUG)
+                return False
+
             new_ps = PowerSupply9104(port=port, logger=self.logger)
             if not new_ps.is_connected():
                 return False
@@ -1650,6 +1672,12 @@ class CathodeHeatingSubsystem:
         port = self.com_ports.get('TempControllers', None)
         if not port:
             self.log("No port configured for temperature controllers", LogLevel.ERROR)
+            return False
+
+        if self._is_dummy_or_blank_port(port):
+            self.log(f"Skipping temperature controller initialization; dummy COM port configured: {port}", LogLevel.INFO)
+            self.temp_controllers_connected = False
+            self.temperature_controller = None
             return False
             
         # Ensure any existing controller is properly cleaned up

@@ -4,6 +4,11 @@ from typing import Dict, List
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 from utils import LogLevel
 
+
+def _is_dummy_or_blank_port(port):
+    port_text = str(port or "").strip()
+    return not port_text or port_text.upper().startswith("DUMMY")
+
 class TemperatureBar(tk.Canvas):
 
     DISCONNECTED = -1
@@ -191,8 +196,8 @@ class ProcessMonitorSubsystem:
         self.setup_gui()
         self.monitor = None
         try:
-            if not com_port:
-                raise ValueError("No COM port provided for ProcessMonitor")
+            if _is_dummy_or_blank_port(com_port):
+                raise ValueError(f"No real COM port provided for ProcessMonitor: {com_port}")
             # Instantiate PMON driver
             self.monitor = DP16ProcessMonitor(
                 port=com_port,

@@ -15,6 +15,10 @@ from usr.beam_energy_warning_config import (
 )
 
 
+def _is_dummy_or_blank_port(port):
+    port_text = str(port or "").strip()
+    return not port_text or port_text.upper().startswith("DUMMY")
+
 
 class BeamEnergySubsystem:
     """
@@ -858,7 +862,10 @@ class BeamEnergySubsystem:
         Returns True if successful, False otherwise.
         """
         port = self.com_ports.get('KnobBox', None)
-        if not port:
+        if _is_dummy_or_blank_port(port):
+            self.log(f"Skipping KnobBox Modbus initialization; dummy COM port configured: {port}", LogLevel.INFO)
+            self.knob_box_connected = False
+            self.knob_box_connected_at = None
             return False
 
         controller = self.knob_box_controller
@@ -1233,7 +1240,10 @@ class BeamEnergySubsystem:
     def update_com_port(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""
         new_port = new_com_ports.get('KnobBox', None)
-        if not new_port:
+        if _is_dummy_or_blank_port(new_port):
+            self.com_ports = new_com_ports
+            self.close_com_ports()
+            self.log(f"Skipping KnobBox COM port update; dummy COM port configured: {new_port}", LogLevel.INFO)
             return False
         
         if new_port == self.com_ports.get('KnobBox', None):

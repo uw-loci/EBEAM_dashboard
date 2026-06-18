@@ -18,6 +18,11 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def _is_dummy_or_blank_port(port):
+    port_text = str(port or "").strip()
+    return not port_text or port_text.upper().startswith("DUMMY")
+
+
 # Total row width = 1916. Vertical guides (from left):
 #   x = w_be     — Oil | Process Monitor  lines up with  Beam Energy | Cathode Heating
 #   x = w_bp     — Process Monitor | Messages  lines up with  Beam Pulse | Main Control
@@ -439,13 +444,14 @@ class EBEAMSystemDashboard:
             self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
 
         laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()
-        try:
-            self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
-            self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
-        except Exception as e:
-                self.logger.error(f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}")
+        if _is_dummy_or_blank_port(laser_monitor_port):
+            self.logger.info(f"Laser Monitor driver not started; no real COM port configured: {laser_monitor_port}")
         else:
-            self.logger.info("Laser Monitor driver not started; no real COM port configured")
+            try:
+                self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
+                self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
+            except Exception as e:
+                    self.logger.error(f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}")
 
         beam_energy = self.subsystems.get('Beam Energy')
         laser_monitor = self.subsystems.get('Laser Monitor')

@@ -24,6 +24,11 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
+def _is_dummy_or_blank_port(port):
+    port_text = str(port or "").strip()
+    return not port_text or port_text.upper().startswith("DUMMY")
+
 class VTRXSubsystem: 
     ERROR_CODES = {
         0: "VALVE CONTENTION",
@@ -84,6 +89,11 @@ class VTRXSubsystem:
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
 
         self.serial_port = new_port
+        if _is_dummy_or_blank_port(new_port):
+            self.ser = None
+            self.log(f"Skipping VTRX serial connection; dummy COM port configured: {new_port}", LogLevel.INFO)
+            return
+
         self.setup_serial()
 
         # If the new connection is successful, restart the serial thread
@@ -104,6 +114,11 @@ class VTRXSubsystem:
         Raises:
             serial.SerialException: If opening the serial port fails unexpectedly 
         """
+        if _is_dummy_or_blank_port(self.serial_port):
+            self.ser = None
+            self.log(f"Skipping VTRX serial connection; dummy COM port configured: {self.serial_port}", LogLevel.INFO)
+            return
+
         try:
             self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
             self.log(f"Serial connection established on {self.serial_port}", LogLevel.INFO)
@@ -571,4 +586,3 @@ class VTRXSubsystem:
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
         else:
             self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
-          

@@ -47,6 +47,11 @@ def resource_path(relative_path):
 CHANNEL_LABELS = ("A", "B", "C")
 
 
+def _is_dummy_or_blank_port(port):
+    port_text = str(port or "").strip()
+    return not port_text or port_text.upper().startswith("DUMMY")
+
+
 class BeamPulseSubsystem:
     """Beam Pulse subsystem (BCON) with tabbed GUI interface for pulser controls.
 
@@ -87,7 +92,7 @@ class BeamPulseSubsystem:
         self.debug = debug
 
         # Instantiate BCONDriver if port is provided
-        if port:
+        if not _is_dummy_or_blank_port(port):
             self.bcon_driver = BCONDriver(
                 port=port,
                 baudrate=baudrate,
@@ -97,6 +102,8 @@ class BeamPulseSubsystem:
             )
         else:
             self.bcon_driver = None
+            if port and self.logger:
+                self.logger.info(f"Skipping BCON driver initialization; dummy COM port configured: {port}")
 
         # UI-facing queue for driver events (regs, connected, error, …)
         self._ui_queue: queue.Queue = queue.Queue()

@@ -6,6 +6,11 @@ from utils import LogLevel
 import time
 import queue
 
+
+def _is_dummy_or_blank_port(port):
+    port_text = str(port or "").strip()
+    return not port_text or port_text.upper().startswith("DUMMY")
+
 class InterlocksSubsystem:
     # the bit poistion for each interlock
     INPUTS = {
@@ -53,7 +58,7 @@ class InterlocksSubsystem:
         self.setup_gui()
 
         try:
-            if com_ports is not None:
+            if not _is_dummy_or_blank_port(com_ports):
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
                     self.log("G9 driver initialized", LogLevel.INFO)
@@ -62,7 +67,7 @@ class InterlocksSubsystem:
                     self._set_all_indicators('red')
             else:
                 self.driver = None
-                self.log("No COM port provided for G9 driver", LogLevel.WARNING)
+                self.log(f"No real COM port provided for G9 driver: {com_ports}", LogLevel.WARNING)
                 self._set_all_indicators('red')
         except Exception as e:
             self.driver = None
@@ -78,7 +83,7 @@ class InterlocksSubsystem:
         Catch:
             Exception: If inilizition throws an error
         """
-        if com_port:
+        if not _is_dummy_or_blank_port(com_port):
             try:
                 if not self.driver:
                     self.driver = g9_driv.G9Driver(com_port, logger=self.logger)
@@ -91,9 +96,10 @@ class InterlocksSubsystem:
                 self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
         else:
-            self.driver.setup_serial(port=None)
+            if self.driver:
+                self.driver.setup_serial(port=None)
             self._set_all_indicators('red')
-            self.log("update_com_port is being called without a com port", LogLevel.ERROR)
+            self.log(f"Skipping G9 driver update; no real COM port configured: {com_port}", LogLevel.INFO)
 
     def _adjust_update_interval(self, success=True):
         """Adjust the polling interval based on connection success/failure"""
