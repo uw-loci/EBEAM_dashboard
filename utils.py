@@ -42,8 +42,10 @@ class LogLevel(enum.IntEnum):
     CRITICAL = 5
 
 
-def tag_log_message(message, tag):
+def format_log_message(message, tag=None):
     message = str(message)
+    if tag is None:
+        return message
     prefix = f"<{tag}>"
     if message.startswith("<"):
         return message
@@ -132,7 +134,7 @@ class Logger:
             self.log_filepath = os.path.join(log_dir, log_file_name)
             self.log_file = open(self.log_filepath, 'w')
             self.log_start_time = datetime.datetime.now()
-            self.info(tag_log_message(f"Log file created at {self.log_filepath}", "Utils"))
+            self.info(f"Log file created at {self.log_filepath}", tag="Utils")
         except Exception as e:
             print(f"Error creating log file: {str(e)}")
 
@@ -149,7 +151,7 @@ class Logger:
             self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
             self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
             self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(tag_log_message(f"WebMonitor log file created at {self.webMonitor_log_filepath}", "Utils"))
+            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}", tag="Utils")
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
 
@@ -163,10 +165,11 @@ class Logger:
         except Exception as e:
             print(f"Error opening web monitor log file: {str(e)}")
 
-    def log(self, msg, level=LogLevel.INFO):
+    def log(self, msg, level=LogLevel.INFO, tag=None):
         """ Log a message to the text widget and optionally to local file """
         if self._closed:
             return
+        msg = format_log_message(msg, tag)
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
@@ -358,20 +361,20 @@ class Logger:
         if not worker.is_alive():
             self._supabase_worker = None
 
-    def debug(self, message):
-        self.log(message, LogLevel.DEBUG)
+    def debug(self, message, tag=None):
+        self.log(message, LogLevel.DEBUG, tag=tag)
 
-    def info(self, message):
-        self.log(message, LogLevel.INFO)
+    def info(self, message, tag=None):
+        self.log(message, LogLevel.INFO, tag=tag)
 
-    def warning(self, message):
-        self.log(message, LogLevel.WARNING)
+    def warning(self, message, tag=None):
+        self.log(message, LogLevel.WARNING, tag=tag)
     
-    def error(self, message):
-        self.log(message, LogLevel.ERROR)
+    def error(self, message, tag=None):
+        self.log(message, LogLevel.ERROR, tag=tag)
 
-    def critical(self, message):
-        self.log(message, LogLevel.CRITICAL)
+    def critical(self, message, tag=None):
+        self.log(message, LogLevel.CRITICAL, tag=tag)
 
     def set_log_level(self, level):
         self.log_level = level
@@ -449,7 +452,7 @@ class MessagesFrame:
             self.logger.attach_text_widget(self.text_widget)
 
         self.file_logging_enabled = self.logger.log_to_file
-        self.logger.info(tag_log_message("Messages pane attached to logger", "Utils"))
+        self.logger.info("Messages pane attached to logger", tag="Utils")
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
@@ -465,7 +468,7 @@ class MessagesFrame:
     def toggle_file_logging(self):
         if self.file_logging_enabled:
             # Currently ON, turn it OFF
-            self.logger.info(tag_log_message("Log recording has been turned OFF.", "Utils"))
+            self.logger.info("Log recording has been turned OFF.", tag="Utils")
             self.file_logging_enabled = False
             self.logger.log_to_file = False
             if self.logger.log_file:
@@ -496,7 +499,7 @@ class MessagesFrame:
                 self.logging_indicator_circle, 
                 fill="#00FF24"
             )
-            self.logger.info(tag_log_message("Log recording has been turned ON.", "Utils"))
+            self.logger.info("Log recording has been turned ON.", tag="Utils")
 
     def set_log_level(self, level):
         self.logger.set_log_level(level)

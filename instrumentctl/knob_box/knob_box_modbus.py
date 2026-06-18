@@ -3,7 +3,7 @@ import threading
 import time
 
 from pymodbus.client import ModbusSerialClient as ModbusClient
-from utils import LogLevel, tag_log_message  # Ensure this module is correctly implemented
+from utils import LogLevel, format_log_message  # Ensure this module is correctly implemented
 
 # ============= MODBUS MAP =================================
 """Input Registers (Function Code 04)"""
@@ -649,22 +649,20 @@ class KnobBoxModbus:
                 break
             if self._logging_suppressed():
                 continue
-            queued_message = tag_log_message(queued_message, "Knob Box")
             if self.logger:
-                self.logger.log(queued_message, queued_level)
+                self.logger.log(queued_message, queued_level, tag="Knob Box")
             else:
-                print(f"{queued_level.name}: {queued_message}")
+                print(f"{queued_level.name}: {format_log_message(queued_message, 'Knob Box')}")
 
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
-        message = tag_log_message(message, "Knob Box")
         if threading.get_ident() == self._main_thread_id:
             self.flush_queued_logs()
             if self.logger:
-                self.logger.log(message, level)
+                self.logger.log(message, level, tag="Knob Box")
             else:
-                print(f"{level.name}: {message}")
+                print(f"{level.name}: {format_log_message(message, 'Knob Box')}")
             return
 
         # Background thread: enqueue log for main-thread flush to avoid unsafe UI logger access.

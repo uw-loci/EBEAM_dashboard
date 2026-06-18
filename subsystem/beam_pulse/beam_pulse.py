@@ -32,7 +32,7 @@ from instrumentctl.BCON import (
     REG_CH_STATUS_BASE,
     REG_CH_STATUS_STRIDE,
 )
-from utils import LogLevel, tag_log_message
+from utils import LogLevel, format_log_message
 
 
 def resource_path(relative_path):
@@ -1983,18 +1983,17 @@ class BeamPulseSubsystem:
         """
         if self._logging_suppressed():
             return
-        msg = tag_log_message(msg, "BCON")
         if self.debug:
-            print(f"[{level.name}] {msg}")
+            print(f"[{level.name}] {format_log_message(msg, 'BCON')}")
         if self.logger:
             if self.parent_frame:
                 try:
                     self.parent_frame.after(
-                        0, lambda m=msg, l=level: self.logger.log(m, l))
+                        0, lambda m=msg, l=level: self.logger.log(m, l, tag="BCON"))
                     return
                 except Exception:
                     pass
-            self.logger.log(msg, level)
+            self.logger.log(msg, level, tag="BCON")
 
 
 if __name__ == "__main__":

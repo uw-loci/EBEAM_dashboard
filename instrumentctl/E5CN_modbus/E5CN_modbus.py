@@ -3,7 +3,7 @@ import time
 import math
 from queue import Queue, Empty, Full
 from pymodbus.client import ModbusSerialClient as ModbusClient
-from utils import LogLevel, tag_log_message  # Ensure this module is correctly implemented
+from utils import LogLevel, format_log_message  # Ensure this module is correctly implemented
 
 class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
@@ -281,15 +281,14 @@ class E5CNModbus:
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
-        message = tag_log_message(message, "CCS-E5CN")
         if not self.logger:
-            print(f"{level.name}: {message}")
+            print(f"{level.name}: {format_log_message(message, 'CCS-E5CN')}")
             return
 
         # Tkinter widgets must only be modified from the main GUI thread.
         # Queue logs from worker threads and flush them on the main thread.
         if threading.get_ident() == self._main_thread_ident:
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS-E5CN")
         else:
             self._enqueue_worker_log(message, level)
 
@@ -338,11 +337,9 @@ class E5CNModbus:
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:
             self.logger.log(
-                tag_log_message(
-                    f"Dropped {dropped_count} queued E5CN worker log message(s) because the log queue was full.",
-                    "CCS-E5CN",
-                ),
+                f"Dropped {dropped_count} queued E5CN worker log message(s) because the log queue was full.",
                 LogLevel.WARNING,
+                tag="CCS-E5CN",
             )
         processed = 0
         while processed < max_messages:
@@ -350,5 +347,5 @@ class E5CNModbus:
                 message, level = self._log_queue.get_nowait()
             except Empty:
                 break
-            self.logger.log(tag_log_message(message, "CCS-E5CN"), level)
+            self.logger.log(message, level, tag="CCS-E5CN")
             processed += 1

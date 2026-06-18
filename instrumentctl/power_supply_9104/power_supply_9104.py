@@ -3,7 +3,7 @@ import threading
 import time
 import math
 from queue import Queue, Empty, Full
-from utils import LogLevel, tag_log_message
+from utils import LogLevel, format_log_message
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display reading attempts
@@ -896,15 +896,14 @@ class PowerSupply9104:
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
-        message = tag_log_message(message, "CCS-9104")
         if not self.logger:
-            print(f"{level.name}: {message}")
+            print(f"{level.name}: {format_log_message(message, 'CCS-9104')}")
             return
 
         # Tkinter-backed loggers must only be touched from the main GUI thread.
         # Queue logs from ramp/background threads and let cathode_heating flush them.
         if threading.get_ident() == self._main_thread_ident:
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS-9104")
         else:
             self._enqueue_worker_log(message, level)
 
@@ -953,11 +952,9 @@ class PowerSupply9104:
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:
             self.logger.log(
-                tag_log_message(
-                    f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full.",
-                    "CCS-9104",
-                ),
+                f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full.",
                 LogLevel.WARNING,
+                tag="CCS-9104",
             )
         processed = 0
         while processed < max_messages:
@@ -965,5 +962,5 @@ class PowerSupply9104:
                 message, level = self._log_queue.get_nowait()
             except Empty:
                 break
-            self.logger.log(tag_log_message(message, "CCS-9104"), level)
+            self.logger.log(message, level, tag="CCS-9104")
             processed += 1

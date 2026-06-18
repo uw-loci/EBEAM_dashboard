@@ -11,7 +11,7 @@ from usr.main_control_config import (
     load_total_max_emission_current,
     save_total_max_emission_current,
 )
-from utils import LogLevel, SetupScripts, tag_log_message
+from utils import LogLevel, SetupScripts
 
 
 CHANNEL_LABELS = ("A", "B", "C")
@@ -98,16 +98,16 @@ class MainControlPanel:
             self.save_layout_callback()
 
     def _log_info(self, message):
-        self.logger.info(tag_log_message(message, "Main Control"))
+        self.logger.info(message, tag="Main Control")
 
     def _log_warning(self, message):
-        self.logger.warning(tag_log_message(message, "Main Control"))
+        self.logger.warning(message, tag="Main Control")
 
     def _log_error(self, message):
-        self.logger.error(tag_log_message(message, "Main Control"))
+        self.logger.error(message, tag="Main Control")
 
     def _log_critical(self, message):
-        self.logger.critical(tag_log_message(message, "Main Control"))
+        self.logger.critical(message, tag="Main Control")
 
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports

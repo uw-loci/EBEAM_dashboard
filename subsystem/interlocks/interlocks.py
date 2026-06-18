@@ -2,7 +2,7 @@
 import tkinter as tk
 import os, sys
 import instrumentctl.G9SP_interlock.g9_driver as g9_driv
-from utils import LogLevel, tag_log_message
+from utils import LogLevel, format_log_message
 import time
 import queue
 
@@ -376,11 +376,10 @@ class InterlocksSubsystem:
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
-        message = tag_log_message(message, "SIC")
         if self.logger:
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="SIC")
         else:
-            print(f"{level.name}: {message}")
+            print(f"{level.name}: {format_log_message(message, 'SIC')}")
 
     def close_com_ports(self):
         """
