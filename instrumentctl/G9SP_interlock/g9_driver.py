@@ -67,6 +67,8 @@ class G9Driver:
         self.last_data = None
         self.input_flags = []
         self._response_queue = queue.Queue(maxsize=1)
+        self._status_lock = threading.Lock()
+        self._last_status = None
         self._running = True
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
         self._thread.start()
@@ -120,9 +122,15 @@ class G9Driver:
             bytearray(10),                       # output_terms
             {'sotdf': [0] * 7, 'sitdf': [0] * self.NUMIN}  # debug_data
         )
-        if self._response_queue.full():
-            self._response_queue.get_nowait()
-        self._response_queue.put(data)
+        with self._status_lock:
+            self._last_status = data
+
+        try:
+            if self._response_queue.full():
+                self._response_queue.get_nowait()
+            self._response_queue.put_nowait(data)
+        except (queue.Empty, queue.Full):
+            pass
 
     def _communication_thread(self):
         """Background thread for handling serial communication"""
@@ -172,15 +180,8 @@ class G9Driver:
         Non-blocking method to get the latest interlock status
         Returns None if no data is available or on error
         """
-        try:
-            # Try to get an item from the queue without removing it
-            item = self._response_queue.get_nowait()
-            # Put it back since we just wanted to peek
-            self._response_queue.put(item)
-            return item
-        except queue.Empty:
-            # Queue is empty, return None
-            return None
+        with self._status_lock:
+            return self._last_status
 
     def _send_command(self):
         """
