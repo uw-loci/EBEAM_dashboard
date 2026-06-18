@@ -69,6 +69,7 @@ class G9Driver:
         self._response_queue = queue.Queue(maxsize=1)
         self._status_lock = threading.Lock()
         self._last_status = None
+        self._logger_event_queue = queue.Queue(maxsize=100)
         self._running = True
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
         self._thread.start()
@@ -88,7 +89,10 @@ class G9Driver:
             old_ser = self.ser
             self.ser = None
             if old_ser and old_ser.is_open:
-                old_ser.close()
+                try:
+                    old_ser.close()
+                except Exception:
+                    pass
 
             try:
                 self.ser = serial.Serial(
@@ -110,7 +114,10 @@ class G9Driver:
             self.ser = None
 
             if ser and ser.is_open:
-                ser.close()
+                try:
+                    ser.close()
+                except Exception:
+                    pass
 
     def _update_queue(self, response=None):
         data = response if response else (
@@ -132,6 +139,45 @@ class G9Driver:
         except (queue.Empty, queue.Full):
             pass
 
+    def _queue_logger_event(self, event):
+        try:
+            self._logger_event_queue.put_nowait(event)
+        except queue.Full:
+            try:
+                self._logger_event_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._logger_event_queue.put_nowait(event)
+            except queue.Full:
+                pass
+
+    def _queue_log(self, message, level="ERROR"):
+        self._queue_logger_event(("log", level, message))
+
+    def _queue_field_update(self, field, value):
+        self._queue_logger_event(("update_field", field, value))
+
+    def _queue_field_clear(self, field):
+        self._queue_logger_event(("clear_value", field, None))
+
+    def _queue_status_field_clears(self):
+        for field in [
+            "safetyOutputDataFlags",
+            "safetyInputDataFlags",
+            "safetyOutputStatusFlags",
+            "safetyInputStatusFlags",
+        ]:
+            self._queue_field_clear(field)
+
+    def drain_logger_events(self):
+        events = []
+        while True:
+            try:
+                events.append(self._logger_event_queue.get_nowait())
+            except queue.Empty:
+                return events
+
     def _communication_thread(self):
         """Background thread for handling serial communication"""
         while self._running:
@@ -146,20 +192,24 @@ class G9Driver:
 
             except (ValueError, TimeoutError) as e:
                 self._update_queue()
-                if hasattr(self.logger, "clear_value"):
-                    for field in ["safetyOutputDataFlags",
-                        "safetyInputDataFlags",
-                        "safetyOutputStatusFlags",
-                        "safetyInputStatusFlags"]:
-                        self.logger.clear_value(field)
+                self._queue_status_field_clears()
+                self._queue_log(f"G9 response error: {e}", "WARNING")
             except PermissionError as e:
                 self._update_queue()
+                self._queue_status_field_clears()
+                self._queue_log(f"G9 serial permission error: {e}", "ERROR")
                 self._running = False
                 self._close_serial()
 
-            except (serial.SerialException, OSError, TypeError):
+            except (serial.SerialException, OSError, TypeError) as e:
                 self._update_queue()
+                self._queue_status_field_clears()
+                self._queue_log(f"G9 serial communication error: {e}", "ERROR")
                 self._close_serial()
+            except Exception as e:
+                self._update_queue()
+                self._queue_status_field_clears()
+                self._queue_log(f"Unexpected G9 worker error: {e}", "ERROR")
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
@@ -262,11 +312,10 @@ class G9Driver:
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
 
-        if self.logger and hasattr(self.logger, "update_field"):
-            self.logger.update_field("safetyOutputDataFlags", binary_data["sotdf"])
-            self.logger.update_field("safetyInputDataFlags", binary_data["sitdf"])
-            self.logger.update_field("safetyOutputStatusFlags", binary_data["sotsf"])
-            self.logger.update_field("safetyInputStatusFlags", binary_data["sitsf"])
+        self._queue_field_update("safetyOutputDataFlags", binary_data["sotdf"])
+        self._queue_field_update("safetyInputDataFlags", binary_data["sitdf"])
+        self._queue_field_update("safetyOutputStatusFlags", binary_data["sotsf"])
+        self._queue_field_update("safetyInputStatusFlags", binary_data["sitsf"])
 
         # Store data flags to be logged in interlock.py for web monitor
         debug_data = {

@@ -247,6 +247,32 @@ class InterlocksSubsystem:
             extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
 
         return extracted_bits[:num_bits]
+
+    def _drain_driver_logger_events(self):
+        """Apply queued driver logger events from the Tk/main thread."""
+        if not self.driver or not hasattr(self.driver, "drain_logger_events"):
+            return
+
+        level_by_name = {level.name: level for level in LogLevel}
+        for event in self.driver.drain_logger_events():
+            if not event:
+                continue
+
+            kind = event[0]
+            try:
+                if kind == "log":
+                    _, level_name, message = event
+                    self.log(message, level_by_name.get(level_name, LogLevel.ERROR))
+                elif kind == "update_field":
+                    _, field, value = event
+                    if self.logger and hasattr(self.logger, "update_field"):
+                        self.logger.update_field(field, value)
+                elif kind == "clear_value":
+                    _, field, _ = event
+                    if self.logger and hasattr(self.logger, "clear_value"):
+                        self.logger.clear_value(field)
+            except Exception as e:
+                self.log(f"Failed to apply G9 logger event {kind}: {e}", LogLevel.ERROR)
     
     def update_data(self):
         """
@@ -263,6 +289,8 @@ class InterlocksSubsystem:
         """
         current_time = time.time()
         try:
+            self._drain_driver_logger_events()
+
             if not self.driver or not self.driver.is_connected():
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_indicators('red')
@@ -354,6 +382,7 @@ class InterlocksSubsystem:
                 self._adjust_update_interval(success=False)
             
         finally:
+            self._drain_driver_logger_events()
             # Schedule next update
             if getattr(self, 'driver', None):
                 self._schedule_update()
@@ -370,10 +399,14 @@ class InterlocksSubsystem:
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
-        if self.logger:
-            self.logger.log(message, level)
-        else:
+        try:
+            if self.logger:
+                self.logger.log(message, level)
+            else:
+                print(f"{level.name}: {message}")
+        except Exception as e:
             print(f"{level.name}: {message}")
+            print(f"ERROR: Failed to write interlocks log message: {e}")
 
     def close_com_ports(self):
         """
