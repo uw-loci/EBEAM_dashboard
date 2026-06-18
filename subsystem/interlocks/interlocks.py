@@ -44,6 +44,7 @@ class InterlocksSubsystem:
         self.frames = frames
         self.active = active
         self.com_port = com_ports
+        self.driver = None
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
         self.update_interval = 500  # Default update interval (ms)
@@ -62,7 +63,6 @@ class InterlocksSubsystem:
                     self.log(f"Failed to connect: {e}", LogLevel.ERROR)
                     self._set_all_indicators('red')
             else:
-                self.driver = None
                 self.log("No COM port provided for G9 driver", LogLevel.WARNING)
                 self._set_all_indicators('red')
         except Exception as e:
@@ -362,7 +362,7 @@ class InterlocksSubsystem:
             
         finally:
             # Schedule next update
-            if self.driver:
+            if getattr(self, 'driver', None):
                 self._schedule_update()
     
     def cancel_updates(self):
