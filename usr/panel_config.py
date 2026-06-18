@@ -1,7 +1,7 @@
 # usr/panel_config.py
 import json
 
-from utils import tag_log_message
+from utils import format_log_message
 
 CONFIG_FILE = 'usr/usr_data/pane_state.json'
 
@@ -24,18 +24,18 @@ def load_pane_states(filepath=CONFIG_FILE, logger=None):
         with open(filepath, 'r') as file:
             data = json.load(file)
         if logger is not None:
-            logger.info(tag_log_message(f"Pane state loaded from {filepath}.", "Config"))
+            logger.info(f"Pane state loaded from {filepath}.", tag="Config")
         return dict(data)
     except FileNotFoundError:
         if logger is not None:
-            logger.info(tag_log_message("No previous pane state saved.", "Config"))
+            logger.info("No previous pane state saved.", tag="Config")
         else:
-            print(tag_log_message("No previous pane state saved.", "Config"))
+            print(format_log_message("No previous pane state saved.", "Config"))
     except Exception as e:
         if logger is not None:
-            logger.error(tag_log_message(f"Failed to load pane states: {e}", "Config"))
+            logger.error(f"Failed to load pane states: {e}", tag="Config")
         else:
-            print(tag_log_message(f"Failed to load pane states: {e}", "Config"))
+            print(format_log_message(f"Failed to load pane states: {e}", "Config"))
 
 # checks to see if that config file exists
 def saveFileExists(filepath=CONFIG_FILE):

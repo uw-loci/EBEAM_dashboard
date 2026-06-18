@@ -29,8 +29,6 @@ import time
 from typing import Optional, Dict, List
 from enum import IntEnum
 
-from utils import tag_log_message
-
 # pyserial — used directly for Modbus RTU (bypasses pymodbus v3 framer bug)
 try:
     import serial
@@ -344,7 +342,6 @@ class BCONDriver:
         if self._logging_suppressed():
             return
         level = str(level).upper()
-        message = tag_log_message(message, "BCON")
 
         # Hand logs to Beam Pulse so Tk writes happen on the main thread.
         if self._ui_queue:

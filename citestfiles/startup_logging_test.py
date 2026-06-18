@@ -48,15 +48,41 @@ class TestStartupLogger(unittest.TestCase):
         logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
         self.addCleanup(logger.close)
 
-        logger.info("Process launch")
+        logger.info("Process launch", tag="Main")
 
         self.assertTrue(os.path.exists(logger.log_filepath))
         with open(logger.log_filepath, "r") as file:
             contents = file.read()
 
-        self.assertIn("Log file created at", contents)
-        self.assertIn("WebMonitor log file created at", contents)
-        self.assertIn("Process launch", contents)
+        self.assertIn("<Utils> Log file created at", contents)
+        self.assertIn("<Utils> WebMonitor log file created at", contents)
+        self.assertIn("<Main> Process launch", contents)
+
+    def test_logger_formats_tag_for_widget_and_file_output(self):
+        widget = FakeTextWidget()
+        logger = Logger(text_widget=widget, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+        self.addCleanup(logger.close)
+
+        logger.log("Tagged warning", LogLevel.WARNING, tag="Config")
+
+        widget_text = widget.getvalue()
+        self.assertIn("WARNING: <Config> Tagged warning", widget_text)
+        with open(logger.log_filepath, "r") as file:
+            contents = file.read()
+        self.assertIn("WARNING: <Config> Tagged warning", contents)
+
+    def test_logger_preserves_untagged_and_legacy_pretagged_messages(self):
+        widget = FakeTextWidget()
+        logger = Logger(text_widget=widget, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=False)
+        self.addCleanup(logger.close)
+
+        logger.info("Plain message")
+        logger.warning("<Legacy> Already tagged", tag="Config")
+
+        widget_text = widget.getvalue()
+        self.assertIn("INFO: Plain message", widget_text)
+        self.assertIn("WARNING: <Legacy> Already tagged", widget_text)
+        self.assertNotIn("<Config> <Legacy>", widget_text)
 
     def test_attach_text_widget_replays_buffer_without_creating_second_file(self):
         logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
@@ -96,8 +122,8 @@ class TestComPortConfigLogging(unittest.TestCase):
             loaded = load_com_ports(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, expected)
-        logger.info.assert_any_call(f"<Config> COM ports saved to {filepath}.")
-        logger.info.assert_any_call(f"<Config> COM ports loaded from {filepath}.")
+        logger.info.assert_any_call(f"COM ports saved to {filepath}.", tag="Config")
+        logger.info.assert_any_call(f"COM ports loaded from {filepath}.", tag="Config")
         mock_print.assert_not_called()
 
     def test_load_com_ports_missing_logs_without_print(self):
@@ -108,7 +134,7 @@ class TestComPortConfigLogging(unittest.TestCase):
             loaded = load_com_ports(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, {})
-        logger.info.assert_called_with("<Config> No COM port configuration file found.")
+        logger.info.assert_called_with("No COM port configuration file found.", tag="Config")
         mock_print.assert_not_called()
 
     def test_load_com_ports_invalid_json_logs_error_without_print(self):
@@ -143,7 +169,7 @@ class TestPanelConfigLogging(unittest.TestCase):
             loaded = load_pane_states(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, expected)
-        logger.info.assert_called_with(f"<Config> Pane state loaded from {filepath}.")
+        logger.info.assert_called_with(f"Pane state loaded from {filepath}.", tag="Config")
         mock_print.assert_not_called()
 
     def test_load_pane_states_missing_logs_without_print(self):
@@ -154,7 +180,7 @@ class TestPanelConfigLogging(unittest.TestCase):
             loaded = load_pane_states(filepath=filepath, logger=logger)
 
         self.assertIsNone(loaded)
-        logger.info.assert_called_with("<Config> No previous pane state saved.")
+        logger.info.assert_called_with("No previous pane state saved.", tag="Config")
         mock_print.assert_not_called()
 
     def test_load_pane_states_invalid_json_logs_error_without_print(self):

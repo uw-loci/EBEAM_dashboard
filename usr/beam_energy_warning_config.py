@@ -2,7 +2,7 @@ import json
 import math
 import os
 
-from utils import tag_log_message
+from utils import format_log_message
 
 
 CONFIG_FILE = 'usr/usr_data/beam_energy_warning_limits.json'
@@ -41,16 +41,15 @@ def _copy_defaults():
 
 
 def _log(logger, level, message):
-    message = tag_log_message(message, "Config")
     if logger is None:
-        print(message)
+        print(format_log_message(message, "Config"))
         return
 
     log_func = getattr(logger, level, None)
     if log_func:
-        log_func(message)
+        log_func(message, tag="Config")
     elif hasattr(logger, "log"):
-        logger.log(message)
+        logger.log(message, tag="Config")
 
 
 def _valid_number(value):

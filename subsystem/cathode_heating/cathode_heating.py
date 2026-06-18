@@ -16,7 +16,7 @@ from utils import ToolTip
 import os, sys
 import numpy as np
 import pandas as pd
-from utils import LogLevel, tag_log_message
+from utils import LogLevel, format_log_message
 from decimal import Decimal
 
 def resource_path(relative_path):
@@ -120,15 +120,17 @@ class CathodeHeatingSubsystem:
                     except Exception as e:
                         if self.logger:
                             self.logger.log(
-                                tag_log_message(f"Failed to load LUT {filename}: {e}", "CCS"),
+                                f"Failed to load LUT {filename}: {e}",
                                 LogLevel.ERROR,
+                                tag="CCS",
                             )
                         self.current_options[filename] = None
         else:
             if self.logger:
                 self.logger.log(
-                    tag_log_message(f"LUT directory not found: {lut_dir}", "CCS"),
+                    f"LUT directory not found: {lut_dir}",
                     LogLevel.WARNING,
+                    tag="CCS",
                 )
 
         self.valid_lut_keys = sorted(
@@ -655,11 +657,9 @@ class CathodeHeatingSubsystem:
                         self.lookup_table_setting[idx] = self.current_options.get(fallback, None)
                         if self.logger:
                             self.logger.log(
-                                tag_log_message(
-                                    f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
-                                    "CCS",
-                                ),
+                                f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
                                 LogLevel.WARNING,
+                                tag="CCS",
                             )
                         self.refresh_predictions(idx)
                     return
@@ -3201,11 +3201,10 @@ class CathodeHeatingSubsystem:
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
-        message = tag_log_message(message, "CCS")
         if self.logger:
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS")
         else:
-            print(f"{level.name}: {message}")
+            print(f"{level.name}: {format_log_message(message, 'CCS')}")
 
     # Voltage input validation
     def validate_voltage(self, index:int, new_voltage: float):

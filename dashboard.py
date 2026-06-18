@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
-from utils import MessagesFrame, MachineStatus, tag_log_message, LogLevel
+from utils import MessagesFrame, MachineStatus, format_log_message, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -103,9 +103,9 @@ class EBEAMSystemDashboard:
         # Restore saved pane state if one exists.
         if self.load_saved_pane_state():
             if self.logger is not None:
-                self.logger.info(tag_log_message("Pane-state restore result: restored saved pane state", "Dashboard"))
+                self.logger.info("Pane-state restore result: restored saved pane state", tag="Dashboard")
         elif self.logger is not None:
-            self.logger.info(tag_log_message("Pane-state restore result: no saved pane state applied", "Dashboard"))
+            self.logger.info("Pane-state restore result: no saved pane state applied", tag="Dashboard")
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
@@ -123,19 +123,18 @@ class EBEAMSystemDashboard:
 
         # Set up different subsystems within their respective frames
         if self.logger is not None:
-            self.logger.info(tag_log_message("Subsystem initialization start", "Dashboard"))
+            self.logger.info("Subsystem initialization start", tag="Dashboard")
         self.create_subsystems()
 
         self._check_ports()
         if self.logger is not None:
-            self.logger.info(tag_log_message("Dashboard ready", "Dashboard"))
+            self.logger.info("Dashboard ready", tag="Dashboard")
 
     def _log_dashboard(self, message, level=LogLevel.INFO):
-        tagged_message = tag_log_message(message, "Dashboard")
         if self.logger is not None:
-            self.logger.log(tagged_message, level)
+            self.logger.log(message, level, tag="Dashboard")
         else:
-            print(tagged_message)
+            print(format_log_message(message, "Dashboard"))
 
     @staticmethod
     def _is_real_com_port(port):
@@ -158,7 +157,7 @@ class EBEAMSystemDashboard:
                 try:
                     subsystem.close_com_ports()
                 except Exception as e:
-                    self.logger.error(tag_log_message(f"Error closing COM ports for {subsystem_name}: {e}", "Dashboard"))
+                    self.logger.error(f"Error closing COM ports for {subsystem_name}: {e}", tag="Dashboard")
         self._log_dashboard("Cleaned up com ports.", LogLevel.INFO)
 
         '''Cancels all scheduled Dashboard updates before quitting the application.'''
@@ -169,21 +168,21 @@ class EBEAMSystemDashboard:
                 try:
                     subsystem.cancel_updates()
                 except Exception as e:
-                    self.logger.error(tag_log_message(f"Error cancelling updates for {subsystem_name}: {e}", "Dashboard"))
+                    self.logger.error(f"Error cancelling updates for {subsystem_name}: {e}", tag="Dashboard")
         # Now cancel com port checks
         if self.ports_after_id is not None:
             try:
                 self.root.after_cancel(self.ports_after_id)
                 self.ports_after_id = None
-                self.logger.debug(tag_log_message("Cancelled scheduled com port checks.", "Dashboard"))
+                self.logger.debug("Cancelled scheduled com port checks.", tag="Dashboard")
             except Exception as e:
-                self.logger.debug(tag_log_message("Failed to cancel scheduled com port checks.", "Dashboard"))
+                self.logger.debug("Failed to cancel scheduled com port checks.", tag="Dashboard")
         # Now cancel machine status updates
         if hasattr(self.machine_status_frame, 'cancel_updates'):
             try:
                 self.machine_status_frame.cancel_updates()
             except Exception as e:
-                self.logger.error(tag_log_message(f"Error cancelling machine status updates: {e}", "Dashboard"))
+                self.logger.error(f"Error cancelling machine status updates: {e}", tag="Dashboard")
         self._log_dashboard("Dashboard updates cancelled.", LogLevel.INFO)
 
     def setup_main_pane(self):
@@ -494,21 +493,17 @@ class EBEAMSystemDashboard:
         if laser_monitor_configured:
             try:
                 self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
-                self.logger.info(tag_log_message(f"Laser Monitor driver started for port {laser_monitor_port}", "Laser Monitor"))
+                self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}", tag="Laser Monitor")
             except Exception as e:
                 laser_monitor_start_failed = True
                 self.logger.error(
-                    tag_log_message(
-                        f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}",
-                        "Laser Monitor",
-                    )
+                    f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}",
+                    tag="Laser Monitor",
                 )
         else:
             self.logger.info(
-                tag_log_message(
-                    "Laser Monitor driver not started; no real COM port configured",
-                    "Laser Monitor",
-                )
+                "Laser Monitor driver not started; no real COM port configured",
+                tag="Laser Monitor",
             )
 
         beam_energy = self.subsystems.get('Beam Energy')
@@ -523,9 +518,9 @@ class EBEAMSystemDashboard:
                 laser_monitor.set_radiation_indicator
             )
         elif laser_monitor_configured and not laser_monitor_start_failed:
-            self.logger.warning(tag_log_message("Laser Monitor radiation indicator callback was not wired", "Laser Monitor"))
+            self.logger.warning("Laser Monitor radiation indicator callback was not wired", tag="Laser Monitor")
         elif not laser_monitor_configured:
-            self.logger.debug(tag_log_message("Laser Monitor radiation indicator callback not wired; no real COM port configured", "Laser Monitor"))
+            self.logger.debug("Laser Monitor radiation indicator callback not wired; no real COM port configured", tag="Laser Monitor")
 
         # Beam Pulse subsystem (BCON)
         try:
@@ -549,14 +544,14 @@ class EBEAMSystemDashboard:
             ):
                 beam_pulse_subsystem.set_beam_activity_callback(laser_monitor.set_beams_on)
             elif laser_monitor_configured and not laser_monitor_start_failed:
-                self.logger.warning(tag_log_message("Laser Monitor beam activity callback was not wired", "Laser Monitor"))
+                self.logger.warning("Laser Monitor beam activity callback was not wired", tag="Laser Monitor")
             elif not laser_monitor_configured:
-                self.logger.debug(tag_log_message("Laser Monitor beam activity callback not wired; no real COM port configured", "Laser Monitor"))
+                self.logger.debug("Laser Monitor beam activity callback not wired; no real COM port configured", tag="Laser Monitor")
             if hasattr(self, "main_control"):
                 self.main_control.subsystems = self.subsystems
                 self.main_control.wire_beam_pulse(beam_pulse_subsystem)
         except Exception as e:
-            self.logger.error(tag_log_message(f"Failed to initialize Beam Pulse subsystem: {e}", "Dashboard"))
+            self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}", tag="Dashboard")
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
@@ -581,8 +576,8 @@ class EBEAMSystemDashboard:
                 elif subsystem_name == 'Beam Energy':
                     subsystem.update_com_port(new_com_ports)
             else:
-                self.logger.warning(tag_log_message(f"Subsystem {subsystem_name} does not have an update_com_port method", "Dashboard"))
-        self.logger.info(tag_log_message(f"COM ports updated: {self.com_ports}", "Dashboard"))
+                self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method", tag="Dashboard")
+        self.logger.info(f"COM ports updated: {self.com_ports}", tag="Dashboard")
 
 
     def _check_ports(self):
@@ -605,7 +600,8 @@ class EBEAMSystemDashboard:
                 if port.serial_number in self.PORT_INFO:
                     subsystem_name = self.PORT_INFO[port.serial_number]
                     self.logger.error(
-                        tag_log_message(f"Lost connection to {subsystem_name} on {port}", "Dashboard")
+                        f"Lost connection to {subsystem_name} on {port}",
+                        tag="Dashboard",
                     )
                     self._update_com_ports(subsystem_name, None)
 
@@ -613,14 +609,12 @@ class EBEAMSystemDashboard:
             for port in added_ports:
                 if port.serial_number in self.PORT_INFO:
                     self.logger.info(
-                        tag_log_message(
-                            f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}",
-                            "Dashboard",
-                        )
+                        f"Attempting to connect {self.PORT_INFO[port.serial_number]} to {port}",
+                        tag="Dashboard",
                     )
                     self._update_com_ports(self.PORT_INFO[port.serial_number], port)
         except Exception as e:
-            self.logger.error(tag_log_message(f"Error checking COM ports: {e}", "Dashboard"))
+            self.logger.error(f"Error checking COM ports: {e}", tag="Dashboard")
 
         finally:
             self.set_com_ports = current_ports
@@ -644,6 +638,6 @@ class EBEAMSystemDashboard:
                 try:
                     self.logger.clear_value(comp)
                 except KeyError:
-                    self.logger.debug(tag_log_message(f"Key {comp} not found in dict_logger (already cleared?)", "Dashboard"))
+                    self.logger.debug(f"Key {comp} not found in dict_logger (already cleared?)", tag="Dashboard")
 
-        self.logger.info(tag_log_message(f"COM ports updated: {self.com_ports}", "Dashboard"))
+        self.logger.info(f"COM ports updated: {self.com_ports}", tag="Dashboard")
