@@ -97,17 +97,45 @@ class Logger:
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
 
-    def _write_to_text_widget(self, formatted_message):
+    def _configure_text_tags(self):
         if self.text_widget is None:
             return
-        self.text_widget.insert(tk.END, formatted_message, ("log",))
-        self.text_widget.tag_config("log", font=("Helvetica", 9))
+        self.text_widget.tag_config("log", font=("Segoe UI", 9))
+        self.text_widget.tag_config("log_error_level", font=("Segoe UI", 9, "bold"))
+        self.text_widget.tag_config("log_critical_level", font=("Segoe UI", 9, "bold"), foreground="red")
+
+    def _write_to_text_widget(self, formatted_message, level=None):
+        if self.text_widget is None:
+            return
+        self._configure_text_tags()
+        level_tag_by_level = {
+            LogLevel.ERROR: "log_error_level",
+            LogLevel.CRITICAL: "log_critical_level",
+        }
+        level_tag = level_tag_by_level.get(level)
+        level_field = f"{level.name}" if level is not None else None
+        if level_tag is not None and level_field is not None:
+            level_start = formatted_message.find(level_field)
+            if level_start != -1:
+                level_end = level_start + len(level_field)
+                self.text_widget.insert(tk.END, formatted_message[:level_start], ("log",))
+                self.text_widget.insert(tk.END, formatted_message[level_start:level_end], (level_tag,))
+                self.text_widget.insert(tk.END, formatted_message[level_end:], ("log",))
+            else:
+                self.text_widget.insert(tk.END, formatted_message, ("log",))
+        else:
+            self.text_widget.insert(tk.END, formatted_message, ("log",))
         self.text_widget.see(tk.END)
 
     def attach_text_widget(self, text_widget):
         self.text_widget = text_widget
         while self._pending_widget_messages:
-            self._write_to_text_widget(self._pending_widget_messages.popleft())
+            pending_message = self._pending_widget_messages.popleft()
+            if isinstance(pending_message, tuple):
+                formatted_message, level = pending_message
+                self._write_to_text_widget(formatted_message, level)
+            else:
+                self._write_to_text_widget(pending_message)
 
     def setup_log_file(self):
         """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
@@ -156,36 +184,47 @@ class Logger:
             print(f"Error opening web monitor log file: {str(e)}")
 
     def log(self, msg, level=LogLevel.INFO, tag=None):
-        """ Log a message to the text widget and optionally to local file """
+        """Log a message to the text widget and optionally to local file."""
         if self._closed:
             return
+
         msg = str(msg)
-        if tag is not None and not msg.startswith("<"):
-            msg = f"<{tag}> {msg}"
+
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+        level_field = f"{level.name}"
+        if tag is not None and not msg.startswith("("):
+            tag_field = f"({str(tag)}) >"
+            formatted_message = f"[{timestamp}] - {level_field} {tag_field} {msg}\n"
+        else:
+            formatted_message = f"[{timestamp}] - {level_field} {msg}\n"
+
         if level >= self.log_level:
             if self.text_widget is not None:
-                self._write_to_text_widget(formatted_message)
+                self._write_to_text_widget(formatted_message, level)
             else:
-                self._pending_widget_messages.append(formatted_message)
+                self._pending_widget_messages.append((formatted_message, level))
+
         # return early if file logging is disabled
         if not self.log_to_file:
             return
+
         # write to log file if enabled
-        if self.log_to_file and level >= self.file_log_level:
+        if level >= self.file_log_level:
             now = datetime.datetime.now()
+
             # close the log file at intervals of 8 hours and create a new one
-            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+            if self.log_start_time is None or (now - self.log_start_time).total_seconds() > 8 * 60 * 60:
                 self.setup_log_file()
+
             if self.log_file is None:
                 return
+
             try:
-                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-                self.log_file.write(file_formatted_message)
+                self.log_file.write(formatted_message)
                 self.log_file.flush()
             except Exception as e:
-                print(f"Error writing to log file: {str(e)}")   
+                print(f"Error writing to log file: {str(e)}")
+
     def update_field(self, field, value):
         if field == "cathode":
             raise KeyError("'cathode' cannot be updated with update_field; use update_cathode_field for cathode subfields.")
