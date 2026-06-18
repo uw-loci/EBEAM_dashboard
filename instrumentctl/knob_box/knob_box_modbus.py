@@ -136,6 +136,8 @@ class KnobBoxModbus:
         self.port = port
         self.connected = False
         self.last_success = {uid: 0 for uid in self.UNIT_IDS}  # Track last successful poll time for each unit
+        self._unit_response_seen = False
+        self._no_unit_responses_logged = False
 
         '''Connection management parameters:'''
         self.CONNECTION_TIMEOUT = 6.0  # seconds without successful poll before considering connection lost
@@ -282,9 +284,33 @@ class KnobBoxModbus:
                 # poll_one logs once when all retries are exhausted.
                 pass
 
+        self._log_unit_response_state()
+
         # Return a copy to avoid external mutation
         with self.data_lock:
             return {uid: values.copy() for uid, values in self.data.items()}
+
+    def _log_unit_response_state(self):
+        now = time.time()
+        with self.data_lock:
+            any_recent_response = any(
+                (now - self.last_success.get(uid, 0)) < self.CONNECTION_TIMEOUT
+                for uid in self.UNIT_IDS
+            )
+
+        if any_recent_response:
+            if self._no_unit_responses_logged:
+                self.log("Unit responses recovered; device appears powered on.", LogLevel.INFO)
+            elif not self._unit_response_seen:
+                self.log("Unit responses received; device appears powered on.", LogLevel.INFO)
+            self._unit_response_seen = True
+            self._no_unit_responses_logged = False
+        elif not self._no_unit_responses_logged:
+            self.log(
+                "Serial port is open, but no units are responding; device may be powered off.",
+                LogLevel.ERROR,
+            )
+            self._no_unit_responses_logged = True
 
     def poll_one(self, unit_id):
         """
@@ -393,11 +419,11 @@ class KnobBoxModbus:
 
                     # Check for an increment of the 3kV reset counter
                     if self.reset_counter < reset_counter:
-                        self.log(f"Knob Box: 3kV Bertan timer state counter incremented, counter = {reset_counter}", LogLevel.CRITICAL)
+                        self.log(f"+3kV Bertan timer state counter incremented, counter = {reset_counter}", LogLevel.CRITICAL)
 
                     # Check if 3kV forced off
                     if reset_counter > 0 and self.reset_counter == 0:
-                        self.log(f"Knob Box: 3kV Bertan enable was forced off.", LogLevel.CRITICAL)
+                        self.log(f"+3kV Bertan enable was forced off.", LogLevel.CRITICAL)
 
                     # Update the stored reset counter
                     self.reset_counter = reset_counter    
@@ -405,44 +431,44 @@ class KnobBoxModbus:
                     # Check for edges on switch states
                     if self.switch_states[4] != arm_80kV:
                             if (self.switch_states[4] == 0 and arm_80kV == 1):
-                                self.log(f"Knob Box: Arm 80kV switch turned ON", LogLevel.INFO)
+                                self.log(f"Arm 80kV switch turned ON", LogLevel.INFO)
                             else:
-                                self.log(f"Knob Box: Arm 80kV switch turned OFF", LogLevel.INFO)
+                                self.log(f"Arm 80kV switch turned OFF", LogLevel.INFO)
                     if self.switch_states[5] != arm_beams:
                             if (self.switch_states[5] == 0 and arm_beams == 1):
-                                self.log(f"Knob Box: Arm beams switch turned ON", LogLevel.INFO)
+                                self.log(f"Arm beams switch turned ON", LogLevel.INFO)
                             else:
-                                self.log(f"Knob Box: Arm beams switch turned OFF", LogLevel.INFO)
+                                self.log(f"Arm beams switch turned OFF", LogLevel.INFO)
                     if self.switch_states[6] != ccs_power:
                             if (self.switch_states[6] == 0 and ccs_power == 1):
-                                self.log(f"Knob Box: CCS power switch turned ON", LogLevel.INFO)
+                                self.log(f"CCS power switch turned ON", LogLevel.INFO)
                             else:
-                                self.log(f"Knob Box: CCS power switch turned OFF", LogLevel.INFO)
+                                self.log(f"CCS power switch turned OFF", LogLevel.INFO)
 
                     # Check for edges on all latched flags and log them
                     new_flag_states = [ # just a list of new data to cleanly iterate through
-                        (0, timer_state_flag, "3kV Timer State"),
+                        (0, timer_state_flag, "+3kV Bertan Timer State"),
                         (1, armbeams_flag, "Arm Beams"),
                         (2, ccspower_flag, "CCS Power Allow"),
                         (3, arm80kv_flag, "Arm 80kV"),
-                        (4, vcomp_1k_flag, "1kV Voltage Comp"),
-                        (5, icomp_1k_flag, "1kV Current Comp"),
-                        (6, neg_vcomp_1k_flag, "Negative 1kV Voltage Comp"),
-                        (7, neg_icomp_1k_flag, "Negative 1kV Current Comp"),
-                        (8, vcomp_20k_flag, "20kV Voltage Comp"),
-                        (9, icomp_20k_flag, "20kV Current Comp"),
-                        (10, vcomp_3k_flag, "3kV Voltage Comp"),
-                        (11, icomp_3k_flag, "3kV Current Comp"),
+                        (4, vcomp_1k_flag, "+1kV Matsusada Voltage Comp"),
+                        (5, icomp_1k_flag, "+1kV Matsusada Current Comp"),
+                        (6, neg_vcomp_1k_flag, "-1kV Matsusada Voltage Comp"),
+                        (7, neg_icomp_1k_flag, "-1kV Matsusada Current Comp"),
+                        (8, vcomp_20k_flag, "+20kV Bertan Voltage Comp"),
+                        (9, icomp_20k_flag, "+20kV Bertan Current Comp"),
+                        (10, vcomp_3k_flag, "+3kV Bertan Voltage Comp"),
+                        (11, icomp_3k_flag, "+3kV Bertan Current Comp"),
                     ]
                     for idx, new_val, flag_name in new_flag_states:
                         if self.latched_flags[idx] != new_val:
                             if self.latched_flags[idx] == 0 and new_val == 1:
                                 level = self._latched_flag_trip_level(idx, previous_nomop, current_nomop)
-                                self.log(f"Knob Box: {flag_name} flag tripped.", level)
+                                self.log(f"{flag_name} flag tripped.", level)
                             else:
                                 # Log as INFO on falling edge.
                                 # TODO unsure if this will cause log overflowing/if it is needed at all.
-                                self.log(f"Knob Box: {flag_name} flag deasserted.", LogLevel.INFO)
+                                self.log(f"{flag_name} flag deasserted.", LogLevel.INFO)
 
                     # Check for edges on all unlatched signals and log them.
                     new_signal_states = [
@@ -451,22 +477,22 @@ class KnobBoxModbus:
                         (2, arm_80kV, "Arm 80kV"),
                         (3, ccs_power, "CCS Power"),
                         (4, arm_beams, "Arm Beams"),
-                        (5, enable_3kV, "3kV Enable"),
+                        (5, enable_3kV, "+3kV Bertan Enable"),
                         (6, nomop_flag, "Nomop"),
                         (7, logic_alive_flag, "Logic Comms")
                     ]
                     for idx, new_val, signal_name in new_signal_states:
                         if self.unlatched_signals[idx] != new_val:
                             if self.unlatched_signals[idx] == 0 and new_val == 1:
-                                self.log(f"Knob Box: {signal_name} signal ON.", LogLevel.INFO)
+                                self.log(f"{signal_name} signal ON.", LogLevel.INFO)
                             
                             elif idx == 6:
-                                self.log(f"Knob Box: Entered INTERLOCKS State.", LogLevel.INFO)
+                                self.log(f"Entered INTERLOCKS State.", LogLevel.INFO)
                             elif idx == 7:
                                 # Logic Alive Signal: 1-->0 transistion is an ERROR
-                                self.log(f"Knob Box: Lost communication with the Logic Arduino.", LogLevel.ERROR)
+                                self.log(f"Lost communication with the Logic Arduino.", LogLevel.ERROR)
                             else:
-                                self.log(f"Knob Box: {signal_name} signal OFF.", LogLevel.INFO)
+                                self.log(f"{signal_name} signal OFF.", LogLevel.INFO)
 
                     # Arm Beams, CCS Power, and Arm 80kV are only recieved by the 3kv arduino.
                     self.switch_states[4] = 0 if arm_80kV == 0 else 1
@@ -509,14 +535,14 @@ class KnobBoxModbus:
                     if self.unlatched_signals[1] != new_reset_state:
                         if self.unlatched_signals[1] == 0 and new_reset_state == 1:
                             if (unit_id == 1):
-                                self.log(f"Knob Box: +1kV entered Overcurrent Reset Mode", LogLevel.ERROR)
+                                self.log(f"+1kV Matsusada entered Overcurrent Reset Mode", LogLevel.ERROR)
                             else:
-                                self.log(f"Knob Box: -1kV entered Overcurrent Reset Mode", LogLevel.ERROR)
+                                self.log(f"-1kV Matsusada entered Overcurrent Reset Mode", LogLevel.ERROR)
                         else:
                             if (unit_id == 1):
-                                self.log(f"Knob Box: +1kV exited Overcurrent Reset Mode", LogLevel.INFO)
+                                self.log(f"+1kV Matsusada exited Overcurrent Reset Mode", LogLevel.INFO)
                             else:   
-                                self.log(f"Knob Box: -1kV exited Overcurrent Reset Mode", LogLevel.INFO)
+                                self.log(f"-1kV Matsusada exited Overcurrent Reset Mode", LogLevel.INFO)
 
                     # Just update the 1kv reset state
                     self.unlatched_signals[1] = new_reset_state
@@ -526,11 +552,11 @@ class KnobBoxModbus:
                 All units: check for HV enable switch state edge and log.
                 """
                 if self.switch_states[unit_id-1] != hv_enable:
-                    unit = "+1kV" if unit_id == 1 else ("-1kV" if unit_id == 2 else ("20kV" if unit_id == 3 else "3kV"))
+                    unit = "+1kV Matsusada" if unit_id == 1 else ("-1kV Matsusada" if unit_id == 2 else ("+20kV Bertan" if unit_id == 3 else "+3kV Bertan"))
                     if (self.switch_states[unit_id-1] == 0 and hv_enable == 1):
-                        self.log(f"Knob Box: {unit} HV enable turned ON", LogLevel.INFO)
+                        self.log(f"{unit} HV enable turned ON", LogLevel.INFO)
                     else:
-                        self.log(f"Knob Box: {unit} HV enable turned OFF", LogLevel.INFO)
+                        self.log(f"{unit} HV enable turned OFF", LogLevel.INFO)
 
                 # Update HV enable switch state
                 self.switch_states[unit_id-1] = 0 if hv_enable == 0 else 1
@@ -548,7 +574,7 @@ class KnobBoxModbus:
                         exception_text = str(last_exception) or type(last_exception).__name__
                         detail = f": {exception_text}"
                     self.log(
-                        f"Knob Box: [unit {unit_id}] all {self.MAX_ATTEMPTS} read attempts failed{detail}",
+                        f"[unit {unit_id}] all {self.MAX_ATTEMPTS} read attempts failed{detail}",
                         LogLevel.WARNING,
                     )
 
