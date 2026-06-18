@@ -28,6 +28,9 @@ class VTRXSubsystem:
     PLOT_X_TICK_LABEL_SIZE = 6
     PLOT_Y_TICK_LABEL_SIZE = 8
     PLOT_TITLE_PAD = 2 # makes the title not get clipped
+    NO_DATA_LOG_INTERVAL_SECONDS = 10
+    WARNING_ERROR_CODES = {13, 14, 15, 16}
+
     ERROR_CODES = {
         0: "VALVE CONTENTION",
         1: "COLD CATHODE FAILURE",
@@ -54,6 +57,8 @@ class VTRXSubsystem:
         self.baud_rate = baud_rate
         self.logger = logger
         self.data_queue = queue.Queue()
+        self._main_thread_id = threading.get_ident()
+        self._background_log_queue = queue.SimpleQueue()
         
         self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
@@ -65,6 +70,8 @@ class VTRXSubsystem:
         self.circle_indicators = []
         self.error_state = False
         self.error_logged = False
+        self.vacuum_fields_cleared = False
+        self.last_no_data_log_time = 0.0
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
         self.last_gui_update_time = time.time()
@@ -180,15 +187,17 @@ class VTRXSubsystem:
         After processing all items, reschedules itself to run again after 500 ms.
         """
         try:
+            self.flush_queued_logs()
             while True:
                 data = self.data_queue.get_nowait()
                 if data is None:
-                    self.update_gui_with_error_state()
+                    self._handle_no_data()
                 else:
                     self.handle_serial_data(data)
         except queue.Empty:
             pass
         finally:
+            self.flush_queued_logs()
             self.after_id = self.parent.after(500, self.process_queue)
 
     def cancel_updates(self):
@@ -204,6 +213,17 @@ class VTRXSubsystem:
             except Exception as e:
                 if self.logger:
                     self.log('Failed to cancel scheduled VTRX display update.', LogLevel.DEBUG)
+
+    def _handle_no_data(self):
+        current_time = time.time()
+        if current_time - self.last_no_data_log_time >= self.NO_DATA_LOG_INTERVAL_SECONDS:
+            self.log(
+                f"No data from VTRX on {self.serial_port}; clearing vacuum status until data resumes.",
+                LogLevel.ERROR
+            )
+            self.last_no_data_log_time = current_time
+        self.error_state = True
+        self.update_gui_with_error_state()
 
     def update_gui_with_error_state(self):
         """
@@ -221,6 +241,9 @@ class VTRXSubsystem:
 
         #Clear the webmonitor fields if error state
         if self.logger and hasattr(self.logger, "clear_value"):
+            if not self.vacuum_fields_cleared:
+                self.log("Clearing VTRX web monitor vacuum fields.", LogLevel.DEBUG)
+                self.vacuum_fields_cleared = True
             self.logger.clear_value("vacuumBits")
             self.logger.clear_value("pressure")
 
@@ -247,7 +270,7 @@ class VTRXSubsystem:
         """
         data_parts = data.split(';')
         if len(data_parts) < 3:
-            self.log("Incomplete data received.", LogLevel.WARNING)
+            self.log("Incomplete data received.", LogLevel.ERROR)
             self.log(f"Literal data from VTRX: {data}", LogLevel.DEBUG)
             self.error_state = True
             self.update_gui_with_error_state()
@@ -257,19 +280,55 @@ class VTRXSubsystem:
             pressure_raw = data_parts[1]            # raw string from 972b sensor
             pressure_raw = pressure_raw.strip()  # Clean up any whitespace
             pressure_value = float(pressure_raw)  if pressure_raw else float(data_parts[0]) # use raw value if available for greater precision
+            if pressure_value <= 0:
+                raise ValueError(f"Invalid pressure value: {pressure_raw or data_parts[0]}")
             switch_states_binary = data_parts[2]    # binary state switches
+            switch_states_binary = switch_states_binary.strip()
+            if (
+                not switch_states_binary
+                or any(bit not in "01" for bit in switch_states_binary)
+                or len(switch_states_binary) > 8
+            ):
+                raise ValueError(f"Invalid switch states: {switch_states_binary!r}")
             switch_states = [int(bit) for bit in f"{int(switch_states_binary, 2):08b}"] # Ensures it's 8 bits long
 
+            previous_error_state = self.error_state
             self.error_state = False # Assume no error unless found
             if len(data_parts) > 3: # Handle errors
-                errors = data_parts[3:] # All subsequent parts are errors
-                for error in errors:
+                for error in data_parts[3:]: # All subsequent parts are errors
+                    error = error.strip()
+                    if not error:
+                        continue
                     if error.startswith("972b ERR:"):
-                        error_code, error_message = error.split(":")[1:]
-                        self.log(f"VTRX Err {error_code}: Actual:{error_message}", LogLevel.ERROR)
+                        error_segments = error.split(":", 2)
+                        if len(error_segments) < 3:
+                            self.log(f"Malformed VTRX error segment: {error}", LogLevel.ERROR)
+                            self.error_state = True
+                            continue
+
+                        error_code_text = error_segments[1].strip()
+                        error_message = error_segments[2].strip()
+                        try:
+                            error_code = int(error_code_text)
+                        except ValueError:
+                            error_code = None
+
+                        level = (
+                            LogLevel.WARNING
+                            if error_code in self.WARNING_ERROR_CODES
+                            else LogLevel.ERROR
+                        )
+                        error_name = self.ERROR_CODES.get(error_code, "UNKNOWN VTRX ERROR")
+                        self.log(f"VTRX Err {error_code_text}: {error_name}: Actual:{error_message}", level)
                         self.error_state = True
+                    else:
+                        self.log(f"Unrecognized VTRX data segment: {error}", LogLevel.DEBUG)
             
             if not self.error_state:    
+                if previous_error_state:
+                    self.log("VTRX recovered; valid pressure data received.", LogLevel.INFO)
+                self.vacuum_fields_cleared = False
+                self.last_no_data_log_time = 0.0
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
@@ -278,16 +337,32 @@ class VTRXSubsystem:
         except ValueError as e:    
             self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
             self.error_state = True
+            self.update_gui_with_error_state()
         except IndexError as e:
             self.log(f"VTRX Data processing error: Insufficient segments - {data}. Error: {e}", LogLevel.ERROR)
             self.error_state = True
+            self.update_gui_with_error_state()
 
     def log(self, message, level=LogLevel.INFO):
+        if self.logger and threading.get_ident() != self._main_thread_id:
+            self._background_log_queue.put((message, level))
+            return
+
         message = tag_log_message(message, "VTRX")
         if self.logger:
             self.logger.log(message, level)
         else:
             print(f"{level.name}: {message}")
+
+    def flush_queued_logs(self):
+        if threading.get_ident() != self._main_thread_id:
+            return
+        while True:
+            try:
+                message, level = self._background_log_queue.get_nowait()
+            except queue.Empty:
+                break
+            self.log(message, level)
 
     def setup_gui(self):
         """
@@ -474,10 +549,10 @@ class VTRXSubsystem:
             
             # Push state/pressure to logs and external logger
             subsystem_bits = ''.join(str(bit) for bit in switch_states)
-            self.log(f"VTRX States: {subsystem_bits}", LogLevel.DEBUG)
+            self.log(f"VTRX States: {subsystem_bits}", LogLevel.VERBOSE)
             if self.logger and hasattr(self.logger, "update_field"):
                 self.logger.update_field("vacuumBits", subsystem_bits)
-            self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.DEBUG)
+            self.log(f"GUI updated with pressure: {pressure_raw} mbar", LogLevel.VERBOSE)
             if self.logger and hasattr(self.logger, "update_field"):
                 self.logger.update_field("pressure", pressure_raw)
 
@@ -519,10 +594,12 @@ class VTRXSubsystem:
         self.stop_event.set()
         if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
             self.serial_thread.join()
+        self.flush_queued_logs()
     
     def update_time_window(self, seconds):
         current_time = datetime.datetime.now()
         self.display_window = seconds
+        self.log(f"VTRX display window set to {seconds} seconds.", LogLevel.INFO)
         
         # Update display data from full history
         display_cutoff = current_time - datetime.timedelta(seconds=seconds)
@@ -582,5 +659,5 @@ class VTRXSubsystem:
             self.ser.close()
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
         else:
-            self.log(f"{self.serial_port} port already closed", LogLevel.INFO)
+            self.log(f"{self.serial_port} port already closed", LogLevel.DEBUG)
           
