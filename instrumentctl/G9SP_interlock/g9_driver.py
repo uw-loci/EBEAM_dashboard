@@ -193,7 +193,7 @@ class G9Driver:
             except (ValueError, TimeoutError) as e:
                 self._update_queue()
                 self._queue_status_field_clears()
-                self._queue_log(f"G9 response error: {e}", "WARNING")
+                self._queue_log(f"G9 response error: {e}", "ERROR")
             except PermissionError as e:
                 self._update_queue()
                 self._queue_status_field_clears()
