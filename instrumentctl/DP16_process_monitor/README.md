@@ -117,6 +117,9 @@ Logging is centered on state changes instead of every repeated polling symptom:
   units respond, `WARNING` when only some units respond, and keyed
   rate-limited `ERROR` when no configured unit responds after the serial port
   opens.
+- When a COM port is configured but the PMON device is powered off or no
+  configured units respond, the driver logs a recurring `ERROR` every
+  `ERROR_LOG_INTERVAL` seconds noting that the PMON device is disconnected.
 - Individual connect-probe failures are keyed `DEBUG` details, so one missing
   unit does not create repeated warning noise during reconnect attempts.
 - Per-unit polling errors move units through `unknown`, `healthy`, `degraded`,
