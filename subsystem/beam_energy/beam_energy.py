@@ -92,6 +92,8 @@ class BeamEnergySubsystem:
         self.knob_box_controller = None
         self.knob_box_connected = False
         self.knob_box_connected_at = None
+        self._knob_box_fallback_reason = None
+        self._knob_box_missing_port_logged = False
         
         # Main power supply configurations
         self.power_supplies = [
@@ -143,6 +145,7 @@ class BeamEnergySubsystem:
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
         self.radiation_indicator_callback = None
         self._radiation_indicator_sent = None
+        self._radiation_indicator_missing_callback_state = None
         self.warning_limit_entry_vars = [
             {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
             for _ in self.power_supplies
@@ -529,6 +532,7 @@ class BeamEnergySubsystem:
         self.warning_limits[supply_key] = candidate
         self._refresh_warning_limit_display(index, field)
         self.refresh_warning_indicators(index)
+        self.log(f"{context}: value set to {new_value:g}{unit}.", LogLevel.INFO)
 
         if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
@@ -581,6 +585,7 @@ class BeamEnergySubsystem:
         self.warning_limits[POS20KV_SUPPLY_KEY] = candidate
         self._refresh_beams_estop_current_display()
         self.refresh_warning_indicators(self._get_pos20kv_index())
+        self.log(f"{context}: value set to {new_value:g}{unit}.", LogLevel.INFO)
 
         if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
@@ -591,7 +596,7 @@ class BeamEnergySubsystem:
         return True
 
     def _show_warning_limit_error(self, title, message, show_dialogs):
-        self.log(message, LogLevel.ERROR)
+        self.log(message, LogLevel.WARNING)
         if show_dialogs:
             messagebox.showerror(title, message)
 
@@ -620,13 +625,13 @@ class BeamEnergySubsystem:
 
         callback = getattr(self, "beams_estop_callback", None)
         if not callable(callback):
-            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.ERROR)
+            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.CRITICAL)
             return
 
         try:
             callback()
         except Exception as e:
-            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.ERROR)
+            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.CRITICAL)
 
     def set_beams_estop_callback(self, callback):
         """Register the dashboard's Beams E-STOP handler."""
@@ -682,11 +687,21 @@ class BeamEnergySubsystem:
 
         callback = getattr(self, "radiation_indicator_callback", None)
         if not callable(callback):
+            missing_state = getattr(self, "_radiation_indicator_missing_callback_state", None)
+            if active or missing_state is True:
+                if active != missing_state:
+                    state_text = "ON" if active else "OFF"
+                    self.log(
+                        f"Radiation indicator callback is not configured; cannot set indicator {state_text}.",
+                        LogLevel.ERROR,
+                    )
+                self._radiation_indicator_missing_callback_state = active
             return
 
         try:
             callback(active)
             self._radiation_indicator_sent = active
+            self._radiation_indicator_missing_callback_state = None
         except Exception as e:
             self.log(f"Radiation indicator callback failed: {e}", LogLevel.ERROR)
 
@@ -781,6 +796,14 @@ class BeamEnergySubsystem:
             self.latest_actual_voltage_values[index],
             self.latest_actual_current_values[index],
         )
+
+    def _log_knob_box_fallback(self, reason, message):
+        level = LogLevel.DEBUG if self._knob_box_fallback_reason == reason else LogLevel.WARNING
+        self._knob_box_fallback_reason = reason
+        self.log(message, level)
+
+    def _clear_knob_box_fallback(self):
+        self._knob_box_fallback_reason = None
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -947,7 +970,11 @@ class BeamEnergySubsystem:
         """
         port = self.com_ports.get('KnobBox', None)
         if not port:
+            if not self._knob_box_missing_port_logged:
+                self.log("KnobBox COM port is not configured.", LogLevel.WARNING)
+                self._knob_box_missing_port_logged = True
             return False
+        self._knob_box_missing_port_logged = False
 
         controller = self.knob_box_controller
         if controller and getattr(controller, "port", None) != port:
@@ -969,6 +996,7 @@ class BeamEnergySubsystem:
                 self.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
                 self.knob_box_connected = True
                 self.knob_box_connected_at = time.time()
+                self._clear_knob_box_fallback()
                 self.start_polling_thread()  # Start background thread to poll data
                 return True
             else:
@@ -1266,12 +1294,13 @@ class BeamEnergySubsystem:
                     self._schedule_reconnect()
                     self._process_reconnect_request()
                     # Schedule next update and exit early
-                    self.log(
+                    self._log_knob_box_fallback(
+                        "unresponsive",
                         "KnobBox controller unresponsive, using default values.",
-                        LogLevel.DEBUG
                     )
                     self.after_id = self.parent_frame.after(500, self.update_readings)
                     return
+                self._clear_knob_box_fallback()
             else:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
@@ -1280,9 +1309,9 @@ class BeamEnergySubsystem:
                 self._schedule_reconnect()
                 self._process_reconnect_request()
                 # Schedule next update and exit early
-                self.log(
+                self._log_knob_box_fallback(
+                    "not_connected",
                     f"KnobBox controller not connected, using default values.",
-                    LogLevel.DEBUG
                 )
                 self.after_id = self.parent_frame.after(500, self.update_readings)
                 return
@@ -1377,6 +1406,7 @@ class BeamEnergySubsystem:
         """Cancel scheduled updates when closing the application."""
         if hasattr(self, 'after_id'):
             self.parent_frame.after_cancel(self.after_id)
+            self.log("Canceled scheduled Beam Energy update.", LogLevel.DEBUG)
 
     def set_default_values(self, index):
         """Set display values to default '--'."""
@@ -1398,11 +1428,14 @@ class BeamEnergySubsystem:
         """Update COM port assignments and reinitialize power supplies."""
         new_port = new_com_ports.get('KnobBox', None)
         if not new_port:
+            self.log("Cannot update KnobBox COM port: no port configured.", LogLevel.WARNING)
             return False
         
-        if new_port == self.com_ports.get('KnobBox', None):
+        old_port = self.com_ports.get('KnobBox', None)
+        if new_port == old_port:
             return True  # No change
         
+        self.log(f"Updating KnobBox COM port from {old_port or 'None'} to {new_port}", LogLevel.INFO)
         self.com_ports = new_com_ports
 
         # Close existing connections
@@ -1427,6 +1460,8 @@ class BeamEnergySubsystem:
         self.stop_polling.set()
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=2)
+            if self.poll_thread.is_alive():
+                self.log("KnobBox polling thread did not stop before timeout.", LogLevel.WARNING)
         self.poll_thread = None
 
     def close(self):

@@ -154,6 +154,7 @@ class KnobBoxModbus:
         self.switch_states = [0 for _ in range(7)] # 4 HV enable signals, arm beams, ccs power, arm 80kv
         self.latched_flags = [0 for _ in range(12)]  # 12 latched flags from DINPUT word
         self.unlatched_signals = [0 for _ in range(8)]  # 8 unlatched signals from DINPUT word
+        self._prev_nomop_flag = 0
         self.reset_counter = 0
 
         # Create data dictionary for each unit in the list of UNIT_IDS
@@ -177,6 +178,22 @@ class KnobBoxModbus:
             return not bool(self.hvolt_on_provider())
         except Exception:
             return False
+
+    @staticmethod
+    def _latched_flag_trip_level(idx, previous_nomop, current_nomop):
+        # 3kV timer state
+        if idx == 0:
+            return LogLevel.CRITICAL
+        # Arm Beams, CCS Power, and Arm 80kV
+        if idx in (1, 2, 3):
+            return LogLevel.INFO
+        # Current Comparators
+        if idx in (5, 7, 9, 11):
+            return LogLevel.CRITICAL
+        # Voltage Comparators, log as CRITICAL if in nom op
+        if idx in (4, 6, 8, 10):
+            return LogLevel.CRITICAL if previous_nomop or current_nomop else LogLevel.WARNING
+        return LogLevel.ERROR
 
     def connect(self):
         """
@@ -262,7 +279,7 @@ class KnobBoxModbus:
             try:
                 self.poll_one(uid)
             except Exception:
-                # poll_one already logs a single ERROR only when all retries are exhausted.
+                # poll_one logs once when all retries are exhausted.
                 pass
 
         # Return a copy to avoid external mutation
@@ -371,13 +388,16 @@ class KnobBoxModbus:
                 3kV Specific logging: all flags and signals except for 1kV reset state.
                 """
                 if (unit_id == 4):
+                    previous_nomop = bool(self._prev_nomop_flag)
+                    current_nomop = bool(nomop_flag)
+
                     # Check for an increment of the 3kV reset counter
                     if self.reset_counter < reset_counter:
-                        self.log(f"Knob Box: 3kV Bertan timer state counter incremented, counter = {reset_counter}", LogLevel.ERROR)
+                        self.log(f"Knob Box: 3kV Bertan timer state counter incremented, counter = {reset_counter}", LogLevel.CRITICAL)
 
                     # Check if 3kV forced off
                     if reset_counter > 0 and self.reset_counter == 0:
-                        self.log(f"Knob Box: 3kV Bertan enable was forced off.", LogLevel.ERROR)
+                        self.log(f"Knob Box: 3kV Bertan enable was forced off.", LogLevel.CRITICAL)
 
                     # Update the stored reset counter
                     self.reset_counter = reset_counter    
@@ -417,8 +437,8 @@ class KnobBoxModbus:
                     for idx, new_val, flag_name in new_flag_states:
                         if self.latched_flags[idx] != new_val:
                             if self.latched_flags[idx] == 0 and new_val == 1:
-                                # When any flag is tripped, it should be an ERROR.
-                                self.log(f"Knob Box: {flag_name} flag tripped.", LogLevel.ERROR)
+                                level = self._latched_flag_trip_level(idx, previous_nomop, current_nomop)
+                                self.log(f"Knob Box: {flag_name} flag tripped.", level)
                             else:
                                 # Log as INFO on falling edge.
                                 # TODO unsure if this will cause log overflowing/if it is needed at all.
@@ -441,8 +461,7 @@ class KnobBoxModbus:
                                 self.log(f"Knob Box: {signal_name} signal ON.", LogLevel.INFO)
                             
                             elif idx == 6:
-                                # Nomop Signal: 1-->0 transition is an ERROR
-                                self.log(f"Knob Box: Entered INTERLOCKS State.", LogLevel.ERROR)
+                                self.log(f"Knob Box: Entered INTERLOCKS State.", LogLevel.INFO)
                             elif idx == 7:
                                 # Logic Alive Signal: 1-->0 transistion is an ERROR
                                 self.log(f"Knob Box: Lost communication with the Logic Arduino.", LogLevel.ERROR)
@@ -470,6 +489,7 @@ class KnobBoxModbus:
                     ]
                     # Unlatched flags are only recieved by the 3kV arduino (exception: 1kV reset state).
                     reset_state = self.unlatched_signals[1]
+                    self._prev_nomop_flag = nomop_flag
                     self.unlatched_signals = [
                         raw_hv_enable,
                         reset_state, # this needs to stay unchanged, only units 1 and 2 should update it
@@ -522,7 +542,15 @@ class KnobBoxModbus:
                 if attempt < self.MAX_ATTEMPTS:
                     time.sleep(0.05)
                 else:
-                    self.log(f"Knob Box: [unit {unit_id}] all {self.MAX_ATTEMPTS} read attempts failed", LogLevel.INFO)
+                    if last_exception is None:
+                        detail = ""
+                    else:
+                        exception_text = str(last_exception) or type(last_exception).__name__
+                        detail = f": {exception_text}"
+                    self.log(
+                        f"Knob Box: [unit {unit_id}] all {self.MAX_ATTEMPTS} read attempts failed{detail}",
+                        LogLevel.WARNING,
+                    )
 
         # All retries exhausted, raise the last exception
         with self.poll_schedule_lock:
