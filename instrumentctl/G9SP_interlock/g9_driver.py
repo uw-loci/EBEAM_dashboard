@@ -61,10 +61,11 @@ class G9Driver:
         self.logger = logger
         self.debug_mode = debug_mode
         self.ser = None
+        self._lock = threading.RLock()
+        self._serial_timeout = timeout
         self.setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
-        self._lock = threading.Lock()
         self._response_queue = queue.Queue(maxsize=1)
         self._running = True
         self._thread = threading.Thread(target=self._communication_thread, daemon=True)
@@ -77,7 +78,16 @@ class G9Driver:
         Catch:
             SerialException: If initialization of serial port fails
         """
-        if port:
+        if not port:
+            self._close_serial()
+            raise ConnectionError("No port specified for G9SP connection")
+
+        with self._lock:
+            old_ser = self.ser
+            self.ser = None
+            if old_ser and old_ser.is_open:
+                old_ser.close()
+
             try:
                 self.ser = serial.Serial(
                     port=port,
@@ -86,18 +96,19 @@ class G9Driver:
                     stopbits=serial.STOPBITS_ONE,
                     bytesize=serial.EIGHTBITS,
                     timeout=timeout
-                    )   
-            except serial.SerialException:
-                self._close_serial()
-        else:
-            self._close_serial()
-            raise ConnectionError("No port specified for G9SP connection")
+                    )
+                self._serial_timeout = timeout
+            except serial.SerialException as e:
+                raise ConnectionError(f"Failed to open G9SP serial port {port}: {e}") from e
 
     def _close_serial(self):
         """ Attempt to close serial port """
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-        self.ser = None
+        with self._lock:
+            ser = self.ser
+            self.ser = None
+
+            if ser and ser.is_open:
+                ser.close()
 
     def _update_queue(self, response=None):
         data = response if response else (
@@ -118,15 +129,12 @@ class G9Driver:
         while self._running:
             try:
                 with self._lock:
-                    if not self.is_connected():
-                        time.sleep(0.1)
-                        continue
-
-                    self._send_command()
-                    response_data = self._read_response() # blocking until complete or timeout
-                    if response_data:
-                        result = self._process_response(response_data)
-                        self._update_queue(result)
+                    if self.is_connected():
+                        self._send_command()
+                        response_data = self._read_response() # blocking until complete or timeout
+                        if response_data:
+                            result = self._process_response(response_data)
+                            self._update_queue(result)
 
             except (ValueError, TimeoutError) as e:
                 self._update_queue()
@@ -141,8 +149,9 @@ class G9Driver:
                 self._running = False
                 self._close_serial()
 
-            except serial.SerialException:
+            except (serial.SerialException, OSError, TypeError):
                 self._update_queue()
+                self._close_serial()
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
@@ -150,7 +159,13 @@ class G9Driver:
         """Stops the communication thread"""
         self._running = False
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1)
+            join_timeout = max(1.0, (10 * self._serial_timeout) + 1.0)
+            self._thread.join(timeout=join_timeout)
+        self._close_serial()
+
+    def disconnect(self):
+        """Close the serial port without stopping the communication thread."""
+        self._close_serial()
 
     def get_interlock_status(self):
         """
@@ -332,7 +347,8 @@ class G9Driver:
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
         """returns if serial connection is set up"""
-        return self.ser is not None and self.ser.is_open
+        with self._lock:
+            return self.ser is not None and self.ser.is_open
 
     def _extract_flags(self, byte_string, num_bits):
         """Extracts num_bits from the data
