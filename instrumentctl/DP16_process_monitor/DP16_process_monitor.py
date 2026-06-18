@@ -3,7 +3,7 @@ import struct
 import threading
 import time
 
-from utils import LogLevel, format_log_message
+from utils import LogLevel
 
 try:
     import serial
@@ -936,11 +936,8 @@ class DP16ProcessMonitor:
         try:
             if self.logger:
                 self.logger.log(message, level, tag="PMON")
-            else:
-                print(f"{level.name}: {format_log_message(message, 'PMON')}")
         except Exception as exc:
-            print(f"{level.name}: {format_log_message(message, 'PMON')}")
-            print(f"PMON logger error: {exc}")
+            pass
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message without letting Tk logging exceptions stop polling."""

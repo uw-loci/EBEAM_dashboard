@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
-from utils import MessagesFrame, MachineStatus, format_log_message, LogLevel
+from utils import MessagesFrame, MachineStatus, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -133,8 +133,6 @@ class EBEAMSystemDashboard:
     def _log_dashboard(self, message, level=LogLevel.INFO):
         if self.logger is not None:
             self.logger.log(message, level, tag="Dashboard")
-        else:
-            print(format_log_message(message, "Dashboard"))
 
     @staticmethod
     def _is_real_com_port(port):

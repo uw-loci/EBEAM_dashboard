@@ -2,8 +2,6 @@ import json
 import math
 import os
 
-from utils import format_log_message
-
 
 CONFIG_FILE = 'usr/usr_data/beam_energy_warning_limits.json'
 POS20KV_SUPPLY_KEY = "pos20kv"
@@ -42,7 +40,6 @@ def _copy_defaults():
 
 def _log(logger, level, message):
     if logger is None:
-        print(format_log_message(message, "Config"))
         return
 
     log_func = getattr(logger, level, None)

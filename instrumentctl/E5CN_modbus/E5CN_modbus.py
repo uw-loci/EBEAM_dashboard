@@ -3,7 +3,7 @@ import time
 import math
 from queue import Queue, Empty, Full
 from pymodbus.client import ModbusSerialClient as ModbusClient
-from utils import LogLevel, format_log_message  # Ensure this module is correctly implemented
+from utils import LogLevel  # Ensure this module is correctly implemented
 
 class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
@@ -282,7 +282,6 @@ class E5CNModbus:
         if self._logging_suppressed():
             return
         if not self.logger:
-            print(f"{level.name}: {format_log_message(message, 'CCS-E5CN')}")
             return
 
         # Tkinter widgets must only be modified from the main GUI thread.
