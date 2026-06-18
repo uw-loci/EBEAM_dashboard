@@ -266,11 +266,7 @@ class DP16ProcessMonitor:
                     self._mark_pmon_available()
                     return True
                 self._mark_pmon_unavailable()
-                self._log_rate_limited(
-                    ("connect", "no_units", self.port),
-                    f"PMON unavailable on {self.port}: serial opened but no configured DP16 units responded",
-                    LogLevel.ERROR,
-                )
+                self._log_pmon_disconnected("serial port is open, but no configured DP16 units responded")
                 return False
 
             except serial.SerialException as exc:
@@ -586,6 +582,15 @@ class DP16ProcessMonitor:
             self.log(message, level)
             self._last_rate_limited_log_times[key] = current_time
 
+    def _log_pmon_disconnected(self, reason, current_time=None):
+        """Log the ongoing PMON disconnected state at the standard error interval."""
+        self._log_rate_limited(
+            ("pmon_disconnected", self.port),
+            f"PMON device disconnected on {self.port}: {reason}",
+            LogLevel.ERROR,
+            current_time=current_time,
+        )
+
     def _error_display_value_unlocked(self, unit):
         if self.consecutive_error_counts[unit] >= self.ERROR_THRESHOLD:
             return self.DISCONNECTED
@@ -639,6 +644,18 @@ class DP16ProcessMonitor:
                         if self._stop_requested():
                             break
                         self._handle_poll_error(unit, exc)
+
+                if (
+                    self.unit_numbers
+                    and all(
+                        self._unit_states.get(unit) == self.UNIT_DISCONNECTED
+                        for unit in self.unit_numbers
+                    )
+                ):
+                    self._log_pmon_disconnected(
+                        "all configured units are disconnected after poll failures",
+                        current_time=time.time(),
+                    )
 
                 if self._stop_requested():
                     break
