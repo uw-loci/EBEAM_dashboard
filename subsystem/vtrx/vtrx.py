@@ -211,6 +211,10 @@ class VTRXSubsystem:
                 if self.logger:
                     self.log('Failed to cancel scheduled VTRX display update.', LogLevel.DEBUG)
 
+    @staticmethod
+    def _safe_raw_log_text(value):
+        return str(value).encode("unicode_escape", "backslashreplace").decode("ascii")
+
     def _handle_no_data(self):
         current_time = time.time()
         if current_time - self.last_no_data_log_time >= self.NO_DATA_LOG_INTERVAL_SECONDS:
@@ -268,7 +272,7 @@ class VTRXSubsystem:
         data_parts = data.split(';')
         if len(data_parts) < 3:
             self.log("Incomplete data received.", LogLevel.ERROR)
-            self.log(f"Literal data from VTRX: {data}", LogLevel.DEBUG)
+            self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
             self.error_state = True
             self.update_gui_with_error_state()
             return
@@ -299,7 +303,7 @@ class VTRXSubsystem:
                     if error.startswith("972b ERR:"):
                         error_segments = error.split(":", 2)
                         if len(error_segments) < 3:
-                            self.log(f"Malformed VTRX error segment: {error}", LogLevel.ERROR)
+                            self.log(f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}", LogLevel.ERROR)
                             self.error_state = True
                             continue
 
@@ -316,10 +320,14 @@ class VTRXSubsystem:
                             else LogLevel.ERROR
                         )
                         error_name = self.ERROR_CODES.get(error_code, "UNKNOWN VTRX ERROR")
-                        self.log(f"VTRX Err {error_code_text}: {error_name}: Actual:{error_message}", level)
+                        self.log(
+                            f"VTRX Err {error_code_text}: {error_name}: "
+                            f"Actual:{self._safe_raw_log_text(error_message)}",
+                            level
+                        )
                         self.error_state = True
                     else:
-                        self.log(f"Unrecognized VTRX data segment: {error}", LogLevel.DEBUG)
+                        self.log(f"Unrecognized VTRX data segment: {self._safe_raw_log_text(error)}", LogLevel.DEBUG)
             
             if not self.error_state:    
                 if previous_error_state:
@@ -336,7 +344,11 @@ class VTRXSubsystem:
             self.error_state = True
             self.update_gui_with_error_state()
         except IndexError as e:
-            self.log(f"VTRX Data processing error: Insufficient segments - {data}. Error: {e}", LogLevel.ERROR)
+            self.log(
+                f"VTRX Data processing error: Insufficient segments - "
+                f"{self._safe_raw_log_text(data)}. Error: {e}",
+                LogLevel.ERROR
+            )
             self.error_state = True
             self.update_gui_with_error_state()
 
