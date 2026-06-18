@@ -993,10 +993,9 @@ class BeamEnergySubsystem:
         try:
             self.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
             if controller.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
-                self.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
+                self.log(f"KnobBox Modbus serial port opened on {port}; waiting for unit responses.", LogLevel.DEBUG)
                 self.knob_box_connected = True
                 self.knob_box_connected_at = time.time()
-                self._clear_knob_box_fallback()
                 self.start_polling_thread()  # Start background thread to poll data
                 return True
             else:
@@ -1295,8 +1294,8 @@ class BeamEnergySubsystem:
                     self._process_reconnect_request()
                     # Schedule next update and exit early
                     self._log_knob_box_fallback(
-                        "unresponsive",
-                        "KnobBox controller unresponsive, using default values.",
+                        "unavailable",
+                        "KnobBox unavailable; setting Beam Energy values to '--'.",
                     )
                     self.after_id = self.parent_frame.after(500, self.update_readings)
                     return
@@ -1310,8 +1309,8 @@ class BeamEnergySubsystem:
                 self._process_reconnect_request()
                 # Schedule next update and exit early
                 self._log_knob_box_fallback(
-                    "not_connected",
-                    f"KnobBox controller not connected, using default values.",
+                    "unavailable",
+                    "KnobBox unavailable; setting Beam Energy values to '--'.",
                 )
                 self.after_id = self.parent_frame.after(500, self.update_readings)
                 return
