@@ -106,6 +106,9 @@ class MainControlPanel:
     def _log_error(self, message):
         self.logger.error(tag_log_message(message, "Main Control"))
 
+    def _log_critical(self, message):
+        self.logger.critical(tag_log_message(message, "Main Control"))
+
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
         if callable(self.update_com_ports_callback):
@@ -139,10 +142,16 @@ class MainControlPanel:
                 lambda: self.total_max_emission_current_ma,
                 self._get_predicted_emission_currents_for_beam_pulse,
             )
+        else:
+            self._log_error("Beam Pulse emission limit providers were not wired: API not available")
         if hasattr(beam_pulse, "set_manual_disconnect_callback"):
             beam_pulse.set_manual_disconnect_callback(self._confirm_manual_bcon_disconnect)
+        else:
+            self._log_error("Beam Pulse manual disconnect callback was not wired: API not available")
         if hasattr(beam_pulse, "set_disconnect_callback"):
             beam_pulse.set_disconnect_callback(self._handle_bcon_disconnected)
+        else:
+            self._log_error("Beam Pulse disconnect callback was not wired: API not available")
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
         if cathode is not None:
             cathode.disable_ccs_output_on_bcon_disconnect = (
@@ -839,7 +848,7 @@ class MainControlPanel:
         # Keep validation here so UI callbacks and tests use the same rules.
         if not raw_text:
             message = f"{context}: please enter a limit value in mA."
-            self._log_error(message)
+            self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
             return
 
@@ -847,14 +856,14 @@ class MainControlPanel:
             new_value = float(raw_text)
         except ValueError:
             message = f"{context}: please enter a valid number in mA."
-            self._log_error(message)
+            self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
             return
 
         # Reject values that would make the limit comparison ambiguous.
         if not math.isfinite(new_value) or new_value < 0:
             message = f"{context}: value must be a finite, non-negative number in mA."
-            self._log_error(message)
+            self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
             return
 
@@ -989,16 +998,19 @@ class MainControlPanel:
     def _confirm_manual_bcon_disconnect(self):
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
         ccs_output_active = bool(cathode and any(getattr(cathode, "toggle_states", [])))
-        if self.disable_ccs_output_on_bcon_disconnect and cathode:
+        if self.disable_ccs_output_on_bcon_disconnect:
+            if not cathode:
+                self._log_warning("BCON manual disconnect requested but Cathode Heating subsystem is unavailable; CCS output may remain enabled")
+                return True
             if ccs_output_active and not self._ask_bcon_disconnect_confirmation():
                 self._log_info("BCON disconnect canceled; CCS output remains enabled")
                 return False
             turn_off = getattr(cathode, "turn_off_all_beams", None)
             if callable(turn_off):
-                self._log_warning(
-                    "BCON manual disconnect requested; disabling CCS output"
-                )
+                self._log_info("BCON manual disconnect requested; disabling CCS output")
                 turn_off()
+            else:
+                self._log_critical("BCON manual disconnect requested but Cathode Heating turn_off_all_beams API is unavailable; CCS output may remain enabled")
         return True
 
     def _handle_bcon_disconnected(self):
@@ -1006,11 +1018,14 @@ class MainControlPanel:
             return
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
         if not cathode:
+            self._log_warning("BCON disconnected but Cathode Heating subsystem is unavailable; CCS output may remain enabled")
             return
         turn_off = getattr(cathode, "turn_off_all_beams", None)
         if callable(turn_off):
             self._log_warning("BCON disconnected; disabling CCS output")
             turn_off()
+        else:
+            self._log_critical("BCON disconnected but Cathode Heating turn_off_all_beams API is unavailable; CCS output may remain enabled")
 
     def _set_armed_ui(self, armed, reset=False):
         if hasattr(self, "beams_ready_button"):
@@ -1094,29 +1109,48 @@ class MainControlPanel:
         """Handle Beams E-stop button press — force stop all BCON channels,
         turn off cathode heating, and disarm beams."""
         try:
+            self._log_info("Beams E-STOP activated; requesting BCON stop, cathode shutdown, and beam disarm")
+
             # Force stop all BCON channels immediately
-            if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                beam_pulse = self.subsystems['Beam Pulse']
-                if hasattr(beam_pulse, 'stop_all_channels'):
-                    beam_pulse.stop_all_channels()
-                    self._log_info("All BCON channels force-stopped via E-STOP")
+            beam_pulse = self.subsystems.get('Beam Pulse')
+            if beam_pulse is not None:
+                stop_all_channels = getattr(beam_pulse, 'stop_all_channels', None)
+                if callable(stop_all_channels):
+                    self._log_info("Beams E-STOP requesting all BCON channels stop")
+                    if not stop_all_channels():
+                        self._log_critical("Beams E-STOP failed to stop all BCON channels")
+                else:
+                    self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse stop_all_channels API is unavailable")
+            else:
+                self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse subsystem is unavailable")
 
             # Turn off cathode heating power supplies
-            if 'Cathode Heating' in self.subsystems and self.subsystems['Cathode Heating'] is not None:
-                cathode = self.subsystems['Cathode Heating']
-                if hasattr(cathode, 'turn_off_all_beams'):
-                    cathode.turn_off_all_beams()
-                    self._log_info("Cathode heating turned off via Beams E-stop button")
+            cathode = self.subsystems.get('Cathode Heating')
+            if cathode is not None:
+                turn_off_all_beams = getattr(cathode, 'turn_off_all_beams', None)
+                if callable(turn_off_all_beams):
+                    self._log_info("Beams E-STOP requesting cathode heating shutdown")
+                    turn_off_all_beams()
+                else:
+                    self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating turn_off_all_beams API is unavailable")
+            else:
+                self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating subsystem is unavailable")
 
             # Disarm beams
-            if 'Beam Pulse' in self.subsystems and self.subsystems['Beam Pulse'] is not None:
-                beam_pulse = self.subsystems['Beam Pulse']
-                if hasattr(beam_pulse, 'get_beams_armed_status') and beam_pulse.get_beams_armed_status():
-                    if hasattr(beam_pulse, 'disarm_beams') and beam_pulse.disarm_beams():
+            if beam_pulse is not None:
+                get_beams_armed_status = getattr(beam_pulse, 'get_beams_armed_status', None)
+                if callable(get_beams_armed_status):
+                    beams_armed = bool(get_beams_armed_status())
+                else:
+                    beams_armed = False
+                    self._log_critical("Beams E-STOP cannot verify armed state: Beam Pulse get_beams_armed_status API is unavailable")
+                if beams_armed:
+                    disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
+                    if callable(disarm_beams) and disarm_beams():
                         self._set_armed_ui(False)
                         self._log_info("Beams disarmed via Beams E-stop button")
                     else:
-                        self._log_error("Failed to disarm beams via Beams E-stop")
+                        self._log_critical("Failed to disarm beams via Beams E-stop")
                 self.update_beam_toggle_states(enabled=False, reset=True)
                 self._update_enable_toggle_states(enabled=False)
                 self._update_activate_enabled_beams_control_state(armed=False)
@@ -1126,7 +1160,7 @@ class MainControlPanel:
             else:
                 self._set_beam_action_status("Beams E-STOP pressed: All Beams Disabled", "estop")
         except Exception as e:
-            self._log_error(f"Error in handle_beams_off: {str(e)}")
+            self._log_critical(f"Error in handle_beams_off: {str(e)}")
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
     def _toggle_channel_enable(self, ch_index: int):
@@ -1145,9 +1179,18 @@ class MainControlPanel:
 
             ok, enabled, detail = toggler(ch_index)
             if not ok:
-                self._log_warning(detail)
+                detail_text = str(detail)
+                error_failure = (
+                    "bcon driver not available" in detail_text.lower()
+                    or "bcon device not connected" in detail_text.lower()
+                    or "failed to set" in detail_text.lower()
+                )
+                if error_failure:
+                    self._log_error(detail_text)
+                else:
+                    self._log_warning(detail_text)
                 self._set_beam_action_status(
-                    f"Failed to toggle Channel {channel_label(ch_index)} enable: {detail}",
+                    f"Failed to toggle Channel {channel_label(ch_index)} enable: {detail_text}",
                     "failure",
                 )
                 return
@@ -1245,7 +1288,11 @@ class MainControlPanel:
         Called on every register-poll cycle by BeamPulseSubsystem.
         mode_code=0 means OFF; remaining=0 means all pulses delivered.
         """
-        if not hasattr(self, 'beam_toggle_buttons') or ch >= len(self.beam_toggle_buttons):
+        if not hasattr(self, 'beam_toggle_buttons'):
+            self._log_error("Invalid channel status update: beam toggle buttons are not initialized")
+            return
+        if not isinstance(ch, int) or not 0 <= ch < len(self.beam_toggle_buttons):
+            self._log_error(f"Invalid channel status update for channel {ch}")
             return
         btn = self.beam_toggle_buttons[ch]
         # DC mode never counts down, so remaining is always 0 in hardware.
