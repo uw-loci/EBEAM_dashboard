@@ -16,7 +16,7 @@ from utils import ToolTip
 import os, sys
 import numpy as np
 import pandas as pd
-from utils import LogLevel, format_log_message
+from utils import LogLevel
 from decimal import Decimal
 
 def resource_path(relative_path):
@@ -2010,7 +2010,7 @@ class CathodeHeatingSubsystem:
             try:
                 self.log(message, LogLevel.ERROR)
             except Exception:
-                print(f"{LogLevel.ERROR.name}: {message}")
+                pass
         finally:
             if not getattr(self, "_updates_cancelled", False):
                 self.after_id = self.parent.after(500, self.update_data)
@@ -3203,8 +3203,6 @@ class CathodeHeatingSubsystem:
             return
         if self.logger:
             self.logger.log(message, level, tag="CCS")
-        else:
-            print(f"{level.name}: {format_log_message(message, 'CCS')}")
 
     # Voltage input validation
     def validate_voltage(self, index:int, new_voltage: float):

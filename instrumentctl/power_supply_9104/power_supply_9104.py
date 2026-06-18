@@ -3,7 +3,7 @@ import threading
 import time
 import math
 from queue import Queue, Empty, Full
-from utils import LogLevel, format_log_message
+from utils import LogLevel
 
 class PowerSupply9104:
     MAX_RETRIES = 3 # 9104 display reading attempts
@@ -897,7 +897,6 @@ class PowerSupply9104:
         if self._logging_suppressed():
             return
         if not self.logger:
-            print(f"{level.name}: {format_log_message(message, 'CCS-9104')}")
             return
 
         # Tkinter-backed loggers must only be touched from the main GUI thread.

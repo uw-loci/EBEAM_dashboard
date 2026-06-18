@@ -10,7 +10,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import Optional, Dict
 from pathlib import Path
-from datetime import datetime
 from collections import deque
 
 from instrumentctl.BCON import (
@@ -32,7 +31,7 @@ from instrumentctl.BCON import (
     REG_CH_STATUS_BASE,
     REG_CH_STATUS_STRIDE,
 )
-from utils import LogLevel, format_log_message
+from utils import LogLevel
 
 
 def resource_path(relative_path):
@@ -1515,10 +1514,6 @@ class BeamPulseSubsystem:
     def _log_event(self, text: str, level=LogLevel.INFO):
         """Log an event to console, label, and CSV session log."""
         level = self._coerce_log_level(level)
-        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        line = f"[{ts}] {text}"
-        if self.debug:
-            print(line)
         if hasattr(self, 'log_label'):
             try:
                 self.log_label.configure(text=text)
@@ -1984,8 +1979,6 @@ class BeamPulseSubsystem:
         """
         if self._logging_suppressed():
             return
-        if self.debug:
-            print(f"[{level.name}] {format_log_message(msg, 'BCON')}")
         if self.logger:
             if self.parent_frame:
                 try:

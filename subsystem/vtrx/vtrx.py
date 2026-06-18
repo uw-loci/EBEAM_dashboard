@@ -4,7 +4,7 @@ from tkinter import messagebox
 import datetime
 import serial
 import threading
-from utils import LogLevel, format_log_message
+from utils import LogLevel
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import ttk
 import matplotlib.pyplot as plt
@@ -362,8 +362,6 @@ class VTRXSubsystem:
 
         if self.logger:
             self.logger.log(message, level, tag="VTRX")
-        else:
-            print(f"{level.name}: {format_log_message(message, 'VTRX')}")
 
     def flush_queued_logs(self):
         if threading.get_ident() != self._main_thread_id:

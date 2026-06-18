@@ -42,16 +42,6 @@ class LogLevel(enum.IntEnum):
     CRITICAL = 5
 
 
-def format_log_message(message, tag=None):
-    message = str(message)
-    if tag is None:
-        return message
-    prefix = f"<{tag}>"
-    if message.startswith("<"):
-        return message
-    return f"{prefix} {message}"
-
-
 class Logger:
     STARTUP_BUFFER_MAX = 500
     SUPABASE_WRITE_MIN_INTERVAL_SECONDS = 2
@@ -169,7 +159,9 @@ class Logger:
         """ Log a message to the text widget and optionally to local file """
         if self._closed:
             return
-        msg = format_log_message(msg, tag)
+        msg = str(msg)
+        if tag is not None and not msg.startswith("<"):
+            msg = f"<{tag}> {msg}"
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
