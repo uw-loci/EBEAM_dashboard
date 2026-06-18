@@ -37,13 +37,13 @@ class DP16ProcessMonitor:
     ERROR_LOG_INTERVAL = 10  # [seconds]
 
     # Raw Modbus/serial timing.
-    SERIAL_READ_TIMEOUT = 0.02
-    SERIAL_INTER_BYTE_TIMEOUT = 0.02
+    SERIAL_READ_TIMEOUT = 0.05
+    SERIAL_INTER_BYTE_TIMEOUT = 0.05
     WRITE_TIMEOUT = 1.0
     TRANSACTION_TIMEOUT = 0.75
     INTERFRAME_DELAY = 0.005
     RECONNECT_DELAY = 1.0
-    BETWEEN_UNIT_DELAY = 0.1
+    BETWEEN_UNIT_DELAY = 0.2
     THREAD_JOIN_TIMEOUT = 2.0
     SERIAL_CLOSE_LOCK_TIMEOUT = 0.5
 
@@ -643,7 +643,22 @@ class DP16ProcessMonitor:
                     except Exception as exc:
                         if self._stop_requested():
                             break
-                        self._handle_poll_error(unit, exc)
+                        self.log(
+                            f"DP16 Unit {unit} poll failed; trying again after "
+                            f"{self.BETWEEN_UNIT_DELAY:.1f}s: {type(exc).__name__}: {exc}",
+                            LogLevel.DEBUG,
+                        )
+                        if self._sleep_or_stop(self.BETWEEN_UNIT_DELAY):
+                            break
+                        try:
+                            self._poll_single_unit(unit)
+                            self.consecutive_connection_errors = 0
+                            if self._sleep_or_stop(self.BETWEEN_UNIT_DELAY):
+                                break
+                        except Exception as retry_exc:
+                            if self._stop_requested():
+                                break
+                            self._handle_poll_error(unit, retry_exc)
 
                 if (
                     self.unit_numbers
