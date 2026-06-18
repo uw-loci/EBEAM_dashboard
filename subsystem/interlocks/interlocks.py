@@ -67,7 +67,7 @@ class InterlocksSubsystem:
                 self._set_all_indicators('red')
         except Exception as e:
             self.driver = None
-            self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
+            self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.ERROR)
             self._set_all_indicators('red')
         
         self._schedule_update()
@@ -95,7 +95,7 @@ class InterlocksSubsystem:
             if self.driver:
                 self.driver.disconnect()
             self._set_all_indicators('red')
-            self.log("update_com_port is being called without a com port", LogLevel.ERROR)
+            self.log("update_com_port is being called without a com port", LogLevel.WARNING)
 
     def _adjust_update_interval(self, success=True):
         """Adjust the polling interval based on connection success/failure"""
@@ -196,7 +196,8 @@ class InterlocksSubsystem:
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
                 canvas.itemconfig(oval_id, fill=color)
-                self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+                level = LogLevel.CRITICAL if color == 'red' else LogLevel.INFO
+                self.log(f"Interlock {name}: {current_color} -> {color}", level)
 
     def _set_all_indicators(self, color):
         """Set all indicators to specified color"""
@@ -211,7 +212,7 @@ class InterlocksSubsystem:
                 current_color = canvas.itemcget(oval_id, 'fill')
                 if current_color != color:
                     canvas.itemconfig(oval_id, fill=color)
-                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.DEBUG)
 
     def _check_terminal_status(self, data, status_dict, terminal_type):
         """
@@ -226,7 +227,7 @@ class InterlocksSubsystem:
 
             for nibble, position in [(msb, 'H'), (lsb, 'L')]:
                 if nibble in status_dict and nibble != 0:
-                    self.log(f"{terminal_type} error at byte {i}{position}: {status_dict[nibble]} (code {nibble})", LogLevel.ERROR)
+                    self.log(f"{terminal_type} error at byte {i}{position}: {status_dict[nibble]} (code {nibble})", LogLevel.CRITICAL)
 
     def extract_flags(self, byte_string, num_bits):
         """Extracts num_bits from the data
@@ -298,7 +299,7 @@ class InterlocksSubsystem:
                 self.hvolt_on = False
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_indicators('red')
-                    self.log("G9 driver not connected", LogLevel.WARNING)
+                    self.log("G9 driver not connected", LogLevel.ERROR)
                     self.last_error_time = current_time
                     self.last_error_time = time.time()
                     self._adjust_update_interval(success=False)
@@ -310,7 +311,7 @@ class InterlocksSubsystem:
                     self.hvolt_on = False
                     self._set_all_indicators('red')
                     if current_time - self.last_error_time > (self.update_interval / 1000):
-                        self.log("No data available from G9", LogLevel.CRITICAL)
+                        self.log("No data available from G9", LogLevel.ERROR)
                         self.last_error_time = current_time
                         self._adjust_update_interval(success=False)
                         return
@@ -318,8 +319,8 @@ class InterlocksSubsystem:
                 sitsf_bits, sitdf_bits, g9_output, unit_status, input_terms, output_terms, debug_data = status
 
                 # Log debug data for web monitor
-                self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.DEBUG)
-                self.log(f"Safety Input Terminal Data Flags: {debug_data['sitdf']}", LogLevel.DEBUG)
+                self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.VERBOSE)
+                self.log(f"Safety Input Terminal Data Flags: {debug_data['sitdf']}", LogLevel.VERBOSE)
 
                 # parse unit status
                 for k, v in unit_status.items():
