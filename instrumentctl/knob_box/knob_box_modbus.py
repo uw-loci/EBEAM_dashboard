@@ -213,7 +213,7 @@ class KnobBoxModbus:
                     self.connected = True
                     self._connect_backoff_sec = 0.5
                     self._next_connect_time = 0.0
-                    self.log(f"Knob Box Connected to port {self.port}.", LogLevel.INFO)
+                    self.log(f"Knob Box serial port opened on {self.port}; waiting for unit responses.", LogLevel.INFO)
                     return True
                 else:
                     # Connection failed --> schedule next attempt with backoff
