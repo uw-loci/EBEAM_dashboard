@@ -397,12 +397,7 @@ class EBEAMSystemDashboard:
 
     # saves data to file when button is pressed
     def save_current_pane_state(self):
-        try:
-            save_pane_states(frames_config, self.frames, self.main_pane)
-        except Exception as e:
-            self._log_dashboard(f"Failed to save pane state: {e}", LogLevel.ERROR)
-            raise
-        self._log_dashboard("Pane state saved", LogLevel.INFO)
+        save_pane_states(frames_config, self.frames, self.main_pane, logger=self.logger)
 
     # gets data in save config file (as dict) and updates the global var of frames_config
     def load_saved_pane_state(self):

@@ -122,8 +122,8 @@ class TestComPortConfigLogging(unittest.TestCase):
             loaded = load_com_ports(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, expected)
-        logger.info.assert_any_call(f"COM ports saved to {filepath}.", tag="Config")
-        logger.info.assert_any_call(f"COM ports loaded from {filepath}.", tag="Config")
+        logger.debug.assert_any_call(f"COM ports saved to {filepath}.", tag="Config")
+        logger.debug.assert_any_call(f"COM ports loaded from {filepath}.", tag="Config")
         mock_print.assert_not_called()
 
     def test_load_com_ports_missing_logs_without_print(self):
@@ -169,7 +169,7 @@ class TestPanelConfigLogging(unittest.TestCase):
             loaded = load_pane_states(filepath=filepath, logger=logger)
 
         self.assertEqual(loaded, expected)
-        logger.info.assert_called_with(f"Pane state loaded from {filepath}.", tag="Config")
+        logger.debug.assert_called_with(f"Pane state loaded from {filepath}.", tag="Config")
         mock_print.assert_not_called()
 
     def test_load_pane_states_missing_logs_without_print(self):
