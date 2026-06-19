@@ -13,7 +13,7 @@ class E5CNModbus:
     THREAD_JOIN_TIMEOUT = 2.0
     MODBUS_CLOSE_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
-    POLL_ERROR_LOG_INTERVAL = 5.0
+    POLL_ERROR_LOG_INTERVAL = 10.0
 
     def __init__(
         self,
@@ -349,9 +349,11 @@ class E5CNModbus:
         with self._rate_limited_log_lock:
             last_logged = self._rate_limited_log_times.get(key)
             if last_logged is not None and now - last_logged < interval:
-                return
-            self._rate_limited_log_times[key] = now
-        self.log(message, level)
+                log_level = LogLevel.VERBOSE
+            else:
+                self._rate_limited_log_times[key] = now
+                log_level = level
+        self.log(message, log_level)
 
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
