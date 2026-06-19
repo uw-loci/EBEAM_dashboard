@@ -1341,6 +1341,7 @@ class CathodeHeatingSubsystem:
                         logger=self.logger,
                         disable_logging_when_ccs_power_off=self.disable_logging_when_ccs_power_off,
                         ccs_power_on_provider=self.ccs_power_on_provider,
+                        supply_name=f"Cathode {chr(65 + idx)} power supply",
                     )
 
                     # Set preset mode to 3 (normal mode)
@@ -1445,6 +1446,7 @@ class CathodeHeatingSubsystem:
                 logger=self.logger,
                 disable_logging_when_ccs_power_off=self.disable_logging_when_ccs_power_off,
                 ccs_power_on_provider=self.ccs_power_on_provider,
+                supply_name=f"Cathode {chr(65 + index)} power supply",
             )
             if not new_ps.is_connected():
                 return False
@@ -2433,7 +2435,7 @@ class CathodeHeatingSubsystem:
                     # so the supply cannot energize with a stale higher stored current limit.
                     if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
                         # Log and cancel ramp operation if voltage fails to be set 
-                        self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; ramp cancelled", LogLevel.ERROR)
+                        self.log(f"Failed to set Cathode {['A', 'B', 'C'][index]} power supply to voltage: {target_voltage}; ramp cancelled", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
                         return
 
@@ -2452,7 +2454,7 @@ class CathodeHeatingSubsystem:
                     step_delay = 1.0  # seconds
                     step_size = slew_rate * step_delay
 
-                    self.log(f"Starting current ramp with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.log(f"Starting current ramp for Cathode {['A', 'B', 'C'][index]} power supply with step size {step_size:.3f}A and delay {step_delay:.1f}s", LogLevel.INFO)
                     ramp_started = self.power_supplies[index].ramp_current(
                         target_current,
                         step_size=step_size,
@@ -2470,7 +2472,7 @@ class CathodeHeatingSubsystem:
                     # Set current first, then preset a safe low voltage before enabling output
                     # so the supply cannot energize with a stale higher stored voltage value.
                     if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
-                        self.log(f"Failed to set power supply {index} to current: {target_current}; ramp cancelled", LogLevel.ERROR)
+                        self.log(f"Failed to set Cathode {['A', 'B', 'C'][index]} power supply to current: {target_current}; ramp cancelled", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
                         return
                     
@@ -2489,7 +2491,7 @@ class CathodeHeatingSubsystem:
                     step_delay = 1.0  # seconds
                     step_size = slew_rate * step_delay
                     
-                    self.log(f"Starting voltage ramp with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
+                    self.log(f"Starting voltage ramp for Cathode {['A', 'B', 'C'][index]} power supply with step size {step_size:.3f}V and delay {step_delay:.1f}s", LogLevel.INFO)
                     ramp_started = self.power_supplies[index].ramp_voltage(
                         target_voltage,
                         step_size=step_size,
@@ -2506,10 +2508,10 @@ class CathodeHeatingSubsystem:
                     self.on_ramp_start(index)
             else: # ramp is off; Immediate Set both voltage and current
                 if not self.power_supplies[index].set_current(current=target_current, preset=3, sent_callback=sent_current_callback):
-                    self.log(f"Failed to set power supply {index} to current: {target_current}; immediate set cancelled", LogLevel.ERROR)
+                    self.log(f"Failed to set Cathode {['A', 'B', 'C'][index]} power supply to current: {target_current}; immediate set cancelled", LogLevel.ERROR)
                     return
                 if not self.power_supplies[index].set_voltage(voltage=target_voltage, preset=3, sent_callback=sent_voltage_callback):
-                    self.log(f"Failed to set power supply {index} to voltage: {target_voltage}; immediate set cancelled", LogLevel.ERROR)
+                    self.log(f"Failed to set Cathode {['A', 'B', 'C'][index]} power supply to voltage: {target_voltage}; immediate set cancelled", LogLevel.ERROR)
                     return
                 if not self.power_supplies[index].set_output("1"):
                     self.log(f"Failed to enable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
@@ -3216,7 +3218,7 @@ class CathodeHeatingSubsystem:
                     #Immediate set new current
                     if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
                         # Log, disable output, and prevent ramp operation
-                        self.log(f"Failed to set current prior to voltage ramp", LogLevel.ERROR)
+                        self.log(f"Failed to set current for Cathode {['A', 'B', 'C'][index]} power supply prior to voltage ramp", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
                         self.toggle_states[index] = False
                         self.toggle_buttons[index].config(image=self.toggle_off_image)
@@ -3291,7 +3293,7 @@ class CathodeHeatingSubsystem:
                     # Immediate set new voltage
                     if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
                         # Log, disable output, and prevent ramp operation
-                        self.log(f"Failed to set voltage prior to current ramp", LogLevel.ERROR)
+                        self.log(f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]} power supply prior to current ramp", LogLevel.ERROR)
                         self.power_supplies[index].set_output("0")
                         self.toggle_states[index] = False
                         self.toggle_buttons[index].config(image=self.toggle_off_image)

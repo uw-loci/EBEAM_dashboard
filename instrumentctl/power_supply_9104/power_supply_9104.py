@@ -23,12 +23,14 @@ class PowerSupply9104:
         serial_lock_timeout=DEFAULT_SERIAL_LOCK_TIMEOUT,
         disable_logging_when_ccs_power_off=False,
         ccs_power_on_provider=None,
+        supply_name=None,
     ):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self.supply_name = supply_name
         self.disable_logging_when_ccs_power_off = bool(disable_logging_when_ccs_power_off)
         self.ccs_power_on_provider = ccs_power_on_provider if callable(ccs_power_on_provider) else None
         self.serial_lock_timeout = serial_lock_timeout
@@ -51,6 +53,12 @@ class PowerSupply9104:
             return not bool(self.ccs_power_on_provider())
         except Exception:
             return False
+
+    def _log_context(self):
+        return self.supply_name or f"9104 supply on {self.port}"
+
+    def _format_log_message(self, message):
+        return f"{self._log_context()}: {message}"
 
     def _acquire_serial_lock(self, action, lock_timeout=None):
         timeout = self.serial_lock_timeout if lock_timeout is None else lock_timeout
@@ -994,6 +1002,8 @@ class PowerSupply9104:
         if not self.logger:
             return
 
+        message = self._format_log_message(message)
+
         # Tkinter-backed loggers must only be touched from the main GUI thread.
         # Queue logs from ramp/background threads and let cathode_heating flush them.
         if threading.get_ident() == self._main_thread_ident:
@@ -1046,7 +1056,9 @@ class PowerSupply9104:
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:
             self.logger.log(
-                f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full.",
+                self._format_log_message(
+                    f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full."
+                ),
                 LogLevel.WARNING,
                 tag="CCS-9104",
             )
