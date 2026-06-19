@@ -203,7 +203,11 @@ class PowerSupply9104:
             if not response:
                 raise ValueError("No response received from 9104 supply")
             if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response", LogLevel.ERROR)
+                self._log_rate_limited(
+                    "missing_9104_acknowledgement",
+                    "Acknowledgement not in 9104 supply response",
+                    LogLevel.ERROR,
+                )
 
             self.log(f"Response: {response}", LogLevel.DEBUG)
 
