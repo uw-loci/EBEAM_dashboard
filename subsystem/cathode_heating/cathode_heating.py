@@ -181,8 +181,10 @@ class CathodeHeatingSubsystem:
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
         self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
+        self.power_supply_valid_connections = [False, False, False]
         self.power_supply_last_logged_errors = [None, None, None]
         self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
+        self.temperature_valid_connections = [False, False, False]
         self.poll_error_last_log_times = {}
         self.poll_error_log_lock = threading.Lock()
 
@@ -1196,6 +1198,7 @@ class CathodeHeatingSubsystem:
         self.power_supplies = [None, None, None]
         self.power_supply_status = [False, False, False]
         self.power_supplies_initialized = False
+        self.power_supply_valid_connections = [False, False, False]
 
         for idx, ps in enumerate(old_power_supplies):
             if ps is not None:
@@ -1213,6 +1216,7 @@ class CathodeHeatingSubsystem:
             try:
                 closed = self.temperature_controller.stop_reading()
                 self.temp_controllers_connected = False
+                self.temperature_valid_connections = [False, False, False]
                 if closed:
                     self.temperature_controller = None
                     self.log("Disconnected temperature controller", LogLevel.DEBUG)
@@ -1320,6 +1324,7 @@ class CathodeHeatingSubsystem:
         # Build a complete replacement list locally, then publish it in one assignment.
         new_power_supplies = [None, None, None]
         new_power_supply_status = [False, False, False]
+        self.power_supply_valid_connections = [False, False, False]
 
         cathode_ports = {
             'CathodeA PS': self.com_ports.get('CathodeA PS'),
@@ -1731,6 +1736,7 @@ class CathodeHeatingSubsystem:
                 closed = self.temperature_controller.stop_reading()
                 if not closed:
                     self.temp_controllers_connected = False
+                    self.temperature_valid_connections = [False, False, False]
                     self.log(
                         "Existing temperature controller did not close; "
                         "skipping reinitialization to avoid reopening an in-use COM port.",
@@ -1741,6 +1747,7 @@ class CathodeHeatingSubsystem:
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
+                self.temperature_valid_connections = [False, False, False]
                 return False
                 
         try:
@@ -1753,15 +1760,18 @@ class CathodeHeatingSubsystem:
             if tc.start_reading_temperatures():
                 self.temperature_controller = tc
                 self.temp_controllers_connected = True
+                self.temperature_valid_connections = [False, False, False]
                 self.log(f"Connected to all temperature controllers via Modbus on {port}", LogLevel.INFO)
                 return True
             else:
                 self.log(f"Failed to start temperature controllers at {port}", LogLevel.ERROR)
                 self.temp_controllers_connected = False
+                self.temperature_valid_connections = [False, False, False]
                 return False
         except Exception as e:
             self.log(f"Exception while initializing temperature controllers at {port}: {str(e)}", LogLevel.ERROR)
             self.temp_controllers_connected = False
+            self.temperature_valid_connections = [False, False, False]
             return False
 
     def set_plot_color(self, index, error_type=None):
@@ -1811,6 +1821,7 @@ class CathodeHeatingSubsystem:
                 if isinstance(temperature, (int, float)):
                     temperature = float(temperature)
                     if temperature > E5CNModbus.MAX_VALID_TEMPERATURE_C:
+                        self.temperature_valid_connections[index] = False
                         self.clamp_temperature_vars[index].set("ERR")
                         self.set_plot_color(index, 'ERROR')
                         self._log_poll_error_rate_limited(
@@ -1829,8 +1840,10 @@ class CathodeHeatingSubsystem:
                     else:
                         self.set_plot_color(index, None) # set plot to blue for normal
 
+                    self._log_valid_temperature_connection(index, temperature)
                     return temperature
                 elif isinstance(temperature, str):
+                    self.temperature_valid_connections[index] = False
                     self.clamp_temperature_vars[index].set("ERR")
                     self.set_plot_color(index, 'ERROR')
                     self._log_poll_error_rate_limited(
@@ -1840,6 +1853,7 @@ class CathodeHeatingSubsystem:
                     )
                     return None
                 else:
+                    self.temperature_valid_connections[index] = False
                     self._log_poll_error_rate_limited(
                         ("temperature_no_data", index),
                         f"No temperature data for cathode {index+1}",
@@ -1852,16 +1866,32 @@ class CathodeHeatingSubsystem:
                     LogLevel.ERROR,
                 )
                 self.set_plot_color(index, 'ERROR')  # Set plot to orange for no data
+                self.temperature_valid_connections[index] = False
         else:
             if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
                 self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
                 self.last_no_conn_log_time[index] = current_time
             self.set_plot_color(index, 'DISCONNECTED')
+            self.temperature_valid_connections[index] = False
 
 
         # Set temperature to zero as default
         self.clamp_temperature_vars[index].set("-- C")
         return None
+
+    def _log_valid_temperature_connection(self, index, temperature):
+        if not 0 <= index < len(self.temperature_valid_connections):
+            return
+        if self.temperature_valid_connections[index]:
+            return
+        self.temperature_valid_connections[index] = True
+        cathode = ['A', 'B', 'C'][index]
+        port = self.com_ports.get('TempControllers', 'unknown port')
+        self.log(
+            f"CCS temperature controller valid connection established for Cathode {cathode} "
+            f"on {port}: {temperature:.2f} C readback.",
+            LogLevel.INFO,
+        )
 
     def _log_poll_error_rate_limited(self, key, message, level=LogLevel.ERROR):
         now = time.monotonic()
@@ -1912,8 +1942,27 @@ class CathodeHeatingSubsystem:
     def _reset_power_supply_readbacks(self):
         with self.power_supply_readback_lock:
             self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
+        self.power_supply_valid_connections = [False, False, False]
         self.power_supply_last_logged_errors = [None, None, None]
         self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
+
+    def _clear_power_supply_valid_connection(self, index):
+        if 0 <= index < len(self.power_supply_valid_connections):
+            self.power_supply_valid_connections[index] = False
+
+    def _log_valid_power_supply_connection(self, index, voltage, current, mode):
+        if not 0 <= index < len(self.power_supply_valid_connections):
+            return
+        if self.power_supply_valid_connections[index]:
+            return
+        self.power_supply_valid_connections[index] = True
+        cathode = ['A', 'B', 'C'][index]
+        port = self.com_ports.get(f'Cathode{cathode} PS', 'unknown port')
+        self.log(
+            f"CCS 9104 valid connection established for Cathode {cathode} on {port}: "
+            f"{voltage:.2f}V, {current:.2f}A, {mode}.",
+            LogLevel.INFO,
+        )
 
     def _log_power_supply_readback_state(self, index, error):
         """Log power-supply readback problems at a bounded cadence."""
@@ -2027,6 +2076,7 @@ class CathodeHeatingSubsystem:
 
                 ps = self.power_supplies[index] if index < len(self.power_supplies) else None
                 if ps is None:
+                    self._clear_power_supply_valid_connection(index)
                     self._set_power_supply_readback(index, error="not_initialized")
                     continue
 
@@ -2037,6 +2087,7 @@ class CathodeHeatingSubsystem:
                         self._set_power_supply_readback(index, error="busy")
                         continue
                     if not connected:
+                        self._clear_power_supply_valid_connection(index)
                         self._set_power_supply_readback(index, error="disconnected")
                         # Reconfiguration replaces objects itself, so only normal polling reconnects here.
                         if not self.power_supply_reconfiguring.is_set():
@@ -2045,8 +2096,10 @@ class CathodeHeatingSubsystem:
 
                     voltage, current, mode = ps.get_voltage_current_mode()
                     if voltage is None or current is None:
+                        self._clear_power_supply_valid_connection(index)
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
+                        self._log_valid_power_supply_connection(index, voltage, current, mode)
                         self._set_power_supply_readback(
                             index,
                             voltage=voltage,
@@ -2055,6 +2108,7 @@ class CathodeHeatingSubsystem:
                             connected=True,
                         )
                 except Exception as exc:
+                    self._clear_power_supply_valid_connection(index)
                     self._set_power_supply_readback(index, error=str(exc))
 
             elapsed = time.monotonic() - loop_start
@@ -3460,6 +3514,7 @@ class CathodeHeatingSubsystem:
         self.cancel_updates()
         if not self.stop_power_supply_polling():
             self.log("9104 polling thread did not stop before shutdown; continuing with bounded serial close", LogLevel.WARNING)
+        self.power_supply_valid_connections = [False, False, False]
 
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for i, ps in enumerate(self.power_supplies):
@@ -3484,5 +3539,6 @@ class CathodeHeatingSubsystem:
                 if not closed:
                     self.log("Temperature controller did not close cleanly during shutdown", LogLevel.WARNING)
                 self.temp_controllers_connected = False
+                self.temperature_valid_connections = [False, False, False]
             except Exception as e:
                 self.log(f"Error cleaning up existing controller: {str(e)}", LogLevel.ERROR)
