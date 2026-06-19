@@ -50,6 +50,7 @@ class CathodeHeatingSubsystem:
     TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
+    POLL_ERROR_LOG_INTERVAL_SECONDS = 5.0
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
         'Ramp Voltage': 'ramp_voltage',
@@ -181,6 +182,9 @@ class CathodeHeatingSubsystem:
         self.power_supply_readback_lock = threading.Lock()
         self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
         self.power_supply_last_logged_errors = [None, None, None]
+        self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
+        self.poll_error_last_log_times = {}
+        self.poll_error_log_lock = threading.Lock()
 
         # GUI element references
         self.toggle_buttons = []
@@ -204,7 +208,7 @@ class CathodeHeatingSubsystem:
         self.temp_controllers_connected = False
         self.temperature_controller = None
         self.last_no_conn_log_time = [datetime.datetime.min for _ in range(3)]
-        self.log_interval = datetime.timedelta(seconds=3) # E5CN timeout message interval
+        self.log_interval = datetime.timedelta(seconds=self.POLL_ERROR_LOG_INTERVAL_SECONDS) # E5CN timeout message interval
 
         # Reconnection backoff tracking — avoid hammering dead ports every 500 ms
         self.RECONNECT_COOLDOWN = datetime.timedelta(seconds=10)
@@ -1809,7 +1813,8 @@ class CathodeHeatingSubsystem:
                     if temperature > E5CNModbus.MAX_VALID_TEMPERATURE_C:
                         self.clamp_temperature_vars[index].set("ERR")
                         self.set_plot_color(index, 'ERROR')
-                        self.log(
+                        self._log_poll_error_rate_limited(
+                            ("invalid_temperature", index),
                             f"Invalid temperature for cathode {index+1}: {temperature:.2f} C "
                             f"exceeds hard maximum {E5CNModbus.MAX_VALID_TEMPERATURE_C:.2f} C",
                             LogLevel.ERROR
@@ -1828,14 +1833,24 @@ class CathodeHeatingSubsystem:
                 elif isinstance(temperature, str):
                     self.clamp_temperature_vars[index].set("ERR")
                     self.set_plot_color(index, 'ERROR')
-                    self.log(f"Reading temperature for cathode {index+1} returned an error: {temperature}",
-                              LogLevel.ERROR)
+                    self._log_poll_error_rate_limited(
+                        ("temperature_error", index),
+                        f"Reading temperature for cathode {index+1} returned an error: {temperature}",
+                        LogLevel.ERROR,
+                    )
                     return None
                 else:
-                    self.log(f"No temperature data for cathode {index+1}", LogLevel.WARNING)
+                    self._log_poll_error_rate_limited(
+                        ("temperature_no_data", index),
+                        f"No temperature data for cathode {index+1}",
+                        LogLevel.WARNING,
+                    )
             except Exception as e:
-                self.log(f"Error reading temperature for cathode {index+1}: {str(e)}",
-                          LogLevel.ERROR)
+                self._log_poll_error_rate_limited(
+                    ("temperature_exception", index),
+                    f"Error reading temperature for cathode {index+1}: {str(e)}",
+                    LogLevel.ERROR,
+                )
                 self.set_plot_color(index, 'ERROR')  # Set plot to orange for no data
         else:
             if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
@@ -1847,6 +1862,15 @@ class CathodeHeatingSubsystem:
         # Set temperature to zero as default
         self.clamp_temperature_vars[index].set("-- C")
         return None
+
+    def _log_poll_error_rate_limited(self, key, message, level=LogLevel.ERROR):
+        now = time.monotonic()
+        with self.poll_error_log_lock:
+            last_logged = self.poll_error_last_log_times.get(key)
+            if last_logged is not None and now - last_logged < self.POLL_ERROR_LOG_INTERVAL_SECONDS:
+                return
+            self.poll_error_last_log_times[key] = now
+        self.log(message, level)
 
     def _publish_cathode_power_readback(self, index, current, voltage):
         """Publish cathode heater readbacks, including None when the read is invalid."""
@@ -1889,18 +1913,26 @@ class CathodeHeatingSubsystem:
         with self.power_supply_readback_lock:
             self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
         self.power_supply_last_logged_errors = [None, None, None]
+        self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
 
     def _log_power_supply_readback_state(self, index, error):
-        """Log power-supply readback problems only when the visible state changes."""
+        """Log power-supply readback problems at a bounded cadence."""
         if not 0 <= index < len(self.power_supply_last_logged_errors):
             return
 
-        if self.power_supply_last_logged_errors[index] == error:
+        if not error:
+            self.power_supply_last_logged_errors[index] = None
             return
 
-        self.power_supply_last_logged_errors[index] = error
-        if not error:
+        now = time.monotonic()
+        last_error = self.power_supply_last_logged_errors[index]
+        if (
+            last_error == error
+            and now - self.power_supply_last_error_log_times[index] < self.POLL_ERROR_LOG_INTERVAL_SECONDS
+        ):
             return
+        self.power_supply_last_error_log_times[index] = now
+        self.power_supply_last_logged_errors[index] = error
 
         cathode = ['A', 'B', 'C'][index]
         if error == "busy":

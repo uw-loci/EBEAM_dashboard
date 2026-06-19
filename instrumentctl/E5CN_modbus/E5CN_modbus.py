@@ -13,6 +13,7 @@ class E5CNModbus:
     THREAD_JOIN_TIMEOUT = 2.0
     MODBUS_CLOSE_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
+    POLL_ERROR_LOG_INTERVAL = 5.0
 
     def __init__(
         self,
@@ -56,6 +57,8 @@ class E5CNModbus:
         self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
         self._dropped_worker_log_count = 0
         self._dropped_worker_log_lock = threading.Lock()
+        self._rate_limited_log_times = {}
+        self._rate_limited_log_lock = threading.Lock()
         self._is_dummy_serial_port = self._is_dummy_port(port)
         self._dummy_port_logged = False
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
@@ -132,19 +135,35 @@ class E5CNModbus:
                 elif temperature == self.SENSOR_ERROR:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                    self.log(f"Unit {unit} temperature reading is invalid", LogLevel.ERROR)
+                    self._log_rate_limited(
+                        ("sensor_error", unit),
+                        f"Unit {unit} temperature reading is invalid",
+                        LogLevel.ERROR,
+                    )
                 elif temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                    self.log(f"Unit {unit} returned unexpected temperature value: {temperature}", LogLevel.ERROR)
+                    self._log_rate_limited(
+                        ("unexpected_temperature", unit),
+                        f"Unit {unit} returned unexpected temperature value: {temperature}",
+                        LogLevel.ERROR,
+                    )
                 else:
-                    self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
+                    self._log_rate_limited(
+                        ("null_temperature", unit),
+                        f"Unit {unit} is reading null",
+                        LogLevel.ERROR,
+                    )
                 time.sleep(0.5)  # small delay between reads
             except Exception as e:
                 if self.stop_event.is_set():
                     self.connected = False
                     break
-                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._log_rate_limited(
+                    ("continuous_read_exception", unit),
+                    f"Error in continuous temperature reading for unit {unit}: {str(e)}",
+                    LogLevel.ERROR,
+                )
                 time.sleep(1)  # Longer delay on error
 
     def stop_reading(self):
@@ -261,12 +280,20 @@ class E5CNModbus:
                                     self.log(f"E5CN reconnected for unit {unit} on {self.port}", LogLevel.INFO)
                                 self.connected = True
                             else:
-                                self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
+                                self._log_rate_limited(
+                                    ("reconnect_failed", unit),
+                                    f"Failed to reconnect for unit {unit}",
+                                    LogLevel.ERROR,
+                                )
                                 self.connected = False
                                 attempts -= 1
                                 continue
                         except Exception as e:
-                            self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
+                            self._log_rate_limited(
+                                ("reconnect_exception", unit),
+                                f"Error during reconnection for unit {unit}: {str(e)}",
+                                LogLevel.ERROR,
+                            )
                             self.connected = False
                             attempts -= 1
                             continue
@@ -281,7 +308,8 @@ class E5CNModbus:
                         self.connected = True
                         temperature = response.registers[1] / 10.0
                         if not math.isfinite(temperature) or temperature > self.MAX_VALID_TEMPERATURE_C:
-                            self.log(
+                            self._log_rate_limited(
+                                ("invalid_temperature", unit),
                                 f"Invalid temperature from unit {unit}: {temperature:.2f} C "
                                 f"exceeds hard maximum {self.MAX_VALID_TEMPERATURE_C:.2f} C",
                                 LogLevel.ERROR
@@ -290,18 +318,40 @@ class E5CNModbus:
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.VERBOSE)
                         return temperature
                     else:
-                        self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
+                        self._log_rate_limited(
+                            ("read_temperature_error", unit),
+                            f"Error reading temperature from unit {unit}: {response}",
+                            LogLevel.ERROR,
+                        )
                         attempts -= 1
                         return self.SENSOR_ERROR
 
             except Exception as e:
-                self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._log_rate_limited(
+                    ("unexpected_read_error", unit),
+                    f"Unexpected error for unit {unit}: {str(e)}",
+                    LogLevel.ERROR,
+                )
                 attempts -= 1
                 time.sleep(0.1)  # Short delay between retries
 
         if not self.stop_event.is_set():
-            self.log(f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)", LogLevel.ERROR)
+            self._log_rate_limited(
+                ("read_temperature_failed", unit),
+                f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)",
+                LogLevel.ERROR,
+            )
         return None
+
+    def _log_rate_limited(self, key, message, level=LogLevel.INFO, interval=None):
+        interval = self.POLL_ERROR_LOG_INTERVAL if interval is None else interval
+        now = time.monotonic()
+        with self._rate_limited_log_lock:
+            last_logged = self._rate_limited_log_times.get(key)
+            if last_logged is not None and now - last_logged < interval:
+                return
+            self._rate_limited_log_times[key] = now
+        self.log(message, level)
 
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():

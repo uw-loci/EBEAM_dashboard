@@ -11,6 +11,7 @@ class PowerSupply9104:
     VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
     DEFAULT_SERIAL_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
+    POLL_ERROR_LOG_INTERVAL = 5.0
 
     def __init__(
         self,
@@ -35,6 +36,8 @@ class PowerSupply9104:
         self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
         self._dropped_worker_log_count = 0
         self._dropped_worker_log_lock = threading.Lock()
+        self._rate_limited_log_times = {}
+        self._rate_limited_log_lock = threading.Lock()
         self.serial_lock = threading.Lock()
         self.ser = None
         self.setup_serial()
@@ -57,7 +60,11 @@ class PowerSupply9104:
 
         acquired = self.serial_lock.acquire(timeout=timeout)
         if not acquired:
-            self.log(f"Timed out waiting for serial lock while {action}", LogLevel.WARNING)
+            self._log_rate_limited(
+                ("serial_lock_timeout", action),
+                f"Timed out waiting for serial lock while {action}",
+                LogLevel.WARNING,
+            )
         return acquired
 
     # Public serial interface methods with locking to ensure thread safety
@@ -146,7 +153,11 @@ class PowerSupply9104:
             self.log("Flushing serial input buffer", LogLevel.DEBUG)
             self.ser.reset_input_buffer()
         else:
-            self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
+            self._log_rate_limited(
+                "serial_flush_closed",
+                "Serial port is not open. Cannot flush.",
+                LogLevel.WARNING,
+            )
 
     def send_command(self, command, lock_timeout=None):
         """Send a command to the power supply and read the response."""
@@ -168,7 +179,14 @@ class PowerSupply9104:
         # non-timeout lock acquisition paths.
         try:
             if not self._is_connected_unlocked():
-                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                if command == "GETD":
+                    self._log_rate_limited(
+                        ("command_port_closed", command),
+                        "Serial port is not open. Cannot send command.",
+                        LogLevel.ERROR,
+                    )
+                else:
+                    self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
                 return None # return immediately to prevent blocking GUI on serial read
 
             self._flush_serial_unlocked()
@@ -191,7 +209,14 @@ class PowerSupply9104:
 
             return response.strip()
         except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
+            if command == "GETD":
+                self._log_rate_limited(
+                    ("serial_error", command),
+                    f"Serial error: {e}",
+                    LogLevel.ERROR,
+                )
+            else:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
             # Mark port as dead so subsequent calls in this cycle fail fast
             try:
                 if self.ser:
@@ -201,10 +226,24 @@ class PowerSupply9104:
             self.ser = None
             return None
         except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+            if command == "GETD":
+                self._log_rate_limited(
+                    ("response_error", command),
+                    f"Error processing response for command '{command}': {str(e)}",
+                    LogLevel.ERROR,
+                )
+            else:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
         except Exception as e:
-            self.log(f"Critical Error: {str(e)}", LogLevel.ERROR)
+            if command == "GETD":
+                self._log_rate_limited(
+                    ("unexpected_command_error", command),
+                    f"Critical Error: {str(e)}",
+                    LogLevel.ERROR,
+                )
+            else:
+                self.log(f"Critical Error: {str(e)}", LogLevel.ERROR)
             return None
 
     def set_output(self, state):
@@ -625,7 +664,11 @@ class PowerSupply9104:
             self.log(f"Parsed GETD response: {voltage:.2f}V, {current:.2f}A, {mode}", LogLevel.DEBUG)
             return voltage, current, mode
         except Exception as e:
-            self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
+            self._log_rate_limited(
+                "parse_getd_error",
+                f"Error parsing GETD response: {response}. {e}",
+                LogLevel.ERROR,
+            )
             return 0.0, 0.0, "Err"
     
     def set_over_voltage_protection(self, ovp_volts):
@@ -655,7 +698,11 @@ class PowerSupply9104:
                 if not reading:
                     # Nothing came back – very likely no device on the port.
                     # Bail out immediately so the GUI thread is not blocked.
-                    self.log("No data on GETD; skipping remaining retries", LogLevel.DEBUG)
+                    self._log_rate_limited(
+                        "getd_no_data",
+                        "No data on GETD; skipping remaining retries",
+                        LogLevel.DEBUG,
+                    )
                     break
                 self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
@@ -668,13 +715,25 @@ class PowerSupply9104:
                             self.log(f"Replaced 9104 0.0 V reading with second read {v2:.2f} V", LogLevel.VERBOSE)
                             voltage, current, mode = v2, c2, m2
                     return voltage, current, mode
-                self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+                self._log_rate_limited(
+                    "getd_invalid_read_attempt",
+                    f"Failed to get valid reading, attempt {attempt + 1}",
+                    LogLevel.WARNING,
+                )
                 time.sleep(0.05)
             except Exception as e:
-                self.log(f"Error getting voltage mode", LogLevel.ERROR)
+                self._log_rate_limited(
+                    "getd_voltage_mode_error",
+                    "Error getting voltage mode",
+                    LogLevel.ERROR,
+                )
                 break  # Don't retry on unexpected errors
 
-        self.log(f"Failed to get valid reading after {attempt + 1} attempt(s)", LogLevel.WARNING)
+        self._log_rate_limited(
+            "getd_failed_reading",
+            f"Failed to get valid reading after {attempt + 1} attempt(s)",
+            LogLevel.WARNING,
+        )
         return None, None, "Err"
 
     def set_over_current_protection(self, ocp_amps):
@@ -906,6 +965,16 @@ class PowerSupply9104:
                 self.log(f"Error during best-effort serial close on {self.port}: {e}", LogLevel.WARNING)
             self.ser = None
         self.flush_queued_logs()
+
+    def _log_rate_limited(self, key, message, level=LogLevel.INFO, interval=None):
+        interval = self.POLL_ERROR_LOG_INTERVAL if interval is None else interval
+        now = time.monotonic()
+        with self._rate_limited_log_lock:
+            last_logged = self._rate_limited_log_times.get(key)
+            if last_logged is not None and now - last_logged < interval:
+                return
+            self._rate_limited_log_times[key] = now
+        self.log(message, level)
 
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
