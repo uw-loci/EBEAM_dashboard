@@ -138,6 +138,8 @@ class KnobBoxModbus:
         self.last_success = {uid: 0 for uid in self.UNIT_IDS}  # Track last successful poll time for each unit
         self._unit_response_seen = False
         self._no_unit_responses_logged = False
+        self._is_dummy_serial_port = self._is_dummy_port(port)
+        self._dummy_port_logged = False
 
         '''Connection management parameters:'''
         self.CONNECTION_TIMEOUT = 6.0  # seconds without successful poll before considering connection lost
@@ -182,6 +184,10 @@ class KnobBoxModbus:
             return False
 
     @staticmethod
+    def _is_dummy_port(port):
+        return bool(port) and str(port).upper().startswith("DUMMY_COM")
+
+    @staticmethod
     def _latched_flag_trip_level(idx, previous_nomop, current_nomop):
         # 3kV timer state
         if idx == 0:
@@ -206,6 +212,18 @@ class KnobBoxModbus:
         """
         with self.modbus_lock:
             try:
+                if self._is_dummy_serial_port:
+                    if not self._dummy_port_logged:
+                        self.log(
+                            f"Knob Box configured for dummy port {self.port}; "
+                            "skipping Modbus serial connection.",
+                            LogLevel.DEBUG,
+                        )
+                        self._dummy_port_logged = True
+                    self.connected = False
+                    self._next_connect_time = time.time() + self._connect_backoff_max_sec
+                    return False
+
                 if self.connected:
                     return True
                 now = time.time()
