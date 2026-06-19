@@ -559,7 +559,7 @@ class EBEAMSystemDashboard:
 
     def create_machine_status_frame(self):
         """Create a frame for displaying machine status information."""
-        self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
+        self.machine_status_frame = MachineStatus(self.frames['Machine Status'], logger=self.logger)
 
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports

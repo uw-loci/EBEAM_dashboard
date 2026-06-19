@@ -706,7 +706,7 @@ class MainControlPanel:
             self._set_beam_action_status(message, outcome)
 
     def create_script_dropdown(self, parent_frame):
-        SetupScripts(parent_frame)
+        SetupScripts(parent_frame, logger=self.logger)
 
     def create_total_max_emission_current_controls(self, parent_frame):
         """Create Main Control config UI for the total predicted emission limit."""

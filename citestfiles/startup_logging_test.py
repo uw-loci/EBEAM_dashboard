@@ -54,9 +54,9 @@ class TestStartupLogger(unittest.TestCase):
         with open(logger.log_filepath, "r") as file:
             contents = file.read()
 
-        self.assertIn("<Utils> Log file created at", contents)
-        self.assertIn("<Utils> WebMonitor log file created at", contents)
-        self.assertIn("<Main> Process launch", contents)
+        self.assertIn("INFO (Utils) > Log file created at", contents)
+        self.assertIn("INFO (Utils) > WebMonitor log file created at", contents)
+        self.assertIn("INFO (Main) > Process launch", contents)
 
     def test_logger_formats_tag_for_widget_and_file_output(self):
         widget = FakeTextWidget()
@@ -66,10 +66,10 @@ class TestStartupLogger(unittest.TestCase):
         logger.log("Tagged warning", LogLevel.WARNING, tag="Config")
 
         widget_text = widget.getvalue()
-        self.assertIn("WARNING: <Config> Tagged warning", widget_text)
+        self.assertIn("WARNING (Config) > Tagged warning", widget_text)
         with open(logger.log_filepath, "r") as file:
             contents = file.read()
-        self.assertIn("WARNING: <Config> Tagged warning", contents)
+        self.assertIn("WARNING (Config) > Tagged warning", contents)
 
     def test_logger_preserves_untagged_and_legacy_pretagged_messages(self):
         widget = FakeTextWidget()
@@ -80,8 +80,8 @@ class TestStartupLogger(unittest.TestCase):
         logger.warning("<Legacy> Already tagged", tag="Config")
 
         widget_text = widget.getvalue()
-        self.assertIn("INFO: Plain message", widget_text)
-        self.assertIn("WARNING: <Legacy> Already tagged", widget_text)
+        self.assertIn("INFO Plain message", widget_text)
+        self.assertIn("WARNING (Config) > <Legacy> Already tagged", widget_text)
         self.assertNotIn("<Config> <Legacy>", widget_text)
 
     def test_attach_text_widget_replays_buffer_without_creating_second_file(self):
