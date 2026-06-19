@@ -8,7 +8,7 @@ class TemperatureBar(tk.Canvas):
 
     DISCONNECTED = -1
     SENSOR_ERROR = -2
-    TOP_PADDING = 2
+    TOP_PADDING = 1
     SCALE_LABELS = {
         'Solenoids': [10 , 120], 
         'Chambers' : [10, 100], 
@@ -20,12 +20,12 @@ class TemperatureBar(tk.Canvas):
         SENSOR_ERROR: '#FFA500',  # Keep orange for actual sensor errors
     }
 
-    def __init__(self, parent, name: str, height: int = 58, width: int = 580):
+    def __init__(self, parent, name: str, height: int = 36, width: int = 580):
         super().__init__(parent, height=height, width=width, highlightthickness=0)
         self.name = name
         self.height = height
         self.width = width
-        self.bar_height = 14
+        self.bar_height = 11
         self.value = None
 
         self.bind('<Configure>', self._handle_resize)
@@ -46,21 +46,21 @@ class TemperatureBar(tk.Canvas):
         self._draw_bar()
 
     def create_title(self):
-        title_x = 8
+        title_x = 6
         title_y = self.TOP_PADDING + (self.bar_height // 2)
         self.create_text(
             title_x,
             title_y,
             text=self.name, 
-            font=('Arial', 8, 'bold'), 
+            font=('Segoe UI', 8, 'bold'), 
             anchor='w',
             tags='static'
         )
         
     def create_scale(self):
         # Scale line
-        self.scale_left = 90
-        self.scale_right = max(self.scale_left + 40, self.width - 55)
+        self.scale_left = 82
+        self.scale_right = max(self.scale_left + 40, self.width - 44)
         self.bar_top = self.TOP_PADDING
         self.bar_bottom = self.bar_top + self.bar_height
         scale_width = self.scale_right - self.scale_left
@@ -70,7 +70,8 @@ class TemperatureBar(tk.Canvas):
             self.bar_top,
             self.scale_right,
             self.bar_bottom,
-            outline='#444444',
+            outline='#5a5a5a',
+            fill='#eeeeee',
             tags='static'
         )
 
@@ -95,15 +96,16 @@ class TemperatureBar(tk.Canvas):
                 x,
                 self.bar_bottom,
                 x,
-                self.bar_bottom + 4,
+                self.bar_bottom + 3,
+                fill='#333333',
                 tags='scale_labels'
             )
             self.create_text(
                 x,
-                self.bar_bottom + 6,
+                self.bar_bottom + 4,
                 text=str(i), 
                 anchor='n',
-                font=('Arial', 7),
+                font=('Segoe UI', 6),
                 tags='scale_labels'
             )
         
@@ -162,10 +164,10 @@ class TemperatureBar(tk.Canvas):
 
         # Update value label
         self.create_text(
-            self.width - 8,
+            self.width - 6,
             self.TOP_PADDING + (self.bar_height // 2),
             text=value_text,
-            font=('Arial', 9, 'bold'),
+            font=('Segoe UI', 8, 'bold'),
             fill='#808080' if self.value == self.DISCONNECTED else 'black',
             anchor='e',
             tags='value'
@@ -247,18 +249,18 @@ class ProcessMonitorSubsystem:
 
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)
-        self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.frame.pack(side=tk.TOP, fill=tk.X, expand=False)
         
         # Configure grid weights for responsive layout
         self.frame.grid_columnconfigure(0, weight=1)
         for i in range(len(self.thermometers)):
-            self.frame.grid_rowconfigure(i, weight=1)
+            self.frame.grid_rowconfigure(i, weight=0)
         
         # Create temperature bars
         self.temp_bars: Dict[str, TemperatureBar] = {}
         for i, name in enumerate(self.thermometers):
             bar = TemperatureBar(self.frame, name)
-            bar.grid(row=i, column=0, padx=5, pady=2, sticky='nsew')
+            bar.grid(row=i, column=0, padx=4, pady=(1, 0), sticky='ew')
             self.temp_bars[name] = bar
 
     def update_temperatures(self):

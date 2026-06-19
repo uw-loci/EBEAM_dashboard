@@ -381,13 +381,17 @@ class VTRXSubsystem:
         """
         layout_frame = tk.Frame(self.parent)
         layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        layout_frame.grid_columnconfigure(0, weight=0)
+        layout_frame.grid_columnconfigure(1, weight=1)
+        layout_frame.grid_rowconfigure(0, weight=1)
+        layout_frame.grid_rowconfigure(1, weight=0)
 
         # Formatting status indicators
         switches_frame = tk.Frame(layout_frame)
-        switches_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=5)
+        switches_frame.grid(row=0, column=0, sticky='nsew', padx=5)
 
         # Distribute vertical space
-        switches_frame.grid_rowconfigure(tuple(range(10)), weight=1)
+        switches_frame.grid_rowconfigure(tuple(range(8)), weight=1)
         switches_frame.grid_columnconfigure(0, weight=3) # Label colunm
         switches_frame.grid_columnconfigure(1, weight=1) # indicator column 
 
@@ -412,29 +416,9 @@ class VTRXSubsystem:
             canvas.grid(row=idx, column=1, sticky='nsew', pady=2, padx=(0, 1))
             self.circle_indicators.append((canvas, oval_id))
 
-        # Pressure label setup
-        pressure_frame = tk.Frame(switches_frame)
-        pressure_frame.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
-        # Configure columns to center the label
-        pressure_frame.grid_columnconfigure(0, weight=1) 
-        pressure_frame.grid_columnconfigure(2, weight=1) 
-        pressure_frame.grid_columnconfigure(1, weight=0) 
-
-        self.label_pressure = tk.Label(
-            pressure_frame,
-            text="No data...", 
-            anchor='center',
-            font=('Helvetica', 11, 'bold'), 
-            relief='ridge', 
-            bg='white',
-            fg='black', 
-            padx=3, pady=2
-        )
-        self.label_pressure.grid(row=0, column=1, ipady=2, pady=(0,2))
-
         # Buttons frame
-        button_frame = tk.Frame(switches_frame)
-        button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, sticky='nsew', pady=1)
+        button_frame = tk.Frame(layout_frame)
+        button_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=(2, 1))
         button_frame.bind("<Configure>", self._on_button_frame_resize)
 
         self.button_frame = button_frame
@@ -475,14 +459,13 @@ class VTRXSubsystem:
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+        plot_frame.grid(row=0, column=1, sticky='nsew', padx=(4, 6), pady=(3, 1)) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.97, bottom=0.05)
+        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.94, bottom=0.18)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
         self.ax.set_title('')
-        self.ax.set_xlabel('Time', fontsize=8)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
@@ -493,7 +476,24 @@ class VTRXSubsystem:
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=3)
+
+        # Pressure label setup
+        pressure_frame = tk.Frame(layout_frame)
+        pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
+        pressure_frame.grid_columnconfigure(0, weight=1)
+
+        self.label_pressure = tk.Label(
+            pressure_frame,
+            text="No data...", 
+            anchor='center',
+            font=('Helvetica', 11, 'bold'), 
+            relief='ridge', 
+            bg='white',
+            fg='black', 
+            padx=3, pady=2
+        )
+        self.label_pressure.grid(row=0, column=0, ipady=2)
      
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """
