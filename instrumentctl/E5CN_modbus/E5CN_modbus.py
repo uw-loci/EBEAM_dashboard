@@ -56,6 +56,8 @@ class E5CNModbus:
         self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
         self._dropped_worker_log_count = 0
         self._dropped_worker_log_lock = threading.Lock()
+        self._is_dummy_serial_port = self._is_dummy_port(port)
+        self._dummy_port_logged = False
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -79,6 +81,10 @@ class E5CNModbus:
             return not bool(self.ccs_power_on_provider())
         except Exception:
             return False
+
+    @staticmethod
+    def _is_dummy_port(port):
+        return bool(port) and str(port).upper().startswith("DUMMY_COM")
 
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
@@ -171,6 +177,17 @@ class E5CNModbus:
         """
         with self.modbus_lock:
             try:
+                if self._is_dummy_serial_port:
+                    if not self._dummy_port_logged:
+                        self.log(
+                            f"E5CN temperature controllers configured for dummy port {self.port}; "
+                            "skipping Modbus serial connection.",
+                            LogLevel.DEBUG,
+                        )
+                        self._dummy_port_logged = True
+                    self.connected = False
+                    return False
+
                 if self.client.is_socket_open():
                     self.connected = True
                     self.log("Modbus client already connected.", LogLevel.DEBUG)
