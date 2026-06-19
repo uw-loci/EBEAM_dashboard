@@ -112,11 +112,26 @@ class CathodeHeatingSubsystem:
                         # Fast eligibility check at startup from header/first row shape.
                         preview_df = pd.read_csv(file_path, nrows=1)
                         if not has_valid_lut_columns(preview_df.columns):
+                            if self.logger:
+                                self.logger.log(
+                                    f"LUT {filename} has invalid columns; expected beam_current, voltage, heater_current.",
+                                    LogLevel.WARNING,
+                                    tag="CCS",
+                                )
                             self.current_options[filename] = None
                             continue
 
                         df = pd.read_csv(file_path)
-                        self.current_options[filename] = df if validate_lut(df) else None
+                        if validate_lut(df):
+                            self.current_options[filename] = df
+                        else:
+                            if self.logger:
+                                self.logger.log(
+                                    f"LUT {filename} has invalid or empty data; disabling it for predictions.",
+                                    LogLevel.WARNING,
+                                    tag="CCS",
+                                )
+                            self.current_options[filename] = None
                     except Exception as e:
                         if self.logger:
                             self.logger.log(
@@ -165,6 +180,7 @@ class CathodeHeatingSubsystem:
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
         self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
+        self.power_supply_last_logged_errors = [None, None, None]
 
         # GUI element references
         self.toggle_buttons = []
@@ -831,12 +847,17 @@ class CathodeHeatingSubsystem:
                     try:
                         entry_value = entry_var.get()
                         if entry_value.strip() == "":
+                            self.log(f"Missing OVP input for Cathode {['A', 'B', 'C'][cathode_idx]}", LogLevel.ERROR)
                             msgbox.showerror("Error", "Please enter a value for overvoltage limit.")
                             return
                         new_value = float(entry_value)
 
                         # Validate range before updating any values
                         if new_value < 0.02 or new_value > 84:
+                            self.log(
+                                f"OVP input out of range for Cathode {['A', 'B', 'C'][cathode_idx]}: {new_value:.2f}V",
+                                LogLevel.WARNING,
+                            )
                             msgbox.showerror("Error", "OVP must be a value greater than 0.02 V and less than or equal to 84 V")
                             return
 
@@ -849,6 +870,7 @@ class CathodeHeatingSubsystem:
                             msgbox.showwarning("OVP Not Confirmed", "OVP could not be confirmed from power supply readback.")
 
                     except ValueError:
+                        self.log(f"Invalid OVP input for Cathode {['A', 'B', 'C'][cathode_idx]}", LogLevel.ERROR)
                         msgbox.showerror("Error", "Please enter a valid number for overvoltage limit.")
                         return
                 return set_and_update_ovl
@@ -904,12 +926,17 @@ class CathodeHeatingSubsystem:
                     try:
                         entry_value = entry_var.get()
                         if entry_value.strip() == "":
+                            self.log(f"Missing OCP input for Cathode {['A', 'B', 'C'][cathode_idx]}", LogLevel.ERROR)
                             msgbox.showerror("Error", "Please enter a value for overcurrent limit.")
                             return
                         new_value = float(entry_value)
 
                         # Validate range before updating any values
                         if new_value < 0.1 or new_value > 10:
+                            self.log(
+                                f"OCP input out of range for Cathode {['A', 'B', 'C'][cathode_idx]}: {new_value:.2f}A",
+                                LogLevel.WARNING,
+                            )
                             msgbox.showerror("Error", "Over Current Limit must be a value greater than 0.1 A and less than or equal to 10 A")
                             return
 
@@ -922,6 +949,7 @@ class CathodeHeatingSubsystem:
                             msgbox.showwarning("OCP Not Confirmed", "OCP could not be confirmed from power supply readback.")
 
                     except ValueError:
+                        self.log(f"Invalid OCP input for Cathode {['A', 'B', 'C'][cathode_idx]}", LogLevel.ERROR)
                         msgbox.showerror("Error", "Please enter a valid number for overcurrent limit.")
                         return
                 return set_and_update_ocl
@@ -1311,7 +1339,7 @@ class CathodeHeatingSubsystem:
                     if set_preset_response:
                         self.log(f"Set preset mode for {cathode} to 3 (normal mode).", LogLevel.INFO)
                     else:
-                        self.log(f"Failed to set preset mode for {cathode} to 3 (normal mode). Response: {set_preset_response}", LogLevel.WARNING)
+                        self.log(f"Failed to set preset mode for {cathode} to 3 (normal mode). Response: {set_preset_response}", LogLevel.ERROR)
                     
                     # Confirm output preset mode
                     get_preset_response = ps.get_preset_selection()
@@ -1343,7 +1371,7 @@ class CathodeHeatingSubsystem:
                         else:
                             self.log(f"Failed to confirm OVP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
-                        self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.WARNING)
+                        self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.ERROR)
 
                     # Set and confirm OCP
                     stored_ocp = self.overcurrent_limit_vars[idx].get()
@@ -1366,7 +1394,7 @@ class CathodeHeatingSubsystem:
                         else:
                             self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
                     else:
-                        self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.WARNING)
+                        self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.ERROR)
 
                     new_power_supplies[idx] = ps
                     new_power_supply_status[idx] = True
@@ -1395,7 +1423,7 @@ class CathodeHeatingSubsystem:
 
         self.power_supplies_initialized = any(self.power_supply_status)
         if not self.power_supplies_initialized:
-            self.log("No power supplies were initialized properly.", LogLevel.DEBUG)
+            self.log("No power supplies were initialized properly.", LogLevel.ERROR)
         
         self.update_log_power_settings_button_states()
 
@@ -1533,7 +1561,7 @@ class CathodeHeatingSubsystem:
             ovp_set = Decimal(str(ovp_value)).quantize(Decimal('0.01'))  # Round to 2 decimal places
             ovp_set_response = self.power_supplies[index].set_over_voltage_protection(ovp_set)
             if not ovp_set_response:
-                self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.WARNING)
+                self.log(f"Failed to set OVP for Cathode {['A', 'B', 'C'][index]}. Response: {ovp_set_response}", LogLevel.ERROR)
                 return
 
             # Verify the set value
@@ -1589,7 +1617,7 @@ class CathodeHeatingSubsystem:
             self.log(f"Setting OCP for Cathode {['A', 'B', 'C'][index]} to: {raw_value:.2f}", LogLevel.DEBUG)
             ocp_set_response = self.power_supplies[index].set_over_current_protection(ocp_set)
             if not ocp_set_response:
-                self.log(f"Failed to set OCP for Cathode {['A', 'B', 'C'][index]}. Response: {ocp_set_response}", LogLevel.WARNING)
+                self.log(f"Failed to set OCP for Cathode {['A', 'B', 'C'][index]}. Response: {ocp_set_response}", LogLevel.ERROR)
                 return
 
             # Verify the set value
@@ -1640,7 +1668,7 @@ class CathodeHeatingSubsystem:
             if expected_voltage is None:
                 self.log(f"Cathode {['A', 'B', 'C'][index]} settings - Voltage{voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
             elif abs(voltage - expected_voltage) > 0.1:
-                self.log(f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: Set: {expected_voltage:.2f}V, Actual: {voltage:.2f}V", LogLevel.ERROR)
+                self.log(f"Voltage mismatch for Cathode {['A', 'B', 'C'][index]}: Set: {expected_voltage:.2f}V, Actual: {voltage:.2f}V", LogLevel.WARNING)
             else:
                 self.log(f"Cathode {['A', 'B', 'C'][index]} voltage matches set value. Voltage: {voltage:.2f}V, Current: {current:.2f}A", LogLevel.INFO)
 
@@ -1859,6 +1887,31 @@ class CathodeHeatingSubsystem:
     def _reset_power_supply_readbacks(self):
         with self.power_supply_readback_lock:
             self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
+        self.power_supply_last_logged_errors = [None, None, None]
+
+    def _log_power_supply_readback_state(self, index, error):
+        """Log power-supply readback problems only when the visible state changes."""
+        if not 0 <= index < len(self.power_supply_last_logged_errors):
+            return
+
+        if self.power_supply_last_logged_errors[index] == error:
+            return
+
+        self.power_supply_last_logged_errors[index] = error
+        if not error:
+            return
+
+        cathode = ['A', 'B', 'C'][index]
+        if error == "busy":
+            self.log(f"9104 readback skipped for Cathode {cathode}: serial interface busy", LogLevel.DEBUG)
+        elif error == "not_initialized":
+            self.log(f"9104 readback unavailable for Cathode {cathode}: power supply not initialized", LogLevel.DEBUG)
+        elif error == "disconnected":
+            self.log(f"9104 readback failed for Cathode {cathode}: power supply disconnected", LogLevel.ERROR)
+        elif error == "invalid_read":
+            self.log(f"9104 readback failed for Cathode {cathode}: invalid voltage/current data", LogLevel.ERROR)
+        else:
+            self.log(f"9104 readback failed for Cathode {cathode}: {error}", LogLevel.ERROR)
 
     def start_power_supply_polling(self):
         """Start the background 9104 readback poller if one is not already running."""
@@ -2044,8 +2097,9 @@ class CathodeHeatingSubsystem:
                 mode = readback.get("mode")
 
                 if readback.get("connected") and voltage is not None and current is not None:
+                    self._log_power_supply_readback_state(i, None)
                     self.power_supply_status[i] = True
-                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.DEBUG)
+                    self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.VERBOSE)
 
                     self.actual_heater_current_vars[i].set(f"{current:.2f}")
                     self.actual_heater_voltage_vars[i].set(f"{voltage:.2f}")
@@ -2067,12 +2121,14 @@ class CathodeHeatingSubsystem:
                 else:
                     # A missed/busy readback is display-only; only a confirmed disconnect
                     # should downgrade the initialized status used by command guards.
+                    self._log_power_supply_readback_state(i, readback.get("error"))
                     mark_status_unavailable = readback.get("error") == "disconnected"
                     self._mark_power_supply_unavailable(
                         i,
                         mark_status_unavailable=mark_status_unavailable,
                     )
             else:
+                self._log_power_supply_readback_state(i, "not_initialized")
                 self._mark_power_supply_unavailable(i)
 
             temperature = self.read_temperature(i)
@@ -2196,7 +2252,7 @@ class CathodeHeatingSubsystem:
             self.log(f"Enabled voltage ramping for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
         else:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
-            self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.WARNING)
+            self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.INFO)
 
     def toggle_output(self, index, control_mode: str = None):
         if not self.power_supplies_initialized or not self.power_supplies:
@@ -2228,6 +2284,7 @@ class CathodeHeatingSubsystem:
             # Retrieve target voltage and current
             target_voltage = self.user_set_voltages[index]
             if target_voltage is None:
+                self.log(f"CCS output enable blocked for Cathode {['A', 'B', 'C'][index]}: target voltage is not set.", LogLevel.WARNING)
                 msgbox.showwarning("Warning", f"Target voltage for Cathode {['A', 'B', 'C'][index]} is not set.")
                 return
             
@@ -2238,11 +2295,17 @@ class CathodeHeatingSubsystem:
                 return
                 
             if target_voltage > ovp:
+                self.log(
+                    f"CCS output enable blocked for Cathode {['A', 'B', 'C'][index]}: "
+                    f"target voltage {target_voltage:.2f}V exceeds OVP {ovp:.2f}V.",
+                    LogLevel.WARNING,
+                )
                 msgbox.showerror("Error", f"Target voltage {target_voltage:.2f}V exceeds OVP limit of {ovp:.2f}V for Cathode {['A', 'B', 'C'][index]}.")
                 return
 
             target_current = self.user_set_currents[index]
             if target_current is None:
+                self.log(f"CCS output enable blocked for Cathode {['A', 'B', 'C'][index]}: target current is not set.", LogLevel.WARNING)
                 msgbox.showwarning("Warning", f"Target current for Cathode {['A', 'B', 'C'][index]} is not set.")
                 return
             
@@ -2253,6 +2316,11 @@ class CathodeHeatingSubsystem:
                 return
             
             if target_current > ocp:
+                self.log(
+                    f"CCS output enable blocked for Cathode {['A', 'B', 'C'][index]}: "
+                    f"target current {target_current:.2f}A exceeds OCP {ocp:.2f}A.",
+                    LogLevel.WARNING,
+                )
                 msgbox.showerror("Error", f"Target current {target_current:.2f}A exceeds OCP limit of {ocp:.2f}A for Cathode {['A', 'B', 'C'][index]}.")
                 return
             
@@ -2350,7 +2418,11 @@ class CathodeHeatingSubsystem:
                 
         else:
             # turning off the output
-            self.power_supplies[index].set_output("0")
+            output_disabled = self.power_supplies[index].set_output("0")
+            if output_disabled:
+                self.log(f"Disabled output for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            else:
+                self.log(f"Failed to disable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
             self.on_ramp_complete(index)
 
         # Update the toggle state and button image
@@ -2434,7 +2506,7 @@ class CathodeHeatingSubsystem:
                 return
             # Ensure current is within the data range
             if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
-                self.log("Desired emission current is below the minimum range of the model.", LogLevel.DEBUG)
+                self.log("Desired emission current is outside the range of the model.", LogLevel.WARNING)
                 self._set_predicted_emission_current_ma(index, 0.0)
                 self.predicted_grid_current_vars[index].set('0.00')
                 self.predicted_heater_current_vars[index].set('0.00')
@@ -2612,9 +2684,12 @@ class CathodeHeatingSubsystem:
             - Logs the reset action
         """
         if self.power_supply_status[index]:
-            self.power_supplies[index].set_voltage(3, 0.0, sent_callback=lambda v, i=index: self._update_sent_voltage_display(i, v))
-            self.power_supplies[index].set_current(3, 0.0, sent_callback=lambda c, i=index: self._update_sent_current_display(i, c))
-            self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            voltage_reset = self.power_supplies[index].set_voltage(3, 0.0, sent_callback=lambda v, i=index: self._update_sent_voltage_display(i, v))
+            current_reset = self.power_supplies[index].set_current(3, 0.0, sent_callback=lambda c, i=index: self._update_sent_current_display(i, c))
+            if voltage_reset and current_reset:
+                self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
+            else:
+                self.log(f"Failed to reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
         self._set_predicted_emission_current_ma(index)
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
@@ -2660,6 +2735,7 @@ class CathodeHeatingSubsystem:
                 # Error message already shown in validate_current
                 return
         except (tk.TclError, ValueError):
+            self.log(f"Invalid manual current input for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
             msgbox.showerror("Invalid Input", "Please enter a valid current value.")
             return
 
@@ -2711,6 +2787,7 @@ class CathodeHeatingSubsystem:
                 # Error message already shown in validate_voltage
                 return
         except (tk.TclError, ValueError):
+            self.log(f"Invalid manual voltage input for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
             msgbox.showerror("Invalid Input", "Please enter a valid voltage value.")
             return
 
@@ -2865,7 +2942,7 @@ class CathodeHeatingSubsystem:
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
                 self.clear_prediction_variables(index)
-                self.log(f"No lookup table data available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                self.log(f"No lookup table data available at {current:.2f}A for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
                 return False
 
             # Calculate dependent variables - beam_current is what hits the target, emission is total
@@ -2943,7 +3020,7 @@ class CathodeHeatingSubsystem:
             # Check that LUT returned values, if not then reset predicted values
             if pred_beam_current == -1:
                 self.clear_prediction_variables(index)
-                self.log(f"No lookup table data available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                self.log(f"No lookup table data available at {voltage:.2f}V for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
                 return False
 
             # Calculate dependent variables - beam_current is what hits the target, emission is total
@@ -3216,6 +3293,7 @@ class CathodeHeatingSubsystem:
             return False
         
         if new_voltage is None or new_voltage < 0:
+            self.log(f"Invalid voltage request for Cathode {['A', 'B', 'C'][index]}: requested voltage cannot be negative.", LogLevel.WARNING)
             msgbox.showwarning("Invalid Input", "Requested voltage cannot be negative.")
             return False
         
@@ -3240,7 +3318,8 @@ class CathodeHeatingSubsystem:
         """
         ocp = self.get_ocp(index)
 
-        if new_current < 0 or new_current is None:
+        if new_current is None or new_current < 0:
+            self.log(f"Invalid current request for Cathode {['A', 'B', 'C'][index]}: requested current cannot be negative.", LogLevel.WARNING)
             msgbox.showwarning("Invalid Input", "Requested current cannot be negative.")
             return False
         
@@ -3316,7 +3395,7 @@ class CathodeHeatingSubsystem:
         was_ramping = self.is_ramping(index)
         if ps:
             ps.stop_ramp()
-        self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.WARNING)
+        self.log(f'STOP RAMP pressed for Cathode {["A","B","C"][index]}', LogLevel.INFO)
         if not was_ramping:
             self.on_ramp_complete(index)
 
