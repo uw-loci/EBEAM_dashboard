@@ -89,7 +89,8 @@ class E5CNModbus:
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
         if not self.connect():
-            self.log("Cannot start reading temperatures - connection failed", LogLevel.ERROR)
+            level = LogLevel.DEBUG if self._is_dummy_serial_port else LogLevel.ERROR
+            self.log("Cannot start reading temperatures - connection failed", level)
             return False
             
         self.stop_event.clear()
@@ -127,7 +128,7 @@ class E5CNModbus:
                 if isinstance(temperature, (int, float)):
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.VERBOSE)
                 elif temperature == self.SENSOR_ERROR:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
@@ -241,6 +242,7 @@ class E5CNModbus:
 
     def read_temperature(self, unit):
         attempts = 3
+        original_attempts = attempts
         while attempts > 0 and not self.stop_event.is_set():
             try:
                 with self.modbus_lock:
@@ -249,11 +251,15 @@ class E5CNModbus:
 
                     if not self.client.is_socket_open():
                         try:
+                            was_connected = self.connected
                             if self.client.connect():
                                 time.sleep(0.2)
                                 # clear any stale data
                                 if hasattr(self.client, 'socket'):
                                     self.client.socket.reset_input_buffer()
+                                if not was_connected:
+                                    self.log(f"E5CN reconnected for unit {unit} on {self.port}", LogLevel.INFO)
+                                self.connected = True
                             else:
                                 self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
                                 self.connected = False
@@ -281,7 +287,7 @@ class E5CNModbus:
                                 LogLevel.ERROR
                             )
                             return self.SENSOR_ERROR
-                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
+                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.VERBOSE)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
@@ -293,6 +299,8 @@ class E5CNModbus:
                 attempts -= 1
                 time.sleep(0.1)  # Short delay between retries
 
+        if not self.stop_event.is_set():
+            self.log(f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)", LogLevel.ERROR)
         return None
 
     def log(self, message, level=LogLevel.INFO):

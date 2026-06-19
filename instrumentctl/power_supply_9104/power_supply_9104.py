@@ -185,7 +185,7 @@ class PowerSupply9104:
             if not response:
                 raise ValueError("No response received from 9104 supply")
             if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
+                self.log(f"Acknowledgement not in 9104 supply response", LogLevel.ERROR)
 
             self.log(f"Response: {response}", LogLevel.DEBUG)
 
@@ -256,7 +256,7 @@ class PowerSupply9104:
         
         self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip().startswith("OK"):
-            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
+            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.DEBUG)
             if sent_callback:
                 try:
                     sent_callback(voltage)
@@ -286,7 +286,7 @@ class PowerSupply9104:
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
-            self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.INFO)
+            self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.DEBUG)
             if sent_callback:
                 try:
                     sent_callback(current)
@@ -322,7 +322,11 @@ class PowerSupply9104:
         )
         try:
             self.ramp_thread.start()
-            self.log(f"Ramping current to {target_current:.2f}A started.", LogLevel.INFO)
+            self.log(
+                f"Ramping current to {target_current:.2f}A started "
+                f"(step size {step_size:.3f}A, delay {step_delay:.1f}s, preset {preset}).",
+                LogLevel.INFO,
+            )
             return True
         except Exception as e:
             self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
@@ -351,6 +355,7 @@ class PowerSupply9104:
             current_step = current_difference / num_steps
 
             # Simple ramping loop
+            last_progress_log_time = time.monotonic()
             for step in range(num_steps):
                 if self.stop_event.is_set(): # Check if stop is requested
                     self.log("Ramping thread stopped.", LogLevel.INFO)
@@ -383,7 +388,7 @@ class PowerSupply9104:
                         if self.set_current(preset, next_current, sent_callback=sent_callback):
                             break # Success, exit retry loop
                         else:
-                            self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.ERROR)
+                            self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.DEBUG)
                     except Exception as e:
                         self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
                         time.sleep(0.1)  # Short delay before retrying
@@ -396,9 +401,11 @@ class PowerSupply9104:
                 # Update tracking current without querying device
                 current_current = next_current
 
-                # Only log every few steps
-                if step % 5 == 0:
+                # Log operator-visible ramp progress at a time cadence rather than every serial step.
+                now = time.monotonic()
+                if now - last_progress_log_time >= 5.0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_current:.2f}A", LogLevel.INFO)
+                    last_progress_log_time = now
 
                 # Longer delay between steps
                 if self.stop_event.wait(step_delay):
@@ -460,7 +467,11 @@ class PowerSupply9104:
         )
         try:
             self.ramp_thread.start()
-            self.log(f"Ramping voltage to {target_voltage:.2f}V started.", LogLevel.INFO)
+            self.log(
+                f"Ramping voltage to {target_voltage:.2f}V started "
+                f"(step size {step_size:.3f}V, delay {step_delay:.1f}s, preset {preset}).",
+                LogLevel.INFO,
+            )
             return True
         except Exception as e:
             self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
@@ -489,6 +500,7 @@ class PowerSupply9104:
             voltage_step = voltage_difference / num_steps
             
             # Simple ramping loop
+            last_progress_log_time = time.monotonic()
             for step in range(num_steps):
                 if self.stop_event.is_set():  # Check if stop is requested
                     self.log("Ramping thread stopped.", LogLevel.INFO)
@@ -516,7 +528,7 @@ class PowerSupply9104:
                         if self.set_voltage(preset, next_voltage, sent_callback=sent_callback):
                             break # Success, exit retry loop
                         else:
-                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
+                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.DEBUG)
                     except Exception as e:
                         self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
                         time.sleep(0.1) # brief pause before retry
@@ -530,9 +542,11 @@ class PowerSupply9104:
                 # Update tracking voltage without querying device
                 current_voltage = next_voltage
                 
-                # Only log every few steps
-                if step % 5 == 0:
+                # Log operator-visible ramp progress at a time cadence rather than every serial step.
+                now = time.monotonic()
+                if now - last_progress_log_time >= 5.0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
+                    last_progress_log_time = now
                     
                 # Longer delay between steps
                 if self.stop_event.wait(step_delay):
@@ -624,7 +638,7 @@ class PowerSupply9104:
         if response and "OK" in response:
             return True
         else:
-            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
+            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.ERROR)
             return False
 
     def get_voltage_current_mode(self, lock_timeout=None):
@@ -673,7 +687,7 @@ class PowerSupply9104:
         if response and "OK" in response:
             return True
         else:
-            self.log(f"Failed to set OCP to {ocp_centiamps:04d}", LogLevel.DEBUG)
+            self.log(f"Failed to set OCP to {ocp_centiamps:04d}", LogLevel.ERROR)
             return False
 
     def get_over_voltage_protection(self):
@@ -693,7 +707,7 @@ class PowerSupply9104:
                 ovp_str = response.split('\r')[0]
                 # convert to integer, then to a float
                 ovp_volts = int(ovp_str) / 100.0
-                self.log(f"OVP value: {ovp_volts:.2f}")
+                self.log(f"OVP value: {ovp_volts:.2f}", LogLevel.DEBUG)
                 return ovp_volts
             except (ValueError, IndexError) as e:
                 self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)

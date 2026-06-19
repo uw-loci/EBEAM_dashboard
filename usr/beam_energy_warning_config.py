@@ -155,7 +155,7 @@ def load_beam_energy_warning_limits(filepath=CONFIG_FILE, logger=None):
         _log(logger, "error", f"Error loading Beam Energy warning limits: {e}")
         return _copy_defaults()
 
-    _log(logger, "info", f"Beam Energy warning limits loaded from {filepath}.")
+    _log(logger, "debug", f"Beam Energy warning limits loaded from {filepath}.")
     return normalize_warning_limits(raw_limits, logger=logger)
 
 
