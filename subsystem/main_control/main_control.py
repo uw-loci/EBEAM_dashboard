@@ -1100,8 +1100,6 @@ class MainControlPanel:
         """Handle Beams E-stop button press — force stop all BCON channels,
         turn off cathode heating, and disarm beams."""
         try:
-            self._log_info("Beams E-STOP activated; requesting BCON stop, cathode shutdown, and beam disarm")
-
             # Force stop all BCON channels immediately
             beam_pulse = self.subsystems.get('Beam Pulse')
             if beam_pulse is not None:
