@@ -318,13 +318,9 @@ class E5CNModbus:
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.VERBOSE)
                         return temperature
                     else:
-                        self._log_rate_limited(
-                            ("read_temperature_error", unit),
-                            f"Error reading temperature from unit {unit}: {response}",
-                            LogLevel.ERROR,
-                        )
+                        self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.DEBUG)
                         attempts -= 1
-                        return self.SENSOR_ERROR
+                        continue
 
             except Exception as e:
                 self._log_rate_limited(
