@@ -50,7 +50,7 @@ class CathodeHeatingSubsystem:
     TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
-    POLL_ERROR_LOG_INTERVAL_SECONDS = 5.0
+    POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
         'Ramp Voltage': 'ramp_voltage',
@@ -1871,6 +1871,8 @@ class CathodeHeatingSubsystem:
             if current_time - self.last_no_conn_log_time[index] >= self.log_interval:
                 self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.DEBUG)
                 self.last_no_conn_log_time[index] = current_time
+            else:
+                self.log(f"No connection to CCS temperature controller {index+1}", LogLevel.VERBOSE)
             self.set_plot_color(index, 'DISCONNECTED')
             self.temperature_valid_connections[index] = False
 
@@ -1898,9 +1900,11 @@ class CathodeHeatingSubsystem:
         with self.poll_error_log_lock:
             last_logged = self.poll_error_last_log_times.get(key)
             if last_logged is not None and now - last_logged < self.POLL_ERROR_LOG_INTERVAL_SECONDS:
-                return
-            self.poll_error_last_log_times[key] = now
-        self.log(message, level)
+                log_level = LogLevel.VERBOSE
+            else:
+                self.poll_error_last_log_times[key] = now
+                log_level = level
+        self.log(message, log_level)
 
     def _publish_cathode_power_readback(self, index, current, voltage):
         """Publish cathode heater readbacks, including None when the read is invalid."""
@@ -1965,7 +1969,7 @@ class CathodeHeatingSubsystem:
         )
 
     def _log_power_supply_readback_state(self, index, error):
-        """Log power-supply readback problems at a bounded cadence."""
+        """Log power-supply readback problems at an operator-level cadence, with DEBUG repeats."""
         if not 0 <= index < len(self.power_supply_last_logged_errors):
             return
 
@@ -1973,27 +1977,35 @@ class CathodeHeatingSubsystem:
             self.power_supply_last_logged_errors[index] = None
             return
 
+        cathode = ['A', 'B', 'C'][index]
+        if error == "busy":
+            message = f"9104 readback skipped for Cathode {cathode}: serial interface busy"
+            level = LogLevel.DEBUG
+        elif error == "not_initialized":
+            message = f"9104 readback unavailable for Cathode {cathode}: power supply not initialized"
+            level = LogLevel.DEBUG
+        elif error == "disconnected":
+            message = f"9104 readback failed for Cathode {cathode}: power supply disconnected"
+            level = LogLevel.ERROR
+        elif error == "invalid_read":
+            message = f"9104 readback failed for Cathode {cathode}: invalid voltage/current data"
+            level = LogLevel.ERROR
+        else:
+            message = f"9104 readback failed for Cathode {cathode}: {error}"
+            level = LogLevel.ERROR
+
         now = time.monotonic()
         last_error = self.power_supply_last_logged_errors[index]
         if (
             last_error == error
             and now - self.power_supply_last_error_log_times[index] < self.POLL_ERROR_LOG_INTERVAL_SECONDS
         ):
+            self.log(message, LogLevel.VERBOSE)
             return
+
         self.power_supply_last_error_log_times[index] = now
         self.power_supply_last_logged_errors[index] = error
-
-        cathode = ['A', 'B', 'C'][index]
-        if error == "busy":
-            self.log(f"9104 readback skipped for Cathode {cathode}: serial interface busy", LogLevel.DEBUG)
-        elif error == "not_initialized":
-            self.log(f"9104 readback unavailable for Cathode {cathode}: power supply not initialized", LogLevel.DEBUG)
-        elif error == "disconnected":
-            self.log(f"9104 readback failed for Cathode {cathode}: power supply disconnected", LogLevel.ERROR)
-        elif error == "invalid_read":
-            self.log(f"9104 readback failed for Cathode {cathode}: invalid voltage/current data", LogLevel.ERROR)
-        else:
-            self.log(f"9104 readback failed for Cathode {cathode}: {error}", LogLevel.ERROR)
+        self.log(message, level)
 
     def start_power_supply_polling(self):
         """Start the background 9104 readback poller if one is not already running."""

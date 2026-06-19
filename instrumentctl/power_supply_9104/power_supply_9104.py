@@ -11,7 +11,7 @@ class PowerSupply9104:
     VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
     DEFAULT_SERIAL_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
-    POLL_ERROR_LOG_INTERVAL = 5.0
+    POLL_ERROR_LOG_INTERVAL = 10.0
 
     def __init__(
         self,
@@ -226,7 +226,13 @@ class PowerSupply9104:
             self.ser = None
             return None
         except ValueError as e:
-            if command == "GETD":
+            if str(e) == "No response received from 9104 supply":
+                self._log_rate_limited(
+                    "no_9104_response",
+                    f"Error processing response for command '{command}': {str(e)}",
+                    LogLevel.ERROR,
+                )
+            elif command == "GETD":
                 self._log_rate_limited(
                     ("response_error", command),
                     f"Error processing response for command '{command}': {str(e)}",
@@ -972,9 +978,11 @@ class PowerSupply9104:
         with self._rate_limited_log_lock:
             last_logged = self._rate_limited_log_times.get(key)
             if last_logged is not None and now - last_logged < interval:
-                return
-            self._rate_limited_log_times[key] = now
-        self.log(message, level)
+                log_level = LogLevel.VERBOSE
+            else:
+                self._rate_limited_log_times[key] = now
+                log_level = level
+        self.log(message, log_level)
 
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
