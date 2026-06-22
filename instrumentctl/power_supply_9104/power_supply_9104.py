@@ -88,6 +88,7 @@ class PowerSupply9104:
             self.ser = None
 
     def update_com_port(self, new_port, lock_timeout=None):
+        # A reconnect can target the same port; log that as a reopen instead of a port reassignment.
         if new_port == self.port:
             self.log(f"Reopening COM port {new_port}", LogLevel.DEBUG)
         else:
@@ -933,6 +934,7 @@ class PowerSupply9104:
             self.log("Output disabled.", LogLevel.INFO)
             return True
         else:
+            # A failed shutoff leaves heater output state uncertain, so surface it at the highest level.
             self.log(f"Failed to disable output: {response}", LogLevel.CRITICAL)
             return False
 
