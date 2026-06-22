@@ -96,7 +96,10 @@ class PowerSupply9104:
             self.ser = None
 
     def update_com_port(self, new_port, lock_timeout=None):
-        self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
+        if new_port == self.port:
+            self.log(f"Reopening COM port {new_port}", LogLevel.DEBUG)
+        else:
+            self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
 
         acquired = self._acquire_serial_lock(f"updating COM port to {new_port}", lock_timeout)
         if not acquired:
