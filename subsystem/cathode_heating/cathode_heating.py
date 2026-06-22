@@ -410,7 +410,7 @@ class CathodeHeatingSubsystem:
         self.main_frame.pack(fill='both', expand=True)
 
         # Create a canvas and scrollbar for scrolling
-        self.canvas = tk.Canvas(self.main_frame)
+        self.canvas = tk.Canvas(self.main_frame, highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
