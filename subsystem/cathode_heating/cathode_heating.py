@@ -2082,28 +2082,51 @@ class CathodeHeatingSubsystem:
             self.power_supply_config_last_attempt[index] = now
 
         cathode = ['A', 'B', 'C'][index]
+        cathode_name = f"Cathode{cathode} PS"
         try:
             ovp_value = desired_limits.get("ovp")
             ocp_value = desired_limits.get("ocp")
             if ovp_value is None or ocp_value is None:
                 raise ValueError("desired OVP/OCP limits are unavailable")
 
-            if not ps.set_preset_selection(3):
+            set_preset_response = ps.set_preset_selection(3)
+            if set_preset_response:
+                self.log(f"Set preset mode for {cathode_name} to 3 (normal mode).", LogLevel.INFO)
+            else:
+                self.log(
+                    f"Failed to set preset mode for {cathode_name} to 3 (normal mode). "
+                    f"Response: {set_preset_response}",
+                    LogLevel.ERROR,
+                )
                 raise RuntimeError("failed to set preset mode 3")
 
             preset_response = ps.get_preset_selection()
             if preset_response is None:
+                self.log(f"Failed to get preset mode for {cathode_name}", LogLevel.ERROR)
                 raise RuntimeError("failed to confirm preset mode")
             if preset_response != 3:
+                self.log(
+                    f"Cathode {cathode_name} is not in preset mode 3 (normal mode). "
+                    f"Current mode: {preset_response}",
+                    LogLevel.WARNING,
+                )
                 raise RuntimeError(f"preset mode is {preset_response}, expected 3")
+            self.log(
+                f"Asserted preset mode 3 (normal mode) for cathode {cathode_name}. "
+                f"Response: {preset_response}",
+                LogLevel.INFO,
+            )
 
             ovp_set = Decimal(str(float(ovp_value))).quantize(Decimal('0.01'))
             self.log(f"Setting OVP for cathode {cathode} to: {float(ovp_value):.2f}", LogLevel.DEBUG)
             if not ps.set_over_voltage_protection(ovp_set):
+                self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.ERROR)
                 raise RuntimeError("failed to set OVP")
+            self.log(f"Set OVP for cathode {cathode} to {float(ovp_value):.2f}V", LogLevel.INFO)
 
             confirmed_ovp = ps.get_over_voltage_protection()
             if confirmed_ovp is None:
+                self.log(f"Failed to confirm OVP setting for cathode {cathode}", LogLevel.WARNING)
                 raise RuntimeError("failed to confirm OVP")
             confirmed_ovp = float(confirmed_ovp)
             if abs(confirmed_ovp - float(ovp_value)) >= 0.1:
@@ -2112,14 +2135,19 @@ class CathodeHeatingSubsystem:
                     f"Set: {float(ovp_value):.2f}V, Got: {confirmed_ovp:.2f}V",
                     LogLevel.WARNING,
                 )
+            else:
+                self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
 
             ocp_set = Decimal(str(float(ocp_value))).quantize(Decimal('0.01'))
             self.log(f"Setting OCP for cathode {cathode} to: {float(ocp_value):.2f}A", LogLevel.DEBUG)
             if not ps.set_over_current_protection(ocp_set):
+                self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.ERROR)
                 raise RuntimeError("failed to set OCP")
+            self.log(f"Set OCP for cathode {cathode} to {float(ocp_value):.2f}A", LogLevel.INFO)
 
             confirmed_ocp = ps.get_over_current_protection()
             if confirmed_ocp is None:
+                self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
                 raise RuntimeError("failed to confirm OCP")
             confirmed_ocp = float(confirmed_ocp)
             if abs(confirmed_ocp - float(ocp_value)) >= 0.05:
@@ -2128,6 +2156,8 @@ class CathodeHeatingSubsystem:
                     f"Set: {float(ocp_value):.2f}A, Got: {confirmed_ocp:.2f}A",
                     LogLevel.WARNING,
                 )
+            else:
+                self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
 
             with self.power_supply_config_lock:
                 self.power_supply_configured[index] = True
@@ -2141,6 +2171,7 @@ class CathodeHeatingSubsystem:
                 f"preset 3, OVP {confirmed_ovp:.2f}V, OCP {confirmed_ocp:.2f}A.",
                 LogLevel.INFO,
             )
+            self.log(f"Initialized {cathode_name} on port {getattr(ps, 'port', 'unknown')}", LogLevel.INFO)
             return True
         except Exception as exc:
             error = str(exc)
