@@ -1046,10 +1046,10 @@ class BeamEnergySubsystem:
             case 3:  # +20kV Bertan
                 set_voltage = f"{v_set / 1000:.2f} kV" if v_set is not None else "-- kV"
                 actual_voltage = f"{v_read / 1000:.2f} kV" if v_read is not None else "-- kV"
+                actual_current = f"{i_read:.3f} mA" if i_read is not None else "-- mA"
             case 4:  # +3kV Bertan
                 set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
                 actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
-                actual_current = f"{i_read:.3f} mA" if i_read is not None else "-- mA"
             case _:
                 set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
                 actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
