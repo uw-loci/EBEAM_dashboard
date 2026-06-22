@@ -214,6 +214,8 @@ class CathodeHeatingSubsystem:
         self.curr_adjustment_buttons = []  # Track current +/- buttons 
         self.vlt_adjustment_buttons = []  # Track voltage +/- buttons 
         self.set_button_states = [] # Track both voltage and current set button states to disable during ramp
+        self.power_supply_comms_indicators = []
+        self.temperature_comms_indicators = []
 
 
         # Temperature controller state tracking
@@ -449,6 +451,21 @@ class CathodeHeatingSubsystem:
             notebook.add(main_tab, text='Main')
             main_tab.columnconfigure(0, weight=1)
 
+            comms_frame = ttk.Frame(main_tab)
+            comms_frame.grid(row=0, column=0, sticky='w', pady=(2, 2))
+            ttk.Label(comms_frame, text="Comms:", font=("Segoe UI", 8, "bold")).grid(
+                row=0,
+                column=0,
+                sticky='w',
+                padx=(2, 8),
+            )
+            self.power_supply_comms_indicators.append(
+                self._create_comms_indicator(comms_frame, "9104 Cathode Heater", row=0, column=1)
+            )
+            self.temperature_comms_indicators.append(
+                self._create_comms_indicator(comms_frame, "E5CN Temp Sensor", row=0, column=2)
+            )
+
             # Create the config tab
             config_tab = ttk.Frame(notebook)
             notebook.add(config_tab, text='Config')
@@ -458,7 +475,7 @@ class CathodeHeatingSubsystem:
 
             # ======Main Control Menu=====
             control_frame = ttk.Frame(main_tab)
-            control_frame.grid(row=0, column=0, sticky='ew', padx=2, pady=(2, 1))
+            control_frame.grid(row=1, column=0, sticky='ew', padx=2, pady=(2, 1))
             control_frame.columnconfigure(0, weight=1)
             control_frame.rowconfigure(0, weight=0)
             control_frame.rowconfigure(1, weight=0)
@@ -655,7 +672,7 @@ class CathodeHeatingSubsystem:
 
             # Predicted Values
             predictions_frame = ttk.LabelFrame(main_tab, text='Predicted Output', padding=(3, 2), style='Subpanel.TLabelframe')
-            predictions_frame.grid(row=1, column=0, sticky='ew', pady=(2, 0), padx=2)
+            predictions_frame.grid(row=2, column=0, sticky='ew', pady=(2, 0), padx=2)
             predictions_frame.columnconfigure(0, weight=0)
             predictions_frame.columnconfigure(1, weight=1)
             predictions_frame.columnconfigure(2, weight=0)
@@ -761,7 +778,7 @@ class CathodeHeatingSubsystem:
 
             # Measured/Actual values
             measured_frame = ttk.LabelFrame(main_tab, text='Measured Output', padding=(3, 2), style='Subpanel.TLabelframe')
-            measured_frame.grid(row=2, column=0, sticky='ew', pady=(2, 0), padx=2)
+            measured_frame.grid(row=3, column=0, sticky='ew', pady=(2, 0), padx=2)
             
             # Voltage
             actual_voltage_frame = tk.Frame(measured_frame, bd=1, relief='groove', padx=1, pady=0)
@@ -820,7 +837,7 @@ class CathodeHeatingSubsystem:
                 fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
                 canvas = FigureCanvasTkAgg(fig, master=main_tab)
                 canvas.draw()
-                canvas.get_tk_widget().grid(row=3, column=0, sticky='ew', padx=2, pady=(4, 0))
+                canvas.get_tk_widget().grid(row=4, column=0, sticky='ew', padx=2, pady=(4, 0))
             # ===== Config Tab =====
             ttk.Label(config_tab, text="Power Supply", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
@@ -1141,6 +1158,34 @@ class CathodeHeatingSubsystem:
 
         self.init_time = datetime.datetime.now()
 
+    def _create_comms_indicator(self, parent, label_text, row, column):
+        row_frame = ttk.Frame(parent)
+        row_frame.grid(row=row, column=column, sticky='w', padx=(0, 20))
+
+        ttk.Label(row_frame, text=label_text, font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        canvas = tk.Canvas(row_frame, width=15, height=15, highlightthickness=0)
+        canvas.pack(side=tk.LEFT, padx=(4, 0))
+        oval = canvas.create_oval(2, 2, 13, 13, fill="red", outline="black")
+        return canvas, oval
+
+    def _update_cathode_comms_indicators(self, index):
+        if not 0 <= index < 3:
+            return
+
+        with self.power_supply_config_lock:
+            power_supply_ready = self.power_supply_configured[index]
+        temperature_ready = bool(
+            self.temperature_controller and self.temperature_controller.connected
+        )
+
+        if index < len(self.power_supply_comms_indicators):
+            canvas, oval = self.power_supply_comms_indicators[index]
+            canvas.itemconfig(oval, fill="green" if power_supply_ready else "red")
+
+        if index < len(self.temperature_comms_indicators):
+            canvas, oval = self.temperature_comms_indicators[index]
+            canvas.itemconfig(oval, fill="green" if temperature_ready else "red")
+
     def refresh_predictions(self, cathode_idx):
         """
         Refresh predicted values for the specified cathode index after LUT change.
@@ -1415,6 +1460,7 @@ class CathodeHeatingSubsystem:
         if index < len(self.log_power_settings_buttons):
             self.log_power_settings_buttons[index]['state'] = state
         self._refresh_heater_setpoint_controls(index)
+        self._update_cathode_comms_indicators(index)
 
     def initialize_power_supplies(self):
         # Build a complete replacement list locally, then publish it in one assignment.
@@ -2403,6 +2449,8 @@ class CathodeHeatingSubsystem:
 
             if isinstance(temperature, float):
                 self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
+
+            self._update_cathode_comms_indicators(i)
 
             if plot_this_cycle:
                 self.time_data[i] = np.append(self.time_data[i], current_time)
