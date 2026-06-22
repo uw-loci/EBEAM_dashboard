@@ -51,6 +51,7 @@ class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
+    POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS = 10.0
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
         'Ramp Voltage': 'ramp_voltage',
@@ -184,6 +185,11 @@ class CathodeHeatingSubsystem:
         self.power_supply_valid_connections = [False, False, False]
         self.power_supply_last_logged_errors = [None, None, None]
         self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
+        self.power_supply_config_lock = threading.Lock()
+        self.power_supply_configured = [False, False, False]
+        self.power_supply_config_last_attempt = [0.0, 0.0, 0.0]
+        self.power_supply_config_confirmed_limits = [{"ovp": None, "ocp": None} for _ in range(3)]
+        self.power_supply_desired_limits = [{"ovp": None, "ocp": None} for _ in range(3)]
         self.temperature_valid_connections = [False, False, False]
         self.poll_error_last_log_times = {}
         self.poll_error_log_lock = threading.Lock()
@@ -220,6 +226,7 @@ class CathodeHeatingSubsystem:
         self._init_prediction_variables()    # Predicted values for cathode behavior
         self._init_measurement_variables()   # Real-time hardware measurements
         self._init_config_variables()        # Configuration and safety settings
+        self._snapshot_desired_power_supply_limits()
 
         # System initialization sequence
         self.init_cathode_model()                   # Initialize cathode physics models
@@ -1175,7 +1182,7 @@ class CathodeHeatingSubsystem:
             if update_success:
                 self.initialize_power_supplies()
                 if self.power_supplies_initialized:
-                    self.log("Power supplies reinitialized successfully", LogLevel.INFO)
+                    self.log("Power supply handles reinitialized; configuration pending valid readback", LogLevel.INFO)
                 else:
                     self.log("Power supplies reinitialization failed", LogLevel.ERROR)
                     update_success = False
@@ -1196,9 +1203,11 @@ class CathodeHeatingSubsystem:
         old_power_supplies = list(self.power_supplies)
         # Detach old drivers before close so the poller cannot pick them up again.
         self.power_supplies = [None, None, None]
-        self.power_supply_status = [False, False, False]
         self.power_supplies_initialized = False
         self.power_supply_valid_connections = [False, False, False]
+        self._reset_power_supply_config_state()
+        for idx in range(3):
+            self._set_power_supply_command_ready(idx, False)
 
         for idx, ps in enumerate(old_power_supplies):
             if ps is not None:
@@ -1320,11 +1329,50 @@ class CathodeHeatingSubsystem:
             self.log(f"Error verifying port availability: {str(e)}", LogLevel.ERROR)
             return False
 
+    def _snapshot_desired_power_supply_limits(self):
+        """Copy Tk-backed limit settings into plain values for worker-thread use."""
+        limits = []
+        for idx in range(3):
+            try:
+                ovp = float(self.overvoltage_limit_vars[idx].get())
+            except Exception:
+                ovp = None
+            try:
+                ocp = float(self.overcurrent_limit_vars[idx].get())
+            except Exception:
+                ocp = None
+            limits.append({"ovp": ovp, "ocp": ocp})
+
+        with self.power_supply_config_lock:
+            self.power_supply_desired_limits = limits
+
+    def _reset_power_supply_config_state(self, index=None):
+        indexes = range(3) if index is None else [index]
+        with self.power_supply_config_lock:
+            for idx in indexes:
+                if not 0 <= idx < 3:
+                    continue
+                self.power_supply_configured[idx] = False
+                self.power_supply_config_last_attempt[idx] = 0.0
+                self.power_supply_config_confirmed_limits[idx] = {"ovp": None, "ocp": None}
+
+    def _set_power_supply_command_ready(self, index, ready):
+        if not 0 <= index < 3:
+            return
+
+        self.power_supply_status[index] = bool(ready)
+        state = 'normal' if ready else 'disabled'
+        if index < len(self.toggle_buttons):
+            self.toggle_buttons[index]['state'] = state
+        if index < len(self.log_power_settings_buttons):
+            self.log_power_settings_buttons[index]['state'] = state
+
     def initialize_power_supplies(self):
         # Build a complete replacement list locally, then publish it in one assignment.
         new_power_supplies = [None, None, None]
-        new_power_supply_status = [False, False, False]
         self.power_supply_valid_connections = [False, False, False]
+        self._snapshot_desired_power_supply_limits()
+        self._reset_power_supply_config_state()
 
         cathode_ports = {
             'CathodeA PS': self.com_ports.get('CathodeA PS'),
@@ -1344,71 +1392,8 @@ class CathodeHeatingSubsystem:
                         supply_name=f"Cathode {chr(65 + idx)} power supply",
                     )
 
-                    # Set preset mode to 3 (normal mode)
-                    set_preset_response = ps.set_preset_selection(3)
-                    if set_preset_response:
-                        self.log(f"Set preset mode for {cathode} to 3 (normal mode).", LogLevel.INFO)
-                    else:
-                        self.log(f"Failed to set preset mode for {cathode} to 3 (normal mode). Response: {set_preset_response}", LogLevel.ERROR)
-                    
-                    # Confirm output preset mode
-                    get_preset_response = ps.get_preset_selection()
-                    if get_preset_response is None:
-                        self.log(f"Failed to get preset mode for {cathode}", LogLevel.ERROR)
-                    elif get_preset_response != 3:
-                        self.log(f"Cathode {cathode} is not in preset mode 3 (normal mode). Current mode: {get_preset_response}", LogLevel.WARNING)
-                    else:
-                        self.log(f"Asserted preset mode 3 (normal mode) for cathode {cathode}. Response: {get_preset_response}", LogLevel.INFO)
-
-                    # Set and confirm OVP
-                    stored_ovp = self.overvoltage_limit_vars[idx].get()
-                    ovp_value = float(stored_ovp)
-                    ovp_set   = Decimal(stored_ovp).quantize(Decimal('0.01'))  # Round to 2 decimal places
-                    self.log(f"Setting OVP for cathode {cathode} to: {ovp_value:.2f}", LogLevel.DEBUG)
-                    if ps.set_over_voltage_protection(ovp_set):
-                        self.log(f"Set OVP for cathode {cathode} to {ovp_value:.2f}V", LogLevel.INFO)
-                        
-                        # Confirm the OVP setting
-                        confirmed_ovp = ps.get_over_voltage_protection()
-                        if confirmed_ovp is not None:
-                            self.ovl_live_values[idx] = float(confirmed_ovp)
-                            self.overvoltage_limit_vars[idx].set(float(confirmed_ovp))
-                            self.ovl_readback_vars[idx].set(f"{float(confirmed_ovp):.2f}")
-                            if abs(confirmed_ovp - ovp_value) < 0.1:  # 0.1V tolerance
-                                self.log(f"OVP setting confirmed for cathode {cathode}: {confirmed_ovp:.2f}V", LogLevel.INFO)
-                            else:
-                                self.log(f"OVP mismatch for cathode {cathode}. Set: {ovp_value:.2f}V, Got: {confirmed_ovp:.2f}V", LogLevel.WARNING)
-                        else:
-                            self.log(f"Failed to confirm OVP setting for cathode {cathode}", LogLevel.WARNING)
-                    else:
-                        self.log(f"Failed to set OVP for cathode {cathode}", LogLevel.ERROR)
-
-                    # Set and confirm OCP
-                    stored_ocp = self.overcurrent_limit_vars[idx].get()
-                    ocp_value = float(stored_ocp)
-                    ocp_set   = Decimal(stored_ocp).quantize(Decimal('0.01'))  # Round to 2 decimal places
-                    self.log(f"Setting OCP for cathode {cathode} to: {ocp_value:.2f}A", LogLevel.DEBUG)
-                    if ps.set_over_current_protection(ocp_set):
-                        self.log(f"Set OCP for cathode {cathode} to {ocp_value:.2f}A", LogLevel.INFO)
-                        
-                        # Confirm the OCP setting
-                        confirmed_ocp = ps.get_over_current_protection()
-                        if confirmed_ocp is not None:
-                            self.ocl_live_values[idx] = float(confirmed_ocp)
-                            self.overcurrent_limit_vars[idx].set(float(confirmed_ocp))
-                            self.ocl_readback_vars[idx].set(f"{float(confirmed_ocp):.2f}")
-                            if abs(confirmed_ocp - ocp_value) < 0.05:  # 0.05A tolerance
-                                self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
-                            else:
-                                self.log(f"OCP mismatch for cathode {cathode}. Set: {ocp_value:.2f}A, Got: {confirmed_ocp:.2f}A", LogLevel.WARNING)
-                        else:
-                            self.log(f"Failed to confirm OCP setting for cathode {cathode}", LogLevel.WARNING)
-                    else:
-                        self.log(f"Failed to set OCP for cathode {cathode}", LogLevel.ERROR)
-
                     new_power_supplies[idx] = ps
-                    new_power_supply_status[idx] = True
-                    self.log(f"Initialized {cathode} on port {port}", LogLevel.INFO)
+                    self.log(f"Created {cathode} power supply handle on port {port}; configuration pending valid readback.", LogLevel.INFO)
                 except Exception as e:
                     if ps is not None and hasattr(ps, 'close'):
                         try:
@@ -1420,20 +1405,19 @@ class CathodeHeatingSubsystem:
                 self.log(f"No COM port specified for {cathode}", LogLevel.ERROR)
 
         self.power_supplies = new_power_supplies
-        self.power_supply_status = new_power_supply_status
+        self.power_supply_status = [False, False, False]
 
-        # Update button states based on individual power supply status
-        for idx, status in enumerate(self.power_supply_status):
-            if idx < len(self.toggle_buttons):
-                self.toggle_buttons[idx]['state'] = 'normal' if status else 'disabled'
-                if not status:
-                    self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
-            else:
+        # Controls remain disabled until the poller confirms preset/OVP/OCP.
+        for idx, ps in enumerate(self.power_supplies):
+            self._set_power_supply_command_ready(idx, False)
+            if idx >= len(self.toggle_buttons):
                 self.log(f"Toggle button {idx+1} has not been initialized yet.", LogLevel.VERBOSE)
+            elif ps is None:
+                self.log(f"Power supply {idx+1} not initialized. Button disabled.", LogLevel.DEBUG)
 
-        self.power_supplies_initialized = any(self.power_supply_status)
+        self.power_supplies_initialized = any(ps is not None for ps in self.power_supplies)
         if not self.power_supplies_initialized:
-            self.log("No power supplies were initialized properly.", LogLevel.ERROR)
+            self.log("No power supply handles were created.", LogLevel.ERROR)
         
         self.update_log_power_settings_button_states()
 
@@ -1450,31 +1434,12 @@ class CathodeHeatingSubsystem:
             )
             if not new_ps.is_connected():
                 return False
-            # Quick probe: if the port opened but the device isn't responding, bail
-            probe = new_ps.send_command("GOUT")
-            if probe is None:
-                new_ps.close()
-                return False
             self.power_supplies[index] = new_ps
-            self.power_supply_status[index] = True
-            self.toggle_buttons[index]['state'] = 'normal'
+            self.power_supplies_initialized = any(ps is not None for ps in self.power_supplies)
+            self._reset_power_supply_config_state(index)
+            self._set_power_supply_command_ready(index, False)
 
-            # Re-apply protection settings after reconnect so defaults/configured limits
-            # are actively pushed back to hardware.
-            cathode_label = ['A', 'B', 'C'][index]
-            preset_ok = new_ps.set_preset_selection(3)
-            if not preset_ok:
-                self.log(f"Reconnect: failed to set preset mode 3 for Cathode {cathode_label}", LogLevel.WARNING)
-
-            ovp_ok = self.set_overvoltage_limit(index)
-            if not ovp_ok:
-                self.log(f"Reconnect: failed to confirm OVP for Cathode {cathode_label}", LogLevel.WARNING)
-
-            ocp_ok = self.set_overcurrent_limit(index)
-            if not ocp_ok:
-                self.log(f"Reconnect: failed to confirm OCP for Cathode {cathode_label}", LogLevel.WARNING)
-
-            self.log(f"Reconnected to power supply on port {port}", LogLevel.INFO)
+            self.log(f"Reconnected to power supply on port {port}; configuration pending valid readback.", LogLevel.INFO)
             self.update_log_power_settings_button_states()
             return True
         except Exception as e:
@@ -1596,6 +1561,9 @@ class CathodeHeatingSubsystem:
                         f"OVP successfully set and confirmed for Cathode {['A','B','C'][index]}: "
                         f"{ovp_value:.2f} V", LogLevel.INFO
                     )
+                    with self.power_supply_config_lock:
+                        self.power_supply_desired_limits[index]["ovp"] = float(ovp_get_response)
+                        self.power_supply_config_confirmed_limits[index]["ovp"] = float(ovp_get_response)
                     return True
 
         except ValueError as e:
@@ -1644,6 +1612,9 @@ class CathodeHeatingSubsystem:
                 self.log(f"OCP mismatch for Cathode {['A', 'B', 'C'][index]}. Set: {raw_value:.2f}, Got: {ocp_get_response}", LogLevel.WARNING)
             else:
                 self.log(f"OCP successfully set and confirmed for Cathode {['A', 'B', 'C'][index]}: {raw_value:.2f}A", LogLevel.INFO)
+                with self.power_supply_config_lock:
+                    self.power_supply_desired_limits[index]["ocp"] = float(ocp_get_response)
+                    self.power_supply_config_confirmed_limits[index]["ocp"] = float(ocp_get_response)
                 return True  # Return True to indicate success
 
         except ValueError as e:
@@ -1661,7 +1632,8 @@ class CathodeHeatingSubsystem:
     def update_log_power_settings_button_states(self):
         for i, power_supply in enumerate(self.power_supplies):
             if i < len(self.log_power_settings_buttons):
-                self.log_power_settings_buttons[i]['state'] = 'normal' if power_supply else 'disabled'
+                ready = bool(power_supply and i < len(self.power_supply_status) and self.power_supply_status[i])
+                self.log_power_settings_buttons[i]['state'] = 'normal' if ready else 'disabled'
 
     def log_power_and_check_settings(self, index):
         if not self.power_supply_status[index]:
@@ -1951,6 +1923,7 @@ class CathodeHeatingSubsystem:
         self.power_supply_valid_connections = [False, False, False]
         self.power_supply_last_logged_errors = [None, None, None]
         self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
+        self._reset_power_supply_config_state()
 
     def _clear_power_supply_valid_connection(self, index):
         if 0 <= index < len(self.power_supply_valid_connections):
@@ -2089,6 +2062,93 @@ class CathodeHeatingSubsystem:
             # PowerSupply9104 logs serial failures itself; keep this worker quiet.
             pass
 
+    def _configure_power_supply_after_readback(self, index, ps):
+        """Apply the existing preset/protection workflow after a live readback."""
+        if not 0 <= index < 3 or ps is None:
+            return None
+
+        now = time.monotonic()
+        with self.power_supply_config_lock:
+            if self.power_supply_configured[index]:
+                return None
+            last_attempt = self.power_supply_config_last_attempt[index]
+            if (
+                last_attempt
+                and now - last_attempt < self.POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS
+            ):
+                return None
+
+            desired_limits = self.power_supply_desired_limits[index].copy()
+            self.power_supply_config_last_attempt[index] = now
+
+        cathode = ['A', 'B', 'C'][index]
+        try:
+            ovp_value = desired_limits.get("ovp")
+            ocp_value = desired_limits.get("ocp")
+            if ovp_value is None or ocp_value is None:
+                raise ValueError("desired OVP/OCP limits are unavailable")
+
+            if not ps.set_preset_selection(3):
+                raise RuntimeError("failed to set preset mode 3")
+
+            preset_response = ps.get_preset_selection()
+            if preset_response is None:
+                raise RuntimeError("failed to confirm preset mode")
+            if preset_response != 3:
+                raise RuntimeError(f"preset mode is {preset_response}, expected 3")
+
+            ovp_set = Decimal(str(float(ovp_value))).quantize(Decimal('0.01'))
+            self.log(f"Setting OVP for cathode {cathode} to: {float(ovp_value):.2f}", LogLevel.DEBUG)
+            if not ps.set_over_voltage_protection(ovp_set):
+                raise RuntimeError("failed to set OVP")
+
+            confirmed_ovp = ps.get_over_voltage_protection()
+            if confirmed_ovp is None:
+                raise RuntimeError("failed to confirm OVP")
+            confirmed_ovp = float(confirmed_ovp)
+            if abs(confirmed_ovp - float(ovp_value)) >= 0.1:
+                self.log(
+                    f"OVP mismatch for cathode {cathode}. "
+                    f"Set: {float(ovp_value):.2f}V, Got: {confirmed_ovp:.2f}V",
+                    LogLevel.WARNING,
+                )
+
+            ocp_set = Decimal(str(float(ocp_value))).quantize(Decimal('0.01'))
+            self.log(f"Setting OCP for cathode {cathode} to: {float(ocp_value):.2f}A", LogLevel.DEBUG)
+            if not ps.set_over_current_protection(ocp_set):
+                raise RuntimeError("failed to set OCP")
+
+            confirmed_ocp = ps.get_over_current_protection()
+            if confirmed_ocp is None:
+                raise RuntimeError("failed to confirm OCP")
+            confirmed_ocp = float(confirmed_ocp)
+            if abs(confirmed_ocp - float(ocp_value)) >= 0.05:
+                self.log(
+                    f"OCP mismatch for cathode {cathode}. "
+                    f"Set: {float(ocp_value):.2f}A, Got: {confirmed_ocp:.2f}A",
+                    LogLevel.WARNING,
+                )
+
+            with self.power_supply_config_lock:
+                self.power_supply_configured[index] = True
+                self.power_supply_config_confirmed_limits[index] = {
+                    "ovp": confirmed_ovp,
+                    "ocp": confirmed_ocp,
+                }
+
+            self.log(
+                f"Configured Cathode {cathode} 9104 after valid readback: "
+                f"preset 3, OVP {confirmed_ovp:.2f}V, OCP {confirmed_ocp:.2f}A.",
+                LogLevel.INFO,
+            )
+            return True
+        except Exception as exc:
+            error = str(exc)
+            with self.power_supply_config_lock:
+                self.power_supply_configured[index] = False
+            self.log(f"Deferred 9104 configuration failed for Cathode {cathode}: {error}", LogLevel.WARNING)
+            return False
+
     def _power_supply_polling_loop(self, stop_event=None):
         """Poll 9104 readbacks in the background and publish a cached snapshot."""
         stop_event = stop_event or self.power_supply_poll_stop_event
@@ -2108,6 +2168,7 @@ class CathodeHeatingSubsystem:
 
                 ps = self.power_supplies[index] if index < len(self.power_supplies) else None
                 if ps is None:
+                    self._reset_power_supply_config_state(index)
                     self._set_power_supply_readback(index, error="not_initialized")
                     continue
 
@@ -2118,6 +2179,7 @@ class CathodeHeatingSubsystem:
                         self._set_power_supply_readback(index, error="busy")
                         continue
                     if not connected:
+                        self._reset_power_supply_config_state(index)
                         self._set_power_supply_readback(index, error="disconnected")
                         # Reconfiguration replaces objects itself, so only normal polling reconnects here.
                         if not self.power_supply_reconfiguring.is_set():
@@ -2126,6 +2188,7 @@ class CathodeHeatingSubsystem:
 
                     voltage, current, mode = ps.get_voltage_current_mode()
                     if voltage is None or current is None:
+                        self._reset_power_supply_config_state(index)
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
                         self._set_power_supply_readback(
@@ -2135,7 +2198,9 @@ class CathodeHeatingSubsystem:
                             mode=mode,
                             connected=True,
                         )
+                        self._configure_power_supply_after_readback(index, ps)
                 except Exception as exc:
+                    self._reset_power_supply_config_state(index)
                     self._set_power_supply_readback(index, error=str(exc))
 
             elapsed = time.monotonic() - loop_start
@@ -2150,7 +2215,7 @@ class CathodeHeatingSubsystem:
         not for temporary readback contention such as a busy serial lock.
         """
         if mark_status_unavailable and index < len(self.power_supply_status):
-            self.power_supply_status[index] = False
+            self._set_power_supply_command_ready(index, False)
 
         self.actual_heater_current_vars[index].set("--")
         self.actual_heater_voltage_vars[index].set("--")
@@ -2213,7 +2278,23 @@ class CathodeHeatingSubsystem:
 
                 if readback.get("connected") and voltage is not None and current is not None:
                     self._log_power_supply_readback_state(i, None)
-                    self.power_supply_status[i] = True
+                    with self.power_supply_config_lock:
+                        power_supply_configured = self.power_supply_configured[i]
+                        confirmed_limits = self.power_supply_config_confirmed_limits[i].copy()
+                    self._set_power_supply_command_ready(i, power_supply_configured)
+
+                    confirmed_ovp = confirmed_limits.get("ovp")
+                    if confirmed_ovp is not None:
+                        self.ovl_live_values[i] = float(confirmed_ovp)
+                        self.overvoltage_limit_vars[i].set(float(confirmed_ovp))
+                        self.ovl_readback_vars[i].set(f"{float(confirmed_ovp):.2f}")
+
+                    confirmed_ocp = confirmed_limits.get("ocp")
+                    if confirmed_ocp is not None:
+                        self.ocl_live_values[i] = float(confirmed_ocp)
+                        self.overcurrent_limit_vars[i].set(float(confirmed_ocp))
+                        self.ocl_readback_vars[i].set(f"{float(confirmed_ocp):.2f}")
+
                     self.log(f"Power supply {i+1} readings - Voltage: {voltage:.2f}V, Current: {current:.2f}A, Mode: {mode}", LogLevel.VERBOSE)
 
                     self.actual_heater_current_vars[i].set(f"{current:.2f}")
@@ -2234,10 +2315,10 @@ class CathodeHeatingSubsystem:
                         cv_lbl.config(bg='grey')
                         cc_lbl.config(bg='grey')
                 else:
-                    # A missed/busy readback is display-only; only a confirmed disconnect
-                    # should downgrade the initialized status used by command guards.
+                    # Busy readbacks are display-only. Confirmed disconnects or invalid
+                    # reads clear command-ready status and force reconfiguration.
                     self._log_power_supply_readback_state(i, readback.get("error"))
-                    mark_status_unavailable = readback.get("error") == "disconnected"
+                    mark_status_unavailable = readback.get("error") in ("disconnected", "invalid_read")
                     self._mark_power_supply_unavailable(
                         i,
                         mark_status_unavailable=mark_status_unavailable,
@@ -3561,6 +3642,11 @@ class CathodeHeatingSubsystem:
                         ps.close(ramp_join_timeout=2.0)
                     except TypeError:
                         ps.close()
+
+        self.power_supplies_initialized = False
+        self._reset_power_supply_readbacks()
+        for i in range(3):
+            self._set_power_supply_command_ready(i, False)
 
         if hasattr(self, 'temperature_controller') and self.temperature_controller:
             try:
