@@ -1006,6 +1006,12 @@ class BeamPulseSubsystem:
         if typ == "connected":
             ok = msg[1]
             self.bcon_connection_status = ok
+            if not ok:
+                self.beams_armed_status = False
+                self.beam_on_status = [False, False, False]
+                self._active_channels.clear()
+                self._update_armed_button_states(False)
+                self._notify_all_channel_enables(False)
             self.update_bcon_connection_status()
         elif typ == "regs":
             regs = msg[1]
@@ -1435,6 +1441,18 @@ class BeamPulseSubsystem:
         """Register callback(ch, enabled) invoked on every register poll."""
         self._channel_enable_status_callback = callback
 
+    def _notify_all_channel_enables(self, enabled: bool) -> None:
+        """Mirror a known all-channel enable state to dashboard controls."""
+        if self.bcon_driver:
+            self.bcon_driver.reset_channel_enable_cache(enabled)
+        if not callable(getattr(self, '_channel_enable_status_callback', None)):
+            return
+        for ch in range(3):
+            try:
+                self._channel_enable_status_callback(ch, enabled)
+            except Exception:
+                pass
+
     def set_dashboard_beam_callback(self, callback):
         self._dashboard_beam_callback = callback
         self._log("Dashboard beam callback registered", LogLevel.DEBUG)
@@ -1467,8 +1485,8 @@ class BeamPulseSubsystem:
         self.beam_on_status = [False, False, False]
         self._active_channels.clear()
         self._update_armed_button_states(False)
+        self._notify_all_channel_enables(False)
         if self.bcon_driver:
-            self.bcon_driver.reset_channel_enable_cache()
             self.bcon_driver.disconnect()
 
     def close_com_ports(self) -> None:
@@ -1512,6 +1530,7 @@ class BeamPulseSubsystem:
     def stop_all_channels(self) -> bool:
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+            self._notify_all_channel_enables(False)
             return True
         return False
 
@@ -1529,6 +1548,7 @@ class BeamPulseSubsystem:
         self.set_all_beams_status(False)
         if self.bcon_driver:
             self.bcon_driver.stop_all()
+        self._notify_all_channel_enables(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
         return True
