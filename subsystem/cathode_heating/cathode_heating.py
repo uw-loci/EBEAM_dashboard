@@ -51,6 +51,7 @@ class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
+    # Failed deferred 9104 setup is retried by the poller, but not on every poll cycle.
     POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS = 10.0
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
@@ -185,6 +186,9 @@ class CathodeHeatingSubsystem:
         self.power_supply_valid_connections = [False, False, False]
         self.power_supply_last_logged_errors = [None, None, None]
         self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
+        # Driver handles can exist before the 9104 has proven it can be read from
+        # and configured with safety limits.
+        # This state tracks that second step so operator commands stay disabled until it succeeds.
         self.power_supply_config_lock = threading.Lock()
         self.power_supply_configured = [False, False, False]
         self.power_supply_config_last_attempt = [0.0, 0.0, 0.0]
@@ -481,7 +485,14 @@ class CathodeHeatingSubsystem:
             current_entry_field.grid(row=2, column=1, sticky='w', padx=(0, 2), pady=(1, 0))
             self.entry_fields.append(current_entry_field)
 
-            set_current_button = ttk.Button(current_entry_frame, text="Set", width=4, style='Compact.TButton', command=lambda i=i, entry_field=current_entry_field: self.handle_current_entry_set(i, entry_field))
+            set_current_button = ttk.Button(
+                current_entry_frame,
+                text="Set",
+                width=4,
+                style='Compact.TButton',
+                state='disabled',
+                command=lambda i=i, entry_field=current_entry_field: self.handle_current_entry_set(i, entry_field),
+            )
             set_current_button.grid(row=2, column=2, sticky='w', padx=(2, 0), pady=(1, 0))
 
             current_display_frame = tk.Frame(current_entry_frame, bd=1, relief='groove', padx=1, pady=0)
@@ -500,9 +511,23 @@ class CathodeHeatingSubsystem:
             unit_label_secondary = ttk.Label(current_display_frame_secondary, text=" A", style="Bold.TLabel")
             unit_label_secondary.pack(side='left')
 
-            inc_current_button = ttk.Button(current_entry_frame, text="+0.01", width=5, style='Compact.TButton', command=lambda i=i: self.adjust_current(i, 0.01))
+            inc_current_button = ttk.Button(
+                current_entry_frame,
+                text="+0.01",
+                width=5,
+                style='Compact.TButton',
+                state='disabled',
+                command=lambda i=i: self.adjust_current(i, 0.01),
+            )
             inc_current_button.grid(row=3, column=1, sticky='w', pady=(1, 0))
-            dec_current_button = ttk.Button(current_entry_frame, text="-0.01", width=5, style='Compact.TButton', command=lambda i=i: self.adjust_current(i, -0.01))
+            dec_current_button = ttk.Button(
+                current_entry_frame,
+                text="-0.01",
+                width=5,
+                style='Compact.TButton',
+                state='disabled',
+                command=lambda i=i: self.adjust_current(i, -0.01),
+            )
             dec_current_button.grid(row=3, column=2, sticky='w', padx=(2, 0), pady=(1, 0))
 
             # Create voltage control section
@@ -521,7 +546,14 @@ class CathodeHeatingSubsystem:
             voltage_entry_field.grid(row=2, column=1, sticky='w', padx=(0, 2), pady=(1, 0))
             self.entry_fields.append(voltage_entry_field)
 
-            set_voltage_button = ttk.Button(voltage_entry_frame, text="Set", width=4, style='Compact.TButton', command=lambda i=i, entry_field=voltage_entry_field: self.handle_voltage_entry_set(i, entry_field))
+            set_voltage_button = ttk.Button(
+                voltage_entry_frame,
+                text="Set",
+                width=4,
+                style='Compact.TButton',
+                state='disabled',
+                command=lambda i=i, entry_field=voltage_entry_field: self.handle_voltage_entry_set(i, entry_field),
+            )
             set_voltage_button.grid(row=2, column=2, sticky='w', padx=(2, 0), pady=(1, 0))
 
             self.set_button_states.append([set_voltage_button, set_current_button])
@@ -542,9 +574,23 @@ class CathodeHeatingSubsystem:
             unit_label_secondary = ttk.Label(voltage_display_frame_secondary, text=" V", style="Bold.TLabel")
             unit_label_secondary.pack(side='left')
 
-            inc_voltage_button = ttk.Button(voltage_entry_frame, text="+0.02", width=5, style='Compact.TButton', command=lambda i=i: self.adjust_voltage(i, 0.02))
+            inc_voltage_button = ttk.Button(
+                voltage_entry_frame,
+                text="+0.02",
+                width=5,
+                style='Compact.TButton',
+                state='disabled',
+                command=lambda i=i: self.adjust_voltage(i, 0.02),
+            )
             inc_voltage_button.grid(row=3, column=1, sticky='w', pady=(1, 0))
-            dec_voltage_button = ttk.Button(voltage_entry_frame, text="-0.02", width=5, style='Compact.TButton', command=lambda i=i: self.adjust_voltage(i, -0.02))
+            dec_voltage_button = ttk.Button(
+                voltage_entry_frame,
+                text="-0.02",
+                width=5,
+                style='Compact.TButton',
+                state='disabled',
+                command=lambda i=i: self.adjust_voltage(i, -0.02),
+            )
             dec_voltage_button.grid(row=3, column=2, sticky='w', padx=(2, 0), pady=(1, 0))
 
             # Store adjustment buttons for enabling/disabling during ramps
@@ -1347,6 +1393,7 @@ class CathodeHeatingSubsystem:
             self.power_supply_desired_limits = limits
 
     def _reset_power_supply_config_state(self, index=None):
+        """Mark one or all 9104 supplies as needing preset/OVP/OCP confirmation."""
         indexes = range(3) if index is None else [index]
         with self.power_supply_config_lock:
             for idx in indexes:
@@ -1357,6 +1404,7 @@ class CathodeHeatingSubsystem:
                 self.power_supply_config_confirmed_limits[idx] = {"ovp": None, "ocp": None}
 
     def _set_power_supply_command_ready(self, index, ready):
+        """Gate operator commands on confirmed readback plus completed 9104 configuration."""
         if not 0 <= index < 3:
             return
 
@@ -1366,9 +1414,12 @@ class CathodeHeatingSubsystem:
             self.toggle_buttons[index]['state'] = state
         if index < len(self.log_power_settings_buttons):
             self.log_power_settings_buttons[index]['state'] = state
+        self._refresh_heater_setpoint_controls(index)
 
     def initialize_power_supplies(self):
         # Build a complete replacement list locally, then publish it in one assignment.
+        # Opening a serial port is not enough to trust a 9104; configuration is deferred
+        # until the polling thread gets a valid voltage/current readback from the device.
         new_power_supplies = [None, None, None]
         self.power_supply_valid_connections = [False, False, False]
         self._snapshot_desired_power_supply_limits()
@@ -1436,6 +1487,8 @@ class CathodeHeatingSubsystem:
                 return False
             self.power_supplies[index] = new_ps
             self.power_supplies_initialized = any(ps is not None for ps in self.power_supplies)
+            # The reconnect succeeded at the handle level; command controls wait for the poller
+            # to verify readback and re-apply preset/OVP/OCP.
             self._reset_power_supply_config_state(index)
             self._set_power_supply_command_ready(index, False)
 
@@ -1499,25 +1552,15 @@ class CathodeHeatingSubsystem:
             self.ramp_status[index] = True
             self.ramp_control_mode[index] = "current"
             mode_str = "gradual current."
-
-            # Disable current adjustment buttons when in current ramp mode
-            self.set_curr_adjustment_buttons_state(index, 'disabled')
-            self.set_vlt_adjustment_buttons_state(index, 'normal')
         elif mode == "ramp_voltage":
             self.ramp_status[index] = True
             self.ramp_control_mode[index] = "voltage"
             mode_str = "gradual voltage."
-
-            # Disable voltage adjustment buttons when in voltage ramp mode
-            self.set_vlt_adjustment_buttons_state(index, 'disabled')
-            self.set_curr_adjustment_buttons_state(index, 'normal')
         else: # immediate
             self.ramp_status[index] = False
             mode_str = "immediate set."
 
-            # Enable both sets of adjustment buttons when not ramping
-            self.set_curr_adjustment_buttons_state(index, 'normal')
-            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        self._refresh_heater_setpoint_controls(index)
         self.log(f"Set voltage mode for Cathode {['A', 'B', 'C'][index]} to {mode_str}", LogLevel.INFO)
 
     def set_overvoltage_limit(self, index, requested_value=None):
@@ -2063,7 +2106,13 @@ class CathodeHeatingSubsystem:
             pass
 
     def _configure_power_supply_after_readback(self, index, ps):
-        """Apply the existing preset/protection workflow after a live readback."""
+        """
+        Apply preset/OVP/OCP after the 9104 has returned a valid live readback.
+
+        The polling thread calls this because it already owns the hardware health check.
+        Tk-backed limit values are snapshotted before entry so this worker does not read
+        Tk variables directly.
+        """
         if not 0 <= index < 3 or ps is None:
             return None
 
@@ -2078,6 +2127,7 @@ class CathodeHeatingSubsystem:
             ):
                 return None
 
+            # Copy desired limits and release the lock before doing slow serial I/O.
             desired_limits = self.power_supply_desired_limits[index].copy()
             self.power_supply_config_last_attempt[index] = now
 
@@ -2159,6 +2209,7 @@ class CathodeHeatingSubsystem:
             else:
                 self.log(f"OCP setting confirmed for cathode {cathode}: {confirmed_ocp:.2f}A", LogLevel.INFO)
 
+            # This flag is what lets the Tk thread enable buttons for this supply.
             with self.power_supply_config_lock:
                 self.power_supply_configured[index] = True
                 self.power_supply_config_confirmed_limits[index] = {
@@ -2229,6 +2280,8 @@ class CathodeHeatingSubsystem:
                             mode=mode,
                             connected=True,
                         )
+                        # A parsed readback proves the device is responsive; only then push
+                        # preset/limit configuration and allow commands to become ready.
                         self._configure_power_supply_after_readback(index, ps)
                 except Exception as exc:
                     self._reset_power_supply_config_state(index)
@@ -2309,6 +2362,8 @@ class CathodeHeatingSubsystem:
 
                 if readback.get("connected") and voltage is not None and current is not None:
                     self._log_power_supply_readback_state(i, None)
+                    # The poller owns hardware I/O. The Tk thread mirrors its cached
+                    # configuration result into command state and readback labels.
                     with self.power_supply_config_lock:
                         power_supply_configured = self.power_supply_configured[i]
                         confirmed_limits = self.power_supply_config_confirmed_limits[i].copy()
@@ -2556,6 +2611,8 @@ class CathodeHeatingSubsystem:
             sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
             sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
             
+            # Fault paths below use disable_output() so shutoff bypasses output-on validation
+            # and failed shutoff attempts are logged as critical by the 9104 driver.
             if self.ramp_status[index]: # ramp is on; Gradual Set
                 if target_current is not None and control_mode == "current":
                     # Set voltage first, then preset a safe low current before enabling output
@@ -3323,6 +3380,8 @@ class CathodeHeatingSubsystem:
             sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
             sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
 
+            # If the setup step before a cross-mode ramp fails, force the output off
+            # through the driver's unconditional shutoff path.
             # Set current directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
@@ -3398,6 +3457,8 @@ class CathodeHeatingSubsystem:
             sent_current_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_current_display(idx, val))
             sent_voltage_callback = lambda sent_value, i=index: self.parent.after(0, lambda idx=i, val=sent_value: self._update_sent_voltage_display(idx, val))
 
+            # If the setup step before a cross-mode ramp fails, force the output off
+            # through the driver's unconditional shutoff path.
             # Set voltage directly if output enabled
             if self.toggle_states[index]:
                 if self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
@@ -3569,6 +3630,29 @@ class CathodeHeatingSubsystem:
             dropdown_state = 'readonly' if state == 'normal' else 'disabled'
             self.ramp_mode_dropdowns[index].config(state=dropdown_state)
 
+    def _refresh_heater_setpoint_controls(self, index: int):
+        """Apply CCS availability and ramp mode to Set and +/- controls."""
+        ready = (
+            0 <= index < len(self.power_supply_status)
+            and self.power_supply_status[index]
+        )
+        if not ready or self.is_ramping(index):
+            self.set_text_set_buttons_state(index, 'disabled')
+            self.set_curr_adjustment_buttons_state(index, 'disabled')
+            self.set_vlt_adjustment_buttons_state(index, 'disabled')
+            return
+
+        self.set_text_set_buttons_state(index, 'normal')
+        if self.ramp_status[index] and self.ramp_control_mode[index] == "current":
+            self.set_curr_adjustment_buttons_state(index, 'disabled')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+        elif self.ramp_status[index] and self.ramp_control_mode[index] == "voltage":
+            self.set_vlt_adjustment_buttons_state(index, 'disabled')
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+        else:
+            self.set_curr_adjustment_buttons_state(index, 'normal')
+            self.set_vlt_adjustment_buttons_state(index, 'normal')
+
     def _update_sent_current_display(self, index: int, sent_current: float):
         if index < len(self.sent_heater_current_vars):
             self.sent_heater_current_vars[index].set(f"{sent_current:.2f}")
@@ -3593,11 +3677,7 @@ class CathodeHeatingSubsystem:
         self.stop_ramp_buttons[index]['state'] = 'disabled'
         self.stop_ramp_buttons[index].config(style='StopInactive.TButton')
         self.set_output_button_state(index, 'normal')
-        if self.ramp_control_mode[index] == "voltage":
-            self.set_curr_adjustment_buttons_state(index, 'normal')
-        elif self.ramp_control_mode[index] == "current":
-            self.set_vlt_adjustment_buttons_state(index, 'normal')
-        self.set_text_set_buttons_state(index, 'normal')
+        self._refresh_heater_setpoint_controls(index)
 
     def handle_ramp_result(self, index: int, ok: bool):
         self.on_ramp_complete(index)
@@ -3674,6 +3754,7 @@ class CathodeHeatingSubsystem:
                     except TypeError:
                         ps.close()
 
+        # Local state must reflect that no supply is command-ready after the handles are closed.
         self.power_supplies_initialized = False
         self._reset_power_supply_readbacks()
         for i in range(3):
