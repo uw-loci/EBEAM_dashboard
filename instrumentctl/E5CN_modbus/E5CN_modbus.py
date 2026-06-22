@@ -331,13 +331,15 @@ class E5CNModbus:
                 attempts -= 1
                 time.sleep(0.1)  # Short delay between retries
 
-        if not self.stop_event.is_set():
-            self._log_rate_limited(
-                ("read_temperature_failed", unit),
-                f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)",
-                LogLevel.ERROR,
-            )
-        return None
+        if self.stop_event.is_set():
+            return None
+
+        self._log_rate_limited(
+            ("read_temperature_failed", unit),
+            f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)",
+            LogLevel.ERROR,
+        )
+        return self.SENSOR_ERROR
 
     def _log_rate_limited(self, key, message, level=LogLevel.INFO, interval=None):
         interval = self.POLL_ERROR_LOG_INTERVAL if interval is None else interval
