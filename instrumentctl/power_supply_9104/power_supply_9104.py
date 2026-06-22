@@ -933,7 +933,7 @@ class PowerSupply9104:
             self.log("Output disabled.", LogLevel.INFO)
             return True
         else:
-            self.log(f"Failed to disable output: {response}", LogLevel.ERROR)
+            self.log(f"Failed to disable output: {response}", LogLevel.CRITICAL)
             return False
 
     def close(self, ramp_join_timeout=2.0):
