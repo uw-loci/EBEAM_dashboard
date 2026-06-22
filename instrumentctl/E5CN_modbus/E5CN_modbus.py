@@ -1,5 +1,6 @@
 import threading
 import time
+import math
 from queue import Queue, Empty
 from pymodbus.client import ModbusSerialClient as ModbusClient
 from utils import LogLevel  # Ensure this module is correctly implemented
@@ -7,6 +8,8 @@ from utils import LogLevel  # Ensure this module is correctly implemented
 class E5CNModbus:
     TEMPERATURE_ADDRESS = 0x0000  # Address for reading temperature, page 92
     UNIT_NUMBERS = [1, 2, 3]       # Unit numbers for each controller
+    MAX_VALID_TEMPERATURE_C = 999.9
+    SENSOR_ERROR = "ERROR"
 
     def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
         """
@@ -85,10 +88,18 @@ class E5CNModbus:
         while not self.stop_event.is_set():
             try:
                 temperature = self.read_temperature(unit)
-                if temperature is not None:
+                if isinstance(temperature, (int, float)):
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
                         self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                elif temperature == self.SENSOR_ERROR:
+                    with self.temperatures_lock:
+                        self.temperatures[unit - 1] = temperature
+                    self.log(f"Unit {unit} temperature reading is invalid", LogLevel.ERROR)
+                elif temperature is not None:
+                    with self.temperatures_lock:
+                        self.temperatures[unit - 1] = temperature
+                    self.log(f"Unit {unit} returned unexpected temperature value: {temperature}", LogLevel.ERROR)
                 else:
                     self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
                 time.sleep(0.5)  # small delay between reads
@@ -189,12 +200,19 @@ class E5CNModbus:
                     if response and not response.isError():
                         self.connected = True
                         temperature = response.registers[1] / 10.0
+                        if not math.isfinite(temperature) or temperature > self.MAX_VALID_TEMPERATURE_C:
+                            self.log(
+                                f"Invalid temperature from unit {unit}: {temperature:.2f} C "
+                                f"exceeds hard maximum {self.MAX_VALID_TEMPERATURE_C:.2f} C",
+                                LogLevel.ERROR
+                            )
+                            return self.SENSOR_ERROR
                         self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
                         return temperature
                     else:
                         self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
                         attempts -= 1
-                        return "ERROR"
+                        return self.SENSOR_ERROR
 
             except Exception as e:
                 self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
