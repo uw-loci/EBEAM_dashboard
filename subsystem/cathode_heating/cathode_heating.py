@@ -1174,9 +1174,7 @@ class CathodeHeatingSubsystem:
 
         with self.power_supply_config_lock:
             power_supply_ready = self.power_supply_configured[index]
-        temperature_ready = bool(
-            self.temperature_controller and self.temperature_controller.connected
-        )
+        temperature_ready = self.temperature_valid_connections[index]
 
         if index < len(self.power_supply_comms_indicators):
             canvas, oval = self.power_supply_comms_indicators[index]
