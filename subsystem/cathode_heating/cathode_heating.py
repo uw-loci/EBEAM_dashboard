@@ -2226,27 +2226,41 @@ class CathodeHeatingSubsystem:
         """
         Redundantly turns off all cathode heaters by disabling power supply outputs.
         Side effects:
-            - Disables output on all initialized power supplies
+            - Disables output on all available power supply handles
             - Updates toggle button states and images
             - Logs actions and any errors
         """
-        if not self.power_supplies_initialized or not self.power_supplies:
-            self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
+        if not self.power_supplies:
+            self.log("Power supply list is empty; cannot turn off heaters.", LogLevel.ERROR)
             return
+
+        if not self.power_supplies_initialized:
+            self.log("Power supplies are not marked initialized; attempting OFF for any available handles.", LogLevel.WARNING)
+
         for i, ps in enumerate(self.power_supplies):
-            if ps and self.power_supply_status[i]:
-                try:
-                    if ps.set_output("0"): # Turn off beam
-                        self.log(f"Turned off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.INFO)
-                        # Update toggle state and button image
-                        self.toggle_states[i] = False
-                        self.toggle_buttons[i].config(image=self.toggle_off_image)
-                    else:
-                        self.log(f"Failed to turn off heater for Cathode {['A', 'B', 'C'][i]}", LogLevel.ERROR)
-                except Exception as e:
-                    self.log(f"Error turning off heater for Cathode {['A', 'B', 'C'][i]}: {str(e)}", LogLevel.ERROR)
-            else:
-                self.log(f"Power supply for Cathode {['A', 'B', 'C'][i]} is not initialized; cannot turn off heater.", LogLevel.WARNING)
+            cathode_label = ['A', 'B', 'C'][i]
+            if not ps:
+                self.log(f"Power supply handle for Cathode {cathode_label} is unavailable; cannot turn off heater.", LogLevel.WARNING)
+                continue
+
+            try:
+                if hasattr(ps, 'stop_ramp'):
+                    ps.stop_ramp()
+
+                if hasattr(ps, 'disable_output'):
+                    output_disabled = ps.disable_output()
+                else:
+                    output_disabled = ps.set_output("0")
+
+                if output_disabled:
+                    self.log(f"Turned off heater for Cathode {cathode_label}", LogLevel.INFO)
+                    # Update toggle state and button image
+                    self.toggle_states[i] = False
+                    self.toggle_buttons[i].config(image=self.toggle_off_image)
+                else:
+                    self.log(f"Failed to turn off heater for Cathode {cathode_label}", LogLevel.ERROR)
+            except Exception as e:
+                self.log(f"Error turning off heater for Cathode {cathode_label}: {str(e)}", LogLevel.ERROR)
 
     def set_target_current(self, index, entry_field):
         """
