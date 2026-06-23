@@ -5,7 +5,8 @@ import tkinter as tk
 from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
 from subsystem.main_control import MainControlPanel
-from utils import MessagesFrame, MachineStatus, LogLevel
+from subsystem.machine_status.machine_status import MachineStatus
+from utils import MessagesFrame, LogLevel
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
@@ -440,7 +441,6 @@ class EBEAMSystemDashboard:
                     self.frames['Process Monitor'],
                     com_port=self.com_ports['ProcessMonitors'],
                     logger=self.logger,
-                    active = self.machine_status_frame.MACHINE_STATUS
                 ),
             ),
             'Interlocks': self._initialize_subsystem(
@@ -450,7 +450,6 @@ class EBEAMSystemDashboard:
                     com_ports = self.com_ports['Interlocks'],
                     logger=self.logger,
                     frames = self.frames,
-                    active = self.machine_status_frame.MACHINE_STATUS
                 ),
             ),
             # 'Oil System': subsystem.OilSubsystem(
@@ -463,7 +462,6 @@ class EBEAMSystemDashboard:
                     self.frames['Cathode Heating'],
                     com_ports=self.com_ports,
                     logger=self.logger,
-                    active = self.machine_status_frame.MACHINE_STATUS
                 ),
             ),
             'Beam Energy': self._initialize_subsystem(
@@ -554,7 +552,12 @@ class EBEAMSystemDashboard:
 
     def create_machine_status_frame(self):
         """Create a frame for displaying machine status information."""
-        self.machine_status_frame = MachineStatus(self.frames['Machine Status'], logger=self.logger)
+        self.machine_status_frame = MachineStatus(
+            self.frames['Machine Status'],
+            logger=self.logger,
+            subsystem_provider=lambda: getattr(self, "subsystems", {}),
+            main_control_provider=lambda: getattr(self, "main_control", None),
+        )
 
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
