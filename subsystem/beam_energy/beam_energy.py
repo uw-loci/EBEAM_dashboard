@@ -128,7 +128,7 @@ class BeamEnergySubsystem:
         self.glassman_interlock_var = tk.StringVar(value="UNARMED")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
-        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
+        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, green=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
         # Beam Energy owns the +20kV threshold; Dashboard provides the actual stop handler.
         self.beams_estop_current_entry_var = tk.StringVar(value="")
@@ -994,7 +994,7 @@ class BeamEnergySubsystem:
         """Update connection status indicators."""
         if index < len(self.ui_elements):
             if connected:
-                self.connection_status_colors[index].set("blue")
+                self.connection_status_colors[index].set("green")
             else:
                 self.connection_status_colors[index].set("red")
 
@@ -1061,7 +1061,7 @@ class BeamEnergySubsystem:
             self.arm_beams_var.set("ARMED" if arm_beams else "UNARMED")
             self.ccs_power_var.set("ON" if ccs_power else "OFF")
             self.glassman_interlock_var.set("ARMED" if arm_80kv else "UNARMED")
-            self.logic_comms_color.set("blue" if logic_comms else "red")
+            self.logic_comms_color.set("green" if logic_comms else "red")
             self.interlocks_color.set("red" if interlocks else "green")
 
     def start_polling_thread(self):
