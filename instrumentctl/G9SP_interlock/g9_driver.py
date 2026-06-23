@@ -65,12 +65,13 @@ class G9Driver:
         13: "Function Block Error Flag"
     }
 
-    def __init__(self, port=None, baudrate=9600, timeout=0.5, logger=None, debug_mode=False):
+    def __init__(self, port=None, baudrate=9600, timeout=0.5, write_timeout=None, logger=None, debug_mode=False):
         self.logger = logger
         self.debug_mode = debug_mode
         self.ser = None
         self._lock = threading.RLock()
         self._serial_timeout = timeout
+        self._serial_write_timeout = timeout if write_timeout is None else write_timeout
         self.last_data = None
         self.input_flags = []
         self._response_queue = queue.Queue(maxsize=1)
@@ -79,7 +80,7 @@ class G9Driver:
         self._logger_event_queue = queue.Queue(maxsize=100)
         self._running = True
         self._thread = None
-        self.setup_serial(port, baudrate, timeout)
+        self.setup_serial(port, baudrate, timeout, write_timeout)
         self._start_communication_thread()
 
     def _start_communication_thread(self):
@@ -102,7 +103,7 @@ class G9Driver:
         except queue.Empty:
             pass
 
-    def setup_serial(self, port, baudrate=9600, timeout=0.5):
+    def setup_serial(self, port, baudrate=9600, timeout=0.5, write_timeout=None):
         """
         Attempts to make a serial connection
 
@@ -130,9 +131,11 @@ class G9Driver:
                     parity=serial.PARITY_EVEN,
                     stopbits=serial.STOPBITS_ONE,
                     bytesize=serial.EIGHTBITS,
-                    timeout=timeout
+                    timeout=timeout,
+                    write_timeout=timeout if write_timeout is None else write_timeout
                     )
                 self._serial_timeout = timeout
+                self._serial_write_timeout = timeout if write_timeout is None else write_timeout
                 self._start_communication_thread()
             except serial.SerialException as e:
                 raise ConnectionError(f"Failed to open G9SP serial port {port}: {e}") from e
@@ -277,7 +280,11 @@ class G9Driver:
         checksum = self._calculate_checksum(message, 14)
         full_message = message + checksum + self.FOOTER
 
-        self.ser.write(full_message)
+        bytes_written = self.ser.write(full_message)
+        if bytes_written != len(full_message):
+            raise TimeoutError(
+                f"Incomplete G9 command write: wrote {bytes_written} of {len(full_message)} bytes"
+            )
 
 
     def _read_response(self):
