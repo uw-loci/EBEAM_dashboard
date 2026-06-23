@@ -261,19 +261,22 @@ class G9Driver:
             ConnectionError: If serial port is not open
             ValueError: For various validation failures
         """
-        data = bytearray()
-        for _ in range(10):
-            chunk = self.ser.read(50)
-            if chunk is not None:
-                data.extend(chunk)
-
-                if data[-len(self.FOOTER):] == self.FOOTER:
-                    break
-            else:
-                time.sleep(0.05)
+        header_length = len(self.RECHEADER) + 1
+        data = self._read_exact(header_length)
 
         if data == bytearray(b''):
             raise TimeoutError("No response received within timeout")
+
+        if len(data) < header_length:
+            raise ValueError(f"Incomplete response received: {len(data)} bytes")
+
+        if data[0:len(self.RECHEADER)] != self.RECHEADER:
+            raise ValueError(f"Invalid response header: {data[0:len(self.RECHEADER)].hex()}")
+
+        if data[3:4] != self.EXPECTED_RESPONSE_LENGTH:
+            raise ValueError(f"Incorrect response length indicator: {data[3:4].hex()}")
+
+        data.extend(self._read_exact(data[3]))
 
         if len(data) < self.EXPECTED_DATA_LENGTH:
             raise ValueError(f"Incomplete response received: {len(data)} bytes")
@@ -283,6 +286,19 @@ class G9Driver:
 
         self._validate_response_format(data)
         self._validate_checksum(data)
+
+        return data
+
+    def _read_exact(self, byte_count):
+        """Read up to byte_count bytes, allowing pyserial to return partial chunks."""
+        data = bytearray()
+        while len(data) < byte_count:
+            chunk = self.ser.read(byte_count - len(data))
+            if chunk is None:
+                break
+            if not chunk:
+                break
+            data.extend(chunk)
 
         return data
 
