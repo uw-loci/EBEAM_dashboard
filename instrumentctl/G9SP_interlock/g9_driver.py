@@ -91,6 +91,17 @@ class G9Driver:
             self._thread = threading.Thread(target=self._communication_thread, daemon=True)
             self._thread.start()
 
+    def _clear_cached_status(self):
+        """Clear status from a previous connection so consumers wait for fresh data."""
+        with self._status_lock:
+            self._last_status = None
+
+        try:
+            while True:
+                self._response_queue.get_nowait()
+        except queue.Empty:
+            pass
+
     def setup_serial(self, port, baudrate=9600, timeout=0.5):
         """
         Attempts to make a serial connection
@@ -110,6 +121,7 @@ class G9Driver:
                     old_ser.close()
                 except Exception:
                     pass
+            self._clear_cached_status()
 
             try:
                 self.ser = serial.Serial(
@@ -130,6 +142,7 @@ class G9Driver:
         with self._lock:
             ser = self.ser
             self.ser = None
+            self._clear_cached_status()
 
             if ser and ser.is_open:
                 try:
