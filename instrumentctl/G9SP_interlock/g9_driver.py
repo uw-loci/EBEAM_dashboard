@@ -492,8 +492,8 @@ class G9Driver:
     # this just makes sure that the ser object is considered to be valid
     def is_connected(self):
         """returns if serial connection is set up"""
-        with self._lock:
-            return self.ser is not None and self.ser.is_open
+        ser = self.ser
+        return ser is not None and ser.is_open
 
     def _extract_flags(self, byte_string, num_bits):
         """Extracts num_bits from the data
