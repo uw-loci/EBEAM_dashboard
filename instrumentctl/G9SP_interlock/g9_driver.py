@@ -103,11 +103,17 @@ class G9Driver:
         except queue.Empty:
             pass
 
+        retained_events = []
         try:
             while True:
-                self._logger_event_queue.get_nowait()
+                event = self._logger_event_queue.get_nowait()
+                if event and event[0] == "log":
+                    retained_events.append(event)
         except queue.Empty:
             pass
+
+        for event in retained_events:
+            self._queue_logger_event(event)
         self._queue_status_field_clears()
 
     def setup_serial(self, port, baudrate=9600, timeout=0.5, write_timeout=None):
