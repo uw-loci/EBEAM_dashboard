@@ -149,6 +149,8 @@ class E5CNModbus:
                         LogLevel.ERROR,
                     )
                 else:
+                    with self.temperatures_lock:
+                        self.temperatures[unit - 1] = None
                     self._log_rate_limited(
                         ("null_temperature", unit),
                         f"Unit {unit} is reading null",
