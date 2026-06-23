@@ -445,6 +445,7 @@ class G9Driver:
             raise ValueError(f"Incomplete response received: {len(data)} bytes")
 
         if data[0:len(self.RECHEADER)] != self.RECHEADER:
+            self._drain_bad_response_frame(ser, data, deadline)
             raise ValueError(f"Invalid response header: {data[0:len(self.RECHEADER)].hex()}")
 
         data.extend(self._read_exact(ser, data[3], deadline))
@@ -460,6 +461,59 @@ class G9Driver:
             raise ValueError(f"Invalid response received: {len(data)} bytes")
 
         return data
+
+    def _drain_bad_response_frame(self, ser, seed, deadline):
+        """Drain a stale/noisy response so the next transaction starts on a clean boundary."""
+        data = bytearray(seed)
+        search_from = 0
+
+        while not self._stop_event.is_set() and time.monotonic() < deadline:
+            frame_start = data.find(self.RECHEADER, search_from)
+            if frame_start >= 0:
+                length_index = frame_start + len(self.RECHEADER)
+                frame_length = None
+                if len(data) > length_index:
+                    frame_length = data[length_index] + len(self.RECHEADER) + 1
+
+                if frame_length is not None:
+                    frame_end = frame_start + frame_length
+                    if self._read_until_buffer_length(ser, data, frame_end, deadline):
+                        if data[frame_end - len(self.FOOTER):frame_end] == self.FOOTER:
+                            return
+                    search_from = frame_start + 1
+                else:
+                    if not self._read_until_buffer_length(ser, data, length_index + 1, deadline):
+                        break
+            else:
+                search_from = max(0, len(data) - len(self.RECHEADER) + 1)
+                chunk = ser.read(1)
+                if chunk is None:
+                    continue
+                if not chunk:
+                    continue
+                data.extend(chunk)
+
+        self._reset_serial_input_buffer(ser)
+
+    def _read_until_buffer_length(self, ser, data, target_length, deadline):
+        while len(data) < target_length:
+            if self._stop_event.is_set() or time.monotonic() >= deadline:
+                return False
+
+            chunk = ser.read(target_length - len(data))
+            if chunk is None:
+                continue
+            if not chunk:
+                continue
+            data.extend(chunk)
+        return True
+
+    def _reset_serial_input_buffer(self, ser):
+        for method_name in ("reset_input_buffer", "flushInput"):
+            reset = getattr(ser, method_name, None)
+            if callable(reset):
+                reset()
+                return
 
     def _read_exact(self, ser, byte_count, deadline):
         """Read up to byte_count bytes, allowing pyserial to return partial chunks."""
