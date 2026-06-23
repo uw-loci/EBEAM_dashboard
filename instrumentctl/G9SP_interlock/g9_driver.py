@@ -103,6 +103,13 @@ class G9Driver:
         except queue.Empty:
             pass
 
+        try:
+            while True:
+                self._logger_event_queue.get_nowait()
+        except queue.Empty:
+            pass
+        self._queue_status_field_clears()
+
     def setup_serial(self, port, baudrate=9600, timeout=0.5, write_timeout=None):
         """
         Attempts to make a serial connection
