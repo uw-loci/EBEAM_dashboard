@@ -27,7 +27,7 @@ def resource_path(relative_path):
 class VTRXSubsystem: 
     PLOT_X_TICK_LABEL_SIZE = 6
     PLOT_Y_TICK_LABEL_SIZE = 8
-
+    PLOT_TITLE_PAD = 2 # makes the title not get clipped
     ERROR_CODES = {
         0: "VALVE CONTENTION",
         1: "COLD CATHODE FAILURE",
@@ -214,7 +214,7 @@ class VTRXSubsystem:
         """
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
-        self.ax.set_title('(Error)', fontsize=10, color='red')
+        self.ax.set_title('(Error)', fontsize=10, color='red', pad=self.PLOT_TITLE_PAD)
         for canvas, oval_id in self.circle_indicators:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
@@ -379,11 +379,11 @@ class VTRXSubsystem:
         plot_frame = tk.Frame(layout_frame)
         plot_frame.grid(row=0, column=1, sticky='nsew', padx=(4, 6), pady=(3, 1)) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.94, bottom=0.18)
+        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.92, bottom=0.18)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
-        self.ax.set_title('')
+        self.ax.set_title('', pad=self.PLOT_TITLE_PAD)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
@@ -460,8 +460,9 @@ class VTRXSubsystem:
             self.line.set_color('green' if not self.error_state else 'red')
             self.ax.set_title(
                 'VTRX Pressure Readout',
-                fontsize=10,
-                color='black' if not self.error_state else 'red'
+                fontsize=8,
+                color='black' if not self.error_state else 'red',
+                pad=self.PLOT_TITLE_PAD
             )
             self.update_plot()
 
