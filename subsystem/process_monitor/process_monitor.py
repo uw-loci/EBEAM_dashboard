@@ -249,18 +249,18 @@ class ProcessMonitorSubsystem:
 
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)
-        self.frame.pack(side=tk.TOP, fill=tk.X, expand=False)
+        self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         
         # Configure grid weights for responsive layout
         self.frame.grid_columnconfigure(0, weight=1)
         for i in range(len(self.thermometers)):
-            self.frame.grid_rowconfigure(i, weight=0)
+            self.frame.grid_rowconfigure(i, weight=1)
         
         # Create temperature bars
         self.temp_bars: Dict[str, TemperatureBar] = {}
         for i, name in enumerate(self.thermometers):
             bar = TemperatureBar(self.frame, name)
-            bar.grid(row=i, column=0, padx=4, pady=(1, 0), sticky='ew')
+            bar.grid(row=i, column=0, padx=4, pady=(1, 0), sticky='nsew')
             self.temp_bars[name] = bar
 
     def update_temperatures(self):

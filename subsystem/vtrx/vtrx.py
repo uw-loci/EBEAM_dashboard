@@ -25,6 +25,9 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class VTRXSubsystem: 
+    PLOT_X_TICK_LABEL_SIZE = 6
+    PLOT_Y_TICK_LABEL_SIZE = 8
+    PLOT_TITLE_PAD = 2 # makes the title not get clipped
     NO_DATA_LOG_INTERVAL_SECONDS = 10
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
@@ -235,7 +238,7 @@ class VTRXSubsystem:
         """
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
-        self.ax.set_title('(Error)', fontsize=10, color='red')
+        self.ax.set_title('(Error)', fontsize=10, color='red', pad=self.PLOT_TITLE_PAD)
         for canvas, oval_id in self.circle_indicators:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
@@ -461,16 +464,15 @@ class VTRXSubsystem:
         plot_frame = tk.Frame(layout_frame)
         plot_frame.grid(row=0, column=1, sticky='nsew', padx=(4, 6), pady=(3, 1)) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.94, bottom=0.18)
+        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.92, bottom=0.18)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
-        self.ax.set_title('')
+        self.ax.set_title('', pad=self.PLOT_TITLE_PAD)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
-        self.ax.tick_params(axis='x', labelsize=6, pad=1)
-        self.ax.tick_params(axis='y', labelsize=8, pad=1)
+        self._apply_plot_label_sizes()
         self.ax.grid(True)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
@@ -543,8 +545,9 @@ class VTRXSubsystem:
             self.line.set_color('green' if not self.error_state else 'red')
             self.ax.set_title(
                 'VTRX Pressure Readout',
-                fontsize=10,
-                color='black' if not self.error_state else 'red'
+                fontsize=8,
+                color='black' if not self.error_state else 'red',
+                pad=self.PLOT_TITLE_PAD
             )
             self.update_plot()
 
@@ -580,8 +583,15 @@ class VTRXSubsystem:
             start_time = current_time - datetime.timedelta(seconds=self.display_window)
             self.ax.set_xlim(start_time, current_time)
 
+        self._apply_plot_label_sizes()
         self.canvas.draw_idle()
         self.canvas.flush_events()
+
+    def _apply_plot_label_sizes(self):
+        """Keep static and dynamically generated graph labels the same size."""
+        self.ax.tick_params(axis='x', which='both', labelsize=self.PLOT_X_TICK_LABEL_SIZE, pad=1)
+        self.ax.tick_params(axis='y', which='both', labelsize=self.PLOT_Y_TICK_LABEL_SIZE, pad=1)
+        self.ax.yaxis.get_offset_text().set_fontsize(self.PLOT_Y_TICK_LABEL_SIZE)
 
     def start_serial_thread(self):
         self.stop_event.clear()
