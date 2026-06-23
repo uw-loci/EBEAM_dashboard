@@ -87,13 +87,16 @@ class InterlocksSubsystem:
                     self.driver.setup_serial(port=com_port)
                 # Test connection by getting status
                 self.driver.get_interlock_status()
+                self.com_port = com_port
                 self.log(f"G9 driver updated to port {com_port}", LogLevel.INFO)
+                self._schedule_update()
             except Exception as e:
                 self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
         else:
             if self.driver:
                 self.driver.disconnect()
+            self.com_port = None
             self._set_all_indicators('red')
             self.log("update_com_port is being called without a com port", LogLevel.WARNING)
 
@@ -291,6 +294,7 @@ class InterlocksSubsystem:
             Exception: If anything else in message process throws an error
 
         """
+        self.after_id = None
         current_time = time.time()
         try:
             self._drain_driver_logger_events()
