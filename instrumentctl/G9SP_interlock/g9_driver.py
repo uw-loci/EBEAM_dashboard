@@ -6,6 +6,8 @@ import time
 
 class G9Driver:
     NUMIN = 13
+    SERIAL_LOCK_TIMEOUT = 0.5
+    WORKER_SLEEP_SECONDS = 0.1
 
     # Constants for protocol
     SNDHEADER = b'\x40\x00\x00\x0F\x4B\x03\x4D\x00\x01' 
@@ -72,6 +74,8 @@ class G9Driver:
         self._lock = threading.RLock()
         self._serial_timeout = timeout
         self._serial_write_timeout = timeout if write_timeout is None else write_timeout
+        self._transaction_timeout = max(1.0, 3 * timeout)
+        self._serial_generation = 0
         self.last_data = None
         self.input_flags = []
         self._response_queue = queue.Queue(maxsize=1)
@@ -79,8 +83,12 @@ class G9Driver:
         self._last_status = None
         self._logger_event_queue = queue.Queue(maxsize=100)
         self._running = True
+        self._stop_event = threading.Event()
         self._thread = None
-        self.setup_serial(port, baudrate, timeout, write_timeout)
+        if port:
+            self.setup_serial(port, baudrate, timeout, write_timeout)
+        else:
+            self._clear_cached_status()
         self._start_communication_thread()
 
     def _start_communication_thread(self):
@@ -89,8 +97,15 @@ class G9Driver:
             if self._thread and self._thread.is_alive():
                 return
             self._running = True
+            self._stop_event.clear()
             self._thread = threading.Thread(target=self._communication_thread, daemon=True)
             self._thread.start()
+
+    def _acquire_serial_lock(self, action, timeout=SERIAL_LOCK_TIMEOUT):
+        acquired = self._lock.acquire(timeout=timeout)
+        if not acquired:
+            self._queue_log(f"Timed out waiting for G9 serial lock while {action}", "WARNING")
+        return acquired
 
     def _clear_cached_status(self):
         """Clear status from a previous connection so consumers wait for fresh data."""
@@ -127,44 +142,101 @@ class G9Driver:
             self._close_serial()
             raise ConnectionError("No port specified for G9SP connection")
 
+        if not self._close_serial(lock_timeout=self.SERIAL_LOCK_TIMEOUT):
+            return False
+
         with self._lock:
-            old_ser = self.ser
-            self.ser = None
-            if old_ser and old_ser.is_open:
+            open_generation = self._serial_generation
+
+        try:
+            new_ser = serial.Serial(
+                port=port,
+                baudrate=baudrate,
+                parity=serial.PARITY_EVEN,
+                stopbits=serial.STOPBITS_ONE,
+                bytesize=serial.EIGHTBITS,
+                timeout=timeout,
+                write_timeout=timeout if write_timeout is None else write_timeout
+                )
+        except serial.SerialException as e:
+            self._queue_log(f"Failed to open G9SP serial port {port}: {e}", "ERROR")
+            return False
+
+        if not self._acquire_serial_lock(f"publishing G9SP serial port {port}"):
+            try:
+                new_ser.close()
+            except Exception:
+                pass
+            return False
+
+        try:
+            if self._serial_generation != open_generation:
                 try:
-                    old_ser.close()
+                    new_ser.close()
                 except Exception:
                     pass
+                return False
+            self.ser = new_ser
+            self._serial_generation += 1
+            self._serial_timeout = timeout
+            self._serial_write_timeout = timeout if write_timeout is None else write_timeout
+            self._transaction_timeout = max(1.0, 3 * timeout)
             self._clear_cached_status()
+        finally:
+            self._lock.release()
 
-            try:
-                self.ser = serial.Serial(
-                    port=port,
-                    baudrate=baudrate,
-                    parity=serial.PARITY_EVEN,
-                    stopbits=serial.STOPBITS_ONE,
-                    bytesize=serial.EIGHTBITS,
-                    timeout=timeout,
-                    write_timeout=timeout if write_timeout is None else write_timeout
-                    )
-                self._serial_timeout = timeout
-                self._serial_write_timeout = timeout if write_timeout is None else write_timeout
-                self._start_communication_thread()
-            except serial.SerialException as e:
-                raise ConnectionError(f"Failed to open G9SP serial port {port}: {e}") from e
+        self._start_communication_thread()
+        return True
 
-    def _close_serial(self):
-        """ Attempt to close serial port """
-        with self._lock:
+    def _close_serial(self, lock_timeout=SERIAL_LOCK_TIMEOUT):
+        """Attempt to close the current serial port without waiting forever."""
+        if not self._acquire_serial_lock("closing G9SP serial port", lock_timeout):
+            return False
+
+        try:
             ser = self.ser
             self.ser = None
+            self._serial_generation += 1
             self._clear_cached_status()
+        finally:
+            self._lock.release()
 
-            if ser and ser.is_open:
-                try:
-                    ser.close()
-                except Exception:
-                    pass
+        if ser and ser.is_open:
+            try:
+                ser.close()
+            except Exception as e:
+                self._queue_log(f"Error closing G9SP serial port: {e}", "WARNING")
+        return True
+
+    def _close_serial_if_current(self, ser, generation):
+        """Close a serial object only if it is still the active connection."""
+        if not self._acquire_serial_lock("closing failed G9SP serial port"):
+            return False
+
+        try:
+            if self.ser is not ser or self._serial_generation != generation:
+                return False
+            self.ser = None
+            self._serial_generation += 1
+            self._clear_cached_status()
+        finally:
+            self._lock.release()
+
+        if ser and ser.is_open:
+            try:
+                ser.close()
+            except Exception as e:
+                self._queue_log(f"Error closing G9SP serial port: {e}", "WARNING")
+        return True
+
+    def _serial_snapshot(self):
+        """Return the active serial object and generation without blocking I/O."""
+        with self._lock:
+            return self.ser, self._serial_generation
+
+    def _serial_generation_is_current(self, ser, generation):
+        with self._lock:
+            return self.ser is ser and self._serial_generation == generation
 
     def _update_queue(self, response=None):
         data = response if response else (
@@ -217,6 +289,12 @@ class G9Driver:
         ]:
             self._queue_field_clear(field)
 
+    def _queue_status_field_updates(self, debug_data):
+        self._queue_field_update("safetyOutputDataFlags", debug_data["sotdf"])
+        self._queue_field_update("safetyInputDataFlags", debug_data["sitdf"])
+        self._queue_field_update("safetyOutputStatusFlags", debug_data["sotsf"])
+        self._queue_field_update("safetyInputStatusFlags", debug_data["sitsf"])
+
     def drain_logger_events(self):
         events = []
         while True:
@@ -227,45 +305,55 @@ class G9Driver:
 
     def _communication_thread(self):
         """Background thread for handling serial communication"""
-        while self._running:
+        while not self._stop_event.is_set():
+            ser, generation = self._serial_snapshot()
             try:
-                with self._lock:
-                    if self.is_connected():
-                        self._send_command()
-                        response_data = self._read_response() # blocking until complete or timeout
-                        if response_data:
-                            result = self._process_response(response_data)
+                if ser is not None and ser.is_open:
+                    self._send_command(ser)
+                    response_data = self._read_response(ser) # blocking until complete or timeout
+                    if response_data and self._serial_generation_is_current(ser, generation):
+                        result = self._process_response(response_data, queue_field_updates=False)
+                        if self._serial_generation_is_current(ser, generation):
+                            self._queue_status_field_updates(result[-1])
                             self._update_queue(result)
 
             except (ValueError, TimeoutError) as e:
-                self._update_queue()
-                self._queue_status_field_clears()
-                self._queue_log(f"G9 response error: {e}", "ERROR")
+                if self._serial_generation_is_current(ser, generation):
+                    self._update_queue()
+                    self._queue_status_field_clears()
+                    self._queue_log(f"G9 response error: {e}", "ERROR")
             except PermissionError as e:
-                self._update_queue()
-                self._queue_status_field_clears()
-                self._queue_log(f"G9 serial permission error: {e}", "ERROR")
-                self._close_serial()
+                if self._serial_generation_is_current(ser, generation):
+                    self._update_queue()
+                    self._queue_status_field_clears()
+                    self._queue_log(f"G9 serial permission error: {e}", "ERROR")
+                    self._close_serial_if_current(ser, generation)
 
             except (serial.SerialException, OSError, TypeError) as e:
-                self._update_queue()
-                self._queue_status_field_clears()
-                self._queue_log(f"G9 serial communication error: {e}", "ERROR")
-                self._close_serial()
+                if self._serial_generation_is_current(ser, generation):
+                    self._update_queue()
+                    self._queue_status_field_clears()
+                    self._queue_log(f"G9 serial communication error: {e}", "ERROR")
+                    self._close_serial_if_current(ser, generation)
             except Exception as e:
-                self._update_queue()
-                self._queue_status_field_clears()
-                self._queue_log(f"Unexpected G9 worker error: {e}", "ERROR")
+                if self._serial_generation_is_current(ser, generation):
+                    self._update_queue()
+                    self._queue_status_field_clears()
+                    self._queue_log(f"Unexpected G9 worker error: {e}", "ERROR")
 
-            time.sleep(0.1)  # minimum sleep between successful reads
+            self._stop_event.wait(self.WORKER_SLEEP_SECONDS)
 
     def stop_thread(self):
         """Stops the communication thread"""
         self._running = False
+        self._stop_event.set()
+        self._close_serial(lock_timeout=self.SERIAL_LOCK_TIMEOUT)
         if self._thread and self._thread.is_alive():
-            join_timeout = max(1.0, (10 * self._serial_timeout) + 1.0)
+            join_timeout = max(1.0, self._transaction_timeout + 1.0)
             self._thread.join(timeout=join_timeout)
-        self._close_serial()
+            if self._thread.is_alive():
+                self._queue_log("Timed out waiting for G9 communication thread to stop", "WARNING")
+        self._close_serial(lock_timeout=self.SERIAL_LOCK_TIMEOUT)
 
     def disconnect(self):
         """Close the serial port without stopping the communication thread."""
@@ -279,7 +367,7 @@ class G9Driver:
         with self._status_lock:
             return self._last_status
 
-    def _send_command(self):
+    def _send_command(self, ser=None):
         """
         Creates message for G9, sends it through serial connection
 
@@ -293,14 +381,18 @@ class G9Driver:
         checksum = self._calculate_checksum(message, 14)
         full_message = message + checksum + self.FOOTER
 
-        bytes_written = self.ser.write(full_message)
+        ser = ser if ser is not None else self.ser
+        if ser is None or not ser.is_open:
+            raise ConnectionError("G9SP serial port is not open")
+
+        bytes_written = ser.write(full_message)
         if bytes_written != len(full_message):
             raise TimeoutError(
                 f"Incomplete G9 command write: wrote {bytes_written} of {len(full_message)} bytes"
             )
 
 
-    def _read_response(self):
+    def _read_response(self, ser=None):
         """
         Read and validate response from G9SP device.
 
@@ -311,8 +403,13 @@ class G9Driver:
             ConnectionError: If serial port is not open
             ValueError: For various validation failures
         """
+        ser = ser if ser is not None else self.ser
+        if ser is None or not ser.is_open:
+            raise ConnectionError("G9SP serial port is not open")
+
+        deadline = time.monotonic() + self._transaction_timeout
         header_length = len(self.RECHEADER) + 1
-        data = self._read_exact(header_length)
+        data = self._read_exact(ser, header_length, deadline)
 
         if data == bytearray(b''):
             raise TimeoutError("No response received within timeout")
@@ -323,7 +420,7 @@ class G9Driver:
         if data[0:len(self.RECHEADER)] != self.RECHEADER:
             raise ValueError(f"Invalid response header: {data[0:len(self.RECHEADER)].hex()}")
 
-        data.extend(self._read_exact(data[3]))
+        data.extend(self._read_exact(ser, data[3], deadline))
 
         self._validate_response_format(data)
         self._validate_checksum(data)
@@ -337,11 +434,16 @@ class G9Driver:
 
         return data
 
-    def _read_exact(self, byte_count):
+    def _read_exact(self, ser, byte_count, deadline):
         """Read up to byte_count bytes, allowing pyserial to return partial chunks."""
         data = bytearray()
         while len(data) < byte_count:
-            chunk = self.ser.read(byte_count - len(data))
+            if self._stop_event.is_set():
+                raise TimeoutError("G9 read stopped")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("G9 response exceeded transaction timeout")
+
+            chunk = ser.read(byte_count - len(data))
             if chunk is None:
                 break
             if not chunk:
@@ -350,7 +452,7 @@ class G9Driver:
 
         return data
 
-    def _process_response(self, data):
+    def _process_response(self, data, queue_field_updates=True):
         """
         Process validated response and extract interlock data
 
@@ -376,15 +478,15 @@ class G9Driver:
             'sotsf': self._extract_flags(status_data['sotsf'], 7)
         }
 
-        self._queue_field_update("safetyOutputDataFlags", binary_data["sotdf"])
-        self._queue_field_update("safetyInputDataFlags", binary_data["sitdf"])
-        self._queue_field_update("safetyOutputStatusFlags", binary_data["sotsf"])
-        self._queue_field_update("safetyInputStatusFlags", binary_data["sitsf"])
+        if queue_field_updates:
+            self._queue_status_field_updates(binary_data)
 
         # Store data flags to be logged in interlock.py for web monitor
         debug_data = {
             'sotdf': binary_data['sotdf'],
-            'sitdf': binary_data['sitdf']
+            'sitdf': binary_data['sitdf'],
+            'sotsf': binary_data['sotsf'],
+            'sitsf': binary_data['sitsf']
         }
 
         unit_status_flags = self._extract_flags(status_data['unit_status'], 16)

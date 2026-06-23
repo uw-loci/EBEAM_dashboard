@@ -58,7 +58,11 @@ class InterlocksSubsystem:
             if com_ports is not None:
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
-                    self.log("G9 driver initialized", LogLevel.INFO)
+                    if self.driver.is_connected():
+                        self.log("G9 driver initialized", LogLevel.INFO)
+                    else:
+                        self.log(f"Failed to connect to G9 driver on port {com_ports}", LogLevel.ERROR)
+                        self._set_all_indicators('red')
                 except Exception as e:
                     self.log(f"Failed to connect: {e}", LogLevel.ERROR)
                     self._set_all_indicators('red')
@@ -83,8 +87,11 @@ class InterlocksSubsystem:
             try:
                 if not self.driver:
                     self.driver = g9_driv.G9Driver(com_port, logger=self.logger)
+                    connected = self.driver.is_connected()
                 else:
-                    self.driver.setup_serial(port=com_port)
+                    connected = self.driver.setup_serial(port=com_port)
+                if not connected:
+                    raise ConnectionError(f"Unable to open G9 driver on port {com_port}")
                 # Test connection by getting status
                 self.driver.get_interlock_status()
                 self.com_port = com_port
