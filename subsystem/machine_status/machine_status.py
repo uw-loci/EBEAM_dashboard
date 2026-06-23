@@ -1,6 +1,5 @@
 import math
 import threading
-import time
 import tkinter as tk
 from collections import OrderedDict
 
@@ -32,6 +31,7 @@ STATE_COLORS = {
 POLL_INTERVAL_SECONDS = 0.2
 BEAM_ENERGY_SUPPLIES = ("pos1kv", "neg1kv", "pos20kv", "pos3kv")
 BCON_SUPPLIES = ("pos1kv", "neg1kv")
+_AFTER_SCHEDULING = object()
 
 
 def calculate_display_states(raw_statuses):
@@ -348,13 +348,15 @@ class MachineStatus:
                     self._queue_log(f"Machine status evaluation failed: {error_text}", LogLevel.ERROR)
                     self._last_error = error_text
 
+            if self._stop_event.is_set():
+                break
             self._queue_status_update(raw_statuses)
             self._stop_event.wait(POLL_INTERVAL_SECONDS)
 
     def _queue_log(self, message, level):
         self._queue_after(lambda: self._log(message, level))
 
-    def _queue_after_locked(self, callback):
+    def _queue_after(self, callback):
         if self._stop_event.is_set():
             return None
 
@@ -367,26 +369,38 @@ class MachineStatus:
             if not self._stop_event.is_set():
                 callback()
 
-        after_id = self.parent.after(0, _run)
-        after_id_ref["id"] = after_id
-        self._pending_after_ids.add(after_id)
-        return after_id
-
-    def _queue_after(self, callback):
         try:
-            with self._latest_update_lock:
-                return self._queue_after_locked(callback)
+            after_id = self.parent.after(0, _run)
         except Exception:
             return None
+        after_id_ref["id"] = after_id
+
+        with self._latest_update_lock:
+            if not self._stop_event.is_set():
+                self._pending_after_ids.add(after_id)
+                return after_id
+
+        try:
+            self.parent.after_cancel(after_id)
+        except Exception:
+            pass
+        return None
 
     def _queue_status_update(self, raw_statuses):
+        should_schedule = False
         with self._latest_update_lock:
             self._latest_raw_statuses = raw_statuses
-            if self._ui_after_id is None:
-                try:
-                    self._ui_after_id = self._queue_after_locked(self._apply_latest_statuses)
-                except Exception:
-                    self._ui_after_id = None
+            if self._ui_after_id is None and not self._stop_event.is_set():
+                self._ui_after_id = _AFTER_SCHEDULING
+                should_schedule = True
+
+        if not should_schedule:
+            return
+
+        after_id = self._queue_after(self._apply_latest_statuses)
+        with self._latest_update_lock:
+            if self._ui_after_id is _AFTER_SCHEDULING:
+                self._ui_after_id = after_id
 
     def _apply_latest_statuses(self):
         with self._latest_update_lock:
@@ -424,10 +438,13 @@ class MachineStatus:
             except Exception:
                 pass
 
+        worker = getattr(self, "_worker_thread", None)
         if (
-            hasattr(self, "_worker_thread")
-            and self._worker_thread.is_alive()
-            and threading.current_thread() is not self._worker_thread
+            worker is not None
+            and worker.is_alive()
+            and threading.current_thread() is not worker
         ):
             self._worker_thread.join(timeout=1.0)
+            if self._worker_thread.is_alive():
+                self._log("Machine Status worker did not stop before timeout.", LogLevel.WARNING)
         self._log("Cancelled Machine Status worker.", LogLevel.DEBUG)
