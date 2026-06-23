@@ -14,10 +14,18 @@ class G9Driver:
     RECHEADER = b'\x40\x00\x00'
     FOOTER = b'\x2A\x0D'
     ALWAYS_START_BYTE = b'\x40'
+    NORMAL_RESPONSE_LENGTH = 0xC3
+    ERROR_RESPONSE_LENGTH = 0x09
+    INCORRECT_COMMAND_RESPONSE_LENGTH = 0x06
     EXPECTED_RESPONSE_LENGTH = b'\xC3'
     EXPECTED_DATA_LENGTH = 199 # bytes
+    EXPECTED_END_CODE = b'\x00\x00'
+    EXPECTED_SERVICE_CODE = b'\xCB'
+    ERROR_SERVICE_CODE = b'\x94'
 
     # Offsets for data extraction
+    END_CODE_OFFSET = 4
+    SERVICE_CODE_OFFSET = 6
     OCTD_OFFSET = 7     # Optional Communications Transmission Data
     US_OFFSET = 73      # Unit Status 
     SITDF_OFFSET = 11   # Safety Input Terminal Data Flags
@@ -273,19 +281,17 @@ class G9Driver:
         if data[0:len(self.RECHEADER)] != self.RECHEADER:
             raise ValueError(f"Invalid response header: {data[0:len(self.RECHEADER)].hex()}")
 
-        if data[3:4] != self.EXPECTED_RESPONSE_LENGTH:
-            raise ValueError(f"Incorrect response length indicator: {data[3:4].hex()}")
-
         data.extend(self._read_exact(data[3]))
+
+        self._validate_response_format(data)
+        self._validate_checksum(data)
+        self._raise_protocol_error_response(data)
 
         if len(data) < self.EXPECTED_DATA_LENGTH:
             raise ValueError(f"Incomplete response received: {len(data)} bytes")
 
         if len(data) > self.EXPECTED_DATA_LENGTH:
             raise ValueError(f"Invalid response received: {len(data)} bytes")
-
-        self._validate_response_format(data)
-        self._validate_checksum(data)
 
         return data
 
@@ -363,10 +369,46 @@ class G9Driver:
             raise ValueError(f"Invalid start byte: {data[0:1].hex()}")
         if data[1:3] != b'\x00\x00':
             raise ValueError(f"Invalid response length bytes: {data[1:3].hex()}")
-        if data[3:4] != self.EXPECTED_RESPONSE_LENGTH:
-            raise ValueError(f"Incorrect response length indicator: {data[3:4].hex()}")
+        if len(data) != data[3] + 4:
+            raise ValueError(
+                f"Response length mismatch: indicator {data[3]}, received {len(data)} bytes"
+            )
         if data[-2:] != self.FOOTER:
             raise ValueError(f"Invalid footer: {data[-2:].hex()}")
+
+        if data[3] in (self.ERROR_RESPONSE_LENGTH, self.INCORRECT_COMMAND_RESPONSE_LENGTH):
+            return
+
+        if data[3:4] != self.EXPECTED_RESPONSE_LENGTH:
+            raise ValueError(f"Incorrect response length indicator: {data[3:4].hex()}")
+        if data[self.END_CODE_OFFSET:self.END_CODE_OFFSET + 2] != self.EXPECTED_END_CODE:
+            raise ValueError(
+                "Invalid normal response end code: "
+                f"{data[self.END_CODE_OFFSET:self.END_CODE_OFFSET + 2].hex()}"
+            )
+        if data[self.SERVICE_CODE_OFFSET:self.SERVICE_CODE_OFFSET + 1] != self.EXPECTED_SERVICE_CODE:
+            raise ValueError(
+                "Invalid normal response service code: "
+                f"{data[self.SERVICE_CODE_OFFSET:self.SERVICE_CODE_OFFSET + 1].hex()}"
+            )
+
+    def _raise_protocol_error_response(self, data):
+        """Raise explicit errors for valid non-normal G9 protocol response frames."""
+        response_length = data[3]
+        end_code = data[self.END_CODE_OFFSET:self.END_CODE_OFFSET + 2]
+
+        if response_length == self.ERROR_RESPONSE_LENGTH:
+            service_code = data[self.SERVICE_CODE_OFFSET:self.SERVICE_CODE_OFFSET + 1]
+            if end_code != self.EXPECTED_END_CODE:
+                raise ValueError(f"G9 protocol error response end code: {end_code.hex()}")
+            if service_code != self.ERROR_SERVICE_CODE:
+                raise ValueError(f"G9 protocol error response service code: {service_code.hex()}")
+            raise ValueError("G9 protocol error response received")
+
+        if response_length == self.INCORRECT_COMMAND_RESPONSE_LENGTH:
+            if end_code != self.EXPECTED_END_CODE:
+                raise ValueError(f"G9 incorrect-command response end code: {end_code.hex()}")
+            raise ValueError("G9 incorrect command format response received")
 
     def _calculate_checksum(self, data, bytes):
         """
@@ -393,11 +435,12 @@ class G9Driver:
         if data is None:
             raise ValueError("Invalid inputs to _validate_checksum: Data is None")
 
-        # Extract the received checksum (bytes 195-196)
-        received = data[self.CHECKSUM_HIGH:self.CHECKSUM_LOW + 1] # 1349
+        checksum_offset = len(data) - len(self.FOOTER) - 2
+        if checksum_offset < 0:
+            raise ValueError(f"Response too short for checksum: {len(data)} bytes")
 
-        # Calculate expected checksum (bytes 0-194)
-        expected = self._calculate_checksum(data, 194) #1255
+        received = data[checksum_offset:checksum_offset + 2]
+        expected = self._calculate_checksum(data, checksum_offset - 1)
         if received != expected:
             raise ValueError(
                 f"G9 Checksum failed. "
