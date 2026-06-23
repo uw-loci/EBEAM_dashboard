@@ -71,7 +71,6 @@ class G9Driver:
         self.ser = None
         self._lock = threading.RLock()
         self._serial_timeout = timeout
-        self.setup_serial(port, baudrate, timeout)
         self.last_data = None
         self.input_flags = []
         self._response_queue = queue.Queue(maxsize=1)
@@ -79,8 +78,18 @@ class G9Driver:
         self._last_status = None
         self._logger_event_queue = queue.Queue(maxsize=100)
         self._running = True
-        self._thread = threading.Thread(target=self._communication_thread, daemon=True)
-        self._thread.start()
+        self._thread = None
+        self.setup_serial(port, baudrate, timeout)
+        self._start_communication_thread()
+
+    def _start_communication_thread(self):
+        """Start or restart the background communication worker if needed."""
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                return
+            self._running = True
+            self._thread = threading.Thread(target=self._communication_thread, daemon=True)
+            self._thread.start()
 
     def setup_serial(self, port, baudrate=9600, timeout=0.5):
         """
@@ -112,6 +121,7 @@ class G9Driver:
                     timeout=timeout
                     )
                 self._serial_timeout = timeout
+                self._start_communication_thread()
             except serial.SerialException as e:
                 raise ConnectionError(f"Failed to open G9SP serial port {port}: {e}") from e
 
@@ -206,7 +216,6 @@ class G9Driver:
                 self._update_queue()
                 self._queue_status_field_clears()
                 self._queue_log(f"G9 serial permission error: {e}", "ERROR")
-                self._running = False
                 self._close_serial()
 
             except (serial.SerialException, OSError, TypeError) as e:
