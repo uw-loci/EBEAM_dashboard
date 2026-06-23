@@ -149,6 +149,8 @@ class E5CNModbus:
                         LogLevel.ERROR,
                     )
                 else:
+                    with self.temperatures_lock:
+                        self.temperatures[unit - 1] = None
                     self._log_rate_limited(
                         ("null_temperature", unit),
                         f"Unit {unit} is reading null",
@@ -339,7 +341,7 @@ class E5CNModbus:
             f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)",
             LogLevel.ERROR,
         )
-        return self.SENSOR_ERROR
+        return None
 
     def _log_rate_limited(self, key, message, level=LogLevel.INFO, interval=None):
         interval = self.POLL_ERROR_LOG_INTERVAL if interval is None else interval
