@@ -1002,6 +1002,10 @@ class MainControlPanel:
             if ccs_output_active and not self._ask_bcon_disconnect_confirmation():
                 self._log_info("BCON disconnect canceled; CCS output remains enabled")
                 return False
+            turn_off = getattr(cathode, "turn_off_all_beams", None)
+            if callable(turn_off):
+                self.logger.warning("BCON manual disconnect requested; disabling CCS output")
+                turn_off()
         return True
 
     def _handle_bcon_disconnected(self):
