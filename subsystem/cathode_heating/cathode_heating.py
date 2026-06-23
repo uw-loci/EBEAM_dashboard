@@ -5,6 +5,7 @@ import tkinter.messagebox as msgbox
 import datetime
 import threading
 import time
+from queue import Queue, Empty, Full
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -51,6 +52,7 @@ class CathodeHeatingSubsystem:
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
+    WORKER_LOG_QUEUE_MAXSIZE = 1000
     # Failed deferred 9104 setup is retried by the poller, but not on every poll cycle.
     POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS = 10.0
     OUTPUT_MODE_LABEL_TO_VALUE = {
@@ -84,6 +86,12 @@ class CathodeHeatingSubsystem:
         self.parent = parent
         self.com_ports = com_ports
         self.logger = logger
+        self._main_thread_ident = threading.get_ident()
+        self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
+        self._dropped_worker_log_count = 0
+        self._dropped_worker_log_lock = threading.Lock()
+        self.disable_logging_when_ccs_power_off = False
+        self.ccs_power_on_provider = None
         self.active = active
         self.cathode_datasets = cathode_datasets or {}
 
@@ -115,12 +123,10 @@ class CathodeHeatingSubsystem:
                         # Fast eligibility check at startup from header/first row shape.
                         preview_df = pd.read_csv(file_path, nrows=1)
                         if not has_valid_lut_columns(preview_df.columns):
-                            if self.logger:
-                                self.logger.log(
-                                    f"LUT {filename} has invalid columns; expected beam_current, voltage, heater_current.",
-                                    LogLevel.WARNING,
-                                    tag="CCS",
-                                )
+                            self.log(
+                                f"LUT {filename} has invalid columns; expected beam_current, voltage, heater_current.",
+                                LogLevel.WARNING,
+                            )
                             self.current_options[filename] = None
                             continue
 
@@ -128,28 +134,22 @@ class CathodeHeatingSubsystem:
                         if validate_lut(df):
                             self.current_options[filename] = df
                         else:
-                            if self.logger:
-                                self.logger.log(
-                                    f"LUT {filename} has invalid or empty data; disabling it for predictions.",
-                                    LogLevel.WARNING,
-                                    tag="CCS",
-                                )
+                            self.log(
+                                f"LUT {filename} has invalid or empty data; disabling it for predictions.",
+                                LogLevel.WARNING,
+                            )
                             self.current_options[filename] = None
                     except Exception as e:
-                        if self.logger:
-                            self.logger.log(
-                                f"Failed to load LUT {filename}: {e}",
-                                LogLevel.ERROR,
-                                tag="CCS",
-                            )
+                        self.log(
+                            f"Failed to load LUT {filename}: {e}",
+                            LogLevel.ERROR,
+                        )
                         self.current_options[filename] = None
         else:
-            if self.logger:
-                self.logger.log(
-                    f"LUT directory not found: {lut_dir}",
-                    LogLevel.WARNING,
-                    tag="CCS",
-                )
+            self.log(
+                f"LUT directory not found: {lut_dir}",
+                LogLevel.WARNING,
+            )
 
         self.valid_lut_keys = sorted(
             [name for name, table in self.current_options.items() if isinstance(table, pd.DataFrame)],
@@ -177,8 +177,6 @@ class CathodeHeatingSubsystem:
         self.power_supply_poll_stop = self.power_supply_poll_stop_event
         self.disable_ccs_output_on_bcon_disconnect = True
         self.bcon_is_connected = None
-        self.disable_logging_when_ccs_power_off = False
-        self.ccs_power_on_provider = None
         # Tells the long-lived poller to pause while COM-port updates swap driver objects.
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
@@ -747,12 +745,10 @@ class CathodeHeatingSubsystem:
                         box.set(fallback)
                         self.selected_lut_files[idx] = fallback
                         self.lookup_table_setting[idx] = self.current_options.get(fallback, None)
-                        if self.logger:
-                            self.logger.log(
-                                f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
-                                LogLevel.WARNING,
-                                tag="CCS",
-                            )
+                        self.log(
+                            f"Dataset '{selected}' is invalid for LUT predictions. Reverted to '{fallback}'.",
+                            LogLevel.WARNING,
+                        )
                         self.refresh_predictions(idx)
                     return
                 self.selected_lut_files[idx] = selected
@@ -2381,6 +2377,7 @@ class CathodeHeatingSubsystem:
             and (current_time - self.last_plot_time) >= self.plot_interval
         )
 
+        self.flush_queued_logs()
         # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
             self.temperature_controller.flush_queued_logs()
@@ -3612,8 +3609,76 @@ class CathodeHeatingSubsystem:
     def log(self, message, level=LogLevel.INFO):
         if self._logging_suppressed():
             return
-        if self.logger:
+        if not self.logger:
+            return
+
+        # Tkinter-backed loggers must only be touched from the main GUI thread.
+        # Queue logs from the 9104 poller/background paths and flush them from update_data().
+        if threading.get_ident() == self._main_thread_ident:
+            self.flush_queued_logs()
             self.logger.log(message, level, tag="CCS")
+        else:
+            self._enqueue_worker_log(message, level)
+
+    def _enqueue_worker_log(self, message, level):
+        """Queue one worker log without blocking if the UI drain is stalled."""
+        try:
+            self._log_queue.put_nowait((message, level))
+            return
+        except Full:
+            pass
+
+        try:
+            self._log_queue.get_nowait()
+            self._record_dropped_worker_log()
+        except Empty:
+            pass
+
+        try:
+            self._log_queue.put_nowait((message, level))
+        except Full:
+            self._record_dropped_worker_log()
+            pass
+
+    def _record_dropped_worker_log(self):
+        with self._dropped_worker_log_lock:
+            self._dropped_worker_log_count += 1
+
+    def _pop_dropped_worker_log_count(self):
+        with self._dropped_worker_log_lock:
+            count = self._dropped_worker_log_count
+            self._dropped_worker_log_count = 0
+        return count
+
+    def flush_queued_logs(self, max_messages=200):
+        """Flush queued worker-thread log messages on the calling thread."""
+        if not self.logger:
+            return
+        if self._logging_suppressed():
+            self._pop_dropped_worker_log_count()
+            while True:
+                try:
+                    self._log_queue.get_nowait()
+                except Empty:
+                    break
+            return
+
+        dropped_count = self._pop_dropped_worker_log_count()
+        if dropped_count:
+            self.logger.log(
+                f"Dropped {dropped_count} queued CCS worker log message(s) because the log queue was full.",
+                LogLevel.WARNING,
+                tag="CCS",
+            )
+
+        processed = 0
+        while processed < max_messages:
+            try:
+                message, level = self._log_queue.get_nowait()
+            except Empty:
+                break
+            self.logger.log(message, level, tag="CCS")
+            processed += 1
 
     # Voltage input validation
     def validate_voltage(self, index:int, new_voltage: float):
