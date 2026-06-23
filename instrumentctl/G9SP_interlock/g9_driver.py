@@ -510,7 +510,3 @@ class G9Driver:
             extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
 
         return extracted_bits[:num_bits]
-
-
-    #TODO: Figure out how to handle all the errors (end task)
-    #TODO: add a function to keep track of the driver uptime\
