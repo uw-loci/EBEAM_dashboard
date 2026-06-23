@@ -25,6 +25,9 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class VTRXSubsystem: 
+    PLOT_X_TICK_LABEL_SIZE = 6
+    PLOT_Y_TICK_LABEL_SIZE = 8
+
     ERROR_CODES = {
         0: "VALVE CONTENTION",
         1: "COLD CATHODE FAILURE",
@@ -384,8 +387,7 @@ class VTRXSubsystem:
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
-        self.ax.tick_params(axis='x', labelsize=6, pad=1)
-        self.ax.tick_params(axis='y', labelsize=8, pad=1)
+        self._apply_plot_label_sizes()
         self.ax.grid(True)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
@@ -495,8 +497,15 @@ class VTRXSubsystem:
             start_time = current_time - datetime.timedelta(seconds=self.display_window)
             self.ax.set_xlim(start_time, current_time)
 
+        self._apply_plot_label_sizes()
         self.canvas.draw_idle()
         self.canvas.flush_events()
+
+    def _apply_plot_label_sizes(self):
+        """Keep static and dynamically generated graph labels the same size."""
+        self.ax.tick_params(axis='x', which='both', labelsize=self.PLOT_X_TICK_LABEL_SIZE, pad=1)
+        self.ax.tick_params(axis='y', which='both', labelsize=self.PLOT_Y_TICK_LABEL_SIZE, pad=1)
+        self.ax.yaxis.get_offset_text().set_fontsize(self.PLOT_Y_TICK_LABEL_SIZE)
 
     def start_serial_thread(self):
         self.stop_event.clear()
