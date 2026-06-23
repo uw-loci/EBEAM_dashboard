@@ -82,6 +82,8 @@ class G9Driver:
         self._status_lock = threading.Lock()
         self._last_status = None
         self._logger_event_queue = queue.Queue(maxsize=100)
+        self._dropped_logger_event_count = 0
+        self._dropped_logger_event_lock = threading.Lock()
         self._running = True
         self._stop_event = threading.Event()
         self._thread = None
@@ -261,15 +263,37 @@ class G9Driver:
     def _queue_logger_event(self, event):
         try:
             self._logger_event_queue.put_nowait(event)
+            return
         except queue.Full:
-            try:
-                self._logger_event_queue.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self._logger_event_queue.put_nowait(event)
-            except queue.Full:
-                pass
+            pass
+
+        try:
+            self._logger_event_queue.get_nowait()
+            self._record_dropped_logger_event()
+        except queue.Empty:
+            pass
+
+        try:
+            self._logger_event_queue.put_nowait(event)
+        except queue.Full:
+            self._record_dropped_logger_event()
+
+    def _record_dropped_logger_event(self):
+        with self._dropped_logger_event_lock:
+            self._dropped_logger_event_count += 1
+
+    def _pop_dropped_logger_event_count(self):
+        with self._dropped_logger_event_lock:
+            count = self._dropped_logger_event_count
+            self._dropped_logger_event_count = 0
+        return count
+
+    def _dropped_logger_event_warning(self, dropped_count):
+        return (
+            "log",
+            "WARNING",
+            f"Dropped {dropped_count} queued G9 logger event(s) because the logger event queue was full.",
+        )
 
     def _queue_log(self, message, level="ERROR"):
         self._queue_logger_event(("log", level, message))
@@ -296,7 +320,10 @@ class G9Driver:
         self._queue_field_update("safetyInputStatusFlags", debug_data["sitsf"])
 
     def drain_logger_events(self):
+        dropped_count = self._pop_dropped_logger_event_count()
         events = []
+        if dropped_count:
+            events.append(self._dropped_logger_event_warning(dropped_count))
         while True:
             try:
                 events.append(self._logger_event_queue.get_nowait())
