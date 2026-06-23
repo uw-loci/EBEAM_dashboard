@@ -441,13 +441,15 @@ class G9Driver:
             if self._stop_event.is_set():
                 raise TimeoutError("G9 read stopped")
             if time.monotonic() >= deadline:
+                if data:
+                    break
                 raise TimeoutError("G9 response exceeded transaction timeout")
 
             chunk = ser.read(byte_count - len(data))
             if chunk is None:
-                break
+                continue
             if not chunk:
-                break
+                continue
             data.extend(chunk)
 
         return data
