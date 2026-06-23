@@ -1893,7 +1893,7 @@ class CathodeHeatingSubsystem:
                         )
                         return None
 
-                    self.clamp_temperature_vars[index].set(f"{temperature:.2f} C")
+                    self.clamp_temperature_vars[index].set(f"{temperature:.1f} C")
 
                     # Check for overtemperature condition
                     if temperature > self.overtemp_limit_vars[index].get():
