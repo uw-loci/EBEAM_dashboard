@@ -21,6 +21,7 @@ BEAM_OUTPUT_OFF_COLOR = "#383838"
 BEAM_ACTION_FAILURE_COLOR = "red"
 BEAM_ACTION_NEUTRAL_COLOR = "#383838"
 PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
+VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 
 
 def channel_label(index: int) -> str:
@@ -72,6 +73,9 @@ class MainControlPanel:
         self.subsystems = {}
         self.com_ports = self._get_com_ports()
         self.disable_ccs_output_on_bcon_disconnect = True
+        self.disable_beams_on_vtrx_pressure_exceeded = True
+        self._vtrx_pressure_beam_disable_latched = False
+        self._last_vtrx_pressure_mbar = None
         self.disable_knob_box_logging_when_hvolt_off = True
         self.disable_bcon_logging_when_hvolt_off = True
         self.disable_ccs_logging_when_ccs_power_off = True
@@ -127,6 +131,17 @@ class MainControlPanel:
         self.refresh_beams_estop_current_limit_display()
         self._apply_logging_suppression_settings()
 
+    def wire_vtrx(self, vtrx):
+        """Register the VTRX pressure update callback."""
+        if vtrx is None:
+            return
+
+        setter = getattr(vtrx, "set_pressure_update_callback", None)
+        if callable(setter):
+            setter(self._handle_vtrx_pressure_update)
+        else:
+            self._log_error("VTRX pressure update callback was not wired: API not available")
+
     def wire_beam_pulse(self, beam_pulse):
         """Wire Beam Pulse callbacks and providers."""
         if beam_pulse is None:
@@ -147,6 +162,14 @@ class MainControlPanel:
             )
         else:
             self._log_error("Beam Pulse emission limit providers were not wired: API not available")
+        if hasattr(beam_pulse, "set_vtrx_pressure_guard_providers"):
+            beam_pulse.set_vtrx_pressure_guard_providers(
+                lambda: self.disable_beams_on_vtrx_pressure_exceeded,
+                lambda: self._last_vtrx_pressure_mbar,
+                lambda: VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR,
+            )
+        else:
+            self._log_error("Beam Pulse VTRX pressure guard providers were not wired: API not available")
         if hasattr(beam_pulse, "set_manual_disconnect_callback"):
             beam_pulse.set_manual_disconnect_callback(self._confirm_manual_bcon_disconnect)
         else:
@@ -373,6 +396,7 @@ class MainControlPanel:
         self.create_logging_suppression_toggles(log_settings_frame)
 
         self.create_disable_ccs_output_on_bcon_disconnect_toggle(beam_cathode_frame)
+        self.create_disable_beams_on_vtrx_pressure_exceeded_toggle(beam_cathode_frame)
         self.create_total_max_emission_current_controls(beam_cathode_frame)
         self.create_beams_estop_current_controls(beam_cathode_frame)
 
@@ -848,6 +872,14 @@ class MainControlPanel:
             self.toggle_disable_ccs_output_on_bcon_disconnect,
         )
 
+    def create_disable_beams_on_vtrx_pressure_exceeded_toggle(self, parent_frame):
+        self._create_setting_checkbutton(
+            parent_frame,
+            f"Disable Beams if pressure exceeds {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar",
+            "disable_beams_on_vtrx_pressure_exceeded",
+            self.toggle_disable_beams_on_vtrx_pressure_exceeded,
+        )
+
     def toggle_disable_ccs_output_on_bcon_disconnect(self):
         enabled = self._toggle_setting_value("disable_ccs_output_on_bcon_disconnect")
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
@@ -866,6 +898,13 @@ class MainControlPanel:
                 self._handle_bcon_disconnected()
         state = "enabled" if enabled else "disabled"
         self._log_info(f"Disable CCS Output on BCON Disconnect {state}")
+
+    def toggle_disable_beams_on_vtrx_pressure_exceeded(self):
+        enabled = self._toggle_setting_value("disable_beams_on_vtrx_pressure_exceeded")
+        if not enabled:
+            self._vtrx_pressure_beam_disable_latched = False
+        state = "enabled" if enabled else "disabled"
+        self._log_info(f"Disable Beams if pressure exceeds {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar {state}")
 
     def create_logging_suppression_toggles(self, parent_frame):
         for label, setting_attr, command in (
@@ -1149,6 +1188,44 @@ class MainControlPanel:
             turn_off()
         else:
             self._log_critical("BCON disconnected but Cathode Heating turn_off_all_beams API is unavailable; CCS output may remain enabled")
+
+    def _handle_vtrx_pressure_update(self, pressure_mbar):
+        try:
+            pressure = float(pressure_mbar)
+        except (TypeError, ValueError):
+            return
+
+        if not math.isfinite(pressure):
+            return
+
+        self._last_vtrx_pressure_mbar = pressure
+
+        if not self.disable_beams_on_vtrx_pressure_exceeded:
+            return
+
+        if pressure <= VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR:
+            self._vtrx_pressure_beam_disable_latched = False
+            return
+
+        if self._vtrx_pressure_beam_disable_latched:
+            return
+
+        self._vtrx_pressure_beam_disable_latched = True
+        self._log_critical(
+            f"VTRX pressure exceeded 1e-5 mbar ({pressure:g} mbar); disabling all beams."
+        )
+
+        beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
+        disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
+        if callable(disable_all_beams):
+            try:
+                disable_all_beams()
+            except Exception as e:
+                self._log_critical(f"VTRX pressure beam disable failed: {e}")
+        else:
+            self._log_critical(
+                "VTRX pressure exceeded threshold but Beam Pulse disable_all_beams API is unavailable"
+            )
 
     def _set_armed_ui(self, armed, reset=False):
         if hasattr(self, "beams_ready_button"):

@@ -478,6 +478,7 @@ class EBEAMSystemDashboard:
 
         if hasattr(self, "main_control"):
             self.main_control.subsystems = self.subsystems
+            self.main_control.wire_vtrx(self.subsystems.get('Vacuum System'))
             self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
 
         laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()

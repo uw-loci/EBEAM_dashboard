@@ -45,6 +45,7 @@ Main Control is a two-tab subpanel.
 - Launch Log Post-processor button.
 - UI log-level and file log-level dropdowns.
 - Disable CCS Output on BCON Disconnect toggle.
+- Disable Beams if pressure exceeds 10^-5 mbar toggle.
 - Total Max Emission Current control.
 - 20kV Bertan Current Limit for E-Stop Trigger control.
 - F1 keyboard shortcut hint.
@@ -57,9 +58,11 @@ Main Control is a two-tab subpanel.
 - `create_beam_output_status_panel()` builds the Beam A/B/C output lines and
   latest-action line.
 - `wire_beam_pulse()` registers Main Control as the callback target for Beam
-  Pulse status updates, gives Beam Pulse the emission-limit providers, and wires
-  BCON disconnect notifications into Cathode Heating.
+  Pulse status updates, gives Beam Pulse the emission-limit and VTRX pressure
+  guard providers, and wires BCON disconnect notifications into Cathode Heating.
 - `wire_beam_energy()` registers the Beam Energy +20 kV current E-stop callback.
+- `wire_vtrx()` registers the VTRX pressure callback used by the high-pressure
+  beam-disable guard.
 - `create_com_port_frame()`, `apply_com_port_changes()`, and related helpers
   manage COM-port selection through the parent Dashboard.
 - `set_total_max_emission_current_limit()` validates and persists the emission
@@ -84,6 +87,7 @@ Main Control is a two-tab subpanel.
 | `_on_channel_enable_status_update()` | Mirrors live BCON channel enable state into CH A/B/C buttons and beam-button availability. |
 | `_handle_action_feedback()` | Converts Beam Pulse action callbacks into the latest-action status line. |
 | `_handle_bcon_disconnected()` | Disables CCS output through Cathode Heating when BCON disconnects and the guard is enabled. |
+| `_handle_vtrx_pressure_update()` | Disables Beam Pulse output on the first VTRX pressure reading above 1e-5 mbar when the guard is enabled. |
 
 ## Subsystem Relationships
 
@@ -119,6 +123,9 @@ Main Control uses Cathode Heating in three ways:
 - It exposes `get_predicted_emission_currents_ma()` to Beam Pulse so Beam Pulse
   can block output commands that would exceed the configured total predicted
   emission-current limit.
+- It exposes the VTRX pressure guard setting, threshold, and latest valid VTRX
+  pressure to Beam Pulse so output commands are blocked while pressure is above
+  1e-5 mbar.
 - During BEAMS E-STOP, Main Control calls `turn_off_all_beams()` to turn off the
   cathode heating power-supply outputs.
 - When the BCON-disconnect guard is enabled, Main Control also calls
@@ -135,10 +142,17 @@ registers a callback with Beam Energy through `set_beams_estop_callback()`. When
 Beam Energy detects that +20 kV current has reached the configured beams E-stop
 current limit, it calls Main Control's BEAMS E-STOP path.
 
+### VTRX
+
+VTRX reports each valid pressure reading to Main Control. When the high-pressure
+beam-disable guard is enabled, Main Control calls Beam Pulse `disable_all_beams()`
+on the first pressure reading above 1e-5 mbar and waits for pressure to recover
+to 1e-5 mbar or below before it can trigger again.
+
 ### Dashboard
 
 Dashboard creates the Main Control panel, then assigns the shared subsystem
-dictionary and wires Beam Pulse and Beam Energy after those subsystems are
+dictionary and wires VTRX, Beam Pulse, and Beam Energy after those subsystems are
 created. Main Control also delegates layout saving and COM-port updates back to
 Dashboard callbacks.
 
@@ -152,6 +166,9 @@ Dashboard callbacks.
   BCON channel is enabled.
 - Activate Enabled Beams is delegated to Beam Pulse, which filters disabled channels and
   performs output checks before sending the synchronized start to BCON.
+- Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
+  before BCON output commands when the VTRX pressure guard is enabled and the
+  latest valid VTRX pressure is greater than 1e-5 mbar.
 - BEAMS E-STOP is the Main Control path that combines BCON stop, Cathode Heating
   output shutdown, Beam Pulse disarm, and Main Control UI reset.
 - Disable CCS Output on BCON Disconnect is a runtime Main Control setting. When
@@ -159,3 +176,7 @@ Dashboard callbacks.
   manual BCON disconnect asks for confirmation before it shuts those outputs
   down. When disabled, BCON disconnects no longer drive CCS output shutdown or
   block cathode output enable requests.
+- Disable Beams if pressure exceeds 10^-5 mbar is a runtime Main Control
+  setting. When enabled, a valid VTRX pressure reading greater than 1e-5 mbar
+  logs a critical message and disables Beam Pulse output once until pressure
+  recovers to 1e-5 mbar or below.
