@@ -72,8 +72,8 @@ Main Control is a two-tab subpanel.
 - `set_vtrx_ccs_disable_grace_period()` validates and persists the VTRX
   high-pressure CCS shutdown grace period through `usr/main_control_config.py`.
 - `set_beams_estop_current_limit()` validates the operator-entered +20 kV
-  E-stop current limit and delegates the numeric update to Beam Energy for
-  persistence and runtime monitoring.
+  E-stop current limit, persists it through `usr/main_control_config.py`, and
+  applies the runtime value to Beam Energy.
 - `toggle_disable_ccs_output_on_bcon_disconnect()` updates the runtime
   BCON/CCS guard setting and propagates it to Cathode Heating.
 
@@ -143,12 +143,12 @@ Main Control uses Cathode Heating in three ways:
 
 ### Beam Energy
 
-Beam Energy owns Knob Box monitoring and its warning/E-stop thresholds. Main
-Control hosts the operator-facing 20kV Bertan Current Limit for E-Stop Trigger
-control, validates the entry, delegates the numeric setting to Beam Energy, and
-registers a callback with Beam Energy through `set_beams_estop_callback()`. When
-Beam Energy detects that +20 kV current has reached the configured beams E-stop
-current limit, it calls Main Control's BEAMS E-STOP path.
+Beam Energy owns Knob Box monitoring and warning thresholds. Main Control owns
+the 20kV Bertan Current Limit for E-Stop Trigger setting: it validates and
+persists the entry, sends the numeric value to Beam Energy, and registers a
+callback with Beam Energy through `set_beams_estop_callback()`. Beam Energy uses
+the Main Control-provided value during each Knob Box poll; when +20 kV current
+reaches that value, it calls Main Control's BEAMS E-STOP path.
 
 ### VTRX
 

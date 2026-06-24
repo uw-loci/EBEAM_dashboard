@@ -9,9 +9,13 @@ from tkinter import messagebox, ttk
 import serial.tools.list_ports
 
 from usr.main_control_config import (
+    BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA,
+    BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA,
     DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
+    load_beams_estop_current_limit_ma,
     load_total_max_emission_current,
     load_vtrx_ccs_disable_grace_period_s,
+    save_beams_estop_current_limit_ma,
     save_total_max_emission_current,
     save_vtrx_ccs_disable_grace_period_s,
 )
@@ -97,8 +101,11 @@ class MainControlPanel:
         self.total_max_emission_current_value_var = tk.StringVar(
             value=f"{self.total_max_emission_current_ma:g}"
         )
+        self.beams_estop_current_limit_ma = load_beams_estop_current_limit_ma(logger=self.logger)
         self.beams_estop_current_entry_var = tk.StringVar(value="")
-        self.beams_estop_current_value_var = tk.StringVar(value="--")
+        self.beams_estop_current_value_var = tk.StringVar(
+            value=f"{self.beams_estop_current_limit_ma:g}"
+        )
         self.vtrx_ccs_disable_grace_period_entry_var = tk.StringVar(value="")
         self.vtrx_ccs_disable_grace_period_title_var = tk.StringVar(
             value=(
@@ -149,6 +156,7 @@ class MainControlPanel:
                     "20kV E-Stop Current Limit exceeded: All Beams Disabled"
                 )
             )
+        self._apply_beams_estop_current_limit_to_beam_energy(beam_energy)
         self.refresh_beams_estop_current_limit_display()
         self._apply_logging_suppression_settings()
 
@@ -863,9 +871,6 @@ class MainControlPanel:
 
         return duration_s
 
-    def _get_beam_energy_for_estop_limit(self):
-        return getattr(self, "subsystems", {}).get("Beam Energy")
-
     def _format_beams_estop_current_limit_ma(self, value):
         try:
             limit_ma = float(value)
@@ -877,21 +882,27 @@ class MainControlPanel:
 
         return f"{limit_ma:g}"
 
-    def refresh_beams_estop_current_limit_display(self):
-        beam_energy = self._get_beam_energy_for_estop_limit()
-        getter = getattr(beam_energy, "get_beams_estop_current_limit_ma", None)
-        if callable(getter):
-            try:
-                limit_ma = getter()
-            except Exception:
-                limit_ma = None
-            self.beams_estop_current_value_var.set(
-                self._format_beams_estop_current_limit_ma(limit_ma)
-            )
-            return
+    def _apply_beams_estop_current_limit_to_beam_energy(self, beam_energy=None):
+        if beam_energy is None:
+            beam_energy = getattr(self, "subsystems", {}).get("Beam Energy")
+        setter = getattr(beam_energy, "set_beams_estop_current_limit_ma", None)
+        if not callable(setter):
+            return False
 
+        try:
+            setter(self.beams_estop_current_limit_ma)
+        except Exception as e:
+            self._log_warning(
+                f"20kV Bertan Current Limit for E-Stop Trigger: Beam Energy update failed ({e})."
+            )
+            return False
+        return True
+
+    def refresh_beams_estop_current_limit_display(self):
         self.beams_estop_current_value_var.set(
-            self._format_beams_estop_current_limit_ma(None)
+            self._format_beams_estop_current_limit_ma(
+                getattr(self, "beams_estop_current_limit_ma", None)
+            )
         )
 
     def _create_setting_checkbutton(self, parent_frame, label, setting_attr, command):
@@ -1082,56 +1093,42 @@ class MainControlPanel:
     def set_beams_estop_current_limit(self):
         """UI callback for committing the Beam Energy +20kV Beams E-STOP current limit."""
         context = "20kV Bertan Current Limit for E-Stop Trigger"
-        beam_energy = self._get_beam_energy_for_estop_limit()
-        setter = getattr(beam_energy, "set_beams_estop_current_limit_ma", None)
-        if not callable(setter):
-            message = f"{context}: Beam Energy is not available."
-            self._log_error(message)
-            messagebox.showerror("Unavailable", message)
-            self.refresh_beams_estop_current_limit_display()
+        new_value = self._read_non_negative_setting_value(
+            self.beams_estop_current_entry_var,
+            context,
+            "limit",
+            "mA",
+        )
+        if new_value is None:
             return
 
-        raw_text = str(self.beams_estop_current_entry_var.get()).strip()
-        if not raw_text:
-            message = f"{context}: please enter a limit value in mA."
+        if not BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA <= new_value <= BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA:
+            message = (
+                f"{context}: value must be between {BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA:g}mA "
+                f"and {BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA:g}mA."
+            )
             self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
             return
 
-        try:
-            new_value = float(raw_text)
-        except ValueError:
-            message = f"{context}: please enter a valid number in mA."
-            self._log_warning(message)
-            messagebox.showerror("Invalid Input", message)
-            return
-
-        try:
-            saved = setter(new_value)
-        except ValueError as e:
-            message = f"{context}: {e}"
-            self._log_warning(message)
-            messagebox.showerror("Invalid Input", message)
-            return
-
+        self.beams_estop_current_limit_ma = new_value
         self.beams_estop_current_entry_var.set("")
         self.refresh_beams_estop_current_limit_display()
+        beam_energy_updated = self._apply_beams_estop_current_limit_to_beam_energy()
 
-        if not saved:
+        if not save_beams_estop_current_limit_ma(new_value, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
             self._log_warning(message)
             messagebox.showwarning("Save Failed", message)
             return
 
-        getter = getattr(beam_energy, "get_beams_estop_current_limit_ma", None)
-        try:
-            limit_ma = float(getter() if callable(getter) else new_value)
-        except Exception:
-            self._log_info(f"{context}: setting successfully changed.")
-        else:
-            self._log_info(
-                f"{context}: setting successfully changed to {limit_ma:g}mA."
-            )
+        if not beam_energy_updated:
+            self._log_warning(f"{context}: setting saved but Beam Energy is not available.")
+            return
+
+        self._log_info(
+            f"{context}: setting successfully changed to {new_value:g}mA."
+        )
 
     def create_post_processor_button(self, parent_frame):
         """Create a button to launch the standalone post-processor application"""
