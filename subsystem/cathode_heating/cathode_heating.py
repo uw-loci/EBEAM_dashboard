@@ -1970,6 +1970,24 @@ class CathodeHeatingSubsystem:
             LogLevel.INFO,
         )
 
+    def _update_power_supply_connection_state_from_readback(self, index, readback):
+        """Own 9104 connection transition logging from the Tk update loop."""
+        if not 0 <= index < len(self.power_supply_valid_connections):
+            return
+
+        voltage = readback.get("voltage")
+        current = readback.get("current")
+        mode = readback.get("mode")
+
+        if readback.get("connected") and voltage is not None and current is not None:
+            self._log_valid_power_supply_connection(index, voltage, current, mode)
+            return
+
+        # A busy read means another command owns the serial lock temporarily; do not
+        # turn a known-good connection into a recovery candidate for that case.
+        if readback.get("error") != "busy":
+            self._clear_power_supply_valid_connection(index)
+
     def _log_power_supply_readback_state(self, index, error):
         """Log power-supply readback problems at an operator-level cadence, with DEBUG repeats."""
         if not 0 <= index < len(self.power_supply_last_logged_errors):
@@ -2090,7 +2108,6 @@ class CathodeHeatingSubsystem:
 
                 ps = self.power_supplies[index] if index < len(self.power_supplies) else None
                 if ps is None:
-                    self._clear_power_supply_valid_connection(index)
                     self._set_power_supply_readback(index, error="not_initialized")
                     continue
 
@@ -2101,7 +2118,6 @@ class CathodeHeatingSubsystem:
                         self._set_power_supply_readback(index, error="busy")
                         continue
                     if not connected:
-                        self._clear_power_supply_valid_connection(index)
                         self._set_power_supply_readback(index, error="disconnected")
                         # Reconfiguration replaces objects itself, so only normal polling reconnects here.
                         if not self.power_supply_reconfiguring.is_set():
@@ -2110,10 +2126,8 @@ class CathodeHeatingSubsystem:
 
                     voltage, current, mode = ps.get_voltage_current_mode()
                     if voltage is None or current is None:
-                        self._clear_power_supply_valid_connection(index)
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
-                        self._log_valid_power_supply_connection(index, voltage, current, mode)
                         self._set_power_supply_readback(
                             index,
                             voltage=voltage,
@@ -2122,7 +2136,6 @@ class CathodeHeatingSubsystem:
                             connected=True,
                         )
                 except Exception as exc:
-                    self._clear_power_supply_valid_connection(index)
                     self._set_power_supply_readback(index, error=str(exc))
 
             elapsed = time.monotonic() - loop_start
@@ -2193,6 +2206,7 @@ class CathodeHeatingSubsystem:
 
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 readback = self._get_power_supply_readback(i)
+                self._update_power_supply_connection_state_from_readback(i, readback)
                 voltage = readback.get("voltage")
                 current = readback.get("current")
                 mode = readback.get("mode")
@@ -2229,6 +2243,7 @@ class CathodeHeatingSubsystem:
                         mark_status_unavailable=mark_status_unavailable,
                     )
             else:
+                self._clear_power_supply_valid_connection(i)
                 self._log_power_supply_readback_state(i, "not_initialized")
                 self._mark_power_supply_unavailable(i)
 
