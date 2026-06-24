@@ -71,5 +71,5 @@ def save_total_max_emission_current(value, filepath=CONFIG_FILE, logger=None):
         _log(logger, "error", f"Error saving Main Control emission limit: {e}")
         return False
 
-    _log(logger, "info", f"Main Control emission limit saved to {filepath}.")
+    _log(logger, "debug", f"Main Control emission limit saved to {filepath}.")
     return True

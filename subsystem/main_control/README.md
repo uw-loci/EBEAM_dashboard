@@ -44,8 +44,9 @@ Main Control is a two-tab subpanel.
 - Save Layout button.
 - Launch Log Post-processor button.
 - UI log-level and file log-level dropdowns.
-- Total Max Emission Current control.
 - Disable CCS Output on BCON Disconnect toggle.
+- Total Max Emission Current control.
+- 20kV Bertan Current Limit for E-Stop Trigger control.
 - F1 keyboard shortcut hint.
 
 ## Code Structure
@@ -63,6 +64,9 @@ Main Control is a two-tab subpanel.
   manage COM-port selection through the parent Dashboard.
 - `set_total_max_emission_current_limit()` validates and persists the emission
   limit through `usr/main_control_config.py`.
+- `set_beams_estop_current_limit()` validates the operator-entered +20 kV
+  E-stop current limit and delegates the numeric update to Beam Energy for
+  persistence and runtime monitoring.
 - `toggle_disable_ccs_output_on_bcon_disconnect()` updates the runtime
   BCON/CCS guard setting and propagates it to Cathode Heating.
 
@@ -125,9 +129,11 @@ Main Control uses Cathode Heating in three ways:
 ### Beam Energy
 
 Beam Energy owns Knob Box monitoring and its warning/E-stop thresholds. Main
-Control registers a callback with Beam Energy through `set_beams_estop_callback()`.
-When Beam Energy detects that +20 kV current has reached the configured beams
-E-stop current limit, it calls Main Control's BEAMS E-STOP path.
+Control hosts the operator-facing 20kV Bertan Current Limit for E-Stop Trigger
+control, validates the entry, delegates the numeric setting to Beam Energy, and
+registers a callback with Beam Energy through `set_beams_estop_callback()`. When
+Beam Energy detects that +20 kV current has reached the configured beams E-stop
+current limit, it calls Main Control's BEAMS E-STOP path.
 
 ### Dashboard
 

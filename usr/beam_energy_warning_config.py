@@ -116,18 +116,6 @@ def normalize_warning_limits(raw_limits, logger=None):
 
             candidate[field] = value
 
-        if supply_key == POS20KV_SUPPLY_KEY:
-            # Preserve older configs by clamping Max I below the newly-added E-STOP limit.
-            estop_limit = candidate[BEAMS_ESTOP_CURRENT_FIELD]
-            if candidate["max_current_ma"] > estop_limit:
-                _log(
-                    logger,
-                    "warning",
-                    "+20kV Max I warning limit exceeds Beams E-STOP current "
-                    f"limit. Clamping Max I to {estop_limit:g}mA.",
-                )
-                candidate["max_current_ma"] = estop_limit
-
         if candidate["max_voltage_v"] < candidate["min_voltage_v"]:
             _log(
                 logger,
@@ -173,5 +161,5 @@ def save_beam_energy_warning_limits(limits, filepath=CONFIG_FILE, logger=None):
         _log(logger, "error", f"Error saving Beam Energy warning limits: {e}")
         return False
 
-    _log(logger, "info", f"Beam Energy warning limits saved to {filepath}.")
+    _log(logger, "debug", f"Beam Energy warning limits saved to {filepath}.")
     return True
