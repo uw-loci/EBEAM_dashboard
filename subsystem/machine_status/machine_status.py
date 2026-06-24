@@ -27,6 +27,11 @@ STATE_COLORS = {
     STATE_GREEN: "green",
     STATE_RED: "red",
 }
+STATE_LOG_TEXT = {
+    STATE_GRAY: "In Progress",
+    STATE_GREEN: "Ready",
+    STATE_RED: "Warning",
+}
 
 POLL_INTERVAL_SECONDS = 0.2
 BEAM_ENERGY_SUPPLIES = ("pos1kv", "neg1kv", "pos20kv", "pos3kv")
@@ -416,12 +421,12 @@ class MachineStatus:
             if label is not None:
                 label.config(bg=STATE_COLORS[state])
 
-        for name, previous, current, level in build_status_transition_logs(
+        for name, _previous, current, level in build_status_transition_logs(
             self._previous_display_states,
             display_states,
         ):
-            previous_text = previous if previous is not None else "unknown"
-            self._log(f"{name}: {previous_text} -> {current}", level)
+            status_text = STATE_LOG_TEXT.get(current, current)
+            self._log(f"{name} Status Indicator set to: {status_text}", level)
 
         self._previous_display_states = display_states
 
@@ -444,7 +449,7 @@ class MachineStatus:
             and worker.is_alive()
             and threading.current_thread() is not worker
         ):
-            self._worker_thread.join(timeout=1.0)
+            self._worker_thread.join(timeout=0.25)
             if self._worker_thread.is_alive():
                 self._log("Machine Status worker did not stop before timeout.", LogLevel.WARNING)
         self._log("Cancelled Machine Status worker.", LogLevel.DEBUG)
