@@ -451,10 +451,7 @@ class MainControlPanel:
             command=self.set_vtrx_ccs_disable_grace_period,
             value_var=self.vtrx_ccs_disable_grace_period_value_var,
             enable_setting_attr="vtrx_ccs_pressure_shutdown_enabled",
-            enable_command=lambda: self._toggle_value_setting_enabled(
-                "vtrx_ccs_pressure_shutdown_enabled",
-                "Disable CCS Output after VTRX pressure grace period",
-            ),
+            enable_command=lambda: self._toggle_value_setting_enabled("vtrx_ccs_pressure_shutdown_enabled"),
         )
         self._create_value_setting_controls(
             beam_cathode_frame,
@@ -465,10 +462,7 @@ class MainControlPanel:
             command=self.set_total_max_emission_current_limit,
             value_var=self.total_max_emission_current_value_var,
             enable_setting_attr="total_max_emission_current_limit_enabled",
-            enable_command=lambda: self._toggle_value_setting_enabled(
-                "total_max_emission_current_limit_enabled",
-                "Total Max Emission Current limit",
-            ),
+            enable_command=lambda: self._toggle_value_setting_enabled("total_max_emission_current_limit_enabled"),
         )
         self._create_value_setting_controls(
             beam_cathode_frame,
@@ -479,10 +473,7 @@ class MainControlPanel:
             command=self.set_beams_estop_current_limit,
             value_var=self.beams_estop_current_value_var,
             enable_setting_attr="beams_estop_current_limit_enabled",
-            enable_command=lambda: self._toggle_value_setting_enabled(
-                "beams_estop_current_limit_enabled",
-                "20kV Bertan Current Limit for E-Stop Trigger",
-            ),
+            enable_command=lambda: self._toggle_value_setting_enabled("beams_estop_current_limit_enabled"),
         )
 
         # Add F1 help hint
@@ -979,30 +970,17 @@ class MainControlPanel:
             getattr(self, "beams_estop_current_limit_ma", None)
         )
 
-        _set_var(
-            "vtrx_ccs_disable_grace_period_title_var",
-            f"Disable CCS Output if pressure exceeds "
-            f"{VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR:g} mbar for "
-            f"{grace_period_s:g}s",
-        )
+        _set_var("vtrx_ccs_disable_grace_period_title_var", self._vtrx_ccs_shutdown_title())
         _set_var(
             "vtrx_ccs_disable_grace_period_value_var",
             f"{grace_period_s:g}",
         )
-        _set_var(
-            "total_max_emission_current_title_var",
-            f"Do not activate Beams if Predicted Emission Current exceeds "
-            f"{total_emission_ma}mA",
-        )
+        _set_var("total_max_emission_current_title_var", self._emission_activation_title())
         _set_var(
             "total_max_emission_current_value_var",
             total_emission_ma,
         )
-        _set_var(
-            "beams_estop_current_limit_title_var",
-            f"Trigger E-Stop if 20kV Bertan exceeds "
-            f"{beams_estop_ma}mA",
-        )
+        _set_var("beams_estop_current_limit_title_var", self._beams_estop_title())
         _set_var(
             "beams_estop_current_value_var",
             beams_estop_ma,
@@ -1010,6 +988,36 @@ class MainControlPanel:
 
     def refresh_beams_estop_current_limit_display(self):
         self.refresh_value_setting_displays()
+
+    def _vtrx_ccs_shutdown_title(self):
+        duration_s = self._coerce_vtrx_ccs_disable_grace_period_s(
+            getattr(self, "vtrx_ccs_disable_grace_period_s", None)
+        )
+        return (
+            f"Disable CCS Output if pressure exceeds "
+            f"{VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR:g} mbar for {duration_s:g}s"
+        )
+
+    def _emission_activation_title(self):
+        limit_ma = self._format_beams_estop_current_limit_ma(
+            getattr(self, "total_max_emission_current_ma", None)
+        )
+        return f"Do not activate Beams if Predicted Emission Current exceeds {limit_ma}mA"
+
+    def _beams_estop_title(self):
+        limit_ma = self._format_beams_estop_current_limit_ma(
+            getattr(self, "beams_estop_current_limit_ma", None)
+        )
+        return f"Trigger E-Stop if 20kV Bertan exceeds {limit_ma}mA"
+
+    def _value_setting_title(self, setting_attr):
+        if setting_attr == "vtrx_ccs_pressure_shutdown_enabled":
+            return self._vtrx_ccs_shutdown_title()
+        if setting_attr == "total_max_emission_current_limit_enabled":
+            return self._emission_activation_title()
+        if setting_attr == "beams_estop_current_limit_enabled":
+            return self._beams_estop_title()
+        return str(setting_attr)
 
     def _create_setting_checkbutton(self, parent_frame, label, setting_attr, command):
         if not hasattr(self, "_setting_checkbutton_vars"):
@@ -1055,7 +1063,7 @@ class MainControlPanel:
             return True
         return getattr(self, "_vtrx_ccs_disable_timer_started_at", None) is None
 
-    def _toggle_value_setting_enabled(self, setting_attr, label):
+    def _toggle_value_setting_enabled(self, setting_attr):
         enabled = self._toggle_setting_value(setting_attr)
         if setting_attr == "vtrx_ccs_pressure_shutdown_enabled" and not enabled:
             self._clear_vtrx_ccs_disable_timer()
@@ -1063,7 +1071,7 @@ class MainControlPanel:
         if setting_attr == "beams_estop_current_limit_enabled":
             self._apply_beams_estop_current_limit_to_beam_energy()
         state = "enabled" if enabled else "disabled"
-        self._log_info(f"{label} {state}")
+        self._log_info(f"{self._value_setting_title(setting_attr)} {state}")
 
     def toggle_disable_ccs_output_on_bcon_disconnect(self):
         enabled = self._toggle_setting_value("disable_ccs_output_on_bcon_disconnect")
@@ -1167,7 +1175,7 @@ class MainControlPanel:
 
     def set_total_max_emission_current_limit(self):
         """UI callback for committing the Main Control total emission limit."""
-        context = "Total Max Emission Current"
+        context = "Do not activate Beams if Predicted Emission Current"
         new_value = self._read_non_negative_setting_value(
             self.total_max_emission_current_entry_var,
             context,
@@ -1188,12 +1196,12 @@ class MainControlPanel:
             messagebox.showwarning("Save Failed", message)
         else:
             self._log_info(
-                f"{context}: setting successfully changed to {new_value:g}mA."
+                f"{self._emission_activation_title()}: setting successfully changed."
             )
 
     def set_vtrx_ccs_disable_grace_period(self):
         """UI callback for committing the CCS VTRX pressure grace period."""
-        context = "Disable CCS Output on VTRX Pressure"
+        context = "Disable CCS Output if pressure exceeds VTRX limit"
         new_value = self._read_non_negative_setting_value(
             self.vtrx_ccs_disable_grace_period_entry_var,
             context,
@@ -1213,12 +1221,12 @@ class MainControlPanel:
             messagebox.showwarning("Save Failed", message)
         else:
             self._log_info(
-                f"{context}: setting successfully changed to {new_value:g}s."
+                f"{self._vtrx_ccs_shutdown_title()}: setting successfully changed."
             )
 
     def set_beams_estop_current_limit(self):
         """UI callback for committing the Beam Energy +20kV Beams E-STOP current limit."""
-        context = "20kV Bertan Current Limit for E-Stop Trigger"
+        context = "Trigger E-Stop if 20kV Bertan exceeds"
         new_value = self._read_non_negative_setting_value(
             self.beams_estop_current_entry_var,
             context,
@@ -1253,7 +1261,7 @@ class MainControlPanel:
             return
 
         self._log_info(
-            f"{context}: setting successfully changed to {new_value:g}mA."
+            f"{self._beams_estop_title()}: setting successfully changed."
         )
 
     def create_post_processor_button(self, parent_frame):
