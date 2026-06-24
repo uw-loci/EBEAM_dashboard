@@ -363,7 +363,7 @@ class MainControlPanel:
         section_frame.pack(side=tk.TOP, anchor='nw', fill=tk.X)
 
         general_frame = ttk.LabelFrame(section_frame, text="General", padding=(8, 6))
-        general_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
+        general_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12))
 
         log_settings_frame = ttk.LabelFrame(
             section_frame,
@@ -373,16 +373,16 @@ class MainControlPanel:
 
         beam_cathode_frame = ttk.LabelFrame(
             section_frame,
-            text="Beam and Cathode Enable Settings",
+            text="Beam and Cathode Shutoff Settings",
             padding=(8, 6),
         )
-        beam_cathode_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
-        log_settings_frame.pack(side=tk.LEFT, anchor='nw', pady=5)
+        beam_cathode_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12))
+        log_settings_frame.pack(side=tk.LEFT, anchor='nw',)
 
         self.create_com_port_frame(general_frame)
 
         save_layout_frame = ttk.Frame(general_frame)
-        save_layout_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        save_layout_frame.pack(side=tk.TOP, anchor='nw', pady=5)
         ttk.Button(
             save_layout_frame,
             text="Save Layout",
@@ -745,10 +745,10 @@ class MainControlPanel:
             section,
             text="Total Max Emission Current",
             font=("Segoe UI", 8, "bold"),
-        ).pack(anchor=tk.W, pady=(0, 2))
+        ).pack(anchor=tk.W)
 
         row = ttk.Frame(section)
-        row.pack(fill=tk.X, pady=(2, 0))
+        row.pack(fill=tk.X)
 
         ttk.Label(row, text="Max Emission I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(
@@ -780,10 +780,10 @@ class MainControlPanel:
             section,
             text="20kV Bertan Current Limit for E-Stop Trigger",
             font=("Segoe UI", 8, "bold"),
-        ).pack(anchor=tk.W, pady=(0, 2))
+        ).pack(anchor=tk.W)
 
         row = ttk.Frame(section)
-        row.pack(fill=tk.X, pady=(2, 0))
+        row.pack(fill=tk.X)
 
         ttk.Label(row, text="Max 20kV I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(
@@ -849,7 +849,7 @@ class MainControlPanel:
             variable=variable,
             command=command,
         )
-        button.pack(side=tk.TOP, anchor='nw', padx=5, pady=(6, 2))
+        button.pack(side=tk.TOP, anchor='nw', pady=2)
 
     def _toggle_setting_value(self, setting_attr):
         current = bool(getattr(self, setting_attr))
@@ -1049,7 +1049,7 @@ class MainControlPanel:
     def create_post_processor_button(self, parent_frame):
         """Create a button to launch the standalone post-processor application"""
         post_processor_frame = ttk.Frame(parent_frame)
-        post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
+        post_processor_frame.pack(side=tk.TOP, anchor='nw', pady=5)
 
         ttk.Button(
             post_processor_frame,
