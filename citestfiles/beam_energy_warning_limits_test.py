@@ -86,6 +86,7 @@ def make_beam_energy():
     beam_energy._radiation_indicator_sent = None
     beam_energy._radiation_indicator_missing_callback_state = None
     beam_energy.beams_estop_callback = None
+    beam_energy.beams_estop_current_limit_enabled = True
     return beam_energy
 
 
@@ -143,6 +144,23 @@ class BeamEnergyWarningLimitSetterTest(unittest.TestCase):
 
         beam_energy.apply_warning_indicators(pos20kv_index, 0, 0.5)
         self.assertEqual(triggered, [True])
+
+    def test_pos20kv_current_estop_can_be_disabled(self):
+        beam_energy = make_beam_energy()
+        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
+        refreshed_indexes = []
+        triggered = []
+        beam_energy.refresh_warning_indicators = refreshed_indexes.append
+        beam_energy.beams_estop_callback = lambda: triggered.append(True)
+        beam_energy.set_beams_estop_current_limit_ma(0.5)
+
+        result = beam_energy.set_beams_estop_current_limit_enabled(False)
+        beam_energy.apply_warning_indicators(pos20kv_index, 0, 0.5)
+
+        self.assertTrue(result)
+        self.assertFalse(beam_energy.beams_estop_current_limit_enabled)
+        self.assertEqual(triggered, [])
+        self.assertEqual(refreshed_indexes, [pos20kv_index, pos20kv_index])
 
     def test_pos20kv_max_current_warning_accepts_values_above_or_below_estop(self):
         pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
