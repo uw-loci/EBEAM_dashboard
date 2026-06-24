@@ -248,6 +248,33 @@ class MachineStatusTest(unittest.TestCase):
 
         self.assertFalse(raw["Beams Ready"])
 
+    def test_disabled_activation_emission_limit_does_not_change_cathode_heating_readiness(self):
+        cathode = FakeCathodeHeating()
+        cathode.inputs["predicted_emission_currents_ma"] = [10.0, 2.0, 1.5]
+        main_control = FakeMainControl()
+        main_control.total_max_emission_current_limit_enabled = False
+        subsystems = {
+            "Interlocks": FakeInterlocks(
+                {
+                    "Vacuum Pressure": True,
+                    "All Interlocks": True,
+                    "HVolt ON": True,
+                }
+            ),
+            "Process Monitor [C]": FakeProcessMonitor(True),
+            "Beam Energy": FakeBeamEnergy(beam_energy_inputs()),
+            "Beam Pulse": FakeBeamPulse(any_beam_active=True),
+            "Cathode Heating": cathode,
+        }
+
+        raw = evaluate_machine_statuses(
+            subsystems,
+            main_control,
+        )
+
+        self.assertFalse(raw["Cathode Heating"])
+        self.assertFalse(raw["Beams Ready"])
+
     def test_cancel_updates_cancels_all_pending_after_callbacks(self):
         parent = FakeParent()
         status = MachineStatus.__new__(MachineStatus)

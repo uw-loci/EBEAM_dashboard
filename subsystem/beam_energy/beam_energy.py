@@ -137,6 +137,7 @@ class BeamEnergySubsystem:
         self.hvolt_on_provider = None
         # Main Control pushes the +20kV current threshold; Dashboard provides the stop handler.
         self.beams_estop_callback = None
+        self.beams_estop_current_limit_enabled = True
         # Dashboard wires this to LaserMonitorDriver.set_radiation_indicator().
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
         self.radiation_indicator_callback = None
@@ -375,6 +376,12 @@ class BeamEnergySubsystem:
     def set_beams_estop_current_limit_ma(self, value_ma):
         """Receive the +20kV Beams E-STOP current limit from Main Control."""
         self.beams_estop_current_limit_ma = value_ma
+        self.refresh_warning_indicators(self._get_pos20kv_index())
+        return True
+
+    def set_beams_estop_current_limit_enabled(self, enabled):
+        """Receive whether Main Control's +20kV Beams E-STOP guard is active."""
+        self.beams_estop_current_limit_enabled = bool(enabled)
         self.refresh_warning_indicators(self._get_pos20kv_index())
         return True
 
@@ -667,6 +674,7 @@ class BeamEnergySubsystem:
             supply_key == POS20KV_SUPPLY_KEY
             and current_value is not None
             and beams_estop_limit_ma is not None
+            and bool(getattr(self, "beams_estop_current_limit_enabled", True))
             and current_value >= beams_estop_limit_ma
         )
 
