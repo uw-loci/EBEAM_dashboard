@@ -73,6 +73,9 @@ def make_main_control(now=100.0, cathode=None):
     if cathode is not None:
         main_control.subsystems["Cathode Heating"] = cathode
     main_control.disable_beams_on_vtrx_pressure_exceeded = False
+    main_control.vtrx_ccs_pressure_shutdown_enabled = True
+    main_control.total_max_emission_current_limit_enabled = True
+    main_control.beams_estop_current_limit_enabled = True
     main_control._last_vtrx_pressure_mbar = None
     main_control.vtrx_ccs_disable_grace_period_s = 30.0
     main_control.vtrx_ccs_disable_grace_period_entry_var = FakeVar()
@@ -279,6 +282,31 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
         main_control._handle_vtrx_pressure_update(5e-6)
 
         self.assertIsNone(main_control._vtrx_ccs_disable_timer_started_at)
+
+    def test_disabled_pressure_shutdown_does_not_start_timer_or_turn_off_ccs(self):
+        cathode = FakeCathode(active=True)
+        main_control = make_main_control(cathode=cathode)
+        main_control.vtrx_ccs_pressure_shutdown_enabled = False
+        main_control._vtrx_ccs_disable_timer_started_at = 90.0
+        main_control._vtrx_ccs_disable_last_warning_at = 90.0
+
+        main_control._handle_vtrx_pressure_update(2e-5)
+
+        self.assertIsNone(main_control._vtrx_ccs_disable_timer_started_at)
+        self.assertIsNone(main_control._vtrx_ccs_disable_last_warning_at)
+        self.assertEqual(cathode.turn_off_calls, 0)
+        self.assertEqual(main_control.logger.messages("CRITICAL"), [])
+        self.assertTrue(main_control._vtrx_ccs_pressure_allows_output())
+
+    def test_pressure_provider_allows_output_when_shutdown_guard_is_disabled(self):
+        main_control = make_main_control()
+        main_control._vtrx_ccs_disable_timer_started_at = 100.0
+
+        self.assertFalse(main_control._vtrx_ccs_pressure_allows_output())
+
+        main_control.vtrx_ccs_pressure_shutdown_enabled = False
+
+        self.assertTrue(main_control._vtrx_ccs_pressure_allows_output())
 
 
 if __name__ == "__main__":

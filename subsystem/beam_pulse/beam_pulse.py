@@ -144,6 +144,7 @@ class BeamPulseSubsystem:
         # Dashboard-provided raw data sources for Beam Pulse-owned emission checks.
         self._emission_limit_provider = None
         self._predicted_currents_provider = None
+        self._emission_limit_enabled_provider = None
         self._vtrx_pressure_guard_enabled_provider = None
         self._vtrx_pressure_provider = None
         self._vtrx_pressure_limit_provider = None
@@ -691,6 +692,18 @@ class BeamPulseSubsystem:
         allowed, error_message = self._vtrx_pressure_allows_output(action, log_failure)
         if not allowed:
             return False, error_message
+
+        enabled_provider = getattr(self, "_emission_limit_enabled_provider", None)
+        if callable(enabled_provider):
+            try:
+                if not bool(enabled_provider()):
+                    return True, None
+            except Exception as e:
+                if log_failure:
+                    self._log_event(
+                        f"Emission limit enable provider failed ({e}); keeping emission limit active.",
+                        LogLevel.WARNING,
+                    )
 
         limit, error_message = self._read_emission_limit_ma()
         if error_message:
@@ -1605,10 +1618,18 @@ class BeamPulseSubsystem:
         """
         self._channel_status_callback = callback
 
-    def set_emission_limit_providers(self, limit_provider, predicted_currents_provider):
+    def set_emission_limit_providers(
+        self,
+        limit_provider,
+        predicted_currents_provider,
+        enabled_provider=None,
+    ):
         """Register raw data providers used for Beam Pulse-owned emission checks."""
         self._emission_limit_provider = limit_provider
         self._predicted_currents_provider = predicted_currents_provider
+        self._emission_limit_enabled_provider = (
+            enabled_provider if callable(enabled_provider) else None
+        )
 
     def set_vtrx_pressure_guard_providers(self, enabled_provider, pressure_provider, limit_provider=None):
         """Register providers used to block new output starts during high pressure."""
