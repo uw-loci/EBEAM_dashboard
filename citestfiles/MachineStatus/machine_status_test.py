@@ -158,14 +158,14 @@ class MachineStatusTest(unittest.TestCase):
     def test_display_rule_marks_lower_incomplete_statuses_red(self):
         raw = OrderedDict((name, False) for name in STATUS_NAMES)
         raw["Environment Temperature Monitors"] = True
-        raw["HV Panel On"] = True
+        raw["High Voltage Panel On"] = True
 
         display = calculate_display_states(raw)
 
         self.assertEqual(display["Chamber Pressure"], STATE_RED)
         self.assertEqual(display["Environment Temperature Monitors"], STATE_GREEN)
         self.assertEqual(display["Safety Interlocks"], STATE_RED)
-        self.assertEqual(display["HV Panel On"], STATE_GREEN)
+        self.assertEqual(display["High Voltage Panel On"], STATE_GREEN)
         self.assertEqual(display["High Voltage Power Supplies Nominal"], STATE_GRAY)
 
     def test_transition_logs_use_warning_only_for_red(self):

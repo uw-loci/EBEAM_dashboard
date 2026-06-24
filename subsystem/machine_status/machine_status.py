@@ -10,7 +10,7 @@ STATUS_NAMES = (
     "Chamber Pressure",
     "Environment Temperature Monitors",
     "Safety Interlocks",
-    "HV Panel On",
+    "High Voltage Panel On",
     "High Voltage Power Supplies Nominal",
     "Beam Controller Nominal",
     "Cathode Heating",
@@ -27,6 +27,11 @@ STATE_COLORS = {
     STATE_GREEN: "green",
     STATE_RED: "red",
 }
+STATE_TEXT_COLORS = {
+    STATE_GRAY: "gray",
+    STATE_GREEN: "white",
+    STATE_RED: "white",
+}
 STATE_LOG_TEXT = {
     STATE_GRAY: "In Progress",
     STATE_GREEN: "Ready",
@@ -37,6 +42,8 @@ POLL_INTERVAL_SECONDS = 0.2
 BEAM_ENERGY_SUPPLIES = ("pos1kv", "neg1kv", "pos20kv", "pos3kv")
 BCON_SUPPLIES = ("pos1kv", "neg1kv")
 _AFTER_SCHEDULING = object()
+STATUS_BAR_HEIGHT = 29
+STATUS_BAR_SEPARATOR_WIDTH = 1
 
 
 def calculate_display_states(raw_statuses):
@@ -253,7 +260,7 @@ def evaluate_machine_statuses(subsystems, main_control=None):
     raw["Chamber Pressure"] = _interlock_green(interlocks, "Vacuum Pressure")
     raw["Environment Temperature Monitors"] = _environment_pass(process_monitor)
     raw["Safety Interlocks"] = _interlock_green(interlocks, "All Interlocks")
-    raw["HV Panel On"] = _interlock_green(interlocks, "HVolt ON")
+    raw["High Voltage Panel On"] = _interlock_green(interlocks, "HVolt ON")
     raw["High Voltage Power Supplies Nominal"] = (
         _beam_energy_nomop(beam_energy_inputs)
         and _beam_energy_limits_clear(beam_energy_inputs, BEAM_ENERGY_SUPPLIES)
@@ -288,6 +295,7 @@ class MachineStatus:
         self.subsystem_provider = subsystem_provider or (lambda: {})
         self.main_control_provider = main_control_provider or (lambda: None)
         self.status_labels = {}
+        self._display_states = OrderedDict((name, STATE_GRAY) for name in STATUS_NAMES)
         self._previous_display_states = None
         self._latest_raw_statuses = None
         self._latest_update_lock = threading.Lock()
@@ -305,32 +313,81 @@ class MachineStatus:
         self._worker_thread.start()
 
     def setup_gui(self):
-        self.machine_status_frame = tk.Frame(self.parent, bg=STATE_COLORS[STATE_GRAY])
+        self.machine_status_frame = tk.Frame(self.parent, bg="white", height=STATUS_BAR_HEIGHT)
+        self.machine_status_frame.pack_propagate(False)
         self.machine_status_frame.pack(fill=tk.BOTH, expand=True)
 
-        for index in range(len(STATUS_NAMES)):
-            self.machine_status_frame.grid_columnconfigure(index * 2, weight=1)
-            self.machine_status_frame.grid_columnconfigure(index * 2 + 1, weight=0)
+        self.status_canvas = tk.Canvas(
+            self.machine_status_frame,
+            height=STATUS_BAR_HEIGHT,
+            bg="white",
+            highlightthickness=0,
+            bd=0,
+        )
+        self.status_canvas.pack(fill=tk.BOTH, expand=True)
+        self.status_canvas.bind("<Configure>", lambda _event: self._draw_status_bar())
+        self._draw_status_bar()
+
+    def _draw_status_bar(self):
+        canvas = getattr(self, "status_canvas", None)
+        if canvas is None:
+            return
+
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width <= 1 or height <= 1:
+            width = max(width, self.machine_status_frame.winfo_reqwidth())
+            height = max(height, STATUS_BAR_HEIGHT)
+
+        canvas.delete("all")
+        self.status_labels.clear()
+
+        segment_count = len(STATUS_NAMES)
+        segment_width = width / segment_count
+        tip_width = max(14, min(34, int(segment_width * 0.16)))
+        mid_y = height / 2
 
         for index, name in enumerate(STATUS_NAMES):
-            label = tk.Label(
-                self.machine_status_frame,
-                text=name,
-                anchor="w",
-                padx=5,
-                bg=STATE_COLORS[STATE_GRAY],
-                fg="black",
-                width=12,
-                height=2,
-                wraplength=95,
-                justify="left",
-            )
-            label.grid(row=0, column=index * 2, sticky="ew")
-            self.status_labels[name] = label
+            x0 = index * segment_width
+            x1 = (index + 1) * segment_width
+            state = self._display_states.get(name, STATE_GRAY)
+            fill_color = STATE_COLORS[state]
+            text_color = STATE_TEXT_COLORS[state]
 
-            if index < len(STATUS_NAMES) - 1:
-                separator = tk.Frame(self.machine_status_frame, bg="black", width=1)
-                separator.grid(row=0, column=index * 2 + 1, sticky="ns")
+            if index == 0:
+                points = (x0, 0, x1 - tip_width, 0, x1, mid_y, x1 - tip_width, height, x0, height)
+            else:
+                points = (
+                    x0,
+                    0,
+                    x1 - tip_width,
+                    0,
+                    x1,
+                    mid_y,
+                    x1 - tip_width,
+                    height,
+                    x0,
+                    height,
+                    x0 + tip_width,
+                    mid_y,
+                )
+
+            segment_id = canvas.create_polygon(
+                points,
+                fill=fill_color,
+                outline="white",
+                width=STATUS_BAR_SEPARATOR_WIDTH,
+            )
+            text_id = canvas.create_text(
+                x0 + segment_width / 2 + (tip_width / 5 if index == 0 else tip_width / 3),
+                mid_y,
+                text=name,
+                fill=text_color,
+                font=("Segoe UI", 8, "bold"),
+                width=max(24, int(segment_width - tip_width - 10)),
+                justify="center",
+            )
+            self.status_labels[name] = {"segment": segment_id, "text": text_id}
 
     def _log(self, message, level):
         if self.logger and hasattr(self.logger, "log"):
@@ -416,10 +473,8 @@ class MachineStatus:
             return
 
         display_states = calculate_display_states(raw_statuses)
-        for name, state in display_states.items():
-            label = self.status_labels.get(name)
-            if label is not None:
-                label.config(bg=STATE_COLORS[state])
+        self._display_states = display_states
+        self._draw_status_bar()
 
         for name, _previous, current, level in build_status_transition_logs(
             self._previous_display_states,
