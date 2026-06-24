@@ -59,6 +59,7 @@ class VTRXSubsystem:
         self.data_queue = queue.Queue()
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
+        self._pressure_update_callback = None
         
         self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
@@ -81,6 +82,9 @@ class VTRXSubsystem:
         
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
+
+    def set_pressure_update_callback(self, callback):
+        self._pressure_update_callback = callback if callable(callback) else None
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
@@ -337,6 +341,9 @@ class VTRXSubsystem:
                     self.log("VTRX recovered; valid pressure data received.", LogLevel.INFO)
                 self.vacuum_fields_cleared = False
                 self.last_no_data_log_time = 0.0
+                pressure_callback = getattr(self, "_pressure_update_callback", None)
+                if callable(pressure_callback):
+                    pressure_callback(pressure_value)
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
