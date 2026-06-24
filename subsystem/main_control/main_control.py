@@ -82,6 +82,8 @@ class MainControlPanel:
         self.total_max_emission_current_value_var = tk.StringVar(
             value=f"Limit set to: {self.total_max_emission_current_ma:g}mA"
         )
+        self.beams_estop_current_entry_var = tk.StringVar(value="")
+        self.beams_estop_current_value_var = tk.StringVar(value="Limit set to: --mA")
         self._initialize_main_control_beam_status_state()
         self.create_main_control_notebook(parent_frame)
 
@@ -122,6 +124,7 @@ class MainControlPanel:
                     "20kV E-Stop Current Limit exceeded: All Beams Disabled"
                 )
             )
+        self.refresh_beams_estop_current_limit_display()
         self._apply_logging_suppression_settings()
 
     def wire_beam_pulse(self, beam_pulse):
@@ -344,14 +347,14 @@ class MainControlPanel:
             text="Log Settings",
             padding=(8, 6),
         )
-        log_settings_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
 
         beam_cathode_frame = ttk.LabelFrame(
             section_frame,
             text="Beam and Cathode Enable Settings",
             padding=(8, 6),
         )
-        beam_cathode_frame.pack(side=tk.LEFT, anchor='nw', pady=5)
+        beam_cathode_frame.pack(side=tk.LEFT, anchor='nw', padx=(0, 12), pady=5)
+        log_settings_frame.pack(side=tk.LEFT, anchor='nw', pady=5)
 
         self.create_com_port_frame(general_frame)
 
@@ -369,8 +372,9 @@ class MainControlPanel:
         self.file_create_log_level_dropdown(log_settings_frame)
         self.create_logging_suppression_toggles(log_settings_frame)
 
-        self.create_total_max_emission_current_controls(beam_cathode_frame)
         self.create_disable_ccs_output_on_bcon_disconnect_toggle(beam_cathode_frame)
+        self.create_total_max_emission_current_controls(beam_cathode_frame)
+        self.create_beams_estop_current_controls(beam_cathode_frame)
 
         # Add F1 help hint
         help_label = ttk.Label(
@@ -722,7 +726,7 @@ class MainControlPanel:
         row = ttk.Frame(section)
         row.pack(fill=tk.X, pady=(2, 0))
 
-        ttk.Label(row, text="Max I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(row, text="Max Emission I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(
             row,
             textvariable=self.total_max_emission_current_entry_var,
@@ -737,11 +741,77 @@ class MainControlPanel:
         ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
 
         ttk.Label(
-            section,
+            row,
             textvariable=self.total_max_emission_current_value_var,
             font=("Segoe UI", 8),
             foreground="gray",
-        ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
+        ).grid(row=0, column=4, sticky=tk.W, padx=(8, 0))
+
+    def create_beams_estop_current_controls(self, parent_frame):
+        """Create Main Control config UI for the +20kV Beams E-STOP current limit."""
+        section = ttk.Frame(parent_frame)
+        section.pack(side=tk.TOP, anchor='nw', fill=tk.X, padx=5, pady=(5, 2))
+
+        ttk.Label(
+            section,
+            text="20kV Bertan Current Limit for E-Stop Trigger",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 2))
+
+        row = ttk.Frame(section)
+        row.pack(fill=tk.X, pady=(2, 0))
+
+        ttk.Label(row, text="Max 20kV I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(
+            row,
+            textvariable=self.beams_estop_current_entry_var,
+            width=7,
+        ).grid(row=0, column=1, sticky=tk.W, padx=(2, 2))
+        ttk.Label(row, text="mA", font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
+        ttk.Button(
+            row,
+            text="Set",
+            width=4,
+            command=self.set_beams_estop_current_limit,
+        ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
+
+        ttk.Label(
+            row,
+            textvariable=self.beams_estop_current_value_var,
+            font=("Segoe UI", 8),
+            foreground="gray",
+        ).grid(row=0, column=4, sticky=tk.W, padx=(8, 0))
+
+    def _get_beam_energy_for_estop_limit(self):
+        return getattr(self, "subsystems", {}).get("Beam Energy")
+
+    def _format_beams_estop_current_limit_ma(self, value):
+        try:
+            limit_ma = float(value)
+        except (TypeError, ValueError):
+            return "Limit set to: --mA"
+
+        if not math.isfinite(limit_ma):
+            return "Limit set to: --mA"
+
+        return f"Limit set to: {limit_ma:g}mA"
+
+    def refresh_beams_estop_current_limit_display(self):
+        beam_energy = self._get_beam_energy_for_estop_limit()
+        getter = getattr(beam_energy, "get_beams_estop_current_limit_ma", None)
+        if callable(getter):
+            try:
+                limit_ma = getter()
+            except Exception:
+                limit_ma = None
+            self.beams_estop_current_value_var.set(
+                self._format_beams_estop_current_limit_ma(limit_ma)
+            )
+            return
+
+        self.beams_estop_current_value_var.set(
+            self._format_beams_estop_current_limit_ma(None)
+        )
 
     def _create_setting_checkbutton(self, parent_frame, label, setting_attr, command):
         if not hasattr(self, "_setting_checkbutton_vars"):
@@ -878,6 +948,64 @@ class MainControlPanel:
             message = f"{context}: value was updated for this session but could not be saved."
             self._log_warning(message)
             messagebox.showwarning("Save Failed", message)
+        else:
+            self._log_info(
+                f"{context}: setting successfully changed to {new_value:g}mA."
+            )
+
+    def set_beams_estop_current_limit(self):
+        """UI callback for committing the Beam Energy +20kV Beams E-STOP current limit."""
+        context = "20kV Bertan Current Limit for E-Stop Trigger"
+        beam_energy = self._get_beam_energy_for_estop_limit()
+        setter = getattr(beam_energy, "set_beams_estop_current_limit_ma", None)
+        if not callable(setter):
+            message = f"{context}: Beam Energy is not available."
+            self._log_error(message)
+            messagebox.showerror("Unavailable", message)
+            self.refresh_beams_estop_current_limit_display()
+            return
+
+        raw_text = str(self.beams_estop_current_entry_var.get()).strip()
+        if not raw_text:
+            message = f"{context}: please enter a limit value in mA."
+            self._log_warning(message)
+            messagebox.showerror("Invalid Input", message)
+            return
+
+        try:
+            new_value = float(raw_text)
+        except ValueError:
+            message = f"{context}: please enter a valid number in mA."
+            self._log_warning(message)
+            messagebox.showerror("Invalid Input", message)
+            return
+
+        try:
+            saved = setter(new_value)
+        except ValueError as e:
+            message = f"{context}: {e}"
+            self._log_warning(message)
+            messagebox.showerror("Invalid Input", message)
+            return
+
+        self.beams_estop_current_entry_var.set("")
+        self.refresh_beams_estop_current_limit_display()
+
+        if not saved:
+            message = f"{context}: value was updated for this session but could not be saved."
+            self._log_warning(message)
+            messagebox.showwarning("Save Failed", message)
+            return
+
+        getter = getattr(beam_energy, "get_beams_estop_current_limit_ma", None)
+        try:
+            limit_ma = float(getter() if callable(getter) else new_value)
+        except Exception:
+            self._log_info(f"{context}: setting successfully changed.")
+        else:
+            self._log_info(
+                f"{context}: setting successfully changed to {limit_ma:g}mA."
+            )
 
     def create_post_processor_button(self, parent_frame):
         """Create a button to launch the standalone post-processor application"""
