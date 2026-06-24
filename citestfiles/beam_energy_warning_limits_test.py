@@ -222,8 +222,8 @@ class MainControlBeamsEstopLimitUiTest(unittest.TestCase):
             logger.info_entries,
             [
                 (
-                    "20kV Bertan Current Limit for E-Stop Trigger: "
-                    "setting successfully changed to 0.5mA.",
+                    "Trigger E-Stop if 20kV Bertan exceeds 0.5mA: "
+                    "setting successfully changed.",
                     "Main Control",
                 )
             ],
