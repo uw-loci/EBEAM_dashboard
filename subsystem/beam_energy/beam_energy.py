@@ -7,7 +7,6 @@ from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 from utils import LogLevel
 import tkinter.messagebox as messagebox
 from usr.beam_energy_warning_config import (
-    BEAMS_ESTOP_CURRENT_FIELD,
     DEFAULT_WARNING_LIMITS,
     POS20KV_SUPPLY_KEY,
     load_beam_energy_warning_limits,
@@ -104,6 +103,7 @@ class BeamEnergySubsystem:
         ]
         self.supply_keys = [supply_key for supply_key, _ in self.supply_payload_map]
         self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
+        self.beams_estop_current_limit_ma = None
         # Last numeric readings let limit edits immediately refresh colors/trips without waiting for a new poll.
         self.latest_actual_voltage_values = [None for _ in self.power_supplies]
         self.latest_actual_current_values = [None for _ in self.power_supplies]
@@ -135,7 +135,7 @@ class BeamEnergySubsystem:
         self.ccs_power_on = False
         self.disable_logging_when_hvolt_off = False
         self.hvolt_on_provider = None
-        # Beam Energy owns the +20kV threshold; Dashboard provides the actual stop handler.
+        # Main Control pushes the +20kV current threshold; Dashboard provides the stop handler.
         self.beams_estop_callback = None
         # Dashboard wires this to LaserMonitorDriver.set_radiation_indicator().
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
@@ -372,13 +372,11 @@ class BeamEnergySubsystem:
         sign = "-" if supply_key == "neg1kv" and field != "max_current_ma" else ""
         return f"Limit set to: {sign}{value:g}{self._warning_limit_unit(field)}"
 
-    def get_beams_estop_current_limit_ma(self):
-        """Return the configured +20kV Beams E-STOP current limit in mA."""
-        return self.warning_limits[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
-
-    def set_beams_estop_current_limit_ma(self, value_ma, persist=True):
-        """Set the +20kV Beams E-STOP current limit from a numeric mA value."""
-        return self._set_beams_estop_current_limit_ma(value_ma, persist=persist)
+    def set_beams_estop_current_limit_ma(self, value_ma):
+        """Receive the +20kV Beams E-STOP current limit from Main Control."""
+        self.beams_estop_current_limit_ma = value_ma
+        self.refresh_warning_indicators(self._get_pos20kv_index())
+        return True
 
     def _get_supply_name(self, index):
         if index < len(self.power_supplies):
@@ -497,30 +495,6 @@ class BeamEnergySubsystem:
                 f"{context}: setting successfully changed to {new_value:g}{unit}.",
                 LogLevel.INFO,
             )
-
-        return True
-
-    def _set_beams_estop_current_limit_ma(self, value_ma, persist=True):
-        try:
-            new_value = float(value_ma)
-        except (TypeError, ValueError):
-            raise ValueError("value must be a valid number in mA.")
-
-        if not math.isfinite(new_value) or new_value < 0:
-            raise ValueError("value must be a finite, non-negative number in mA.")
-
-        max_allowed = DEFAULT_WARNING_LIMITS[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
-        if new_value > max_allowed:
-            raise ValueError(f"value must be between 0mA and {max_allowed:g}mA.")
-
-        limits = self.warning_limits[POS20KV_SUPPLY_KEY]
-        candidate = dict(limits)
-        candidate[BEAMS_ESTOP_CURRENT_FIELD] = new_value
-        self.warning_limits[POS20KV_SUPPLY_KEY] = candidate
-        self.refresh_warning_indicators(self._get_pos20kv_index())
-
-        if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
-            return False
 
         return True
 
@@ -688,10 +662,12 @@ class BeamEnergySubsystem:
             current_value is not None
             and current_value >= limits["max_current_ma"]
         )
+        beams_estop_limit_ma = self.beams_estop_current_limit_ma
         current_estop = (
             supply_key == POS20KV_SUPPLY_KEY
             and current_value is not None
-            and current_value >= limits[BEAMS_ESTOP_CURRENT_FIELD]
+            and beams_estop_limit_ma is not None
+            and current_value >= beams_estop_limit_ma
         )
 
         if voltage_warning:
@@ -700,7 +676,7 @@ class BeamEnergySubsystem:
         if current_estop:
             self._trigger_beams_estop_current(
                 current_value,
-                limits[BEAMS_ESTOP_CURRENT_FIELD],
+                beams_estop_limit_ma,
             )
         if current_warning and not current_estop:
             self._log_warning_breach(index, "current", current_value)

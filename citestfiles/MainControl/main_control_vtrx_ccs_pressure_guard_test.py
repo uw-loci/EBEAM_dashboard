@@ -9,12 +9,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from subsystem.main_control.main_control import MainControlPanel
 from usr.main_control_config import (
+    BEAMS_ESTOP_CURRENT_LIMIT_FIELD,
+    DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
     DEFAULT_TOTAL_MAX_EMISSION_CURRENT_MA,
     DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
     TOTAL_MAX_EMISSION_CURRENT_FIELD,
     VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD,
+    load_beams_estop_current_limit_ma,
     load_total_max_emission_current,
     load_vtrx_ccs_disable_grace_period_s,
+    save_beams_estop_current_limit_ma,
     save_total_max_emission_current,
     save_vtrx_ccs_disable_grace_period_s,
 )
@@ -98,6 +102,10 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                 load_vtrx_ccs_disable_grace_period_s(config_path),
                 DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
             )
+            self.assertEqual(
+                load_beams_estop_current_limit_ma(config_path),
+                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+            )
 
             self.assertTrue(save_vtrx_ccs_disable_grace_period_s(12.0, config_path))
             with open(config_path, "r") as file:
@@ -105,6 +113,10 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
 
             self.assertEqual(saved[TOTAL_MAX_EMISSION_CURRENT_FIELD], 7.5)
             self.assertEqual(saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD], 12.0)
+            self.assertEqual(
+                saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD],
+                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+            )
 
     def test_object_config_preserves_other_setting_on_save(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -114,6 +126,7 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                     {
                         TOTAL_MAX_EMISSION_CURRENT_FIELD: 4.0,
                         VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD: 9.0,
+                        BEAMS_ESTOP_CURRENT_LIMIT_FIELD: 0.7,
                     },
                     file,
                 )
@@ -124,6 +137,15 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
 
             self.assertEqual(saved[TOTAL_MAX_EMISSION_CURRENT_FIELD], 5.0)
             self.assertEqual(saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD], 9.0)
+            self.assertEqual(saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD], 0.7)
+
+            self.assertTrue(save_beams_estop_current_limit_ma(0.5, config_path))
+            with open(config_path, "r") as file:
+                saved = json.load(file)
+
+            self.assertEqual(saved[TOTAL_MAX_EMISSION_CURRENT_FIELD], 5.0)
+            self.assertEqual(saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD], 9.0)
+            self.assertEqual(saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD], 0.5)
 
     def test_missing_config_uses_defaults(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -136,6 +158,25 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
             self.assertEqual(
                 load_vtrx_ccs_disable_grace_period_s(config_path),
                 DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
+            )
+            self.assertEqual(
+                load_beams_estop_current_limit_ma(config_path),
+                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+            )
+            with open(config_path, "r") as file:
+                saved = json.load(file)
+
+            self.assertEqual(
+                saved[TOTAL_MAX_EMISSION_CURRENT_FIELD],
+                DEFAULT_TOTAL_MAX_EMISSION_CURRENT_MA,
+            )
+            self.assertEqual(
+                saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD],
+                DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
+            )
+            self.assertEqual(
+                saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD],
+                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
             )
 
 

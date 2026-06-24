@@ -5,7 +5,6 @@ import os
 
 CONFIG_FILE = 'usr/usr_data/beam_energy_warning_limits.json'
 POS20KV_SUPPLY_KEY = "pos20kv"
-BEAMS_ESTOP_CURRENT_FIELD = "beams_estop_current_ma"
 
 DEFAULT_WARNING_LIMITS = {
     "pos1kv": {
@@ -22,7 +21,6 @@ DEFAULT_WARNING_LIMITS = {
         "min_voltage_v": 0.0,
         "max_voltage_v": 20000.0,
         "max_current_ma": 1.0,
-        BEAMS_ESTOP_CURRENT_FIELD: 1.0,
     },
     "pos3kv": {
         "min_voltage_v": 0.0,
@@ -60,16 +58,9 @@ def _valid_number(value):
 
 
 def _max_allowed_value(defaults, field):
-    if field in ("max_current_ma", BEAMS_ESTOP_CURRENT_FIELD):
+    if field == "max_current_ma":
         return defaults[field]
     return defaults["max_voltage_v"]
-
-
-def _normalizable_fields(supply_key):
-    # Only +20kV persists the extra shutdown threshold; other supplies keep warning-only limits.
-    if supply_key == POS20KV_SUPPLY_KEY:
-        return (*LIMIT_FIELDS, BEAMS_ESTOP_CURRENT_FIELD)
-    return LIMIT_FIELDS
 
 
 def normalize_warning_limits(raw_limits, logger=None):
@@ -92,7 +83,7 @@ def normalize_warning_limits(raw_limits, logger=None):
             continue
 
         candidate = dict(defaults)
-        for field in _normalizable_fields(supply_key):
+        for field in LIMIT_FIELDS:
             if field not in raw_supply:
                 continue
             value = raw_supply[field]
@@ -134,7 +125,9 @@ def load_beam_energy_warning_limits(filepath=CONFIG_FILE, logger=None):
     """Load persisted Beam Energy warning limits, falling back to defaults."""
     if not os.path.exists(filepath):
         _log(logger, "info", "No Beam Energy warning-limit configuration file found.")
-        return _copy_defaults()
+        limits = _copy_defaults()
+        save_beam_energy_warning_limits(limits, filepath=filepath, logger=logger)
+        return limits
 
     try:
         with open(filepath, "r") as file:
@@ -144,7 +137,10 @@ def load_beam_energy_warning_limits(filepath=CONFIG_FILE, logger=None):
         return _copy_defaults()
 
     _log(logger, "debug", f"Beam Energy warning limits loaded from {filepath}.")
-    return normalize_warning_limits(raw_limits, logger=logger)
+    limits = normalize_warning_limits(raw_limits, logger=logger)
+    if raw_limits != limits:
+        save_beam_energy_warning_limits(limits, filepath=filepath, logger=logger)
+    return limits
 
 
 def save_beam_energy_warning_limits(limits, filepath=CONFIG_FILE, logger=None):
