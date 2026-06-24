@@ -46,6 +46,8 @@ Main Control is a two-tab subpanel.
 - UI log-level and file log-level dropdowns.
 - Disable CCS Output on BCON Disconnect toggle.
 - Disable Beams if pressure exceeds 10^-5 mbar toggle.
+- Disable CCS Output after the configured grace period above 10^-5 mbar
+  control.
 - Total Max Emission Current control.
 - 20kV Bertan Current Limit for E-Stop Trigger control.
 - F1 keyboard shortcut hint.
@@ -67,6 +69,8 @@ Main Control is a two-tab subpanel.
   manage COM-port selection through the parent Dashboard.
 - `set_total_max_emission_current_limit()` validates and persists the emission
   limit through `usr/main_control_config.py`.
+- `set_vtrx_ccs_disable_grace_period()` validates and persists the VTRX
+  high-pressure CCS shutdown grace period through `usr/main_control_config.py`.
 - `set_beams_estop_current_limit()` validates the operator-entered +20 kV
   E-stop current limit and delegates the numeric update to Beam Energy for
   persistence and runtime monitoring.
@@ -87,7 +91,7 @@ Main Control is a two-tab subpanel.
 | `_on_channel_enable_status_update()` | Mirrors live BCON channel enable state into CH A/B/C buttons and beam-button availability. |
 | `_handle_action_feedback()` | Converts Beam Pulse action callbacks into the latest-action status line. |
 | `_handle_bcon_disconnected()` | Disables CCS output through Cathode Heating when BCON disconnects and the guard is enabled. |
-| `_handle_vtrx_pressure_update()` | Disables Beam Pulse output on the first VTRX pressure reading above 1e-5 mbar when the guard is enabled. |
+| `_handle_vtrx_pressure_update()` | Handles each valid VTRX pressure reading, including Beam Pulse high-pressure disable and CCS grace-period shutdown checks. |
 
 ## Subsystem Relationships
 
@@ -132,6 +136,10 @@ Main Control uses Cathode Heating in three ways:
   `turn_off_all_beams()` if BCON disconnects while any cathode output is active.
   The same setting is passed to Cathode Heating so it can block new CCS output
   enables while BCON is disconnected.
+- When VTRX pressure rises above 1e-5 mbar, Main Control starts a CCS shutdown
+  grace-period timer. While the timer is active, Cathode Heating blocks new CCS
+  output enables; if pressure does not recover before the timer elapses, Main
+  Control calls `turn_off_all_beams()`.
 
 ### Beam Energy
 
@@ -148,6 +156,11 @@ VTRX reports each valid pressure reading to Main Control. When the high-pressure
 beam-disable guard is enabled, Main Control calls Beam Pulse `disable_all_beams()`
 on the first pressure reading above 1e-5 mbar and waits for pressure to recover
 to 1e-5 mbar or below before it can trigger again.
+
+Main Control also uses VTRX pressure to protect CCS output. Pressure above
+1e-5 mbar starts the configured CCS grace-period timer. Subsequent high-pressure
+updates log countdown warnings and shut off active CCS output after the grace
+period elapses. Recovery to 1e-5 mbar or below clears the timer.
 
 ### Dashboard
 
@@ -180,3 +193,7 @@ Dashboard callbacks.
   setting. When enabled, a valid VTRX pressure reading greater than 1e-5 mbar
   logs a critical message and disables Beam Pulse output once until pressure
   recovers to 1e-5 mbar or below.
+- Disable CCS Output after the configured grace period above 10^-5 mbar is
+  always active. The grace-period duration is persisted in Main Control config,
+  defaults to 30 seconds, blocks new CCS output enables while counting down, and
+  turns off CCS output if pressure remains high until the timer elapses.

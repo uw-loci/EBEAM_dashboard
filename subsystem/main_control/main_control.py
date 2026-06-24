@@ -2,14 +2,18 @@ import math
 import os
 import subprocess
 import sys
+import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 import serial.tools.list_ports
 
 from usr.main_control_config import (
+    DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
     load_total_max_emission_current,
+    load_vtrx_ccs_disable_grace_period_s,
     save_total_max_emission_current,
+    save_vtrx_ccs_disable_grace_period_s,
 )
 from utils import LogLevel, SetupScripts
 
@@ -22,6 +26,8 @@ BEAM_ACTION_FAILURE_COLOR = "red"
 BEAM_ACTION_NEUTRAL_COLOR = "#383838"
 PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
+VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
+VTRX_CCS_DISABLE_WARNING_INTERVAL_S = 10.0
 
 
 def channel_label(index: int) -> str:
@@ -76,6 +82,11 @@ class MainControlPanel:
         self.disable_beams_on_vtrx_pressure_exceeded = True
         self._vtrx_pressure_beam_disable_latched = False
         self._last_vtrx_pressure_mbar = None
+        self.vtrx_ccs_disable_grace_period_s = self._coerce_vtrx_ccs_disable_grace_period_s(
+            load_vtrx_ccs_disable_grace_period_s(logger=self.logger)
+        )
+        self._vtrx_ccs_disable_timer_started_at = None
+        self._vtrx_ccs_disable_last_warning_at = None
         self.disable_knob_box_logging_when_hvolt_off = True
         self.disable_bcon_logging_when_hvolt_off = True
         self.disable_ccs_logging_when_ccs_power_off = True
@@ -84,10 +95,20 @@ class MainControlPanel:
         self.total_max_emission_current_ma = load_total_max_emission_current(logger=self.logger)
         self.total_max_emission_current_entry_var = tk.StringVar(value="")
         self.total_max_emission_current_value_var = tk.StringVar(
-            value=f"Limit set to: {self.total_max_emission_current_ma:g}mA"
+            value=f"{self.total_max_emission_current_ma:g}"
         )
         self.beams_estop_current_entry_var = tk.StringVar(value="")
-        self.beams_estop_current_value_var = tk.StringVar(value="Limit set to: --mA")
+        self.beams_estop_current_value_var = tk.StringVar(value="--")
+        self.vtrx_ccs_disable_grace_period_entry_var = tk.StringVar(value="")
+        self.vtrx_ccs_disable_grace_period_title_var = tk.StringVar(
+            value=(
+                f"Disable CCS Output after {self.vtrx_ccs_disable_grace_period_s:g}s "
+                f"above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR}"
+            )
+        )
+        self.vtrx_ccs_disable_grace_period_value_var = tk.StringVar(
+            value=f"{self.vtrx_ccs_disable_grace_period_s:g}"
+        )
         self._initialize_main_control_beam_status_state()
         self.create_main_control_notebook(parent_frame)
 
@@ -182,6 +203,9 @@ class MainControlPanel:
         if cathode is not None:
             cathode.disable_ccs_output_on_bcon_disconnect = (
                 self.disable_ccs_output_on_bcon_disconnect
+            )
+            cathode.vtrx_ccs_pressure_allows_output = (
+                lambda: self._vtrx_ccs_disable_timer_started_at is None
             )
             if callable(getattr(beam_pulse, "is_connected", None)):
                 cathode.bcon_is_connected = beam_pulse.is_connected
@@ -395,10 +419,45 @@ class MainControlPanel:
         self.file_create_log_level_dropdown(log_settings_frame)
         self.create_logging_suppression_toggles(log_settings_frame)
 
-        self.create_disable_ccs_output_on_bcon_disconnect_toggle(beam_cathode_frame)
-        self.create_disable_beams_on_vtrx_pressure_exceeded_toggle(beam_cathode_frame)
-        self.create_total_max_emission_current_controls(beam_cathode_frame)
-        self.create_beams_estop_current_controls(beam_cathode_frame)
+        self._create_setting_checkbutton(
+            beam_cathode_frame,
+            "Disable CCS Output on BCON Disconnect",
+            "disable_ccs_output_on_bcon_disconnect",
+            self.toggle_disable_ccs_output_on_bcon_disconnect,
+        )
+        self._create_setting_checkbutton(
+            beam_cathode_frame,
+            f"Disable Beams if pressure exceeds {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar",
+            "disable_beams_on_vtrx_pressure_exceeded",
+            self.toggle_disable_beams_on_vtrx_pressure_exceeded,
+        )
+        self._create_value_setting_controls(
+            beam_cathode_frame,
+            title_var=self.vtrx_ccs_disable_grace_period_title_var,
+            label_text="Grace Period:",
+            entry_var=self.vtrx_ccs_disable_grace_period_entry_var,
+            unit_text="s",
+            command=self.set_vtrx_ccs_disable_grace_period,
+            value_var=self.vtrx_ccs_disable_grace_period_value_var,
+        )
+        self._create_value_setting_controls(
+            beam_cathode_frame,
+            title_text="Total Max Emission Current",
+            label_text="Max Emission I:",
+            entry_var=self.total_max_emission_current_entry_var,
+            unit_text="mA",
+            command=self.set_total_max_emission_current_limit,
+            value_var=self.total_max_emission_current_value_var,
+        )
+        self._create_value_setting_controls(
+            beam_cathode_frame,
+            title_text="20kV Bertan Current Limit for E-Stop Trigger",
+            label_text="Max 20kV I:",
+            entry_var=self.beams_estop_current_entry_var,
+            unit_text="mA",
+            command=self.set_beams_estop_current_limit,
+            value_var=self.beams_estop_current_value_var,
+        )
 
         # Add F1 help hint
         help_label = ttk.Label(
@@ -736,75 +795,73 @@ class MainControlPanel:
     def create_script_dropdown(self, parent_frame):
         SetupScripts(parent_frame, logger=self.logger)
 
-    def create_total_max_emission_current_controls(self, parent_frame):
-        """Create Main Control config UI for the total predicted emission limit."""
+    def _create_value_setting_controls(
+        self,
+        parent_frame,
+        *,
+        label_text,
+        entry_var,
+        unit_text,
+        command,
+        value_var,
+        title_text=None,
+        title_var=None,
+    ):
         section = ttk.Frame(parent_frame)
-        section.pack(side=tk.TOP, anchor='nw', fill=tk.X, padx=5, pady=(5, 2))
+        section.pack(side=tk.TOP, anchor='nw', fill=tk.X, padx=5, pady=2)
 
-        ttk.Label(
-            section,
-            text="Total Max Emission Current",
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor=tk.W)
+        title_options = {"font": ("Segoe UI", 8, "bold")}
+        if title_var is not None:
+            title_options["textvariable"] = title_var
+        else:
+            title_options["text"] = title_text or ""
+        ttk.Label(section, **title_options).pack(anchor=tk.W)
 
         row = ttk.Frame(section)
         row.pack(fill=tk.X)
 
-        ttk.Label(row, text="Max Emission I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(row, text=label_text, font=("Segoe UI", 8)).grid(
+            row=0,
+            column=0,
+            sticky=tk.W,
+        )
         ttk.Entry(
             row,
-            textvariable=self.total_max_emission_current_entry_var,
+            textvariable=entry_var,
             width=7,
         ).grid(row=0, column=1, sticky=tk.W, padx=(2, 2))
-        ttk.Label(row, text="mA", font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
+        ttk.Label(row, text=unit_text, font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
         ttk.Button(
             row,
             text="Set",
             width=4,
-            command=self.set_total_max_emission_current_limit,
+            command=command,
         ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
 
+        value_frame = tk.Frame(row, bd=1, relief='groove', padx=1, pady=0)
+        value_frame.configure(bg='#d9d9d9')
+        value_frame.grid(row=0, column=4, sticky=tk.W, padx=(8, 0))
         ttk.Label(
-            row,
-            textvariable=self.total_max_emission_current_value_var,
+            value_frame,
+            textvariable=value_var,
             font=("Segoe UI", 8),
-            foreground="gray",
-        ).grid(row=0, column=4, sticky=tk.W, padx=(8, 0))
-
-    def create_beams_estop_current_controls(self, parent_frame):
-        """Create Main Control config UI for the +20kV Beams E-STOP current limit."""
-        section = ttk.Frame(parent_frame)
-        section.pack(side=tk.TOP, anchor='nw', fill=tk.X, padx=5, pady=(5, 2))
-
+        ).pack(side=tk.LEFT)
         ttk.Label(
-            section,
-            text="20kV Bertan Current Limit for E-Stop Trigger",
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor=tk.W)
-
-        row = ttk.Frame(section)
-        row.pack(fill=tk.X)
-
-        ttk.Label(row, text="Max 20kV I:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(
-            row,
-            textvariable=self.beams_estop_current_entry_var,
-            width=7,
-        ).grid(row=0, column=1, sticky=tk.W, padx=(2, 2))
-        ttk.Label(row, text="mA", font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
-        ttk.Button(
-            row,
-            text="Set",
-            width=4,
-            command=self.set_beams_estop_current_limit,
-        ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
-
-        ttk.Label(
-            row,
-            textvariable=self.beams_estop_current_value_var,
+            value_frame,
+            text=f" {unit_text}",
             font=("Segoe UI", 8),
-            foreground="gray",
-        ).grid(row=0, column=4, sticky=tk.W, padx=(8, 0))
+        ).pack(side=tk.LEFT)
+
+    def _coerce_vtrx_ccs_disable_grace_period_s(self, value):
+        try:
+            duration_s = float(value)
+        except (TypeError, ValueError):
+            return DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S
+
+        if not math.isfinite(duration_s) or duration_s < 0:
+            return DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S
+
+        return duration_s
 
     def _get_beam_energy_for_estop_limit(self):
         return getattr(self, "subsystems", {}).get("Beam Energy")
@@ -813,12 +870,12 @@ class MainControlPanel:
         try:
             limit_ma = float(value)
         except (TypeError, ValueError):
-            return "Limit set to: --mA"
+            return "--"
 
         if not math.isfinite(limit_ma):
-            return "Limit set to: --mA"
+            return "--"
 
-        return f"Limit set to: {limit_ma:g}mA"
+        return f"{limit_ma:g}"
 
     def refresh_beams_estop_current_limit_display(self):
         beam_energy = self._get_beam_energy_for_estop_limit()
@@ -863,22 +920,6 @@ class MainControlPanel:
 
         setattr(self, setting_attr, enabled)
         return enabled
-
-    def create_disable_ccs_output_on_bcon_disconnect_toggle(self, parent_frame):
-        self._create_setting_checkbutton(
-            parent_frame,
-            "Disable CCS Output on BCON Disconnect",
-            "disable_ccs_output_on_bcon_disconnect",
-            self.toggle_disable_ccs_output_on_bcon_disconnect,
-        )
-
-    def create_disable_beams_on_vtrx_pressure_exceeded_toggle(self, parent_frame):
-        self._create_setting_checkbutton(
-            parent_frame,
-            f"Disable Beams if pressure exceeds {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar",
-            "disable_beams_on_vtrx_pressure_exceeded",
-            self.toggle_disable_beams_on_vtrx_pressure_exceeded,
-        )
 
     def toggle_disable_ccs_output_on_bcon_disconnect(self):
         enabled = self._toggle_setting_value("disable_ccs_output_on_bcon_disconnect")
@@ -950,35 +991,51 @@ class MainControlPanel:
             "Disable CCS logging when CCS power is off",
         )
 
-    def set_total_max_emission_current_limit(self):
-        """UI callback for committing the Main Control total emission limit."""
-        raw_text = str(self.total_max_emission_current_entry_var.get()).strip()
-        context = "Total Max Emission Current"
-        # Keep validation here so UI callbacks and tests use the same rules.
+    def _read_non_negative_setting_value(
+        self,
+        entry_var,
+        context,
+        value_name,
+        unit_name,
+    ):
+        raw_text = str(entry_var.get()).strip()
         if not raw_text:
-            message = f"{context}: please enter a limit value in mA."
+            message = f"{context}: please enter a {value_name} value in {unit_name}."
             self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
-            return
+            return None
 
         try:
-            new_value = float(raw_text)
+            value = float(raw_text)
         except ValueError:
-            message = f"{context}: please enter a valid number in mA."
+            message = f"{context}: please enter a valid number in {unit_name}."
             self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
-            return
+            return None
 
-        # Reject values that would make the limit comparison ambiguous.
-        if not math.isfinite(new_value) or new_value < 0:
-            message = f"{context}: value must be a finite, non-negative number in mA."
+        if not math.isfinite(value) or value < 0:
+            message = f"{context}: value must be a finite, non-negative number in {unit_name}."
             self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
+            return None
+
+        return value
+
+    def set_total_max_emission_current_limit(self):
+        """UI callback for committing the Main Control total emission limit."""
+        context = "Total Max Emission Current"
+        new_value = self._read_non_negative_setting_value(
+            self.total_max_emission_current_entry_var,
+            context,
+            "limit",
+            "mA",
+        )
+        if new_value is None:
             return
 
         self.total_max_emission_current_ma = new_value
         self.total_max_emission_current_value_var.set(
-            f"Limit set to: {self.total_max_emission_current_ma:g}mA"
+            f"{self.total_max_emission_current_ma:g}"
         )
         self.total_max_emission_current_entry_var.set("")
 
@@ -990,6 +1047,36 @@ class MainControlPanel:
         else:
             self._log_info(
                 f"{context}: setting successfully changed to {new_value:g}mA."
+            )
+
+    def set_vtrx_ccs_disable_grace_period(self):
+        """UI callback for committing the CCS VTRX pressure grace period."""
+        context = "Disable CCS Output on VTRX Pressure"
+        new_value = self._read_non_negative_setting_value(
+            self.vtrx_ccs_disable_grace_period_entry_var,
+            context,
+            "duration",
+            "seconds",
+        )
+        if new_value is None:
+            return
+
+        self.vtrx_ccs_disable_grace_period_s = new_value
+        self.vtrx_ccs_disable_grace_period_entry_var.set("")
+        self.vtrx_ccs_disable_grace_period_title_var.set(
+            f"Disable CCS Output after {new_value:g}s above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR}"
+        )
+        self.vtrx_ccs_disable_grace_period_value_var.set(
+            f"{new_value:g}"
+        )
+
+        if not save_vtrx_ccs_disable_grace_period_s(new_value, logger=self.logger):
+            message = f"{context}: value was updated for this session but could not be saved."
+            self._log_warning(message)
+            messagebox.showwarning("Save Failed", message)
+        else:
+            self._log_info(
+                f"{context}: setting successfully changed to {new_value:g}s."
             )
 
     def set_beams_estop_current_limit(self):
@@ -1189,17 +1276,64 @@ class MainControlPanel:
         else:
             self._log_critical("BCON disconnected but Cathode Heating turn_off_all_beams API is unavailable; CCS output may remain enabled")
 
-    def _handle_vtrx_pressure_update(self, pressure_mbar):
-        try:
-            pressure = float(pressure_mbar)
-        except (TypeError, ValueError):
+    def _handle_vtrx_ccs_pressure_update(self, pressure):
+        if pressure <= VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR:
+            self._vtrx_ccs_disable_timer_started_at = None
+            self._vtrx_ccs_disable_last_warning_at = None
             return
 
-        if not math.isfinite(pressure):
+        now = float(getattr(self, "_time_monotonic", time.monotonic)())
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        ccs_output_active = bool(cathode and any(getattr(cathode, "toggle_states", [])))
+        duration_s = self._coerce_vtrx_ccs_disable_grace_period_s(
+            getattr(self, "vtrx_ccs_disable_grace_period_s", None)
+        )
+        started_at = getattr(self, "_vtrx_ccs_disable_timer_started_at", None)
+
+        if started_at is None:
+            started_at = now
+            self._vtrx_ccs_disable_timer_started_at = started_at
+            self._vtrx_ccs_disable_last_warning_at = now
+            if ccs_output_active:
+                self._log_critical(
+                    f"VTRX pressure exceeded {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar "
+                    f"({pressure:g} mbar); CCS will shut off after "
+                    f"{duration_s:g} seconds."
+                )
+
+        elapsed_s = max(0.0, float(now) - float(started_at))
+        if elapsed_s < duration_s:
+            last_warning_at = getattr(self, "_vtrx_ccs_disable_last_warning_at", None)
+            if (
+                last_warning_at is None
+                or now - float(last_warning_at) >= VTRX_CCS_DISABLE_WARNING_INTERVAL_S
+            ):
+                seconds_left = max(0.0, duration_s - elapsed_s)
+                self._log_warning(
+                    f"CCS will shut off in {seconds_left:g} seconds due to VTRX pressure "
+                    f"being above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar"
+                )
+                self._vtrx_ccs_disable_last_warning_at = now
             return
 
-        self._last_vtrx_pressure_mbar = pressure
+        if not ccs_output_active:
+            return
 
+        self._log_critical(
+            f"VTRX pressure remained above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar "
+            f"for {duration_s:g} seconds; disabling CCS output."
+        )
+        self._vtrx_ccs_disable_last_warning_at = now
+        turn_off = getattr(cathode, "turn_off_all_beams", None)
+        if callable(turn_off):
+            try:
+                turn_off()
+            except Exception as e:
+                self._log_critical(f"VTRX pressure CCS disable failed: {e}")
+        else:
+            self._log_critical("VTRX pressure CCS disable failed: Cathode Heating turn_off_all_beams API is unavailable")
+
+    def _handle_vtrx_bcon_pressure_update(self, pressure):
         if not self.disable_beams_on_vtrx_pressure_exceeded:
             return
 
@@ -1226,6 +1360,19 @@ class MainControlPanel:
             self._log_critical(
                 "VTRX pressure exceeded threshold but Beam Pulse disable_all_beams API is unavailable"
             )
+
+    def _handle_vtrx_pressure_update(self, pressure_mbar):
+        try:
+            pressure = float(pressure_mbar)
+        except (TypeError, ValueError):
+            return
+
+        if not math.isfinite(pressure):
+            return
+
+        self._last_vtrx_pressure_mbar = pressure
+        self._handle_vtrx_ccs_pressure_update(pressure)
+        self._handle_vtrx_bcon_pressure_update(pressure)
 
     def _set_armed_ui(self, armed, reset=False):
         if hasattr(self, "beams_ready_button"):

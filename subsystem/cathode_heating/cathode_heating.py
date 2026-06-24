@@ -177,6 +177,7 @@ class CathodeHeatingSubsystem:
         self.power_supply_poll_stop = self.power_supply_poll_stop_event
         self.disable_ccs_output_on_bcon_disconnect = True
         self.bcon_is_connected = None
+        self.vtrx_ccs_pressure_allows_output = None
         # Tells the long-lived poller to pause while COM-port updates swap driver objects.
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
@@ -2614,6 +2615,28 @@ class CathodeHeatingSubsystem:
                     cathode = ['A', 'B', 'C'][index]
                     self.log(
                         f"CCS output enable blocked for Cathode {cathode}: BCON device not connected.",
+                        LogLevel.WARNING,
+                    )
+                    return
+
+            pressure_allows_output = getattr(
+                self,
+                "vtrx_ccs_pressure_allows_output",
+                None,
+            )
+            if callable(pressure_allows_output):
+                cathode = ['A', 'B', 'C'][index]
+                try:
+                    blocked_by_pressure = not bool(pressure_allows_output())
+                except Exception as e:
+                    self.log(
+                        f"CCS output enable blocked for Cathode {cathode}: VTRX pressure check failed ({e}).",
+                        LogLevel.WARNING,
+                    )
+                    return
+                if blocked_by_pressure:
+                    self.log(
+                        f"CCS output enable blocked for Cathode {cathode}: VTRX pressure is above 1e-5 mbar.",
                         LogLevel.WARNING,
                     )
                     return

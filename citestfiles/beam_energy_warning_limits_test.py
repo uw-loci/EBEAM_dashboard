@@ -167,11 +167,11 @@ class MainControlBeamsEstopLimitUiTest(unittest.TestCase):
 
         self.assertEqual(
             main_control._format_beams_estop_current_limit_ma(0.5),
-            "Limit set to: 0.5mA",
+            "0.5",
         )
         self.assertEqual(
             main_control._format_beams_estop_current_limit_ma(None),
-            "Limit set to: --mA",
+            "--",
         )
 
     def test_main_control_logs_successful_beams_estop_limit_update(self):
@@ -189,7 +189,7 @@ class MainControlBeamsEstopLimitUiTest(unittest.TestCase):
         self.assertEqual(main_control.beams_estop_current_entry_var.get(), "")
         self.assertEqual(
             main_control.beams_estop_current_value_var.get(),
-            "Limit set to: 0.5mA",
+            "0.5",
         )
         self.assertEqual(
             logger.info_entries,
