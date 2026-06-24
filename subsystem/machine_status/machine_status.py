@@ -344,7 +344,7 @@ class MachineStatus:
 
         segment_count = len(STATUS_NAMES)
         segment_width = width / segment_count
-        tip_width = max(14, min(34, int(segment_width * 0.16)))
+        tip_width = 15
         mid_y = height / 2
 
         for index, name in enumerate(STATUS_NAMES):
