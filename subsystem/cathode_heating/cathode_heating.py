@@ -237,6 +237,34 @@ class CathodeHeatingSubsystem:
         
         # Temperature predictions from heater current model
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
+
+    def _set_predicted_emission_current_ma(self, index, value_ma=None):
+        """Set or clear the numeric predicted emission current and display label."""
+        if value_ma is None:
+            self.ideal_cathode_emission_currents[index] = 0.0
+            self.predicted_emission_current_vars[index].set('--')
+            return
+
+        try:
+            numeric_value = float(value_ma)
+        except (TypeError, ValueError):
+            numeric_value = 0.0
+        if not np.isfinite(numeric_value) or numeric_value < 0:
+            numeric_value = 0.0
+        # Keep the machine-readable value and the operator-facing label in sync.
+        self.ideal_cathode_emission_currents[index] = numeric_value
+        self.predicted_emission_current_vars[index].set(f'{numeric_value:.2f} mA')
+
+    def get_predicted_emission_currents_ma(self):
+        """Return numeric predicted cathode emission currents for A/B/C in mA."""
+        currents = []
+        for value in self.ideal_cathode_emission_currents[:3]:
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                numeric_value = 0.0
+            currents.append(numeric_value if np.isfinite(numeric_value) and numeric_value >= 0 else 0.0)
+        return currents
     
     def _init_measurement_variables(self):
         """
@@ -2299,7 +2327,7 @@ class CathodeHeatingSubsystem:
             # Ensure current is within the data range
             if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
                 self.log("Desired emission current is below the minimum range of the model.", LogLevel.DEBUG)
-                self.predicted_emission_current_vars[index].set('0.00')
+                self._set_predicted_emission_current_ma(index, 0.0)
                 self.predicted_grid_current_vars[index].set('0.00')
                 self.predicted_heater_current_vars[index].set('0.00')
                 self.heater_voltage_vars[index].set('0.00')
@@ -2369,7 +2397,7 @@ class CathodeHeatingSubsystem:
                         predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
                         predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
                         predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-                        self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+                        self._set_predicted_emission_current_ma(index, ideal_emission_current)
                         self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
                         self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
                         self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
@@ -2399,7 +2427,7 @@ class CathodeHeatingSubsystem:
             - Heater voltage (if not previously set)
         """
         # Reset prediction values
-        self.predicted_emission_current_vars[index].set('--')
+        self._set_predicted_emission_current_ma(index)
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
@@ -2416,7 +2444,7 @@ class CathodeHeatingSubsystem:
 
     def clear_prediction_variables(self, index):
         """Clear only prediction display fields while preserving active setpoints/state."""
-        self.predicted_emission_current_vars[index].set('--')
+        self._set_predicted_emission_current_ma(index)
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
         self.predicted_heater_voltage_vars[index].set('--')
@@ -2479,7 +2507,7 @@ class CathodeHeatingSubsystem:
             self.power_supplies[index].set_voltage(3, 0.0, sent_callback=lambda v, i=index: self._update_sent_voltage_display(i, v))
             self.power_supplies[index].set_current(3, 0.0, sent_callback=lambda c, i=index: self._update_sent_current_display(i, c))
             self.log(f"Reset power supply settings for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
-        self.predicted_emission_current_vars[index].set('--')
+        self._set_predicted_emission_current_ma(index)
         self.predicted_grid_current_vars[index].set('--')
         self.predicted_heater_current_vars[index].set('--')
         self.predicted_temperature_vars[index].set('--')
@@ -2739,7 +2767,8 @@ class CathodeHeatingSubsystem:
             # Update GUI with new values
             self.predicted_heater_current_vars[index].set(f'{pred_heater_current:.2f} A')
             self.predicted_heater_voltage_vars[index].set(f'{pred_heater_voltage:.2f} V')
-            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            # Publish the derived emission value for both display and dashboard limit checks.
+            self._set_predicted_emission_current_ma(index, ideal_emission_current)
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
             self.predicted_temperature_vars[index].set('--')
 
@@ -2816,7 +2845,8 @@ class CathodeHeatingSubsystem:
             # Update GUI with new values
             self.predicted_heater_current_vars[index].set(f'{pred_heater_current:.2f} A')
             self.predicted_heater_voltage_vars[index].set(f'{pred_heater_voltage:.2f} V')
-            self.predicted_emission_current_vars[index].set(f'{ideal_emission_current:.2f} mA')
+            # Publish the derived emission value for both display and dashboard limit checks.
+            self._set_predicted_emission_current_ma(index, ideal_emission_current)
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
             self.predicted_temperature_vars[index].set('--')
 
