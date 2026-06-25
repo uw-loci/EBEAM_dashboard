@@ -238,6 +238,10 @@ class CathodeHeatingSubsystem:
             "voltage": [False, False, False],
             "current": [False, False, False],
         }
+        self.measured_output_warning_logged = {
+            "voltage": [False, False, False],
+            "current": [False, False, False],
+        }
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
         self.curr_adjustment_buttons = []  # Track current +/- buttons 
@@ -2744,31 +2748,55 @@ class CathodeHeatingSubsystem:
             widget.configure(fg=self.MEASURED_OUTPUT_NORMAL_FG)
         self.measured_output_warning_active[measurement_type][index] = bool(warning_active)
 
-    def _clear_measured_output_warning(self, index, measurement_type):
+    def _measured_output_unit(self, measurement_type):
+        return "V" if measurement_type == "voltage" else "A"
+
+    def _log_measured_output_warning_breach(self, index, measurement_type, sent, measured, threshold_percent, difference):
+        if self.measured_output_warning_logged[measurement_type][index]:
+            return
+        self.measured_output_warning_logged[measurement_type][index] = True
+        cathode = ['A', 'B', 'C'][index]
+        unit = self._measured_output_unit(measurement_type)
+        self.log(
+            f"Cathode {cathode} measured-output {measurement_type} warning: "
+            f"measured {measured:.2f}{unit}, sent {sent:.2f}{unit}, "
+            f"difference {difference:.2f}{unit} exceeds {threshold_percent:g}% threshold.",
+            LogLevel.WARNING,
+        )
+
+    def _clear_measured_output_warning(self, index, measurement_type, *, log_clear=False):
+        was_logged = self.measured_output_warning_logged[measurement_type][index]
         self.measured_output_warning_since[measurement_type][index] = None
         self._set_measured_output_warning_box(index, measurement_type, False)
+        self.measured_output_warning_logged[measurement_type][index] = False
+        if log_clear and was_logged:
+            cathode = ['A', 'B', 'C'][index]
+            self.log(
+                f"Cathode {cathode} measured-output {measurement_type} warning cleared.",
+                LogLevel.INFO,
+            )
 
     def _update_single_measured_output_warning(self, index, measurement_type, sent_value, measured_value, active, now):
         if not active:
-            self._clear_measured_output_warning(index, measurement_type)
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
             return
 
         try:
             sent = float(sent_value)
             measured = float(measured_value)
         except (TypeError, ValueError):
-            self._clear_measured_output_warning(index, measurement_type)
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
             return
 
         if not np.isfinite(sent) or not np.isfinite(measured) or sent == 0.0:
-            self._clear_measured_output_warning(index, measurement_type)
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
             return
 
         threshold_percent = self.measured_output_warning_thresholds[measurement_type][index]
         allowed_difference = abs(sent) * (threshold_percent / 100.0)
         difference = abs(measured - sent)
         if difference <= allowed_difference:
-            self._clear_measured_output_warning(index, measurement_type)
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
             return
 
         violation_started = self.measured_output_warning_since[measurement_type][index]
@@ -2777,11 +2805,17 @@ class CathodeHeatingSubsystem:
             self._set_measured_output_warning_box(index, measurement_type, False)
             return
 
-        self._set_measured_output_warning_box(
-            index,
-            measurement_type,
-            (now - violation_started) > self.MEASURED_OUTPUT_WARNING_SECONDS,
-        )
+        warning_active = (now - violation_started) > self.MEASURED_OUTPUT_WARNING_SECONDS
+        self._set_measured_output_warning_box(index, measurement_type, warning_active)
+        if warning_active:
+            self._log_measured_output_warning_breach(
+                index,
+                measurement_type,
+                sent,
+                measured,
+                threshold_percent,
+                difference,
+            )
 
     def _update_measured_output_warning_indicators(self, index, voltage, current, mode):
         if not (0 <= index < 3):
