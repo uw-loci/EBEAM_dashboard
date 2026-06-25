@@ -1117,18 +1117,6 @@ class MainControlPanel:
             else:
                 self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse subsystem is unavailable")
 
-            # Turn off cathode heating power supplies
-            cathode = self.subsystems.get('Cathode Heating')
-            if cathode is not None:
-                turn_off_all_beams = getattr(cathode, 'turn_off_all_beams', None)
-                if callable(turn_off_all_beams):
-                    self._log_info("Beams E-STOP requesting cathode heating shutdown")
-                    turn_off_all_beams()
-                else:
-                    self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating turn_off_all_beams API is unavailable")
-            else:
-                self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating subsystem is unavailable")
-
             # Disarm beams
             if beam_pulse is not None:
                 get_beams_armed_status = getattr(beam_pulse, 'get_beams_armed_status', None)
@@ -1148,6 +1136,19 @@ class MainControlPanel:
                 self._update_enable_toggle_states(enabled=False)
                 self._update_activate_enabled_beams_control_state(armed=False)
             self._clear_all_beam_output_displays()
+            
+            # Turn off cathode heating power supplies
+            cathode = self.subsystems.get('Cathode Heating')
+            if cathode is not None:
+                turn_off_all_beams = getattr(cathode, 'turn_off_all_beams', None)
+                if callable(turn_off_all_beams):
+                    self._log_info("Beams E-STOP requesting cathode heating shutdown")
+                    turn_off_all_beams()
+                else:
+                    self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating turn_off_all_beams API is unavailable")
+            else:
+                self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating subsystem is unavailable")
+
             if reason:
                 self._set_beam_action_status(str(reason), "estop")
             else:
