@@ -24,6 +24,7 @@ from subsystem.machine_status.machine_status import (
     STATUS_TEMPS,
     MachineStatus,
     StatusConditions,
+    _snapshot_subsystems,
     build_status_transition_logs,
     calculate_display_states,
     evaluate_machine_status_conditions,
@@ -469,6 +470,16 @@ class MachineStatusTest(unittest.TestCase):
 
         self.assertEqual(list(conditions.keys()), list(STATUS_KEYS))
         self.assertTrue(conditions[STATUS_TEMPS].ready)
+
+    def test_snapshot_subsystems_returns_independent_copy(self):
+        source = {"Interlocks": FakeInterlocks({})}
+
+        snapshot = _snapshot_subsystems(source)
+        source["Beam Energy"] = FakeBeamEnergy(beam_energy_inputs())
+
+        self.assertIsNot(snapshot, source)
+        self.assertIn("Interlocks", snapshot)
+        self.assertNotIn("Beam Energy", snapshot)
 
     def test_cancel_updates_cancels_all_pending_after_callbacks(self):
         parent = FakeParent()

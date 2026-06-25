@@ -109,6 +109,15 @@ def build_status_transition_logs(previous_states, current_states):
     return entries
 
 
+def _snapshot_subsystems(subsystems):
+    if not subsystems:
+        return {}
+    try:
+        return dict(subsystems)
+    except Exception:
+        return {}
+
+
 def _number(value):
     if isinstance(value, bool):
         return None
@@ -469,8 +478,9 @@ class MachineStatus:
     def _worker_loop(self):
         while not self._stop_event.is_set():
             try:
+                subsystems = _snapshot_subsystems(self.subsystem_provider() or {})
                 status_conditions = evaluate_machine_status_conditions(
-                    self.subsystem_provider() or {},
+                    subsystems,
                     self.main_control_provider(),
                 )
                 if self._last_error:
