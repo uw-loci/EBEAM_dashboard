@@ -1692,6 +1692,21 @@ class BeamPulseSubsystem:
             'bcon_connected': self.bcon_connection_status,
         }
 
+    def get_machine_status_inputs(self) -> dict:
+        """Return existing Beam Pulse variables needed by MachineStatus."""
+        connected = bool(self.bcon_connection_status and self.is_connected())
+        active_channels = {
+            int(channel)
+            for channel in getattr(self, "_active_channels", set())
+            if isinstance(channel, int)
+        }
+        return {
+            "bcon_connected": connected,
+            "any_beam_active": bool(active_channels),
+            "active_channels": active_channels,
+            "channel_enable_status": list(getattr(self, "channel_enable_status", [])),
+        }
+
     # --- Hardware driver interface ---
 
     def connect(self) -> bool:

@@ -211,10 +211,10 @@ class ProcessMonitorSubsystem:
     MIN_VALID_TEMP = -90
     MAX_VALID_TEMP = 500
 
-    def __init__(self, parent, com_port, active, logger=None):
+    def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
-        self.active = active
+        self.environment_pass = False
         self.last_error_time = 0
         self.error_count = 0
         self.com_port = com_port
@@ -277,6 +277,7 @@ class ProcessMonitorSubsystem:
                     self._set_all_temps_disconnected()
                     if self.logger and hasattr(self.logger, "clear_value"):
                         self.logger.clear_value("temperatures")
+                    self.environment_pass = False
                     self.last_error_time = current_time
             else:
                 if self._monitor_missing_logged:
@@ -305,7 +306,7 @@ class ProcessMonitorSubsystem:
                         self._set_all_temps_disconnected()
                         if self.logger and hasattr(self.logger, "clear_value"):
                             self.logger.clear_value("temperatures")
-                        self.active['Environment Pass'] = False
+                        self.environment_pass = False
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                 else:
@@ -325,6 +326,10 @@ class ProcessMonitorSubsystem:
     def _unit_affects_environment_pass(self, unit):
         spare_units = getattr(self.monitor, "SPARE_ZERO_READING_UNITS", set())
         return unit not in spare_units
+
+    def get_environment_pass(self):
+        """Return the latest non-Tk environment monitor pass state."""
+        return bool(self.environment_pass)
 
     def _apply_temperature_snapshot(self, temps):
         environment_pass = True
@@ -366,7 +371,7 @@ class ProcessMonitorSubsystem:
                 if affects_environment_pass:
                     environment_pass = False
 
-        self.active['Environment Pass'] = environment_pass
+        self.environment_pass = environment_pass
 
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
