@@ -10,7 +10,6 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.dates import DateFormatter
-from instrumentctl.ES440_cathode.ES440_cathode import ES440_cathode
 from instrumentctl.power_supply_9104.power_supply_9104 import PowerSupply9104
 from instrumentctl.E5CN_modbus.E5CN_modbus import E5CNModbus
 from utils import ToolTip
@@ -234,7 +233,6 @@ class CathodeHeatingSubsystem:
         self._snapshot_desired_power_supply_limits()
 
         # System initialization sequence
-        self.init_cathode_model()                   # Initialize cathode physics models
         self.setup_gui()                            # Set up graphical interface
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
@@ -285,7 +283,7 @@ class CathodeHeatingSubsystem:
         # Heater voltage predictions - used for power supply control
         self.predicted_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
         
-        # Temperature predictions from heater current model
+        # Temperature predictions are currently unavailable for direct setpoint control.
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
 
     def _set_predicted_emission_current_ma(self, index, value_ma=None):
@@ -322,8 +320,6 @@ class CathodeHeatingSubsystem:
         
         Sets up StringVar objects for displaying real-time measurements including:
         - Heater voltages and currents
-        - Target currents
-        - Grid currents
         - Clamp temperatures
         
         Also initializes timing variables for data collection and plotting.
@@ -336,12 +332,6 @@ class CathodeHeatingSubsystem:
         self.actual_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured current
         
-        # Beam current monitoring
-        self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Total emission
-        self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current hitting target
-        self.grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current intercepted by grid
-        self.actual_target_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)] # Measured target current
-
         # Temperature monitoring
         self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured temperatures
         self.clamp_temp_labels = []  # Labels for temperature display
@@ -1738,34 +1728,6 @@ class CathodeHeatingSubsystem:
         except Exception as e:
             self.log(f"Error checking settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
 
-    def init_cathode_model(self):
-        """
-        Initialize the physics model for cathode behavior prediction.
-
-        Sets up three interedependent models:
-        1. Heater voltage Model: Maps current to required voltage
-        2. Emission current model: Predicts emission based on heater current 
-        3. Temperature Model: Estimates cathode temperature
-        """
-        try:
-            # initialize heater voltage model
-            heater_current = [data[0] for data in ES440_cathode.heater_voltage_current_data]
-            heater_voltage = [data[1] for data in ES440_cathode.heater_voltage_current_data]
-            self.heater_voltage_model = ES440_cathode(heater_current, heater_voltage, log_transform=False)
-
-            # initialize emission current model
-            heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
-            emission_current = [data[1] for data in ES440_cathode.heater_current_emission_current_data]
-            self.emission_current_model = ES440_cathode(heater_current_emission, emission_current, log_transform=True)
-        
-            # Initialize true temperature model
-            heater_current_temp = [data[0] for data in ES440_cathode.heater_current_true_temperature_data]
-            true_temperature = [data[1] for data in ES440_cathode.heater_current_true_temperature_data]
-            self.true_temperature_model = ES440_cathode(heater_current_temp, true_temperature, log_transform=False)
-
-        except Exception as e:
-            self.log(f"Failed to initialize cathode models: {str(e)}", LogLevel.ERROR)
-
     def initialize_temperature_controllers(self):
         """
         Initialize the connection to the E5CN Temperature controllers over Modbus.
@@ -2355,7 +2317,6 @@ class CathodeHeatingSubsystem:
 
         self.actual_heater_current_vars[index].set("--")
         self.actual_heater_voltage_vars[index].set("--")
-        self.actual_target_current_vars[index].set("--")
         self.operation_mode_var[index].set("Mode: --")
 
         if index < len(self.cv_cc_labels):
@@ -2486,9 +2447,6 @@ class CathodeHeatingSubsystem:
                     self.temperature_data[i][0].set_data(self.time_data[i], self.temperature_data[i][0].get_data()[1][-self.MAX_POINTS:])
 
                 self.last_plot_time = current_time  # Reset the plot timer
-
-            # Update Main Page labels for voltage and current
-            self.e_beam_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
 
             # Update Config page labels
             self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f}' if voltage is not None else 'Voltage: --')
@@ -2832,128 +2790,6 @@ class CathodeHeatingSubsystem:
                     self.log(f"Failed to turn off heater for Cathode {cathode_label}", LogLevel.ERROR)
             except Exception as e:
                 self.log(f"Error turning off heater for Cathode {cathode_label}: {str(e)}", LogLevel.ERROR)
-
-    def set_target_current(self, index, entry_field):
-        """
-        Set target beam current for a cathode and calculate required heater settings.
-        Uses the target beam current to calculate ideal emission current, then determines
-        the appropritate heater voltage and current using the ES440 cathode data model.
-        Args:
-            index (int): Index of the cathode (0-2)
-            entry_field (ttk.Entry): Entry widget containing target current value
-        Raises:
-            ValueError: If target current is negative or invalid
-        Side effects:
-            - programs power supply voltage and current settings
-            - updates predicted values displays (emission, grid current, temperature)
-            - Updates heater voltage display
-            - Logs actions and any errors
-        """
-        if not self.power_supply_status[index]:
-            self.log(f"Power supply {index + 1} is not initialized. Cannot set target current.", LogLevel.ERROR)
-            msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
-            return
-        if entry_field is None:
-            self.log("Target current entry field is missing", LogLevel.ERROR)
-            return
-        try:
-            target_current_mA = float(entry_field.get())
-            ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
-            if ideal_emission_current < 0:
-                raise ValueError("Target current must be positive")
-            log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
-            if ideal_emission_current == 0:
-                # Set all related variables to zero
-                self.reset_power_supply(index)
-                return
-            # Ensure current is within the data range
-            if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
-                self.log("Desired emission current is outside the range of the model.", LogLevel.WARNING)
-                self._set_predicted_emission_current_ma(index, 0.0)
-                self.predicted_grid_current_vars[index].set('0.00')
-                self.predicted_heater_current_vars[index].set('0.00')
-                self.heater_voltage_vars[index].set('0.00')
-                self.predicted_temperature_vars[index].set('0.00')
-            else:
-                # Calculate heater current from the ES440 model
-                heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
-                heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-                self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
-                self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
-                # set_voltage handles these checks now
-                # current_ovp = self.get_ovp(index)
-                # if current_ovp is None:
-                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                #     return
-                # if heater_voltage > current_ovp:
-                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                #     return
-                # Set Upper Current Limit on the power supply
-                if self.power_supplies and len(self.power_supplies) > index:
-                    self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
-                    current_ovp = self.get_ovp(index)
-                    if current_ovp is None:
-                        self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                        return
-                    if heater_voltage > current_ovp:
-                        self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                        msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                        return
-                    # Set the upper current limit on the power supply
-                    # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
-                    current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    if current_set_success:
-                        self.user_set_voltages[index] = heater_voltage
-                        # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                        if self.toggle_states[index]:
-                            if self.ramp_status[index]:
-                                self.power_supplies[index].ramp_voltage(
-                                    heater_voltage,
-                                    step_size=self.slew_rates[index],
-                                    step_delay=1.0,
-                                    preset=3
-                                )
-                                self.voltage_set[index] = True
-                            else:
-                                self.power_supplies[index].set_voltage(3, heater_voltage)
-                                self.voltage_set[index] = True
-                        # Confirm the set values
-                        _ , set_current = self.power_supplies[index].get_settings(3)
-                        if set_current is not None:
-                            # voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
-                            current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                            if current_mismatch:
-                                self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                                # if voltage_mismatch:
-                                #     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
-                                if current_mismatch:
-                                    self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
-                                    return
-                                # GUI is updated with actual voltage
-                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f}")
-                            else:
-                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
-                        else:
-                            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
-                        predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-                        predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
-                        predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-                        self._set_predicted_emission_current_ma(index, ideal_emission_current)
-                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
-                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
-                        setattr(self, f'last_set_voltage_{index}', heater_voltage)
-                        self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
-                    else:
-                        self.reset_related_variables(index)
-                        self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
-        except ValueError as e:
-            self.log("Invalid input for target current", LogLevel.ERROR)
-            msgbox.showerror("Invalid Input", str(e))
-            return
 
     def reset_related_variables(self, index):
         """
