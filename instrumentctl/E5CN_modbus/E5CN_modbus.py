@@ -13,8 +13,21 @@ class E5CNModbus:
     THREAD_JOIN_TIMEOUT = 2.0
     MODBUS_CLOSE_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
+    POLL_ERROR_LOG_INTERVAL = 10.0
 
-    def __init__(self, port, baudrate=9600, timeout=1, parity='E', stopbits=2, bytesize=8, logger=None, debug_mode=False):
+    def __init__(
+        self,
+        port,
+        baudrate=9600,
+        timeout=1,
+        parity='E',
+        stopbits=2,
+        bytesize=8,
+        logger=None,
+        debug_mode=False,
+        disable_logging_when_ccs_power_off=False,
+        ccs_power_on_provider=None,
+    ):
         """
         Initialize the E5CNModbus instance with serial communication parameters and optional logging.
         
@@ -30,6 +43,8 @@ class E5CNModbus:
         """
         self.logger = logger
         self.debug_mode = debug_mode
+        self.disable_logging_when_ccs_power_off = bool(disable_logging_when_ccs_power_off)
+        self.ccs_power_on_provider = ccs_power_on_provider if callable(ccs_power_on_provider) else None
         self.stop_event = threading.Event()
         self.threads = [] # for each unit
         self.temperatures = [None, None, None] 
@@ -42,6 +57,10 @@ class E5CNModbus:
         self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
         self._dropped_worker_log_count = 0
         self._dropped_worker_log_lock = threading.Lock()
+        self._rate_limited_log_times = {}
+        self._rate_limited_log_lock = threading.Lock()
+        self._is_dummy_serial_port = self._is_dummy_port(port)
+        self._dummy_port_logged = False
         self.log(f"Initializing E5CNModbus with port: {port}", LogLevel.DEBUG)
 
         # Initialize Modbus client without 'method' parameter
@@ -58,10 +77,23 @@ class E5CNModbus:
         if self.debug_mode:
             self.log("Debug Mode: Modbus communication details will be outputted.", LogLevel.DEBUG)
 
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_ccs_power_off or self.ccs_power_on_provider is None:
+            return False
+        try:
+            return not bool(self.ccs_power_on_provider())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_dummy_port(port):
+        return bool(port) and str(port).upper().startswith("DUMMY_COM")
+
     def start_reading_temperatures(self):
         """Start threads for continuously reading temperature for each unit."""
         if not self.connect():
-            self.log("Cannot start reading temperatures - connection failed", LogLevel.ERROR)
+            level = LogLevel.DEBUG if self._is_dummy_serial_port else LogLevel.ERROR
+            self.log("Cannot start reading temperatures - connection failed", level)
             return False
             
         self.stop_event.clear()
@@ -99,23 +131,41 @@ class E5CNModbus:
                 if isinstance(temperature, (int, float)):
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.INFO)
+                        self.log(f"Unit {unit} Temperature: {temperature} C", LogLevel.VERBOSE)
                 elif temperature == self.SENSOR_ERROR:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                    self.log(f"Unit {unit} temperature reading is invalid", LogLevel.ERROR)
+                    self._log_rate_limited(
+                        ("sensor_error", unit),
+                        f"Unit {unit} temperature reading is invalid",
+                        LogLevel.ERROR,
+                    )
                 elif temperature is not None:
                     with self.temperatures_lock:
                         self.temperatures[unit - 1] = temperature
-                    self.log(f"Unit {unit} returned unexpected temperature value: {temperature}", LogLevel.ERROR)
+                    self._log_rate_limited(
+                        ("unexpected_temperature", unit),
+                        f"Unit {unit} returned unexpected temperature value: {temperature}",
+                        LogLevel.ERROR,
+                    )
                 else:
-                    self.log(f"Unit {unit} is reading null", LogLevel.ERROR)
+                    with self.temperatures_lock:
+                        self.temperatures[unit - 1] = None
+                    self._log_rate_limited(
+                        ("null_temperature", unit),
+                        f"Unit {unit} is reading null",
+                        LogLevel.ERROR,
+                    )
                 time.sleep(0.5)  # small delay between reads
             except Exception as e:
                 if self.stop_event.is_set():
                     self.connected = False
                     break
-                self.log(f"Error in continuous temperature reading for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._log_rate_limited(
+                    ("continuous_read_exception", unit),
+                    f"Error in continuous temperature reading for unit {unit}: {str(e)}",
+                    LogLevel.ERROR,
+                )
                 time.sleep(1)  # Longer delay on error
 
     def stop_reading(self):
@@ -149,6 +199,17 @@ class E5CNModbus:
         """
         with self.modbus_lock:
             try:
+                if self._is_dummy_serial_port:
+                    if not self._dummy_port_logged:
+                        self.log(
+                            f"E5CN temperature controllers configured for dummy port {self.port}; "
+                            "skipping Modbus serial connection.",
+                            LogLevel.DEBUG,
+                        )
+                        self._dummy_port_logged = True
+                    self.connected = False
+                    return False
+
                 if self.client.is_socket_open():
                     self.connected = True
                     self.log("Modbus client already connected.", LogLevel.DEBUG)
@@ -202,6 +263,7 @@ class E5CNModbus:
 
     def read_temperature(self, unit):
         attempts = 3
+        original_attempts = attempts
         while attempts > 0 and not self.stop_event.is_set():
             try:
                 with self.modbus_lock:
@@ -210,18 +272,30 @@ class E5CNModbus:
 
                     if not self.client.is_socket_open():
                         try:
+                            was_connected = self.connected
                             if self.client.connect():
                                 time.sleep(0.2)
                                 # clear any stale data
                                 if hasattr(self.client, 'socket'):
                                     self.client.socket.reset_input_buffer()
+                                if not was_connected:
+                                    self.log(f"E5CN reconnected for unit {unit} on {self.port}", LogLevel.INFO)
+                                self.connected = True
                             else:
-                                self.log(f"Failed to reconnect for unit {unit}", LogLevel.ERROR)
+                                self._log_rate_limited(
+                                    ("reconnect_failed", unit),
+                                    f"Failed to reconnect for unit {unit}",
+                                    LogLevel.ERROR,
+                                )
                                 self.connected = False
                                 attempts -= 1
                                 continue
                         except Exception as e:
-                            self.log(f"Error during reconnection for unit {unit}: {str(e)}", LogLevel.ERROR)
+                            self._log_rate_limited(
+                                ("reconnect_exception", unit),
+                                f"Error during reconnection for unit {unit}: {str(e)}",
+                                LogLevel.ERROR,
+                            )
                             self.connected = False
                             attempts -= 1
                             continue
@@ -236,35 +310,61 @@ class E5CNModbus:
                         self.connected = True
                         temperature = response.registers[1] / 10.0
                         if not math.isfinite(temperature) or temperature > self.MAX_VALID_TEMPERATURE_C:
-                            self.log(
+                            self._log_rate_limited(
+                                ("invalid_temperature", unit),
                                 f"Invalid temperature from unit {unit}: {temperature:.2f} C "
                                 f"exceeds hard maximum {self.MAX_VALID_TEMPERATURE_C:.2f} C",
                                 LogLevel.ERROR
                             )
                             return self.SENSOR_ERROR
-                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.INFO)
+                        self.log(f"Temperature from unit {unit}: {temperature:.2f} C", LogLevel.VERBOSE)
                         return temperature
                     else:
-                        self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.ERROR)
+                        self.log(f"Error reading temperature from unit {unit}: {response}", LogLevel.DEBUG)
                         attempts -= 1
-                        return self.SENSOR_ERROR
+                        continue
 
             except Exception as e:
-                self.log(f"Unexpected error for unit {unit}: {str(e)}", LogLevel.ERROR)
+                self._log_rate_limited(
+                    ("unexpected_read_error", unit),
+                    f"Unexpected error for unit {unit}: {str(e)}",
+                    LogLevel.ERROR,
+                )
                 attempts -= 1
                 time.sleep(0.1)  # Short delay between retries
 
+        if self.stop_event.is_set():
+            return None
+
+        self._log_rate_limited(
+            ("read_temperature_failed", unit),
+            f"Failed to read temperature from unit {unit} after {original_attempts} attempt(s)",
+            LogLevel.ERROR,
+        )
         return None
 
+    def _log_rate_limited(self, key, message, level=LogLevel.INFO, interval=None):
+        interval = self.POLL_ERROR_LOG_INTERVAL if interval is None else interval
+        now = time.monotonic()
+        with self._rate_limited_log_lock:
+            last_logged = self._rate_limited_log_times.get(key)
+            if last_logged is not None and now - last_logged < interval:
+                log_level = LogLevel.VERBOSE
+            else:
+                self._rate_limited_log_times[key] = now
+                log_level = level
+        self.log(message, log_level)
+
     def log(self, message, level=LogLevel.INFO):
+        if self._logging_suppressed():
+            return
         if not self.logger:
-            print(f"{level.name}: {message}")
             return
 
         # Tkinter widgets must only be modified from the main GUI thread.
         # Queue logs from worker threads and flush them on the main thread.
         if threading.get_ident() == self._main_thread_ident:
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS-E5CN")
         else:
             self._enqueue_worker_log(message, level)
 
@@ -302,11 +402,20 @@ class E5CNModbus:
         """Flush queued worker-thread log messages on the calling thread."""
         if not self.logger:
             return
+        if self._logging_suppressed():
+            self._pop_dropped_worker_log_count()
+            while True:
+                try:
+                    self._log_queue.get_nowait()
+                except Empty:
+                    break
+            return
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:
             self.logger.log(
                 f"Dropped {dropped_count} queued E5CN worker log message(s) because the log queue was full.",
                 LogLevel.WARNING,
+                tag="CCS-E5CN",
             )
         processed = 0
         while processed < max_messages:
@@ -314,5 +423,5 @@ class E5CNModbus:
                 message, level = self._log_queue.get_nowait()
             except Empty:
                 break
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS-E5CN")
             processed += 1

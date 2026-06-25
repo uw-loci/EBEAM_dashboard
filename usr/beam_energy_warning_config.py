@@ -40,14 +40,13 @@ def _copy_defaults():
 
 def _log(logger, level, message):
     if logger is None:
-        print(message)
         return
 
     log_func = getattr(logger, level, None)
     if log_func:
-        log_func(message)
+        log_func(message, tag="Config")
     elif hasattr(logger, "log"):
-        logger.log(message)
+        logger.log(message, tag="Config")
 
 
 def _valid_number(value):
@@ -156,7 +155,7 @@ def load_beam_energy_warning_limits(filepath=CONFIG_FILE, logger=None):
         _log(logger, "error", f"Error loading Beam Energy warning limits: {e}")
         return _copy_defaults()
 
-    _log(logger, "info", f"Beam Energy warning limits loaded from {filepath}.")
+    _log(logger, "debug", f"Beam Energy warning limits loaded from {filepath}.")
     return normalize_warning_limits(raw_limits, logger=logger)
 
 

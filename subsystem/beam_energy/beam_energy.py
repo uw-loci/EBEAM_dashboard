@@ -44,6 +44,22 @@ class BeamEnergySubsystem:
         ("pos20kv", 3),
         ("pos3kv", 4),
     )
+    supply_interlock_flag_map = {
+        "pos1kv": ("vcomp_1k_flag", "icomp_1k_flag"),
+        "neg1kv": ("neg_vcomp_1k_flag", "neg_icomp_1k_flag"),
+        "pos20kv": ("vcomp_20k_flag", "icomp_20k_flag"),
+        "pos3kv": ("vcomp_3k_flag", "icomp_3k_flag"),
+    }
+    interlock_log_entries = (
+        ("vcomp_1k_flag", "+1kV Matsusada Voltage tripped"),
+        ("icomp_1k_flag", "+1kV Matsusada Current tripped"),
+        ("neg_vcomp_1k_flag", "-1kV Matsusada Voltage tripped"),
+        ("neg_icomp_1k_flag", "-1kV Matsusada Current tripped"),
+        ("vcomp_20k_flag", "+20kV Bertan Voltage tripped"),
+        ("icomp_20k_flag", "+20kV Bertan Current tripped"),
+        ("vcomp_3k_flag", "+3kV Bertan Voltage tripped"),
+        ("icomp_3k_flag", "+3kV Bertan Current tripped"),
+    )
     beam_energy_flag_keys = (
         "3kV_enable",
         "nomop_flag",
@@ -76,6 +92,8 @@ class BeamEnergySubsystem:
         self.knob_box_controller = None
         self.knob_box_connected = False
         self.knob_box_connected_at = None
+        self._knob_box_fallback_reason = None
+        self._knob_box_missing_port_logged = False
         
         # Main power supply configurations
         self.power_supplies = [
@@ -97,14 +115,26 @@ class BeamEnergySubsystem:
         self.output_status = [tk.StringVar(value="DISABLED") for _ in range(len(self.power_supplies))]
         self.connection_status_colors = [tk.StringVar(value="red") for _ in range(len(self.power_supplies) )]
         self.reset_status_colors = [tk.StringVar(value="white") for _ in range(2)]
+        self.voltage_interlock_colors = [tk.StringVar(value="white") for _ in range(len(self.power_supplies))]
+        self.current_interlock_colors = [tk.StringVar(value="white") for _ in range(len(self.power_supplies))]
+        self.interlock_log_vars = [
+            tk.StringVar(value="") for _flag_key, _message in self.interlock_log_entries
+        ]
+        self.interlock_log_var_by_flag = {
+            flag_key: self.interlock_log_vars[index]
+            for index, (flag_key, _message) in enumerate(self.interlock_log_entries)
+        }
         self.forced_off_color = tk.StringVar(value="white")  # Only for 3kV Bertan
 
         # Indicator Panel -> not power supply specific
         self.glassman_interlock_var = tk.StringVar(value="UNARMED")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
-        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
+        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, green=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
+        self.ccs_power_on = False
+        self.disable_logging_when_hvolt_off = False
+        self.hvolt_on_provider = None
         # Beam Energy owns the +20kV threshold; Dashboard provides the actual stop handler.
         self.beams_estop_current_entry_var = tk.StringVar(value="")
         self.beams_estop_current_value_var = tk.StringVar(
@@ -115,6 +145,7 @@ class BeamEnergySubsystem:
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
         self.radiation_indicator_callback = None
         self._radiation_indicator_sent = None
+        self._radiation_indicator_missing_callback_state = None
         self.warning_limit_entry_vars = [
             {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
             for _ in self.power_supplies
@@ -177,8 +208,8 @@ class BeamEnergySubsystem:
             )
             ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
             
-            # Configure grid weights for responsive layout
-            ps_container.grid_columnconfigure(i, weight=1)
+            # Configure grid weights for equal-width power supply panels.
+            ps_container.grid_columnconfigure(i, weight=1, uniform="beam_energy_supply")
 
             self.ps_frames.append(ps_frame)
             self.create_power_supply_displays(ps_frame, ps_config, i)
@@ -235,7 +266,26 @@ class BeamEnergySubsystem:
         add_row("CCS Power:",      self.ccs_power_var)
         add_row("Arm 80kV:",     self.glassman_interlock_var)
         add_row("Logic Comms:",    color_var=self.logic_comms_color)
-        add_row("Interlocks:",     color_var=self.interlocks_color)        
+        add_row("Interlocks:",     color_var=self.interlocks_color)
+
+        self.create_interlock_log(parent_frame)
+
+    def create_interlock_log(self, parent_frame):
+        """Create the Beam Energy interlock warning log below the system status panel."""
+        panel = ttk.LabelFrame(parent_frame, text="Interlock Log", padding=5)
+        panel.pack(fill=tk.X, anchor=tk.N, pady=(8, 0))
+
+        for index, (_flag_key, _message) in enumerate(self.interlock_log_entries):
+            ttk.Label(
+                panel,
+                textvariable=self.interlock_log_vars[index],
+                font=("Segoe UI", 7),
+                foreground="red",
+                width=26,
+                wraplength=175,
+                anchor=tk.W,
+                justify=tk.LEFT,
+            ).pack(fill=tk.X, anchor=tk.W, pady=1)
 
     def create_warning_config_tab(self, parent_frame):
         """Create configurable warning-limit controls for Beam Energy readbacks."""
@@ -260,7 +310,7 @@ class BeamEnergySubsystem:
                 labelanchor="n"
             )
             ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
-            supplies_container.grid_columnconfigure(i, weight=1)
+            supplies_container.grid_columnconfigure(i, weight=1, uniform="beam_energy_config_supply")
             self.create_warning_limit_controls(ps_frame, i)
 
         supplies_container.grid_rowconfigure(0, weight=1)
@@ -482,6 +532,7 @@ class BeamEnergySubsystem:
         self.warning_limits[supply_key] = candidate
         self._refresh_warning_limit_display(index, field)
         self.refresh_warning_indicators(index)
+        self.log(f"{context}: value set to {new_value:g}{unit}.", LogLevel.INFO)
 
         if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
@@ -534,6 +585,7 @@ class BeamEnergySubsystem:
         self.warning_limits[POS20KV_SUPPLY_KEY] = candidate
         self._refresh_beams_estop_current_display()
         self.refresh_warning_indicators(self._get_pos20kv_index())
+        self.log(f"{context}: value set to {new_value:g}{unit}.", LogLevel.INFO)
 
         if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
@@ -544,7 +596,7 @@ class BeamEnergySubsystem:
         return True
 
     def _show_warning_limit_error(self, title, message, show_dialogs):
-        self.log(message, LogLevel.ERROR)
+        self.log(message, LogLevel.WARNING)
         if show_dialogs:
             messagebox.showerror(title, message)
 
@@ -573,13 +625,13 @@ class BeamEnergySubsystem:
 
         callback = getattr(self, "beams_estop_callback", None)
         if not callable(callback):
-            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.ERROR)
+            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.CRITICAL)
             return
 
         try:
             callback()
         except Exception as e:
-            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.ERROR)
+            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.CRITICAL)
 
     def set_beams_estop_callback(self, callback):
         """Register the dashboard's Beams E-STOP handler."""
@@ -603,6 +655,25 @@ class BeamEnergySubsystem:
             self.latest_actual_voltage_values[self._get_pos20kv_index()]
         )
 
+    def set_logging_suppression(self, disable_when_hvolt_off, hvolt_on_provider=None):
+        self.disable_logging_when_hvolt_off = bool(disable_when_hvolt_off)
+        self.hvolt_on_provider = hvolt_on_provider if callable(hvolt_on_provider) else None
+        self.apply_knob_box_driver_logging_suppression(self.knob_box_controller)
+
+    def apply_knob_box_driver_logging_suppression(self, controller):
+        if controller is None:
+            return
+        controller.disable_logging_when_hvolt_off = self.disable_logging_when_hvolt_off
+        controller.hvolt_on_provider = self.hvolt_on_provider
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_hvolt_off or self.hvolt_on_provider is None:
+            return False
+        try:
+            return not bool(self.hvolt_on_provider())
+        except Exception:
+            return False
+
     def _update_radiation_indicator(self, voltage):
         # Missing/invalid +20kV readback clears the indicator; valid readings
         # at or above the threshold assert it.
@@ -616,11 +687,21 @@ class BeamEnergySubsystem:
 
         callback = getattr(self, "radiation_indicator_callback", None)
         if not callable(callback):
+            missing_state = getattr(self, "_radiation_indicator_missing_callback_state", None)
+            if active or missing_state is True:
+                if active != missing_state:
+                    state_text = "ON" if active else "OFF"
+                    self.log(
+                        f"Radiation indicator callback is not configured; cannot set indicator {state_text}.",
+                        LogLevel.ERROR,
+                    )
+                self._radiation_indicator_missing_callback_state = active
             return
 
         try:
             callback(active)
             self._radiation_indicator_sent = active
+            self._radiation_indicator_missing_callback_state = None
         except Exception as e:
             self.log(f"Radiation indicator callback failed: {e}", LogLevel.ERROR)
 
@@ -716,6 +797,14 @@ class BeamEnergySubsystem:
             self.latest_actual_current_values[index],
         )
 
+    def _log_knob_box_fallback(self, reason, message):
+        level = LogLevel.DEBUG if self._knob_box_fallback_reason == reason else LogLevel.WARNING
+        self._knob_box_fallback_reason = reason
+        self.log(message, level)
+
+    def _clear_knob_box_fallback(self):
+        self._knob_box_fallback_reason = None
+
     def create_power_supply_displays(self, frame, ps_config, index):
         """
         Create read-only displays for individual power supply.
@@ -725,51 +814,56 @@ class BeamEnergySubsystem:
             ps_config: Power supply configuration dict
             index: Index of the power supply, 1 through 4
         """
-        # Connection status indicator (at top left)
-        top_row_frame = ttk.Frame(frame)
-        top_row_frame.pack(fill=tk.X, pady=(0, 5))
-        connection_label = ttk.Label(top_row_frame, text="Comms:", font=("Segoe UI", 8))
-        connection_label.pack(side=tk.LEFT)
-        connection_canvas, connection_oval = self.create_indicator_circle(
-            top_row_frame, color=self.connection_status_colors[index].get()
-        )
-        connection_canvas.pack(side=tk.LEFT, padx=4)
+        indicator_frame = ttk.Frame(frame)
+        indicator_frame.pack(fill=tk.X, pady=(0, 5))
+        indicator_frame.grid_columnconfigure(0, weight=1)
 
-        def update_connection_circle(*args):
-            connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
+        def add_indicator_row(row_index, label_text, color_var):
+            row_frame = ttk.Frame(indicator_frame)
+            row_frame.grid(row=row_index, column=0, sticky="w")
 
-        self.connection_status_colors[index].trace_add("write", update_connection_circle)
-        connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
+            label = ttk.Label(row_frame, text=label_text, font=("Segoe UI", 8))
+            label.pack(side=tk.LEFT)
+            canvas, oval = self.create_indicator_circle(row_frame, color=color_var.get())
+            canvas.pack(side=tk.LEFT, padx=(4, 0))
 
-        # Matsusada reset status indicator (at top right)
-        if index < 2:
-            reset_canvas, reset_oval = self.create_indicator_circle(
-                top_row_frame, color=self.reset_status_colors[index].get()
-            )
-            reset_canvas.pack(side=tk.RIGHT, padx=4)
-            reset_label = ttk.Label(top_row_frame, text="Overcurrent:", font=("Segoe UI", 8))
-            reset_label.pack(side=tk.RIGHT)
+            def update_circle(*args):
+                canvas.itemconfig(oval, fill=color_var.get())
 
-            def update_reset_circle(*args):
-                reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
+            color_var.trace_add("write", update_circle)
+            canvas.itemconfig(oval, fill=color_var.get())
+            return label
 
-            self.reset_status_colors[index].trace_add("write", update_reset_circle)
-            reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
+        def add_indicator_spacer(row_index):    # 20kV Bertan filler spacer under Comms label
+            row_frame = ttk.Frame(indicator_frame)
+            row_frame.grid(row=row_index, column=0, sticky="w")
+            ttk.Label(row_frame, text=" ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+            spacer = ttk.Frame(row_frame, width=16, height=16)
+            spacer.pack(side=tk.LEFT, padx=(4, 0))
+            spacer.pack_propagate(False)
 
-        # 3kV Bertan "Forced Off" indicator (at top right)
-        if index == 3:
-            forced_off_canvas, forced_off_oval = self.create_indicator_circle(
-                top_row_frame, color=self.forced_off_color.get()
-            )
-            forced_off_canvas.pack(side=tk.RIGHT, padx=4)
-            forced_off_label = ttk.Label(top_row_frame, text="Forced Off:", font=("Segoe UI", 8))
-            forced_off_label.pack(side=tk.RIGHT)
+        def add_bottom_indicator_row(parent, row_index, label_text, color_var):
+            row_frame = ttk.Frame(parent)
+            row_frame.grid(row=row_index, column=0, sticky="w")
 
-            def update_forced_off_circle(*args):
-                forced_off_canvas.itemconfig(forced_off_oval, fill=self.forced_off_color.get())
+            ttk.Label(row_frame, text=label_text, font=("Segoe UI", 8)).pack(side=tk.LEFT)
+            canvas, oval = self.create_indicator_circle(row_frame, color=color_var.get())
+            canvas.pack(side=tk.LEFT, padx=(4, 0))
 
-            self.forced_off_color.trace_add("write", update_forced_off_circle)
-            forced_off_canvas.itemconfig(forced_off_oval, fill=self.forced_off_color.get())
+            def update_circle(*args):
+                canvas.itemconfig(oval, fill=color_var.get())
+
+            color_var.trace_add("write", update_circle)
+            canvas.itemconfig(oval, fill=color_var.get())
+
+        connection_label = add_indicator_row(0, "Comms:", self.connection_status_colors[index])
+
+        if index < 2:   # For the Matsusadas
+            add_indicator_row(1, "Overcurrent:", self.reset_status_colors[index])
+        elif index == 3: #For the 3kV Bertan, show forced-off status
+            add_indicator_row(1, "Forced Off:", self.forced_off_color)
+        else:
+            add_indicator_spacer(1)
         
         # Output status indicator
         status_frame = ttk.Frame(frame)
@@ -838,6 +932,23 @@ class BeamEnergySubsystem:
             anchor=tk.CENTER
         )
         current_display.pack(fill=tk.X, pady=(1, 0))
+
+        interlock_frame = ttk.Frame(frame)
+        interlock_frame.pack(fill=tk.X, pady=(2, 0))
+        interlock_frame.grid_columnconfigure(0, weight=1)
+
+        add_bottom_indicator_row(
+            interlock_frame,
+            0,
+            "Voltage Interlock:",
+            self.voltage_interlock_colors[index],
+        )
+        add_bottom_indicator_row(
+            interlock_frame,
+            1,
+            "Current Interlock:",
+            self.current_interlock_colors[index],
+        )
         
         # Store references for later use
         if not hasattr(self, 'ui_elements'):
@@ -859,7 +970,11 @@ class BeamEnergySubsystem:
         """
         port = self.com_ports.get('KnobBox', None)
         if not port:
+            if not self._knob_box_missing_port_logged:
+                self.log("KnobBox COM port is not configured.", LogLevel.WARNING)
+                self._knob_box_missing_port_logged = True
             return False
+        self._knob_box_missing_port_logged = False
 
         controller = self.knob_box_controller
         if controller and getattr(controller, "port", None) != port:
@@ -870,6 +985,7 @@ class BeamEnergySubsystem:
         if controller is None:
             controller = KnobBoxModbus(port=port, logger=self.logger)
             self.knob_box_controller = controller
+        self.apply_knob_box_driver_logging_suppression(controller)
 
         if time.time() < getattr(controller, "_next_connect_time", 0.0):
             return False
@@ -877,7 +993,7 @@ class BeamEnergySubsystem:
         try:
             self.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
             if controller.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
-                self.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
+                self.log(f"KnobBox Modbus serial port opened on {port}; waiting for unit responses.", LogLevel.DEBUG)
                 self.knob_box_connected = True
                 self.knob_box_connected_at = time.time()
                 self.start_polling_thread()  # Start background thread to poll data
@@ -928,17 +1044,75 @@ class BeamEnergySubsystem:
         """Update connection status indicators."""
         if index < len(self.ui_elements):
             if connected:
-                self.connection_status_colors[index].set("blue")
+                self.connection_status_colors[index].set("green")
             else:
                 self.connection_status_colors[index].set("red")
 
+    def update_supply_interlock_status(self, index, voltage_flag=None, current_flag=None, connected=False):
+        """Update per-supply voltage/current comparator interlock indicators."""
+        if index >= len(self.power_supplies):
+            return
+
+        def flag_color(flag):
+            if not connected or flag is None:
+                return "white"
+            return "red" if bool(flag) else "green"
+
+        self.voltage_interlock_colors[index].set(flag_color(voltage_flag))
+        self.current_interlock_colors[index].set(flag_color(current_flag))
+
+    def update_supply_interlock_statuses(self, data_snapshot, knob_box):
+        """Update all per-supply comparator interlock indicators from logic flags."""
+        global_unit_id = 4
+        global_data = (
+            data_snapshot.get(global_unit_id)
+            if knob_box.get_unit_connection_status(global_unit_id)
+            else None
+        )
+
+        for index, supply_key in enumerate(self.supply_keys):
+            unit_id = index + 1
+            connected = (
+                bool(knob_box.get_unit_connection_status(unit_id))
+                and data_snapshot.get(unit_id) is not None
+                and global_data is not None
+            )
+            voltage_flag_key, current_flag_key = self.supply_interlock_flag_map[supply_key]
+            self.update_supply_interlock_status(
+                index,
+                global_data.get(voltage_flag_key) if global_data else None,
+                global_data.get(current_flag_key) if global_data else None,
+                connected=connected,
+            )
+
+        self.update_interlock_log(global_data)
+
+    def update_interlock_log(self, data):
+        """Append observed comparator interlock trips to the log display."""
+        if not data:
+            return
+
+        if bool(data.get("nomop_flag", 0)):
+            self.clear_interlock_log()
+            return
+
+        for flag_key, message in self.interlock_log_entries:
+            if bool(data.get(flag_key, 0)):
+                self.interlock_log_var_by_flag[flag_key].set(message)
+
+    def clear_interlock_log(self):
+        """Clear all displayed comparator interlock trip messages."""
+        for interlock_log_var in self.interlock_log_vars:
+            interlock_log_var.set("")
+
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
         """Update system status indicators."""
+        self.ccs_power_on = bool(ccs_power)
         if index < len(self.ui_elements):
             self.arm_beams_var.set("ARMED" if arm_beams else "UNARMED")
             self.ccs_power_var.set("ON" if ccs_power else "OFF")
             self.glassman_interlock_var.set("ARMED" if arm_80kv else "UNARMED")
-            self.logic_comms_color.set("blue" if logic_comms else "red")
+            self.logic_comms_color.set("green" if logic_comms else "red")
             self.interlocks_color.set("red" if interlocks else "green")
 
     def start_polling_thread(self):
@@ -1041,6 +1215,30 @@ class BeamEnergySubsystem:
                     LogLevel.ERROR
                 )
 
+    def _format_power_supply_display_values(self, unit_id, v_set, v_read, i_read):
+        """Format one power supply's readbacks for the dashboard display."""
+        actual_current = f"{i_read:.2f} mA" if i_read is not None else "-- mA"
+
+        match unit_id:
+            case 1:  # +1kV Matsusada
+                set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
+            case 2:  # -1kV Matsusada
+                set_voltage = f"{-abs(v_set):.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{-abs(v_read):.0f} V" if v_read is not None else "-- V"
+            case 3:  # +20kV Bertan
+                set_voltage = f"{v_set / 1000:.2f} kV" if v_set is not None else "-- kV"
+                actual_voltage = f"{v_read / 1000:.2f} kV" if v_read is not None else "-- kV"
+                actual_current = f"{i_read:.3f} mA" if i_read is not None else "-- mA"
+            case 4:  # +3kV Bertan
+                set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
+            case _:
+                set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
+
+        return set_voltage, actual_voltage, actual_current
+
     def _build_supplies_payload(self, knob_box, data_snapshot):
         """Build a structured payload of 4 power supply statuses for the Web Monitor."""
         supplies = {}
@@ -1095,12 +1293,13 @@ class BeamEnergySubsystem:
                     self._schedule_reconnect()
                     self._process_reconnect_request()
                     # Schedule next update and exit early
-                    self.log(
-                        "KnobBox controller unresponsive, using default values.",
-                        LogLevel.DEBUG
+                    self._log_knob_box_fallback(
+                        "unavailable",
+                        "KnobBox unavailable; setting Beam Energy values to '--'.",
                     )
                     self.after_id = self.parent_frame.after(500, self.update_readings)
                     return
+                self._clear_knob_box_fallback()
             else:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
@@ -1109,9 +1308,9 @@ class BeamEnergySubsystem:
                 self._schedule_reconnect()
                 self._process_reconnect_request()
                 # Schedule next update and exit early
-                self.log(
-                    f"KnobBox controller not connected, using default values.",
-                    LogLevel.DEBUG
+                self._log_knob_box_fallback(
+                    "unavailable",
+                    "KnobBox unavailable; setting Beam Energy values to '--'.",
                 )
                 self.after_id = self.parent_frame.after(500, self.update_readings)
                 return
@@ -1149,26 +1348,12 @@ class BeamEnergySubsystem:
                 # self.update_connection_status(index, True)
 
                 # Update display values if data is valid
-                if v_set is not None:
-                    if unit_id == 2: # insert minus sign for -1kV Matsusada
-                        self.set_voltages[index].set(f"-{v_set:.1f} V")
-                    else:    
-                        self.set_voltages[index].set(f"{v_set:.1f} V")
-                else:
-                    self.set_voltages[index].set("-- V")
-
-                if v_read is not None:
-                    if unit_id == 2: # insert minus sign for -1kV Matsusada
-                        self.actual_voltages[index].set(f"-{v_read:.1f} V")
-                    else:
-                        self.actual_voltages[index].set(f"{v_read:.1f} V")
-                else:
-                    self.actual_voltages[index].set("-- V")
-
-                if i_read is not None:
-                    self.actual_currents[index].set(f"{i_read:.3f} mA")
-                else:
-                    self.actual_currents[index].set("-- mA")
+                set_voltage, actual_voltage, actual_current = self._format_power_supply_display_values(
+                    unit_id, v_set, v_read, i_read
+                )
+                self.set_voltages[index].set(set_voltage)
+                self.actual_voltages[index].set(actual_voltage)
+                self.actual_currents[index].set(actual_current)
 
                 self.apply_warning_indicators(index, v_read, i_read)
 
@@ -1179,6 +1364,8 @@ class BeamEnergySubsystem:
                 self.update_reset_status(index, reset_state)
                 self.update_connection_status(index, comms)
                 self.update_forced_off_status(index, reset_counter_3kv > 0)
+
+            self.update_supply_interlock_statuses(data_snapshot, knob_box)
             
             # Build a web monitor log payload
             if self.logger and hasattr(self.logger, "update_field"):
@@ -1218,27 +1405,36 @@ class BeamEnergySubsystem:
         """Cancel scheduled updates when closing the application."""
         if hasattr(self, 'after_id'):
             self.parent_frame.after_cancel(self.after_id)
+            self.log("Canceled scheduled Beam Energy update.", LogLevel.DEBUG)
 
     def set_default_values(self, index):
         """Set display values to default '--'."""
-        self.set_voltages[index].set("-- V")
-        self.actual_voltages[index].set("-- V")
-        self.actual_currents[index].set("-- mA")
+        unit_id = index + 1
+        set_voltage, actual_voltage, actual_current = self._format_power_supply_display_values(
+            unit_id, None, None, None
+        )
+        self.set_voltages[index].set(set_voltage)
+        self.actual_voltages[index].set(actual_voltage)
+        self.actual_currents[index].set(actual_current)
         self.apply_warning_indicators(index, None, None)
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
         self.update_reset_status(index, False)
+        self.update_supply_interlock_status(index, connected=False)
         self.update_indicators_panel(index, arm_beams=False, ccs_power=False, arm_80kv=False, logic_comms=False, interlocks=True)
 
     def update_com_port(self, new_com_ports):
         """Update COM port assignments and reinitialize power supplies."""
         new_port = new_com_ports.get('KnobBox', None)
         if not new_port:
+            self.log("Cannot update KnobBox COM port: no port configured.", LogLevel.WARNING)
             return False
         
-        if new_port == self.com_ports.get('KnobBox', None):
+        old_port = self.com_ports.get('KnobBox', None)
+        if new_port == old_port:
             return True  # No change
         
+        self.log(f"Updating KnobBox COM port from {old_port or 'None'} to {new_port}", LogLevel.INFO)
         self.com_ports = new_com_ports
 
         # Close existing connections
@@ -1263,6 +1459,8 @@ class BeamEnergySubsystem:
         self.stop_polling.set()
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=2)
+            if self.poll_thread.is_alive():
+                self.log("KnobBox polling thread did not stop before timeout.", LogLevel.WARNING)
         self.poll_thread = None
 
     def close(self):
@@ -1272,7 +1470,7 @@ class BeamEnergySubsystem:
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
+        if self._logging_suppressed():
+            return
         if self.logger:
-            self.logger.log(message, level)
-        else:
-            print(f"{level.name}: {message}")
+            self.logger.log(message, level, tag="Knob Box")
