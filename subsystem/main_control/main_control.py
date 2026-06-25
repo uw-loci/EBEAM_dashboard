@@ -84,7 +84,8 @@ class MainControlPanel:
         self.com_ports = self._get_com_ports()
         self.disable_ccs_output_on_bcon_disconnect = True
         self.disable_beams_on_vtrx_pressure_exceeded = True
-        self._vtrx_pressure_beam_disable_latched = False
+        # Treat startup as already disabled until VTRX reports a safe pressure.
+        self._vtrx_pressure_beam_disable_latched = True
         self._last_vtrx_pressure_mbar = None
         self.vtrx_ccs_disable_grace_period_s = self._coerce_vtrx_ccs_disable_grace_period_s(
             load_vtrx_ccs_disable_grace_period_s(logger=self.logger)
