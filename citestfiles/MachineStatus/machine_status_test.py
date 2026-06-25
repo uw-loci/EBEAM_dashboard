@@ -74,6 +74,7 @@ class FakeBeamPulse:
         any_beam_active=False,
         beams_armed=True,
         enabled_channels=None,
+        activate_enabled_beams_guard_clear=True,
     ):
         self.inputs = {
             "bcon_connected": bcon_connected,
@@ -84,6 +85,7 @@ class FakeBeamPulse:
                 else list(enabled_channels)
             ),
             "beams_armed_status": beams_armed,
+            "activate_enabled_beams_guard_clear": activate_enabled_beams_guard_clear,
         }
 
     def get_machine_status_inputs(self):
@@ -433,10 +435,10 @@ class MachineStatusTest(unittest.TestCase):
         )
         self.assertFalse(conditions[STATUS_BEAMS_READY].ready)
 
-    def test_beams_ready_force_red_uses_enabled_channel_current_sum(self):
+    def test_beams_ready_force_red_uses_beam_pulse_guard_result(self):
         cathode = FakeCathodeHeating()
         cathode.inputs["predicted_emission_currents_ma"] = [3.0, 3.0, 1.0]
-        beam_pulse = FakeBeamPulse(enabled_channels=[True, True, False])
+        beam_pulse = FakeBeamPulse(activate_enabled_beams_guard_clear=False)
 
         conditions = evaluate_machine_status_conditions(
             base_subsystems(beam_pulse=beam_pulse, cathode=cathode),

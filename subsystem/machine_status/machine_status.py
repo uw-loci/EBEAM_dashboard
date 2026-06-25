@@ -279,25 +279,6 @@ def _cathode_single_emission_tripped(cathode_inputs, total_limit_ma):
     return False
 
 
-def _enabled_channel_emission_sum_tripped(beam_pulse_inputs, cathode_inputs, total_limit_ma):
-    total_limit_ma = _number(total_limit_ma)
-    if total_limit_ma is None:
-        return False
-
-    currents = cathode_inputs.get("predicted_emission_currents_ma", [])[:3]
-    total = 0.0
-    for index, enabled in enumerate(beam_pulse_inputs.get("channel_enable_status", [])[:3]):
-        if not enabled:
-            continue
-        if index >= len(currents):
-            return False
-        current = _number(currents[index])
-        if current is None:
-            return False
-        total += current
-    return total >= total_limit_ma
-
-
 def _lower_statuses_green_candidate(conditions):
     for key in STATUS_KEYS[:STATUS_KEYS.index(STATUS_BEAMS_READY)]:
         status = conditions.get(key, StatusConditions())
@@ -365,10 +346,8 @@ def evaluate_machine_status_conditions(subsystems, main_control=None):
         ready=any(cathode_inputs.get("output_states", [])[:3]),
     )
     conditions[STATUS_BEAMS_READY] = StatusConditions(
-        force_red=_enabled_channel_emission_sum_tripped(
-            beam_pulse_inputs,
-            cathode_inputs,
-            total_limit_ma,
+        force_red=not bool(
+            beam_pulse_inputs.get("activate_enabled_beams_guard_clear", True)
         ),
         ready=(
             _lower_statuses_green_candidate(conditions)
