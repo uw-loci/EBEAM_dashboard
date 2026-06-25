@@ -1092,7 +1092,7 @@ class MainControlPanel:
         if hasattr(self, "beams_ready_button"):
             _safe_widget_config(
                 self.beams_ready_button,
-                text="DISARM" if armed else "ARM BEAMS",
+                text="DISARM BEAMS" if armed else "ARM BEAMS",
                 bg="#B71C1C" if armed else "#1565C0",
                 activebackground="#7F0000" if armed else "#0D47A1",
             )
