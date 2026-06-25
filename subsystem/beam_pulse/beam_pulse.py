@@ -1789,6 +1789,7 @@ class BeamPulseSubsystem:
             "any_beam_active": bool(active_channels),
             "active_channels": active_channels,
             "channel_enable_status": list(getattr(self, "channel_enable_status", [])),
+            "beams_armed_status": bool(getattr(self, "beams_armed_status", False)),
         }
 
     # --- Hardware driver interface ---

@@ -1029,6 +1029,11 @@ class BeamEnergySubsystem:
                 unit_id: knob_box.get_unit_connection_status(unit_id)
                 for _supply_key, unit_id in self.supply_payload_map
             }
+        global_data = (
+            data_snapshot.get(4)
+            if unit_connected.get(4)
+            else None
+        )
 
         supplies = {}
         for index, (supply_key, unit_id) in enumerate(self.supply_payload_map):
@@ -1044,6 +1049,8 @@ class BeamEnergySubsystem:
             "unit_connected": unit_connected,
             "supplies": supplies,
             "interlock_flags": dict(self.supply_interlock_flag_map),
+            "nomop": bool(global_data and global_data.get("nomop_flag")),
+            "arm_beams_hardware": bool(global_data and global_data.get("arm_beams")),
         }
 
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
