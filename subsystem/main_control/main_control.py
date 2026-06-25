@@ -273,12 +273,20 @@ class MainControlPanel:
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Script dropdown
-        self.create_script_dropdown(main_frame)
+        script_frame = ttk.Frame(main_frame)
+        script_frame.pack(side="top", fill="x")
+        self.create_script_dropdown(script_frame)
 
-        beam_control_area = tk.Frame(main_frame)
-        beam_control_area.pack(side="top", fill="x", padx=10, pady=(10, 0))
-        beam_control_area.grid_columnconfigure(1, weight=1)
+        beam_control_viewport = tk.Frame(main_frame)
+        beam_control_viewport.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 0))
+
+        beam_control_area = tk.Frame(beam_control_viewport)
+        beam_control_area.place(x=0, y=0, relwidth=1)
+        beam_control_area.grid_columnconfigure(0, weight=0)
+        beam_control_area.grid_columnconfigure(1, weight=1, minsize=190)
+
+        self.main_control_beam_viewport = beam_control_viewport
+        self.main_control_beam_control_area = beam_control_area
 
         manual_panel = tk.Frame(beam_control_area)
         manual_panel.grid(row=0, column=0, columnspan=2, sticky="ew")
@@ -407,6 +415,18 @@ class MainControlPanel:
         )
         beams_off_button.grid(row=2, column=1, sticky="ew", padx=(0, 2), pady=(0, 0))
 
+        beam_control_viewport.bind(
+            "<Configure>",
+            lambda event: self._position_main_control_beam_area(),
+            add="+",
+        )
+        beam_control_area.bind(
+            "<Configure>",
+            lambda event: self._position_main_control_beam_area(),
+            add="+",
+        )
+        beam_control_viewport.after_idle(self._position_main_control_beam_area)
+
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -500,6 +520,43 @@ class MainControlPanel:
             foreground="gray"
         )
         help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
+
+    def _position_main_control_beam_area(self):
+        """Crop the Main Control beam area from the top when vertical space is tight."""
+        viewport = getattr(self, "main_control_beam_viewport", None)
+        beam_area = getattr(self, "main_control_beam_control_area", None)
+        if viewport is None or beam_area is None:
+            return
+
+        try:
+            required_height = beam_area.winfo_reqheight()
+            visible_height = self._visible_widget_height(viewport)
+            if required_height <= 1 or visible_height <= 1:
+                return
+
+            if int(viewport.cget("height")) != required_height:
+                viewport.configure(height=required_height)
+
+            y_offset = min(0, visible_height - required_height)
+            beam_area.place_configure(x=0, y=y_offset, relwidth=1)
+        except tk.TclError:
+            return
+
+    def _visible_widget_height(self, widget):
+        """Return the widget height that is actually visible after parent clipping."""
+        top = widget.winfo_rooty()
+        bottom = top + widget.winfo_height()
+        parent_name = widget.winfo_parent()
+
+        while parent_name:
+            parent = widget.nametowidget(parent_name)
+            top = max(top, parent.winfo_rooty())
+            bottom = min(bottom, parent.winfo_rooty() + parent.winfo_height())
+            if parent == widget.winfo_toplevel():
+                break
+            parent_name = parent.winfo_parent()
+
+        return max(0, bottom - top)
 
     def create_beam_output_status_panel(self, parent_frame):
         """Create compact Beam A/B/C output and latest action status labels."""
