@@ -1263,7 +1263,6 @@ class CathodeHeatingSubsystem:
         # Keep the poller thread alive, but make it ignore the supply list while we replace it.
         self.power_supply_reconfiguring.set()
         try:
-            self._reset_power_supply_readbacks()
             self._disconnect_existing_connections()
             self._update_com_ports_dictionary(new_com_ports)
 
@@ -1301,8 +1300,7 @@ class CathodeHeatingSubsystem:
         # Detach old drivers before close so the poller cannot pick them up again.
         self.power_supplies = [None, None, None]
         self.power_supplies_initialized = False
-        self.power_supply_valid_connections = [False, False, False]
-        self._reset_power_supply_config_state()
+        self._reset_power_supply_runtime_state()
         for idx in range(3):
             self._set_power_supply_command_ready(idx, False)
 
@@ -1471,7 +1469,7 @@ class CathodeHeatingSubsystem:
         # Opening a serial port is not enough to trust a 9104; configuration is deferred
         # until the polling thread gets a valid voltage/current readback from the device.
         new_power_supplies = [None, None, None]
-        self.power_supply_valid_connections = [False, False, False]
+        self._reset_power_supply_connection_tracking()
         self._snapshot_desired_power_supply_limits()
         self._reset_power_supply_config_state()
 
@@ -1505,7 +1503,6 @@ class CathodeHeatingSubsystem:
                 self.log(f"No COM port specified for {cathode}", LogLevel.ERROR)
 
         self.power_supplies = new_power_supplies
-        self.power_supply_status = [False, False, False]
 
         # Controls remain disabled until the poller confirms preset/OVP/OCP.
         for idx, ps in enumerate(self.power_supplies):
@@ -1980,19 +1977,33 @@ class CathodeHeatingSubsystem:
         with self.power_supply_readback_lock:
             return self.power_supply_readbacks[index].copy()
 
-    def _reset_power_supply_readbacks(self):
+    def _reset_power_supply_runtime_state(self):
+        """Reset cached 9104 readbacks, connection logs, error cadence, and config confirmation."""
+        self._assert_power_supply_connection_tracking_main_thread()
         with self.power_supply_readback_lock:
             self.power_supply_readbacks = [self._empty_power_supply_readback() for _ in range(3)]
-        self.power_supply_valid_connections = [False, False, False]
+        self._reset_power_supply_connection_tracking()
         self.power_supply_last_logged_errors = [None, None, None]
         self.power_supply_last_error_log_times = [0.0, 0.0, 0.0]
         self._reset_power_supply_config_state()
 
-    def _clear_power_supply_valid_connection(self, index):
+    def _assert_power_supply_connection_tracking_main_thread(self):
+        main_thread_ident = getattr(self, "_main_thread_ident", None)
+        if main_thread_ident is None:
+            raise RuntimeError("power_supply_valid_connections cannot be mutated before main thread ownership is initialized")
+        if threading.get_ident() != main_thread_ident:
+            raise RuntimeError("power_supply_valid_connections must only be mutated from the main Tk thread")
+
+    def _reset_power_supply_connection_tracking(self, index=None):
+        self._assert_power_supply_connection_tracking_main_thread()
+        if index is None:
+            self.power_supply_valid_connections = [False, False, False]
+            return
         if 0 <= index < len(self.power_supply_valid_connections):
             self.power_supply_valid_connections[index] = False
 
     def _log_valid_power_supply_connection(self, index, voltage, current, mode):
+        self._assert_power_supply_connection_tracking_main_thread()
         if not 0 <= index < len(self.power_supply_valid_connections):
             return
         if self.power_supply_valid_connections[index]:
@@ -2005,6 +2016,25 @@ class CathodeHeatingSubsystem:
             f"{voltage:.2f}V, {current:.2f}A, {mode}.",
             LogLevel.INFO,
         )
+
+    def _update_power_supply_connection_state_from_readback(self, index, readback):
+        """Own 9104 connection transition logging from the Tk update loop."""
+        self._assert_power_supply_connection_tracking_main_thread()
+        if not 0 <= index < len(self.power_supply_valid_connections):
+            return
+
+        voltage = readback.get("voltage")
+        current = readback.get("current")
+        mode = readback.get("mode")
+
+        if readback.get("connected") and voltage is not None and current is not None:
+            self._log_valid_power_supply_connection(index, voltage, current, mode)
+            return
+
+        # A busy read means another command owns the serial lock temporarily; do not
+        # turn a known-good connection into a recovery candidate for that case.
+        if readback.get("error") != "busy":
+            self._reset_power_supply_connection_tracking(index)
 
     def _log_power_supply_readback_state(self, index, error):
         """Log power-supply readback problems at an operator-level cadence, with DEBUG repeats."""
@@ -2252,7 +2282,6 @@ class CathodeHeatingSubsystem:
 
                 ps = self.power_supplies[index] if index < len(self.power_supplies) else None
                 if ps is None:
-                    self._clear_power_supply_valid_connection(index)
                     self._reset_power_supply_config_state(index)
                     self._set_power_supply_readback(index, error="not_initialized")
                     continue
@@ -2264,7 +2293,6 @@ class CathodeHeatingSubsystem:
                         self._set_power_supply_readback(index, error="busy")
                         continue
                     if not connected:
-                        self._clear_power_supply_valid_connection(index)
                         self._reset_power_supply_config_state(index)
                         self._set_power_supply_readback(index, error="disconnected")
                         # Reconfiguration replaces objects itself, so only normal polling reconnects here.
@@ -2274,11 +2302,9 @@ class CathodeHeatingSubsystem:
 
                     voltage, current, mode = ps.get_voltage_current_mode()
                     if voltage is None or current is None:
-                        self._clear_power_supply_valid_connection(index)
                         self._reset_power_supply_config_state(index)
                         self._set_power_supply_readback(index, error="invalid_read")
                     else:
-                        self._log_valid_power_supply_connection(index, voltage, current, mode)
                         self._set_power_supply_readback(
                             index,
                             voltage=voltage,
@@ -2290,7 +2316,6 @@ class CathodeHeatingSubsystem:
                         # preset/limit configuration and allow commands to become ready.
                         self._configure_power_supply_after_readback(index, ps)
                 except Exception as exc:
-                    self._clear_power_supply_valid_connection(index)
                     self._reset_power_supply_config_state(index)
                     self._set_power_supply_readback(index, error=str(exc))
 
@@ -2302,8 +2327,8 @@ class CathodeHeatingSubsystem:
         """
         Clear one cathode's power-supply readbacks without skipping temperature updates.
 
-        mark_status_unavailable should only be true for confirmed unavailable hardware,
-        not for temporary readback contention such as a busy serial lock.
+        mark_status_unavailable should be true for non-busy readback failures
+        that should clear command-ready state.
         """
         if mark_status_unavailable and index < len(self.power_supply_status):
             self._set_power_supply_command_ready(index, False)
@@ -2362,6 +2387,7 @@ class CathodeHeatingSubsystem:
 
             if self.power_supplies_initialized and self.power_supplies[i] is not None:
                 readback = self._get_power_supply_readback(i)
+                self._update_power_supply_connection_state_from_readback(i, readback)
                 voltage = readback.get("voltage")
                 current = readback.get("current")
                 mode = readback.get("mode")
@@ -2407,15 +2433,17 @@ class CathodeHeatingSubsystem:
                         cv_lbl.config(bg='grey')
                         cc_lbl.config(bg='grey')
                 else:
-                    # Busy readbacks are display-only. Confirmed disconnects or invalid
-                    # reads clear command-ready status and force reconfiguration.
-                    self._log_power_supply_readback_state(i, readback.get("error"))
-                    mark_status_unavailable = readback.get("error") in ("disconnected", "invalid_read")
+                    # Busy readbacks are display-only. Any other readback error means
+                    # command readiness should wait for a fresh configured readback.
+                    error = readback.get("error")
+                    self._log_power_supply_readback_state(i, error)
+                    mark_status_unavailable = bool(error and error != "busy")
                     self._mark_power_supply_unavailable(
                         i,
                         mark_status_unavailable=mark_status_unavailable,
                     )
             else:
+                self._reset_power_supply_connection_tracking(i)
                 self._log_power_supply_readback_state(i, "not_initialized")
                 self._mark_power_supply_unavailable(i)
 
@@ -3976,7 +4004,6 @@ class CathodeHeatingSubsystem:
         self.cancel_updates()
         if not self.stop_power_supply_polling():
             self.log("9104 polling thread did not stop before shutdown; continuing with bounded serial close", LogLevel.WARNING)
-        self.power_supply_valid_connections = [False, False, False]
 
         if hasattr(self, 'power_supplies') and self.power_supplies:
             for i, ps in enumerate(self.power_supplies):
@@ -3997,7 +4024,7 @@ class CathodeHeatingSubsystem:
 
         # Local state must reflect that no supply is command-ready after the handles are closed.
         self.power_supplies_initialized = False
-        self._reset_power_supply_readbacks()
+        self._reset_power_supply_runtime_state()
         for i in range(3):
             self._set_power_supply_command_ready(i, False)
 

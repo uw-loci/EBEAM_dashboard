@@ -584,6 +584,12 @@ class PowerSupply9104:
                 
                 # Set new voltage
                 for attempt in range(self.MAX_RETRIES):
+                    if self.stop_event.is_set():
+                        self.log("Ramping thread stopped during setting voltage.", LogLevel.INFO)
+                        if callback:
+                            callback(False)
+                        return
+
                     try:
                        # Attempt to set voltage
                         if self.set_voltage(preset, next_voltage, sent_callback=sent_callback):
@@ -936,6 +942,7 @@ class PowerSupply9104:
     
     def disable_output(self, lock_timeout=1.5):
         """Disable the power supply output unconditionally (no OVP validation)."""
+        self.stop_ramp()
         command = "SOUT0"
         response = self.send_command(command, lock_timeout=lock_timeout)
         if response and "OK" in response:

@@ -1400,9 +1400,6 @@ class MainControlPanel:
         if not cathode:
             self._log_warning("BCON disconnected but Cathode Heating subsystem is unavailable; CCS output may remain enabled")
             return
-        ccs_supply_available = bool(any(getattr(cathode, "power_supply_status", [])))
-        if not ccs_supply_available:
-            return
         turn_off = getattr(cathode, "turn_off_all_beams", None)
         if callable(turn_off):
             self._log_warning("BCON disconnected; disabling CCS output")
@@ -1593,52 +1590,71 @@ class MainControlPanel:
         """Handle Beams E-stop button press — force stop all BCON channels,
         turn off cathode heating, and disarm beams."""
         try:
+            first_error = None
+
+            def record_error(message, error):
+                nonlocal first_error
+                if first_error is None:
+                    first_error = error
+                self._log_critical(f"{message}: {str(error)}")
+
             # Force stop all BCON channels immediately
             beam_pulse = self.subsystems.get('Beam Pulse')
-            if beam_pulse is not None:
-                stop_all_channels = getattr(beam_pulse, 'stop_all_channels', None)
-                if callable(stop_all_channels):
-                    self._log_info("Beams E-STOP requesting all BCON channels stop")
-                    if not stop_all_channels():
-                        self._log_critical("Beams E-STOP failed to stop all BCON channels")
+            try:
+                if beam_pulse is not None:
+                    stop_all_channels = getattr(beam_pulse, 'stop_all_channels', None)
+                    if callable(stop_all_channels):
+                        self._log_info("Beams E-STOP requesting all BCON channels stop")
+                        if not stop_all_channels():
+                            self._log_critical("Beams E-STOP failed to stop all BCON channels")
+                    else:
+                        self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse stop_all_channels API is unavailable")
                 else:
-                    self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse stop_all_channels API is unavailable")
-            else:
-                self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse subsystem is unavailable")
+                    self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse subsystem is unavailable")
+            except Exception as e:
+                record_error("Beams E-STOP BCON channel stop failed", e)
 
             # Disarm beams
-            if beam_pulse is not None:
-                get_beams_armed_status = getattr(beam_pulse, 'get_beams_armed_status', None)
-                if callable(get_beams_armed_status):
-                    beams_armed = bool(get_beams_armed_status())
-                else:
-                    beams_armed = False
-                    self._log_critical("Beams E-STOP cannot verify armed state: Beam Pulse get_beams_armed_status API is unavailable")
-                if beams_armed:
-                    disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
-                    if callable(disarm_beams) and disarm_beams():
-                        self._set_armed_ui(False)
-                        self._log_info("Beams disarmed via Beams E-stop button")
+            try:
+                if beam_pulse is not None:
+                    get_beams_armed_status = getattr(beam_pulse, 'get_beams_armed_status', None)
+                    if callable(get_beams_armed_status):
+                        beams_armed = bool(get_beams_armed_status())
                     else:
-                        self._log_critical("Failed to disarm beams via Beams E-stop")
-                self.update_beam_toggle_states(enabled=False, reset=True)
-                self._update_enable_toggle_states(enabled=False)
-                self._update_activate_enabled_beams_control_state(armed=False)
-            self._clear_all_beam_output_displays()
-            
-            # Turn off cathode heating power supplies
-            cathode = self.subsystems.get('Cathode Heating')
-            if cathode is not None:
-                turn_off_all_beams = getattr(cathode, 'turn_off_all_beams', None)
-                if callable(turn_off_all_beams):
-                    self._log_info("Beams E-STOP requesting cathode heating shutdown")
-                    turn_off_all_beams()
-                else:
-                    self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating turn_off_all_beams API is unavailable")
-            else:
-                self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating subsystem is unavailable")
+                        beams_armed = False
+                        self._log_critical("Beams E-STOP cannot verify armed state: Beam Pulse get_beams_armed_status API is unavailable")
+                    if beams_armed:
+                        disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
+                        if callable(disarm_beams) and disarm_beams():
+                            self._set_armed_ui(False)
+                            self._log_info("Beams disarmed via Beams E-stop button")
+                        else:
+                            self._log_critical("Failed to disarm beams via Beams E-stop")
+                    self.update_beam_toggle_states(enabled=False, reset=True)
+                    self._update_enable_toggle_states(enabled=False)
+                    self._update_activate_enabled_beams_control_state(armed=False)
+                self._clear_all_beam_output_displays()
+            except Exception as e:
+                record_error("Beams E-STOP disarm/UI update failed", e)
 
-            if reason:
+            # Turn off cathode heating power supplies
+            try:
+                cathode = self.subsystems.get('Cathode Heating')
+                if cathode is not None:
+                    turn_off_all_beams = getattr(cathode, 'turn_off_all_beams', None)
+                    if callable(turn_off_all_beams):
+                        self._log_info("Beams E-STOP requesting cathode heating shutdown")
+                        turn_off_all_beams()
+                    else:
+                        self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating turn_off_all_beams API is unavailable")
+                else:
+                    self._log_critical("Beams E-STOP cannot disable cathode heating: Cathode Heating subsystem is unavailable")
+            except Exception as e:
+                record_error("Beams E-STOP cathode heating shutdown failed", e)
+
+            if first_error is not None:
+                self._set_beam_action_status(f"Failed to stop beams: {str(first_error)}", "failure")
+            elif reason:
                 self._set_beam_action_status(str(reason), "estop")
             else:
                 self._set_beam_action_status("Beams E-STOP pressed: All Beams Disabled", "estop")

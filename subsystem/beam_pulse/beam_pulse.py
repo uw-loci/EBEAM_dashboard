@@ -106,6 +106,7 @@ class BeamPulseSubsystem:
 
         # Status indicators
         self.bcon_connection_status = False
+        self._bcon_disconnect_callback_armed = False
         self.beams_armed_status = False
         self.beam_on_status = [False, False, False]
         self.channel_enable_status = [False, False, False]
@@ -1146,8 +1147,11 @@ class BeamPulseSubsystem:
         typ = msg[0]
         if typ == "connected":
             ok = msg[1]
+            callback_armed = getattr(self, "_bcon_disconnect_callback_armed", False)
             self.bcon_connection_status = ok
-            if not ok:
+            if ok:
+                self._bcon_disconnect_callback_armed = True
+            else:
                 self._clear_firmware_acks()
                 self.beams_armed_status = False
                 self._notify_armed_status(False)
@@ -1156,11 +1160,12 @@ class BeamPulseSubsystem:
                 self._update_armed_button_states(False)
                 self._notify_all_channel_enables(False)
                 callback = getattr(self, "_disconnect_callback", None)
-                if callable(callback):
+                if callback_armed and callable(callback):
                     try:
                         callback()
                     except Exception as e:
                         self._log_once(f"BCON disconnect callback failed: {e}", LogLevel.ERROR)
+                self._bcon_disconnect_callback_armed = False
             self.update_bcon_connection_status()
         elif typ == "regs":
             regs = msg[1]
@@ -1806,6 +1811,7 @@ class BeamPulseSubsystem:
         self._stop_sequence_worker()
         self._clear_firmware_acks()
         self.bcon_connection_status = False
+        self._bcon_disconnect_callback_armed = False
         self.beams_armed_status = False
         self._notify_armed_status(False)
         self._clear_output_state()
