@@ -20,6 +20,7 @@ BEAM_OUTPUT_LOW_COLOR = "#70A070"
 BEAM_OUTPUT_OFF_COLOR = "#383838"
 BEAM_ACTION_FAILURE_COLOR = "red"
 BEAM_ACTION_NEUTRAL_COLOR = "#383838"
+BEAMS_ARM_GOOD_COLOR = "#2E7D32"
 PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 
 
@@ -301,32 +302,24 @@ class MainControlPanel:
         beams_arm_box = tk.Frame(
             beam_control_area,
             bg="#F2F2F2",
-            bd=1,
-            relief=tk.GROOVE,
+            bd=0,
+            relief=tk.FLAT,
             width=136,
         )
-        beams_arm_box.grid(row=1, column=0, rowspan=2, sticky="nsew", padx=(2, 6), pady=(8, 0))
+        beams_arm_box.grid(row=1, column=0, sticky="nsew", padx=(2, 6), pady=(8, 4))
         beams_arm_box.pack_propagate(False)
-
-        tk.Label(
-            beams_arm_box,
-            text="BEAMS ARM",
-            bg="#F2F2F2",
-            fg="#1F1F1F",
-            font=("Helvetica", 10, "bold"),
-        ).pack(anchor=tk.CENTER, pady=(7, 5))
 
         self.beams_arm_state_label = tk.Label(
             beams_arm_box,
-            text="SAFE",
+            text="Status: SAFE",
             bg="#E0E0E0",
             fg="#1F1F1F",
-            font=("Helvetica", 10, "bold"),
-            width=11,
+            font=("Helvetica", 9, "bold"),
+            width=13,
             relief=tk.GROOVE,
             bd=1,
         )
-        self.beams_arm_state_label.pack(anchor=tk.CENTER, pady=(0, 7), padx=8, fill=tk.X)
+        self.beams_arm_state_label.pack(anchor=tk.CENTER, pady=(7, 5), padx=8, fill=tk.X)
 
         self.beams_ready_button = tk.Button(
             beams_arm_box,
@@ -338,7 +331,7 @@ class MainControlPanel:
             font=("Helvetica", 9, "bold"),
             command=self.handle_arm_beams,
         )
-        self.beams_ready_button.pack(anchor=tk.CENTER, padx=8, fill=tk.X)
+        self.beams_ready_button.pack(anchor=tk.CENTER, pady=(0, 7), padx=8, fill=tk.X)
 
         status_panel_frame = ttk.Frame(beam_control_area)
         status_panel_frame.grid(row=1, column=1, sticky="ew", pady=(8, 4))
@@ -352,7 +345,7 @@ class MainControlPanel:
             font=("Helvetica", 12, "bold"),
             command=self.handle_beams_off,
         )
-        beams_off_button.grid(row=2, column=1, sticky="ew", padx=(0, 2), pady=(0, 0))
+        beams_off_button.grid(row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=(0, 0))
 
         beam_control_viewport.bind(
             "<Configure>",
@@ -1100,15 +1093,15 @@ class MainControlPanel:
             _safe_widget_config(
                 self.beams_ready_button,
                 text="DISARM" if armed else "ARM BEAMS",
-                bg="#616161" if armed else "#1565C0",
-                activebackground="#424242" if armed else "#0D47A1",
+                bg="#B71C1C" if armed else "#1565C0",
+                activebackground="#7F0000" if armed else "#0D47A1",
             )
         if hasattr(self, "beams_arm_state_label"):
             _safe_widget_config(
                 self.beams_arm_state_label,
-                text="ARMED" if armed else "SAFE",
-                bg="#FFC107" if armed else "#E0E0E0",
-                fg="#1F1F1F",
+                text=f"Status: {'ARMED' if armed else 'SAFE'}",
+                bg="#E0E0E0",
+                fg=BEAMS_ARM_GOOD_COLOR if armed else "#1F1F1F",
             )
         self.update_beam_toggle_states(enabled=armed, reset=reset)
         self._update_enable_toggle_states(enabled=armed)
