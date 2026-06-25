@@ -1015,8 +1015,8 @@ class MainControlPanel:
         if not cathode:
             self._log_warning("BCON disconnected but Cathode Heating subsystem is unavailable; CCS output may remain enabled")
             return
-        ccs_supply_available = bool(any(getattr(cathode, "power_supply_status", [])))
-        if not ccs_supply_available:
+        ccs_output_active = bool(any(getattr(cathode, "toggle_states", [])))
+        if not ccs_output_active:
             return
         turn_off = getattr(cathode, "turn_off_all_beams", None)
         if callable(turn_off):
