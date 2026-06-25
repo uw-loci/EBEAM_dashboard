@@ -214,6 +214,19 @@ def _beam_energy_limits_clear(beam_energy_inputs, supply_keys):
     return True
 
 
+def _beam_energy_supply_comms_good(beam_energy_inputs, supply_keys):
+    connected = beam_energy_inputs.get("unit_connected", {})
+    supplies = beam_energy_inputs.get("supplies", {})
+    if not connected:
+        return False
+
+    for supply_key in supply_keys:
+        unit_id = supplies.get(supply_key, {}).get("unit_id")
+        if unit_id is None or not connected.get(unit_id):
+            return False
+    return True
+
+
 def _beam_energy_global_data(beam_energy_inputs):
     data = beam_energy_inputs.get("data", {})
     connected = beam_energy_inputs.get("unit_connected", {})
@@ -331,7 +344,11 @@ def evaluate_machine_status_conditions(subsystems, main_control=None):
     )
     conditions[STATUS_HVPS_NOMINAL] = StatusConditions(
         force_red=_beam_energy_limits_tripped(beam_energy_inputs, BEAM_ENERGY_SUPPLIES),
-        ready=bool(beam_energy_inputs.get("nomop")),
+        ready=(
+            bool(beam_energy_inputs.get("nomop"))
+            and _beam_energy_supply_comms_good(beam_energy_inputs, BEAM_ENERGY_SUPPLIES)
+            and bool(beam_energy_inputs.get("logic_comms"))
+        ),
     )
     conditions[STATUS_BCON] = StatusConditions(
         ready=(

@@ -127,7 +127,9 @@ class FakeParent:
 def beam_energy_inputs(
     *,
     nomop=True,
+    logic_comms=True,
     arm_beams_hardware=True,
+    disconnected_units=None,
     pos1_current=5.0,
     pos1_voltage_flag=0,
 ):
@@ -183,9 +185,13 @@ def beam_energy_inputs(
                 "icomp_20k_flag": 0,
                 "vcomp_3k_flag": 0,
                 "icomp_3k_flag": 0,
+                "logic_alive": int(logic_comms),
             },
         },
-        "unit_connected": {1: True, 2: True, 3: True, 4: True},
+        "unit_connected": {
+            unit_id: unit_id not in set(disconnected_units or ())
+            for unit_id in (1, 2, 3, 4)
+        },
         "supplies": supplies,
         "interlock_flags": {
             "pos1kv": ("vcomp_1k_flag", "icomp_1k_flag"),
@@ -194,6 +200,7 @@ def beam_energy_inputs(
             "pos3kv": ("vcomp_3k_flag", "icomp_3k_flag"),
         },
         "nomop": bool(nomop),
+        "logic_comms": bool(logic_comms),
         "arm_beams_hardware": bool(arm_beams_hardware),
     }
 
@@ -336,6 +343,31 @@ class MachineStatusTest(unittest.TestCase):
             calculate_display_states(conditions)[STATUS_HVPS_NOMINAL],
             STATE_RED,
         )
+
+    def test_hvps_nominal_requires_nomop_all_supply_comms_and_logic_comms(self):
+        conditions = evaluate_machine_status_conditions(
+            base_subsystems(beam_energy=beam_energy_inputs()),
+            FakeMainControl(),
+        )
+        self.assertTrue(conditions[STATUS_HVPS_NOMINAL].ready)
+
+        conditions = evaluate_machine_status_conditions(
+            base_subsystems(beam_energy=beam_energy_inputs(nomop=False)),
+            FakeMainControl(),
+        )
+        self.assertFalse(conditions[STATUS_HVPS_NOMINAL].ready)
+
+        conditions = evaluate_machine_status_conditions(
+            base_subsystems(beam_energy=beam_energy_inputs(disconnected_units={2})),
+            FakeMainControl(),
+        )
+        self.assertFalse(conditions[STATUS_HVPS_NOMINAL].ready)
+
+        conditions = evaluate_machine_status_conditions(
+            base_subsystems(beam_energy=beam_energy_inputs(logic_comms=False)),
+            FakeMainControl(),
+        )
+        self.assertFalse(conditions[STATUS_HVPS_NOMINAL].ready)
 
     def test_bcon_requires_connection_limits_and_interlocks(self):
         conditions = evaluate_machine_status_conditions(

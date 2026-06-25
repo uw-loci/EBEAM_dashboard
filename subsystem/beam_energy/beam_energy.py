@@ -1050,6 +1050,7 @@ class BeamEnergySubsystem:
             "supplies": supplies,
             "interlock_flags": dict(self.supply_interlock_flag_map),
             "nomop": bool(global_data and global_data.get("nomop_flag")),
+            "logic_comms": bool(global_data and global_data.get("logic_alive")),
             "arm_beams_hardware": bool(global_data and global_data.get("arm_beams")),
         }
 
