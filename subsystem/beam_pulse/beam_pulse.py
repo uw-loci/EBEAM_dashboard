@@ -148,6 +148,7 @@ class BeamPulseSubsystem:
         self._vtrx_pressure_guard_enabled_provider = None
         self._vtrx_pressure_provider = None
         self._vtrx_pressure_limit_provider = None
+        self._vtrx_pressure_fresh_provider = None
 
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
@@ -610,6 +611,7 @@ class BeamPulseSubsystem:
         enabled_provider = getattr(self, "_vtrx_pressure_guard_enabled_provider", None)
         pressure_provider = getattr(self, "_vtrx_pressure_provider", None)
         limit_provider = getattr(self, "_vtrx_pressure_limit_provider", None)
+        fresh_provider = getattr(self, "_vtrx_pressure_fresh_provider", None)
         if not all(callable(provider) for provider in (enabled_provider, pressure_provider, limit_provider)):
             return True, None
 
@@ -618,6 +620,7 @@ class BeamPulseSubsystem:
                 return True, None
             pressure = pressure_provider()
             limit = limit_provider()
+            pressure_is_fresh = bool(fresh_provider()) if callable(fresh_provider) else True
         except Exception as e:
             message = self._emission_block_message(
                 action,
@@ -627,10 +630,19 @@ class BeamPulseSubsystem:
                 self._log_event(message, LogLevel.WARNING)
             return False, message
 
+        if not pressure_is_fresh:
+            detail = "VTRX pressure reading is stale"
+            if log_failure:
+                self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+            return False, self._emission_block_message(action, detail)
+
         try:
             pressure = float(pressure)
         except (TypeError, ValueError):
-            return True, None
+            detail = "VTRX pressure unavailable"
+            if log_failure:
+                self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+            return False, self._emission_block_message(action, detail)
 
         try:
             limit = float(limit)
@@ -638,7 +650,10 @@ class BeamPulseSubsystem:
             limit = None
 
         if not math.isfinite(pressure):
-            return True, None
+            detail = "VTRX pressure unavailable"
+            if log_failure:
+                self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+            return False, self._emission_block_message(action, detail)
 
         if limit is None or not math.isfinite(limit):
             message = self._emission_block_message(action, "VTRX pressure limit unavailable")
@@ -1631,13 +1646,20 @@ class BeamPulseSubsystem:
             enabled_provider if callable(enabled_provider) else None
         )
 
-    def set_vtrx_pressure_guard_providers(self, enabled_provider, pressure_provider, limit_provider=None):
+    def set_vtrx_pressure_guard_providers(
+        self,
+        enabled_provider,
+        pressure_provider,
+        limit_provider=None,
+        fresh_provider=None,
+    ):
         """Register providers used to block new output starts during high pressure."""
         self._vtrx_pressure_guard_enabled_provider = (
             enabled_provider if callable(enabled_provider) else None
         )
         self._vtrx_pressure_provider = pressure_provider if callable(pressure_provider) else None
         self._vtrx_pressure_limit_provider = limit_provider if callable(limit_provider) else None
+        self._vtrx_pressure_fresh_provider = fresh_provider if callable(fresh_provider) else None
 
     def set_channel_enable_status_callback(self, callback):
         """Register callback(ch, enabled) invoked on every register poll."""

@@ -187,7 +187,7 @@ Main Control registers these callbacks/providers on Beam Pulse:
 | `set_armed_status_callback(callback)` | `callback(armed)` | mirror software armed state |
 | `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | action line and firmware acknowledgement display |
 | `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data |
-| `set_vtrx_pressure_guard_providers(enabled, pressure, limit)` | callables | VTRX high-pressure guard data |
+| `set_vtrx_pressure_guard_providers(enabled, pressure, limit, fresh)` | callables | VTRX high-pressure/freshness guard data |
 | `set_manual_disconnect_callback(callback)` | `callback() -> bool` | ask Main Control whether a user-requested BCON disconnect may continue |
 | `set_disconnect_callback(callback)` | `callback()` | notify Main Control after BCON disconnects |
 

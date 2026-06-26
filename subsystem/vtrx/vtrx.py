@@ -30,6 +30,7 @@ class VTRXSubsystem:
     PLOT_TITLE_PAD = 2 # makes the title not get clipped
     NO_DATA_LOG_INTERVAL_SECONDS = 10
     SERIAL_DATA_MAX_ATTEMPTS = 3
+    PRESSURE_READING_FRESH_SECONDS = 3.0
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -76,6 +77,8 @@ class VTRXSubsystem:
         self.last_no_data_log_time = 0.0
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
+        self.last_successful_read_time = None
+        self.last_valid_pressure_value = None
         self.last_gui_update_time = time.time()
 
         self.setup_serial()
@@ -203,6 +206,7 @@ class VTRXSubsystem:
             pass
         finally:
             self.flush_queued_logs()
+            self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
 
     def _handle_serial_data_with_retries(self, data):
@@ -219,6 +223,26 @@ class VTRXSubsystem:
             f"{last_exception}. Data: {self._safe_raw_log_text(data)}",
             LogLevel.ERROR
         )
+
+    def _pressure_reading_is_fresh(self):
+        last_successful_read_time = getattr(self, "last_successful_read_time", None)
+        return (
+            last_successful_read_time is not None
+            and time.time() - last_successful_read_time <= self.PRESSURE_READING_FRESH_SECONDS
+        )
+
+    def _update_main_control(self):
+        pressure_callback = getattr(self, "_pressure_update_callback", None)
+        if not callable(pressure_callback):
+            return
+
+        try:
+            pressure_callback(
+                getattr(self, "last_valid_pressure_value", None),
+                self._pressure_reading_is_fresh(),
+            )
+        except Exception as e:
+            self.log(f"VTRX pressure update callback failed: {e}", LogLevel.ERROR)
 
     def cancel_updates(self):
         """
@@ -356,9 +380,8 @@ class VTRXSubsystem:
                     self.log("VTRX recovered; valid pressure data received.", LogLevel.INFO)
                 self.vacuum_fields_cleared = False
                 self.last_no_data_log_time = 0.0
-                pressure_callback = getattr(self, "_pressure_update_callback", None)
-                if callable(pressure_callback):
-                    pressure_callback(pressure_value)
+                self.last_successful_read_time = time.time()
+                self.last_valid_pressure_value = pressure_value
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
