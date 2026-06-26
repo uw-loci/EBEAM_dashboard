@@ -55,8 +55,8 @@ class CathodeHeatingSubsystem:
     WORKER_LOG_QUEUE_MAXSIZE = 1000
     # Failed deferred 9104 setup is retried by the poller, but not on every poll cycle.
     POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS = 10.0
-    
-    # Prediction model constants. 
+
+    # Prediction model constants.
     # LUT beam_current values are in mA, and the system convention is that
     # 72% of total emitted current reaches the beam/target.
     BEAM_CURRENT_FRACTION_OF_EMISSION = 0.72
@@ -64,7 +64,7 @@ class CathodeHeatingSubsystem:
     RICHARDSON_CONSTANT_A_PER_CM2_K2 = 80.0
     RICHARDSON_WORK_FUNCTION_EV = 2.69
     BOLTZMANN_CONSTANT_EV_PER_K = 8.617333262145e-5
-    
+
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
         'Ramp Voltage': 'ramp_voltage',
