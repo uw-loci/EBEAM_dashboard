@@ -2595,17 +2595,26 @@ class CathodeHeatingSubsystem:
             )
             if callable(pressure_allows_output):
                 cathode = ['A', 'B', 'C'][index]
+                pressure_block_reason = "VTRX pressure is above 1e-5 mbar."
                 try:
-                    blocked_by_pressure = not bool(pressure_allows_output())
+                    pressure_guard_result = pressure_allows_output()
                 except Exception as e:
                     self.log(
                         f"CCS output enable blocked for Cathode {cathode}: VTRX pressure check failed ({e}).",
                         LogLevel.WARNING,
                     )
                     return
+                if isinstance(pressure_guard_result, tuple):
+                    blocked_by_pressure = not bool(pressure_guard_result[0])
+                    if len(pressure_guard_result) > 1 and pressure_guard_result[1]:
+                        pressure_block_reason = str(pressure_guard_result[1])
+                else:
+                    blocked_by_pressure = not bool(pressure_guard_result)
                 if blocked_by_pressure:
+                    if not pressure_block_reason.endswith("."):
+                        pressure_block_reason = f"{pressure_block_reason}."
                     self.log(
-                        f"CCS output enable blocked for Cathode {cathode}: VTRX pressure is above 1e-5 mbar.",
+                        f"CCS output enable blocked for Cathode {cathode}: {pressure_block_reason}",
                         LogLevel.WARNING,
                     )
                     return

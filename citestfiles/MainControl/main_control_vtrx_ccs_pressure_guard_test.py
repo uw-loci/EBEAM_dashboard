@@ -276,14 +276,32 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
         main_control._handle_vtrx_pressure_update(2e-5, pressure_reading_is_fresh=True)
         self.assertEqual(cathode.turn_off_calls, 1)
 
-    def test_timer_start_does_not_log_initial_shutdown_warning_when_ccs_inactive(self):
+    def test_timer_does_not_start_when_ccs_inactive(self):
         main_control = make_main_control(cathode=FakeCathode(active=False))
 
         main_control._handle_vtrx_pressure_update(2e-5, pressure_reading_is_fresh=True)
 
+        self.assertIsNone(main_control._vtrx_ccs_disable_timer_started_at)
         self.assertFalse(
             any("CCS output will be disabled after" in message for message in main_control.logger.messages("CRITICAL"))
         )
+        self.assertEqual(main_control.logger.messages("WARNING"), [])
+
+    def test_inactive_ccs_output_clears_existing_shutdown_timer(self):
+        cathode = FakeCathode(active=True)
+        main_control = make_main_control(cathode=cathode)
+
+        main_control._handle_vtrx_pressure_update(2e-5, pressure_reading_is_fresh=True)
+        self.assertEqual(main_control._vtrx_ccs_disable_timer_started_at, 100.0)
+
+        cathode.toggle_states = [False, False, False]
+        main_control._test_time["value"] = 110.0
+        main_control._handle_vtrx_pressure_update(2e-5, pressure_reading_is_fresh=True)
+
+        self.assertIsNone(main_control._vtrx_ccs_disable_timer_started_at)
+        self.assertIsNone(main_control._vtrx_ccs_disable_last_warning_at)
+        self.assertEqual(cathode.turn_off_calls, 0)
+        self.assertEqual(main_control.logger.messages("WARNING"), [])
 
     def test_pressure_recovery_clears_timer(self):
         main_control = make_main_control(cathode=FakeCathode(active=True))
@@ -316,6 +334,16 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
         main_control._handle_vtrx_pressure_update(5e-6, pressure_reading_is_fresh=False)
 
         self.assertEqual(cathode.turn_off_calls, 1)
+
+    def test_stale_pressure_status_explains_ccs_output_block_reason(self):
+        main_control = make_main_control(cathode=FakeCathode(active=True))
+
+        main_control._handle_vtrx_pressure_update(5e-6, pressure_reading_is_fresh=False)
+
+        self.assertEqual(
+            main_control._vtrx_ccs_pressure_output_status(),
+            (False, "VTRX pressure reading is stale."),
+        )
 
     def test_fresh_pressure_below_limit_clears_stale_ccs_shutdown(self):
         main_control = make_main_control(cathode=FakeCathode(active=True))
