@@ -29,6 +29,7 @@ class VTRXSubsystem:
     PLOT_Y_TICK_LABEL_SIZE = 8
     PLOT_TITLE_PAD = 2 # makes the title not get clipped
     NO_DATA_LOG_INTERVAL_SECONDS = 10
+    SERIAL_DATA_MAX_ATTEMPTS = 3
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -197,12 +198,27 @@ class VTRXSubsystem:
                 if data is None:
                     self._handle_no_data()
                 else:
-                    self.handle_serial_data(data)
+                    self._handle_serial_data_with_retries(data)
         except queue.Empty:
             pass
         finally:
             self.flush_queued_logs()
             self.after_id = self.parent.after(500, self.process_queue)
+
+    def _handle_serial_data_with_retries(self, data):
+        last_exception = None
+        for _attempt in range(self.SERIAL_DATA_MAX_ATTEMPTS):
+            try:
+                self.handle_serial_data(data)
+                return
+            except Exception as e:
+                last_exception = e
+
+        self.log(
+            f"VTRX serial data failed after {self.SERIAL_DATA_MAX_ATTEMPTS} attempts: "
+            f"{last_exception}. Data: {self._safe_raw_log_text(data)}",
+            LogLevel.ERROR
+        )
 
     def cancel_updates(self):
         """
@@ -278,11 +294,10 @@ class VTRXSubsystem:
         """
         data_parts = data.split(';')
         if len(data_parts) < 3:
-            self.log("Incomplete data received.", LogLevel.ERROR)
-            self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
+            self._log_serial_data_error("Incomplete data received.", data)
             self.error_state = True
             self.update_gui_with_error_state()
-            return
+            raise ValueError("Incomplete data received.")
         
         try:
             pressure_raw = data_parts[1]            # raw string from 972b sensor
@@ -310,9 +325,9 @@ class VTRXSubsystem:
                     if error.startswith("972b ERR:"):
                         error_segments = error.split(":", 2)
                         if len(error_segments) < 3:
-                            self.log(f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}", LogLevel.ERROR)
-                            self.error_state = True
-                            continue
+                            raise ValueError(
+                                f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}"
+                            )
 
                         error_code_text = error_segments[1].strip()
                         error_message = error_segments[2].strip()
@@ -350,17 +365,23 @@ class VTRXSubsystem:
             self.error_logged = False # reset error flag on successful data processing
 
         except ValueError as e:    
-            self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
+            self._log_serial_data_error(f"VTRX Data processing error: {e}", data)
             self.error_state = True
             self.update_gui_with_error_state()
+            raise
         except IndexError as e:
-            self.log(
+            self._log_serial_data_error(
                 f"VTRX Data processing error: Insufficient segments - "
                 f"{self._safe_raw_log_text(data)}. Error: {e}",
-                LogLevel.ERROR
+                data
             )
             self.error_state = True
             self.update_gui_with_error_state()
+            raise
+
+    def _log_serial_data_error(self, message, data):
+        self.log(message, LogLevel.DEBUG)
+        self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger and threading.get_ident() != self._main_thread_id:
