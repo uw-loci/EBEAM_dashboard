@@ -2601,7 +2601,7 @@ class CathodeHeatingSubsystem:
                 self.logger.update_cathode_field(cathode_label, "clamp_temperature", temperature)
 
             if isinstance(temperature, float):
-                self.clamp_temperature_vars[i].set(f"{temperature:.2f} C")
+                self.clamp_temperature_vars[i].set(f"{temperature:.1f} C")
 
             self._update_cathode_comms_indicators(i)
 

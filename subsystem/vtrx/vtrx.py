@@ -29,6 +29,7 @@ class VTRXSubsystem:
     PLOT_Y_TICK_LABEL_SIZE = 8
     PLOT_TITLE_PAD = 2 # makes the title not get clipped
     NO_DATA_LOG_INTERVAL_SECONDS = 10
+    MACHINE_STATUS_PRESSURE_MAX_AGE_SECONDS = 2.5
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -60,6 +61,8 @@ class VTRXSubsystem:
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
         self._pressure_update_callback = None
+        self.last_pressure_mbar = None
+        self.last_pressure_update_time = None
         
         self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
@@ -85,6 +88,28 @@ class VTRXSubsystem:
 
     def set_pressure_update_callback(self, callback):
         self._pressure_update_callback = callback if callable(callback) else None
+
+    def get_machine_status_inputs(self):
+        now = time.time()
+        last_serial_age = now - getattr(self, "last_data_received_time", 0.0)
+        last_pressure_time = getattr(self, "last_pressure_update_time", None)
+        pressure_age = (
+            now - last_pressure_time
+            if last_pressure_time is not None
+            else float("inf")
+        )
+        pressure_fresh = (
+            last_serial_age <= self.MACHINE_STATUS_PRESSURE_MAX_AGE_SECONDS
+            and pressure_age <= self.MACHINE_STATUS_PRESSURE_MAX_AGE_SECONDS
+        )
+        return {
+            "last_pressure_mbar": self.last_pressure_mbar,
+            "vtrx_communicating": bool(
+                not getattr(self, "error_state", False)
+                and self.last_pressure_mbar is not None
+                and pressure_fresh
+            ),
+        }
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
@@ -123,6 +148,7 @@ class VTRXSubsystem:
             self.log(f"Serial connection established on {self.serial_port}", LogLevel.INFO)
             self.error_logged = False # reset error flag on success
         except serial.SerialException as e:
+            self.last_pressure_mbar = None
             self.log(f"Error opening serial port {self.serial_port}: {e}", LogLevel.ERROR)
             self.ser = None
             self.error_logged = False
@@ -149,18 +175,22 @@ class VTRXSubsystem:
                     else:
                         self.data_queue.put(None)
                 except serial.SerialException as e:
+                    self.last_pressure_mbar = None
                     if not self.error_logged:
                         self.log(f"VTRX Serial communication error: {e}", LogLevel.ERROR)
                         self.error_logged = True
                 except UnicodeDecodeError as e:
+                    self.last_pressure_mbar = None
                     if not self.error_logged:
                         self.log(f"VTRX Data decoding error: {e}", LogLevel.ERROR)
                         self.error_logged = True
                 except Exception as e:
+                    self.last_pressure_mbar = None
                     if not self.error_logged:
                         self.log(f"VTRX Unexpected error: {e}", LogLevel.ERROR)
                         self.error_logged = True
             else:
+                self.last_pressure_mbar = None
                 if not self.error_logged:
                     self.log("VTRX Serial port is not open.", LogLevel.ERROR)
                     self.error_logged = True
@@ -240,6 +270,8 @@ class VTRXSubsystem:
         Sets indicators to red, updates pressure label, and changes plot appearance
         to indicate error condition.
         """
+        self.last_pressure_mbar = None
+        self.last_pressure_update_time = None
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
         self.ax.set_title('(Error)', fontsize=10, color='red', pad=self.PLOT_TITLE_PAD)
@@ -341,6 +373,8 @@ class VTRXSubsystem:
                     self.log("VTRX recovered; valid pressure data received.", LogLevel.INFO)
                 self.vacuum_fields_cleared = False
                 self.last_no_data_log_time = 0.0
+                self.last_pressure_mbar = pressure_value
+                self.last_pressure_update_time = time.time()
                 pressure_callback = getattr(self, "_pressure_update_callback", None)
                 if callable(pressure_callback):
                     pressure_callback(pressure_value)

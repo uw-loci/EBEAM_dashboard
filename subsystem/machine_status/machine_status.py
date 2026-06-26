@@ -2,21 +2,49 @@ import math
 import threading
 import tkinter as tk
 from collections import OrderedDict
+from dataclasses import dataclass
 
 from utils import LogLevel
 
 
-STATUS_NAMES = (
-    "Chamber Pressure",
-    "Environment Temperature Monitors",
-    "Safety Interlocks",
-    "High Voltage Panel On",
-    "High Voltage Power Supplies Nominal",
-    "Beam Controller Nominal",
-    "Cathode Heating",
-    "Beams Ready",
-    "Beams On",
+STATUS_TEMPS = "STATUS_TEMPS"
+STATUS_PRESSURE_1E_4 = "STATUS_PRESSURE_1E_4"
+STATUS_INTERLOCKS = "STATUS_INTERLOCKS"
+STATUS_HV_PANEL = "STATUS_HV_PANEL"
+STATUS_PRESSURE_1E_6 = "STATUS_PRESSURE_1E_6"
+STATUS_HVPS_NOMINAL = "STATUS_HVPS_NOMINAL"
+STATUS_BCON = "STATUS_BCON"
+STATUS_CATHODES = "STATUS_CATHODES"
+STATUS_BEAMS_READY = "STATUS_BEAMS_READY"
+STATUS_BEAMS_ON = "STATUS_BEAMS_ON"
+
+
+@dataclass(frozen=True)
+class StatusDefinition:
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class StatusConditions:
+    force_red: bool = False
+    ready: bool = False
+
+
+STATUS_DEFINITIONS = (
+    StatusDefinition(STATUS_TEMPS, "PMON Temperatures Ok"),
+    StatusDefinition(STATUS_PRESSURE_1E_4, "Pressure Below 1e-4 mbar"),
+    StatusDefinition(STATUS_INTERLOCKS, "All Safety Interlocks Pass"),
+    StatusDefinition(STATUS_HV_PANEL, "High Voltage Subpanel On"),
+    StatusDefinition(STATUS_PRESSURE_1E_6, "Pressure Below 1e-6 mbar"),
+    StatusDefinition(STATUS_HVPS_NOMINAL, "HV Power Supplies Nominal"),
+    StatusDefinition(STATUS_BCON, "Beam Controller Nominal"),
+    StatusDefinition(STATUS_CATHODES, "Cathode Heating"),
+    StatusDefinition(STATUS_BEAMS_READY, "Beams Ready"),
+    StatusDefinition(STATUS_BEAMS_ON, "Beams On"),
 )
+STATUS_KEYS = tuple(status.key for status in STATUS_DEFINITIONS)
+STATUS_NAME_BY_KEY = {status.key: status.name for status in STATUS_DEFINITIONS}
 
 STATE_GRAY = "gray"
 STATE_GREEN = "green"
@@ -39,6 +67,8 @@ STATE_LOG_TEXT = {
 }
 
 POLL_INTERVAL_SECONDS = 0.2
+PRESSURE_1E_4_MBAR = 1e-4
+PRESSURE_1E_6_MBAR = 1e-6
 BEAM_ENERGY_SUPPLIES = ("pos1kv", "neg1kv", "pos20kv", "pos3kv")
 BCON_SUPPLIES = ("pos1kv", "neg1kv")
 _AFTER_SCHEDULING = object()
@@ -46,18 +76,23 @@ STATUS_BAR_HEIGHT = 29
 STATUS_BAR_SEPARATOR_WIDTH = 1
 
 
-def calculate_display_states(raw_statuses):
+def calculate_display_states(status_conditions):
     display_states = {}
-    later_green = False
+    higher_green = False
 
-    for name in reversed(STATUS_NAMES):
-        if raw_statuses.get(name, False):
-            display_states[name] = STATE_GREEN
-            later_green = True
+    for key in reversed(STATUS_KEYS):
+        conditions = status_conditions.get(key, StatusConditions())
+        if conditions.force_red:
+            display_states[key] = STATE_RED
+        elif conditions.ready:
+            display_states[key] = STATE_GREEN
+            higher_green = True
+        elif higher_green:
+            display_states[key] = STATE_RED
         else:
-            display_states[name] = STATE_RED if later_green else STATE_GRAY
+            display_states[key] = STATE_GRAY
 
-    return OrderedDict((name, display_states[name]) for name in STATUS_NAMES)
+    return OrderedDict((key, display_states[key]) for key in STATUS_KEYS)
 
 
 def build_status_transition_logs(previous_states, current_states):
@@ -65,13 +100,22 @@ def build_status_transition_logs(previous_states, current_states):
         return []
 
     entries = []
-    for name, current_state in current_states.items():
-        previous_state = previous_states.get(name)
+    for key, current_state in current_states.items():
+        previous_state = previous_states.get(key)
         if previous_state == current_state:
             continue
         level = LogLevel.WARNING if current_state == STATE_RED else LogLevel.INFO
-        entries.append((name, previous_state, current_state, level))
+        entries.append((STATUS_NAME_BY_KEY.get(key, key), previous_state, current_state, level))
     return entries
+
+
+def _snapshot_subsystems(subsystems):
+    if not subsystems:
+        return {}
+    try:
+        return dict(subsystems)
+    except Exception:
+        return {}
 
 
 def _number(value):
@@ -117,14 +161,11 @@ def _interlock_green(interlocks, name):
         return False
 
 
-def _environment_pass(process_monitor):
-    getter = getattr(process_monitor, "get_environment_pass", None)
-    if not callable(getter):
+def _pressure_below(vtrx_inputs, threshold_mbar):
+    pressure = _number(vtrx_inputs.get("last_pressure_mbar"))
+    if pressure is None or not vtrx_inputs.get("vtrx_communicating"):
         return False
-    try:
-        return bool(getter())
-    except Exception:
-        return False
+    return pressure < threshold_mbar
 
 
 def _comparison_value(supply_key, value):
@@ -134,158 +175,199 @@ def _comparison_value(supply_key, value):
     return abs(value) if supply_key == "neg1kv" else value
 
 
+def _supply_values_complete(supply_key, supply):
+    limits = supply.get("warning_limits", {})
+    values = (
+        _comparison_value(supply_key, supply.get("actual_voltage_v")),
+        _comparison_value(supply_key, supply.get("actual_current_ma")),
+        _number(limits.get("min_voltage_v")),
+        _number(limits.get("max_voltage_v")),
+        _number(limits.get("max_current_ma")),
+    )
+    return None not in values
+
+
+def _supply_warning_tripped(supply_key, supply):
+    limits = supply.get("warning_limits", {})
+    voltage = _comparison_value(supply_key, supply.get("actual_voltage_v"))
+    current = _comparison_value(supply_key, supply.get("actual_current_ma"))
+    min_voltage = _number(limits.get("min_voltage_v"))
+    max_voltage = _number(limits.get("max_voltage_v"))
+    max_current = _number(limits.get("max_current_ma"))
+
+    if None in (voltage, current, min_voltage, max_voltage, max_current):
+        return False
+    return (
+        voltage < min_voltage
+        or voltage >= max_voltage
+        or current >= max_current
+    )
+
+
+def _beam_energy_limits_tripped(beam_energy_inputs, supply_keys):
+    supplies = beam_energy_inputs.get("supplies", {})
+    return any(
+        _supply_warning_tripped(supply_key, supplies.get(supply_key, {}))
+        for supply_key in supply_keys
+    )
+
+
 def _beam_energy_limits_clear(beam_energy_inputs, supply_keys):
     supplies = beam_energy_inputs.get("supplies", {})
     for supply_key in supply_keys:
         supply = supplies.get(supply_key, {})
-        limits = supply.get("warning_limits", {})
-        voltage = _comparison_value(supply_key, supply.get("actual_voltage_v"))
-        current = _comparison_value(supply_key, supply.get("actual_current_ma"))
-        min_voltage = _number(limits.get("min_voltage_v"))
-        max_voltage = _number(limits.get("max_voltage_v"))
-        max_current = _number(limits.get("max_current_ma"))
-
-        if None in (voltage, current, min_voltage, max_voltage, max_current):
+        if not _supply_values_complete(supply_key, supply):
             return False
-        if voltage < min_voltage or voltage >= max_voltage:
-            return False
-        if current >= max_current:
+        if _supply_warning_tripped(supply_key, supply):
             return False
     return True
 
 
-def _beam_energy_nomop(beam_energy_inputs):
+def _beam_energy_supply_comms_good(beam_energy_inputs, supply_keys):
+    connected = beam_energy_inputs.get("unit_connected", {})
+    supplies = beam_energy_inputs.get("supplies", {})
+    if not connected:
+        return False
+
+    for supply_key in supply_keys:
+        unit_id = supplies.get(supply_key, {}).get("unit_id")
+        if unit_id is None or not connected.get(unit_id):
+            return False
+    return True
+
+
+def _beam_energy_global_data(beam_energy_inputs):
     data = beam_energy_inputs.get("data", {})
     connected = beam_energy_inputs.get("unit_connected", {})
-    global_data = data.get(4) if connected.get(4) else None
-    return bool(global_data and global_data.get("nomop_flag"))
+    if connected and not connected.get(4):
+        return None
+    return data.get(4)
 
 
 def _beam_energy_interlocks_clear(beam_energy_inputs, supply_keys):
-    data = beam_energy_inputs.get("data", {})
-    connected = beam_energy_inputs.get("unit_connected", {})
-    global_data = data.get(4) if connected.get(4) else None
+    global_data = _beam_energy_global_data(beam_energy_inputs)
     if not global_data:
         return False
 
     flags_by_supply = beam_energy_inputs.get("interlock_flags", {})
     supplies = beam_energy_inputs.get("supplies", {})
+    connected = beam_energy_inputs.get("unit_connected", {})
     for supply_key in supply_keys:
         unit_id = supplies.get(supply_key, {}).get("unit_id")
-        if not connected.get(unit_id):
+        if connected and not connected.get(unit_id):
             return False
 
         voltage_flag, current_flag = flags_by_supply.get(supply_key, (None, None))
+        if voltage_flag is None or current_flag is None:
+            return False
         if bool(global_data.get(voltage_flag)) or bool(global_data.get(current_flag)):
             return False
     return True
 
 
-def _cathode_temperature_ok(cathode_inputs):
+def _cathode_overtemp_tripped(cathode_inputs):
     temperatures = cathode_inputs.get("clamp_temperatures_c", [])[:3]
     limits = cathode_inputs.get("overtemp_limits_c", [])[:3]
-    if len(temperatures) < 3 or len(limits) < 3:
-        return False
-
     for temperature, limit in zip(temperatures, limits):
         temperature = _number(temperature)
         limit = _number(limit)
-        if temperature is None or limit is None or temperature > limit:
-            return False
-    return True
+        if temperature is not None and limit is not None and temperature > limit:
+            return True
+    return False
 
 
-def _cathode_emission_ok(cathode_inputs, total_limit_ma):
+def _cathode_single_emission_tripped(cathode_inputs, total_limit_ma):
     total_limit_ma = _number(total_limit_ma)
-    currents = cathode_inputs.get("predicted_emission_currents_ma", [])[:3]
-    if total_limit_ma is None or len(currents) < 3:
+    if total_limit_ma is None:
         return False
 
-    for current in currents:
+    for current in cathode_inputs.get("predicted_emission_currents_ma", [])[:3]:
         current = _number(current)
-        if current is None or current >= total_limit_ma:
+        if current is not None and current >= total_limit_ma:
+            return True
+    return False
+
+
+def _lower_statuses_green_candidate(conditions):
+    for key in STATUS_KEYS[:STATUS_KEYS.index(STATUS_BEAMS_READY)]:
+        status = conditions.get(key, StatusConditions())
+        if status.force_red or not status.ready:
             return False
     return True
 
 
-def _activate_enabled_beams_limit_ok(beam_pulse, beam_pulse_inputs, cathode_inputs, total_limit_ma):
-    enabled_channels = [
-        index
-        for index, enabled in enumerate(beam_pulse_inputs.get("channel_enable_status", [])[:3])
-        if enabled
-    ]
-    if not enabled_channels:
-        return True
-
-    checker = getattr(beam_pulse, "_emission_limit_allows_output", None)
-    if callable(checker):
-        configs = [
-            {"ch": index + 1, "mode": "DC", "duration_ms": 0, "count": 1}
-            for index in enabled_channels
-        ]
-        try:
-            allowed, _message = checker("Activate Enabled Beams", configs, log_failure=False)
-            return bool(allowed)
-        except Exception:
-            return False
-
-    total_limit_ma = _number(total_limit_ma)
-    currents = cathode_inputs.get("predicted_emission_currents_ma", [])[:3]
-    if total_limit_ma is None or len(currents) < 3:
-        return False
-
-    total = 0.0
-    for index in enabled_channels:
-        current = _number(currents[index])
-        if current is None:
-            return False
-        total += current
-    return total < total_limit_ma
-
-
-def evaluate_machine_statuses(subsystems, main_control=None):
+def evaluate_machine_status_conditions(subsystems, main_control=None):
     subsystems = subsystems or {}
     interlocks = _subsystem(subsystems, "Interlocks")
     process_monitor = _subsystem(subsystems, "Process Monitor")
+    vtrx = _subsystem(subsystems, "Vacuum System") or _subsystem(subsystems, "VTRX")
     beam_energy = _subsystem(subsystems, "Beam Energy")
     beam_pulse = _subsystem(subsystems, "Beam Pulse")
     cathode = _subsystem(subsystems, "Cathode Heating")
 
+    process_monitor_inputs = _inputs(process_monitor)
+    vtrx_inputs = _inputs(vtrx)
     beam_energy_inputs = _inputs(beam_energy)
     beam_pulse_inputs = _inputs(beam_pulse)
     cathode_inputs = _inputs(cathode)
     total_limit_ma = _number(getattr(main_control, "total_max_emission_current_ma", None))
 
-    raw = OrderedDict((name, False) for name in STATUS_NAMES)
-    raw["Chamber Pressure"] = _interlock_green(interlocks, "Vacuum Pressure")
-    raw["Environment Temperature Monitors"] = _environment_pass(process_monitor)
-    raw["Safety Interlocks"] = _interlock_green(interlocks, "All Interlocks")
-    raw["High Voltage Panel On"] = _interlock_green(interlocks, "HVolt ON")
-    raw["High Voltage Power Supplies Nominal"] = (
-        _beam_energy_nomop(beam_energy_inputs)
-        and _beam_energy_limits_clear(beam_energy_inputs, BEAM_ENERGY_SUPPLIES)
+    hvolt_on = _interlock_green(interlocks, "HVolt ON")
+    g9_output = _interlock_green(interlocks, "G9SP Output")
+
+    conditions = OrderedDict((key, StatusConditions()) for key in STATUS_KEYS)
+    conditions[STATUS_TEMPS] = StatusConditions(
+        ready=bool(process_monitor_inputs.get("pmon_communicating")),
     )
-    raw["Beam Controller Nominal"] = (
-        bool(beam_pulse_inputs.get("bcon_connected"))
-        and _beam_energy_limits_clear(beam_energy_inputs, BCON_SUPPLIES)
-        and _beam_energy_interlocks_clear(beam_energy_inputs, BCON_SUPPLIES)
+    conditions[STATUS_PRESSURE_1E_4] = StatusConditions(
+        ready=_pressure_below(vtrx_inputs, PRESSURE_1E_4_MBAR),
     )
-    raw["Cathode Heating"] = (
-        any(cathode_inputs.get("output_states", [])[:3])
-        and _cathode_temperature_ok(cathode_inputs)
-        and _cathode_emission_ok(cathode_inputs, total_limit_ma)
+    conditions[STATUS_INTERLOCKS] = StatusConditions(
+        ready=_interlock_green(interlocks, "All Interlocks"),
     )
-    raw["Beams Ready"] = (
-        all(raw[name] for name in STATUS_NAMES[:7])
-        and _activate_enabled_beams_limit_ok(
-            beam_pulse,
-            beam_pulse_inputs,
-            cathode_inputs,
-            total_limit_ma,
-        )
+    conditions[STATUS_HV_PANEL] = StatusConditions(
+        force_red=g9_output and not hvolt_on,
+        ready=hvolt_on,
     )
-    raw["Beams On"] = bool(beam_pulse_inputs.get("any_beam_active"))
-    return raw
+    conditions[STATUS_PRESSURE_1E_6] = StatusConditions(
+        ready=_pressure_below(vtrx_inputs, PRESSURE_1E_6_MBAR),
+    )
+    conditions[STATUS_HVPS_NOMINAL] = StatusConditions(
+        force_red=_beam_energy_limits_tripped(beam_energy_inputs, BEAM_ENERGY_SUPPLIES),
+        ready=(
+            bool(beam_energy_inputs.get("nomop"))
+            and _beam_energy_supply_comms_good(beam_energy_inputs, BEAM_ENERGY_SUPPLIES)
+            and bool(beam_energy_inputs.get("logic_comms"))
+        ),
+    )
+    conditions[STATUS_BCON] = StatusConditions(
+        ready=(
+            bool(beam_pulse_inputs.get("bcon_connected"))
+            and _beam_energy_limits_clear(beam_energy_inputs, BCON_SUPPLIES)
+            and _beam_energy_interlocks_clear(beam_energy_inputs, BCON_SUPPLIES)
+        ),
+    )
+    conditions[STATUS_CATHODES] = StatusConditions(
+        force_red=(
+            _cathode_overtemp_tripped(cathode_inputs)
+            or _cathode_single_emission_tripped(cathode_inputs, total_limit_ma)
+        ),
+        ready=any(cathode_inputs.get("output_states", [])[:3]),
+    )
+    conditions[STATUS_BEAMS_READY] = StatusConditions(
+        force_red=not bool(
+            beam_pulse_inputs.get("activate_enabled_beams_guard_clear", True)
+        ),
+        ready=(
+            _lower_statuses_green_candidate(conditions)
+            and bool(beam_pulse_inputs.get("beams_armed_status"))
+            and bool(beam_energy_inputs.get("arm_beams_hardware"))
+        ),
+    )
+    conditions[STATUS_BEAMS_ON] = StatusConditions(
+        ready=bool(beam_pulse_inputs.get("any_beam_active")),
+    )
+    return conditions
 
 
 class MachineStatus:
@@ -295,7 +377,7 @@ class MachineStatus:
         self.subsystem_provider = subsystem_provider or (lambda: {})
         self.main_control_provider = main_control_provider or (lambda: None)
         self.status_labels = {}
-        self._display_states = OrderedDict((name, STATE_GRAY) for name in STATUS_NAMES)
+        self._display_states = OrderedDict((key, STATE_GRAY) for key in STATUS_KEYS)
         self._previous_display_states = None
         self._latest_raw_statuses = None
         self._latest_update_lock = threading.Lock()
@@ -342,15 +424,15 @@ class MachineStatus:
         canvas.delete("all")
         self.status_labels.clear()
 
-        segment_count = len(STATUS_NAMES)
+        segment_count = len(STATUS_DEFINITIONS)
         segment_width = width / segment_count
-        tip_width = 15
+        tip_width = min(40, (height - STATUS_BAR_SEPARATOR_WIDTH) / 2)
         mid_y = height / 2
 
-        for index, name in enumerate(STATUS_NAMES):
+        for index, status in enumerate(STATUS_DEFINITIONS):
             x0 = index * segment_width
             x1 = (index + 1) * segment_width
-            state = self._display_states.get(name, STATE_GRAY)
+            state = self._display_states.get(status.key, STATE_GRAY)
             fill_color = STATE_COLORS[state]
             text_color = STATE_TEXT_COLORS[state]
 
@@ -381,13 +463,13 @@ class MachineStatus:
             text_id = canvas.create_text(
                 x0 + segment_width / 2 + (tip_width / 5 if index == 0 else tip_width / 3),
                 mid_y,
-                text=name,
+                text=status.name,
                 fill=text_color,
                 font=("Segoe UI", 8, "bold"),
                 width=max(24, int(segment_width - tip_width - 10)),
                 justify="center",
             )
-            self.status_labels[name] = {"segment": segment_id, "text": text_id}
+            self.status_labels[status.key] = {"segment": segment_id, "text": text_id}
 
     def _log(self, message, level):
         if self.logger and hasattr(self.logger, "log"):
@@ -396,15 +478,16 @@ class MachineStatus:
     def _worker_loop(self):
         while not self._stop_event.is_set():
             try:
-                raw_statuses = evaluate_machine_statuses(
-                    self.subsystem_provider() or {},
+                subsystems = _snapshot_subsystems(self.subsystem_provider() or {})
+                status_conditions = evaluate_machine_status_conditions(
+                    subsystems,
                     self.main_control_provider(),
                 )
                 if self._last_error:
                     self._queue_log("Machine status evaluation recovered.", LogLevel.INFO)
                     self._last_error = None
             except Exception as exc:
-                raw_statuses = OrderedDict((name, False) for name in STATUS_NAMES)
+                status_conditions = OrderedDict((key, StatusConditions()) for key in STATUS_KEYS)
                 error_text = f"{type(exc).__name__}: {exc}"
                 if error_text != self._last_error:
                     self._queue_log(f"Machine status evaluation failed: {error_text}", LogLevel.ERROR)
@@ -412,7 +495,7 @@ class MachineStatus:
 
             if self._stop_event.is_set():
                 break
-            self._queue_status_update(raw_statuses)
+            self._queue_status_update(status_conditions)
             self._stop_event.wait(POLL_INTERVAL_SECONDS)
 
     def _queue_log(self, message, level):
@@ -448,10 +531,10 @@ class MachineStatus:
             pass
         return None
 
-    def _queue_status_update(self, raw_statuses):
+    def _queue_status_update(self, status_conditions):
         should_schedule = False
         with self._latest_update_lock:
-            self._latest_raw_statuses = raw_statuses
+            self._latest_raw_statuses = status_conditions
             if self._ui_after_id is None and not self._stop_event.is_set():
                 self._ui_after_id = _AFTER_SCHEDULING
                 should_schedule = True
@@ -466,13 +549,13 @@ class MachineStatus:
 
     def _apply_latest_statuses(self):
         with self._latest_update_lock:
-            raw_statuses = self._latest_raw_statuses
+            status_conditions = self._latest_raw_statuses
             self._ui_after_id = None
 
-        if raw_statuses is None:
+        if status_conditions is None:
             return
 
-        display_states = calculate_display_states(raw_statuses)
+        display_states = calculate_display_states(status_conditions)
         self._display_states = display_states
         self._draw_status_bar()
 

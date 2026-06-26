@@ -1789,7 +1789,29 @@ class BeamPulseSubsystem:
             "any_beam_active": bool(active_channels),
             "active_channels": active_channels,
             "channel_enable_status": list(getattr(self, "channel_enable_status", [])),
+            "beams_armed_status": bool(getattr(self, "beams_armed_status", False)),
+            "activate_enabled_beams_guard_clear": (
+                self._activate_enabled_beams_guard_clear()
+            ),
         }
+
+    def _activate_enabled_beams_guard_clear(self) -> bool:
+        enabled_configs = [
+            {"ch": index + 1, "mode": "DC", "duration_ms": 0, "count": 1}
+            for index, enabled in enumerate(
+                list(getattr(self, "channel_enable_status", []))[:3]
+            )
+            if enabled
+        ]
+        try:
+            allowed, _message = self._emission_limit_allows_output(
+                "Activate Enabled Beams",
+                enabled_configs,
+                log_failure=False,
+            )
+            return bool(allowed)
+        except Exception:
+            return False
 
     # --- Hardware driver interface ---
 
