@@ -20,6 +20,7 @@ BEAM_OUTPUT_LOW_COLOR = "#70A070"
 BEAM_OUTPUT_OFF_COLOR = "#383838"
 BEAM_ACTION_FAILURE_COLOR = "red"
 BEAM_ACTION_NEUTRAL_COLOR = "#383838"
+BEAMS_ARM_GOOD_COLOR = "#2E7D32"
 PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 
 
@@ -212,22 +213,23 @@ class MainControlPanel:
         main_frame = ttk.Frame(main_tab, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Add safety beams off button (bottom)
-        beams_off_button = tk.Button(
-            main_frame,
-            text="E-STOP: BEAMS & CCS",
-            bg="red",
-            fg="white",
-            font=("Helvetica",14,"bold"),
-            command=self.handle_beams_off
-        )
-        beams_off_button.pack(side="bottom", fill="x", padx=10, pady=2)
+        script_frame = ttk.Frame(main_frame)
+        script_frame.pack(side="top", fill="x")
+        self.create_script_dropdown(script_frame)
 
-        # Script dropdown
-        self.create_script_dropdown(main_frame)
+        beam_control_viewport = tk.Frame(main_frame)
+        beam_control_viewport.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 0))
 
-        manual_panel = tk.Frame(main_frame)
-        manual_panel.pack(side="top", fill="x", padx=10, pady=(10, 0))
+        beam_control_area = tk.Frame(beam_control_viewport)
+        beam_control_area.place(x=0, y=0, relwidth=1)
+        beam_control_area.grid_columnconfigure(0, weight=0)
+        beam_control_area.grid_columnconfigure(1, weight=1, minsize=190)
+
+        self.main_control_beam_viewport = beam_control_viewport
+        self.main_control_beam_control_area = beam_control_area
+
+        manual_panel = tk.Frame(beam_control_area)
+        manual_panel.grid(row=0, column=0, columnspan=2, sticky="ew")
 
         # Beam ON/OFF row.
         buttons_frame = tk.Frame(manual_panel)
@@ -297,38 +299,65 @@ class MainControlPanel:
         )
         self.disable_all_beams_button.grid(row=0, column=1, sticky="ew", padx=(1, 2))
 
-        # Add beams armed toggle
-        beams_armed_control_frame = tk.Frame(main_frame)
-        beams_armed_control_frame.pack(side="bottom", fill="x", padx=10, pady=(8, 4))
+        beams_arm_box = tk.Frame(
+            beam_control_area,
+            bg="#F2F2F2",
+            bd=0,
+            relief=tk.FLAT,
+            width=136,
+        )
+        beams_arm_box.grid(row=1, column=0, sticky="nsew", padx=(2, 6), pady=(8, 4))
+        beams_arm_box.pack_propagate(False)
 
-        beams_armed_button_frame = tk.Frame(beams_armed_control_frame)
-        beams_armed_button_frame.pack(side=tk.LEFT, anchor=tk.W, padx=(0, 14))
+        self.beams_arm_state_label = tk.Label(
+            beams_arm_box,
+            text="Status: SAFE",
+            bg="#E0E0E0",
+            fg="#1F1F1F",
+            font=("Helvetica", 9, "bold"),
+            width=13,
+            relief=tk.GROOVE,
+            bd=1,
+        )
+        self.beams_arm_state_label.pack(anchor=tk.CENTER, pady=(7, 5), padx=8, fill=tk.X)
 
-        beams_armed_label_frame = ttk.Frame(beams_armed_button_frame)
-        beams_armed_label_frame.pack(anchor=tk.CENTER, pady=(0, 2))
-        ttk.Label(beams_armed_label_frame, text="BEAMS ARMED", font=("Helvetica", 12, "bold")).pack()
+        self.beams_ready_button = tk.Button(
+            beams_arm_box,
+            text="ARM BEAMS",
+            bg="#1565C0",
+            fg="white",
+            activebackground="#0D47A1",
+            activeforeground="white",
+            font=("Helvetica", 9, "bold"),
+            command=self.handle_arm_beams,
+        )
+        self.beams_ready_button.pack(anchor=tk.CENTER, pady=(0, 7), padx=8, fill=tk.X)
 
-        if self.toggle_on_image and self.toggle_off_image:
-            self.beams_ready_button = tk.Button(
-                beams_armed_button_frame,
-                image=self.toggle_off_image,
-                command=self.handle_arm_beams,
-                relief=tk.FLAT,
-                bd=0,
-                bg="white"
-            )
-        else:
-            self.beams_ready_button = tk.Button(
-                beams_armed_button_frame,
-                text="ARM BEAMS",
-                bg="sky blue",
-                fg="white",
-                font=("Helvetica",16,"bold"),
-                command=self.handle_arm_beams
-            )
-        self.beams_ready_button.pack(anchor=tk.CENTER)
+        status_panel_frame = ttk.Frame(beam_control_area)
+        status_panel_frame.grid(row=1, column=1, sticky="ew", pady=(8, 4))
+        self.create_beam_output_status_panel(status_panel_frame)
 
-        self.create_beam_output_status_panel(beams_armed_control_frame)
+        beams_off_button = tk.Button(
+            beam_control_area,
+            text="E-STOP: BEAMS & CCS",
+            bg="red",
+            fg="white",
+            font=("Helvetica", 12, "bold"),
+            command=self.handle_beams_off,
+        )
+        beams_off_button.grid(row=2, column=0, columnspan=2, sticky="ew", padx=2, pady=(0, 0))
+
+        beam_control_viewport.bind(
+            "<Configure>",
+            lambda event: self._position_main_control_beam_area(),
+            add="+",
+        )
+        beam_control_area.bind(
+            "<Configure>",
+            lambda event: self._position_main_control_beam_area(),
+            add="+",
+        )
+        beam_control_viewport.after_idle(self._position_main_control_beam_area)
 
         config_frame = ttk.Frame(config_tab, padding="10")
         config_frame.pack(fill=tk.BOTH, expand=True)
@@ -380,6 +409,43 @@ class MainControlPanel:
             foreground="gray"
         )
         help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
+
+    def _position_main_control_beam_area(self):
+        """Crop the Main Control beam area from the top when vertical space is tight."""
+        viewport = getattr(self, "main_control_beam_viewport", None)
+        beam_area = getattr(self, "main_control_beam_control_area", None)
+        if viewport is None or beam_area is None:
+            return
+
+        try:
+            required_height = beam_area.winfo_reqheight()
+            visible_height = self._visible_widget_height(viewport)
+            if required_height <= 1 or visible_height <= 1:
+                return
+
+            if int(viewport.cget("height")) != required_height:
+                viewport.configure(height=required_height)
+
+            y_offset = min(0, visible_height - required_height)
+            beam_area.place_configure(x=0, y=y_offset, relwidth=1)
+        except tk.TclError:
+            return
+
+    def _visible_widget_height(self, widget):
+        """Return the widget height that is actually visible after parent clipping."""
+        top = widget.winfo_rooty()
+        bottom = top + widget.winfo_height()
+        parent_name = widget.winfo_parent()
+
+        while parent_name:
+            parent = widget.nametowidget(parent_name)
+            top = max(top, parent.winfo_rooty())
+            bottom = min(bottom, parent.winfo_rooty() + parent.winfo_height())
+            if parent == widget.winfo_toplevel():
+                break
+            parent_name = parent.winfo_parent()
+
+        return max(0, bottom - top)
 
     def create_beam_output_status_panel(self, parent_frame):
         """Create compact Beam A/B/C output and latest action status labels."""
@@ -1024,19 +1090,19 @@ class MainControlPanel:
 
     def _set_armed_ui(self, armed, reset=False):
         if hasattr(self, "beams_ready_button"):
-            toggle_on_image = getattr(self, "toggle_on_image", None)
-            toggle_off_image = getattr(self, "toggle_off_image", None)
-            if toggle_on_image and toggle_off_image:
-                _safe_widget_config(
-                    self.beams_ready_button,
-                    image=toggle_on_image if armed else toggle_off_image
-                )
-            else:
-                _safe_widget_config(
-                    self.beams_ready_button,
-                    text="BEAMS ARMED" if armed else "ARM BEAMS",
-                    bg="navy" if armed else "sky blue",
-                )
+            _safe_widget_config(
+                self.beams_ready_button,
+                text="DISARM BEAMS" if armed else "ARM BEAMS",
+                bg="#B71C1C" if armed else "#1565C0",
+                activebackground="#7F0000" if armed else "#0D47A1",
+            )
+        if hasattr(self, "beams_arm_state_label"):
+            _safe_widget_config(
+                self.beams_arm_state_label,
+                text=f"Status: {'ARMED' if armed else 'SAFE'}",
+                bg="#E0E0E0",
+                fg=BEAMS_ARM_GOOD_COLOR if armed else "#1F1F1F",
+            )
         self.update_beam_toggle_states(enabled=armed, reset=reset)
         self._update_enable_toggle_states(enabled=armed)
         self._update_activate_enabled_beams_control_state(armed=armed)
