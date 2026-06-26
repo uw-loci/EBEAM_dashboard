@@ -1385,7 +1385,7 @@ class MainControlPanel:
         return messagebox.askokcancel(
             "Disconnect BCON",
             (
-                "CCS Output will be disabled if BCON is disconnected. "
+                "CCS output will be disabled if BCON is disconnected. "
                 "Click 'OK' if you still want to disconnect."
             ),
             parent=self.root,
@@ -1445,13 +1445,13 @@ class MainControlPanel:
             if ccs_output_active:
                 if pressure_is_stale:
                     self._log_critical(
-                        "VTRX pressure reading is stale; CCS will shut off after "
+                        "VTRX pressure reading is stale; CCS output will be disabled after "
                         f"{duration_display_s} seconds."
                     )
                 else:
                     self._log_critical(
                         f"VTRX pressure exceeded {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar "
-                        f"({pressure:g} mbar); CCS will shut off after "
+                        f"({pressure:g} mbar); CCS output will be disabled after "
                         f"{duration_display_s} seconds."
                     )
 
@@ -1466,12 +1466,12 @@ class MainControlPanel:
                 seconds_left_display = round(seconds_left)
                 if pressure_is_stale:
                     self._log_warning(
-                        f"CCS will shut off in {seconds_left_display} seconds because "
+                        f"CCS output will be disabled in {seconds_left_display} seconds because "
                         "the VTRX pressure reading is stale"
                     )
                 else:
                     self._log_warning(
-                        f"CCS will shut off in {seconds_left_display} seconds due to VTRX pressure "
+                        f"CCS output will be disabled in {seconds_left_display} seconds due to VTRX pressure "
                         f"being above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar"
                     )
                 self._vtrx_ccs_disable_last_warning_at = now
