@@ -1435,6 +1435,7 @@ class MainControlPanel:
         duration_s = self._coerce_vtrx_ccs_disable_grace_period_s(
             getattr(self, "vtrx_ccs_disable_grace_period_s", None)
         )
+        duration_display_s = round(duration_s)
         started_at = getattr(self, "_vtrx_ccs_disable_timer_started_at", None)
 
         if started_at is None:
@@ -1445,13 +1446,13 @@ class MainControlPanel:
                 if pressure_is_stale:
                     self._log_critical(
                         "VTRX pressure reading is stale; CCS will shut off after "
-                        f"{duration_s:g} seconds."
+                        f"{duration_display_s} seconds."
                     )
                 else:
                     self._log_critical(
                         f"VTRX pressure exceeded {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar "
                         f"({pressure:g} mbar); CCS will shut off after "
-                        f"{duration_s:g} seconds."
+                        f"{duration_display_s} seconds."
                     )
 
         elapsed_s = max(0.0, float(now) - float(started_at))
@@ -1462,14 +1463,15 @@ class MainControlPanel:
                 or now - float(last_warning_at) >= VTRX_CCS_DISABLE_WARNING_INTERVAL_S
             ):
                 seconds_left = max(0.0, duration_s - elapsed_s)
+                seconds_left_display = round(seconds_left)
                 if pressure_is_stale:
                     self._log_warning(
-                        f"CCS will shut off in {seconds_left:g} seconds because "
+                        f"CCS will shut off in {seconds_left_display} seconds because "
                         "the VTRX pressure reading is stale"
                     )
                 else:
                     self._log_warning(
-                        f"CCS will shut off in {seconds_left:g} seconds due to VTRX pressure "
+                        f"CCS will shut off in {seconds_left_display} seconds due to VTRX pressure "
                         f"being above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar"
                     )
                 self._vtrx_ccs_disable_last_warning_at = now
@@ -1480,13 +1482,13 @@ class MainControlPanel:
 
         if pressure_is_stale:
             self._log_critical(
-                f"VTRX pressure reading remained stale for {duration_s:g} seconds; "
+                f"VTRX pressure reading remained stale for {duration_display_s} seconds; "
                 "disabling CCS output."
             )
         else:
             self._log_critical(
                 f"VTRX pressure remained above {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar "
-                f"for {duration_s:g} seconds; disabling CCS output."
+                f"for {duration_display_s} seconds; disabling CCS output."
             )
         self._vtrx_ccs_disable_last_warning_at = now
         turn_off = getattr(cathode, "turn_off_all_beams", None)
