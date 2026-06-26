@@ -1456,14 +1456,15 @@ class MainControlPanel:
             self._vtrx_ccs_disable_last_warning_at = now
             if pressure_is_stale:
                 self._log_critical(
-                    "VTRX pressure reading is stale; CCS output will be disabled after "
-                    f"{duration_display_s} seconds."
+                    "VTRX pressure reading is stale; CCS output will be disabled in "
+                    f"{duration_display_s} seconds if a valid reading is not received."
                 )
             else:
                 self._log_critical(
                     f"VTRX pressure exceeded {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar "
-                    f"({pressure:g} mbar); CCS output will be disabled after "
-                    f"{duration_display_s} seconds."
+                    f"({pressure:g} mbar); CCS output will be disabled in "
+                    f"{duration_display_s} seconds if the pressure does not return to "
+                    f"below {VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR} mbar"
                 )
 
         elapsed_s = max(0.0, float(now) - float(started_at))
@@ -1522,7 +1523,7 @@ class MainControlPanel:
         self._vtrx_pressure_beam_disable_latched = True
         if pressure_reading_is_fresh:
             self._log_critical(
-                f"VTRX pressure exceeded 1e-5 mbar ({pressure:g} mbar); disabling all beams."
+                f"VTRX pressure exceeded {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar ({pressure:g} mbar); disabling all beams."
             )
         else:
             self._log_critical("VTRX pressure reading is stale; disabling all beams.")
