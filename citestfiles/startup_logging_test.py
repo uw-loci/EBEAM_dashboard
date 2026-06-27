@@ -33,7 +33,6 @@ class FakeTextWidget:
     def getvalue(self):
         return "".join(self.messages)
 
-
 class TestStartupLogger(unittest.TestCase):
     def setUp(self):
         self.tempdir = os.path.join(TEST_TMP_ROOT, f"case_{uuid.uuid4().hex}")
@@ -124,7 +123,6 @@ class TestComPortConfigLogging(unittest.TestCase):
         self.assertEqual(loaded, {})
         self.assertIn("Error loading COM ports", logger.error.call_args[0][0])
         mock_print.assert_not_called()
-
 
 class TestPanelConfigLogging(unittest.TestCase):
     def setUp(self):
