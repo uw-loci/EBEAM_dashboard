@@ -4,12 +4,34 @@ import subprocess
 import os
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
+import copy
 import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import enum
 import json
+import threading
+import time
 from collections import deque
+
+SUPABASE_WRITE_TIMEOUT_SECONDS = 3.0
+
+
+def _safe_console_write(message):
+    stream = getattr(sys, "__stdout__", None)
+    if stream is None:
+        return
+    try:
+        stream.write(f"{message}\n")
+        stream.flush()
+    except Exception:
+        pass
+
+
+def _create_supabase_client():
+    from db.supabase_client import SupabaseClient
+    return SupabaseClient(timeout_seconds=SUPABASE_WRITE_TIMEOUT_SECONDS)
+
 
 class LogLevel(enum.IntEnum):
     VERBOSE = 0
@@ -21,6 +43,10 @@ class LogLevel(enum.IntEnum):
 
 class Logger:
     STARTUP_BUFFER_MAX = 500
+    SUPABASE_WRITE_MIN_INTERVAL_SECONDS = 2
+    SUPABASE_WRITE_MAX_ATTEMPTS = 2
+    SUPABASE_WRITE_RETRY_DELAY_SECONDS = 0.25
+    SUPABASE_WORKER_SHUTDOWN_TIMEOUT_SECONDS = 1.0
 
     def __init__(self, text_widget, file_log_level = LogLevel.VERBOSE, log_level=LogLevel.INFO, log_to_file=False):
         self.text_widget = text_widget
@@ -28,12 +54,26 @@ class Logger:
         self.log_level = log_level
         self.log_to_file = log_to_file
         self.log_file = None
-        self.webMonitor_log_file = None
         self.log_start_time = None
         self.webMonitor_log_start_time = None
         self.log_filepath = None
+        self.webMonitor_log_file = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
+        self.supabase_client = None
+        self.last_supabase_write = None
+        self._closed = False
+        self._supabase_pending_update = None
+        self._supabase_event = threading.Event()
+        self._supabase_pending_lock = threading.Lock()
+        self._supabase_worker = None
+        self._supabase_worker_lock = threading.Lock()
+        try:
+            self.supabase_client = _create_supabase_client()
+        except ImportError as e:
+            print(f"Warning: Supabase client unavailable: {e}")
+        except Exception as e:
+            print(f"Warning: Supabase client failed to initialize: {e}")
         self.dict_logger = {
             "pressure": None,
             "safetyOutputDataFlags": None,
@@ -42,15 +82,12 @@ class Logger:
             "safetyInputStatusFlags": None,
             "temperatures": None,
             "vacuumBits": None,
-            "Cathode A - Heater Current:": None,
-            "Cathode B - Heater Current:": None,
-            "Cathode C - Heater Current:": None,
-            "Cathode A - Heater Voltage:": None,
-            "Cathode B - Heater Voltage:": None,
-            "Cathode C - Heater Voltage:": None,
-            "clamp_temperature_A" : None,
-            "clamp_temperature_B" : None,
-            "clamp_temperature_C" : None
+            "cathode": {
+                "A": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+                "B": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+                "C": {"heater_current": None, "heater_voltage": None, "clamp_temperature": None},
+            },
+            "beam_energy": None
             }
         if log_to_file:
             self.setup_log_file()
@@ -95,9 +132,9 @@ class Logger:
         try:
             wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
             os.makedirs(wm_log_dir, exist_ok=True)
-            
-            # Create the web monitor log file with the old naming pattern
-            webMonitor_log_file_name = f"webMonitor_log.txt"
+
+            # Create the web monitor log file with the same timestamped pattern used by the main log.
+            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
             if self.webMonitor_log_file != None:
                 self.webMonitor_log_file.close()
             self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
@@ -107,8 +144,20 @@ class Logger:
         except Exception as e:
             print(f"Error creating web monitor log file: {str(e)}")
 
+    def _reopen_wm_logfile_append(self):
+        """Reopen the current web monitor log file without resetting its rotation window."""
+        try:
+            if self.webMonitor_log_filepath is None:
+                self.setup_wm_logfile()
+                return
+            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
+        except Exception as e:
+            print(f"Error opening web monitor log file: {str(e)}")
+
     def log(self, msg, level=LogLevel.INFO):
         """ Log a message to the text widget and optionally to local file """
+        if self._closed:
+            return
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
         if level >= self.log_level:
@@ -134,40 +183,171 @@ class Logger:
             except Exception as e:
                 print(f"Error writing to log file: {str(e)}")   
     def update_field(self, field, value):
+        if field == "cathode":
+            raise KeyError("'cathode' cannot be updated with update_field; use update_cathode_field for cathode subfields.")
         if field in self.dict_logger:
             self.dict_logger[field] = value
             self.log_dict_update(self.dict_logger)
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
+    def update_cathode_field(self, cathode_label, subfield, value):
+        cathode = self.dict_logger["cathode"]
+        if not isinstance(cathode, dict):
+            raise TypeError("Logger cathode schema is corrupted; expected 'cathode' to be a dict.")
+        if cathode_label not in cathode:
+            raise KeyError(f"'{cathode_label}' is not a valid cathode label. Expected one of {list(cathode.keys())}.")
+        if subfield not in cathode[cathode_label]:
+            raise KeyError(f"'{subfield}' is not a valid cathode subfield. Expected one of {list(cathode[cathode_label].keys())}.")
+        cathode[cathode_label][subfield] = value
+        self.log_dict_update(self.dict_logger)
     def clear_value(self, field):
+        if field == "cathode":
+            raise KeyError("'cathode' cannot be cleared with clear_value; use update_cathode_field to reset individual subfields.")
         if field in self.dict_logger:
             self.dict_logger[field] = None
             self.log_dict_update(self.dict_logger)
         else:
             raise KeyError(f"'{field}' is not a valid key in status dict.")
     def log_dict_update(self, update_dict):
-        # return early if file logging is disabled
-        if not self.log_to_file:
-                return
-        try:
-            now = datetime.datetime.now()
-            # overwrite logs on the same webMonitor file every hour
+        if self._closed:
+            return
+        now = datetime.datetime.now()
+        # Timestamp includes microseconds for sub-second logging rates by cbmark logger
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        self._enqueue_supabase_update(update_dict, now)
+
+        if self.log_to_file:
             if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
                 if self.webMonitor_log_file:
                     self.webMonitor_log_file.close()
                 self.setup_wm_logfile()
-            if self.webMonitor_log_file is None:
+            elif self.webMonitor_log_file is None:
+                self._reopen_wm_logfile_append()
+            if self.webMonitor_log_file:
+                entry = {
+                    "timestamp": timestamp,
+                    "status": update_dict
+                }
+                try:
+                    self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                    self.webMonitor_log_file.flush()
+                except Exception as e:
+                    try:
+                        self.webMonitor_log_file.close()
+                    except Exception:
+                        pass
+                    self.webMonitor_log_file = None
+                    try:
+                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
+                            self.setup_wm_logfile()
+                        else:
+                            self._reopen_wm_logfile_append()
+                        if self.webMonitor_log_file:
+                            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
+                            self.webMonitor_log_file.flush()
+                        else:
+                            print(f"Error writing web monitor updates: {e}")
+                    except Exception as retry_error:
+                        print(f"Error writing web monitor updates: {retry_error}")
+
+    def _enqueue_supabase_update(self, update_dict, now):
+        if self._closed or not self.supabase_client or not self.log_to_file:
+            return
+        if self.last_supabase_write is not None:
+            elapsed = (now - self.last_supabase_write).total_seconds()
+            if elapsed < self.SUPABASE_WRITE_MIN_INTERVAL_SECONDS:
                 return
-            entry = {
-                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": update_dict
-            }
-            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-            self.webMonitor_log_file.flush()
 
+        try:
+            update_snapshot = copy.deepcopy(update_dict)
         except Exception as e:
-            print(f"Error writing web monitor updates: {e}")
+            print(f"Warning: Supabase log update could not be copied: {e}")
+            return
 
+        try:
+            self._ensure_supabase_worker()
+        except Exception as e:
+            self.supabase_client = None
+            _safe_console_write(f"Warning: Supabase log worker could not start: {e}")
+            return
+        if self._closed or not self.log_to_file:
+            return
+
+        with self._supabase_pending_lock:
+            if self._closed or not self.log_to_file:
+                return
+            self._supabase_pending_update = update_snapshot
+        self.last_supabase_write = now
+        self._supabase_event.set()
+
+    def _ensure_supabase_worker(self):
+        with self._supabase_worker_lock:
+            if self._supabase_worker and self._supabase_worker.is_alive():
+                return
+            self._supabase_worker = threading.Thread(
+                target=self._supabase_worker_loop,
+                name="SupabaseLogWorker",
+                daemon=True,
+            )
+            try:
+                self._supabase_worker.start()
+            except Exception:
+                self._supabase_worker = None
+                raise
+
+    def _supabase_worker_loop(self):
+        while True:
+            self._supabase_event.wait()
+            self._supabase_event.clear()
+            if self._closed:
+                return
+
+            while True:
+                with self._supabase_pending_lock:
+                    update = self._supabase_pending_update
+                    self._supabase_pending_update = None
+
+                if update is None or self._closed:
+                    break
+
+                if self.log_to_file:
+                    self._write_supabase_with_retry(update)
+                if self._closed:
+                    return
+
+    def _write_supabase_with_retry(self, update):
+        last_error = None
+        for attempt in range(1, self.SUPABASE_WRITE_MAX_ATTEMPTS + 1):
+            try:
+                if self.supabase_client.insert_status_log(update):
+                    return True
+                last_error = "insert_status_log returned False"
+            except Exception as e:
+                last_error = e
+
+            if attempt < self.SUPABASE_WRITE_MAX_ATTEMPTS:
+                time.sleep(self.SUPABASE_WRITE_RETRY_DELAY_SECONDS)
+
+        _safe_console_write(f"Supabase write failed after {self.SUPABASE_WRITE_MAX_ATTEMPTS} attempts: {last_error}")
+        return False
+
+    def _stop_supabase_worker(self):
+        worker = self._supabase_worker
+        if not worker:
+            return
+        if worker is threading.current_thread():
+            self._supabase_worker = None
+            return
+        if not worker.is_alive():
+            self._supabase_worker = None
+            return
+        with self._supabase_pending_lock:
+            self._supabase_pending_update = None
+        self._supabase_event.set()
+        worker.join(timeout=self.SUPABASE_WORKER_SHUTDOWN_TIMEOUT_SECONDS)
+        if not worker.is_alive():
+            self._supabase_worker = None
 
     def debug(self, message):
         self.log(message, LogLevel.DEBUG)
@@ -188,6 +368,9 @@ class Logger:
         self.log_level = level
 
     def close(self):
+        self._closed = True
+        self.log_to_file = False
+        self._stop_supabase_worker()
         if self.log_file:
             try:
                 self.log_file.close()
@@ -199,7 +382,7 @@ class Logger:
                 self.webMonitor_log_file.close()
                 self.webMonitor_log_file = None
             except Exception as e:
-                print(f"Error closing web monitor log file {str(e)}")
+                print(f"Error closing web monitor log file: {str(e)}")
 
 import tkinter as tk
 import sys
@@ -262,6 +445,9 @@ class MessagesFrame:
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
 
+        # Ensure that the log directory exists
+        self.ensure_log_directory()
+
     def write(self, msg):
         """ Write message to the text widget and trim if necessary. """
         self.text_widget.insert(tk.END, msg)
@@ -285,7 +471,6 @@ class MessagesFrame:
                 except Exception as e:
                     print(f"Error closing web monitor log file: {e}")
                 self.logger.webMonitor_log_file = None
-
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
@@ -342,24 +527,6 @@ class MessagesFrame:
         except Exception as e:
             print(f"Failed to create log directory: {str(e)}")
     
-    def ensure_wm_log_directory(self):
-        ''' Ensure the 'logs/' directory exists, even when running as an executable. '''
-        try:
-            # For PyInstaller, _MEIPASS is the path to the temporary folder where the app is unpacked.
-            # os.path.abspath(".") gives the path to the current directory when running the script normally.
-            if hasattr(sys, '_MEIPASS'):
-                # If running as a bundled executable
-                base_path = os.path.expanduser("~")  # Gets the home directory
-            else:
-                # If running as a script (e.g., python main.py)
-                base_path = os.path.abspath(".")
-
-            self.wm_log_dir = os.path.join(base_path, "EBEAM-Dashboard-WMLogs")
-            if not os.path.exists(self.wm_log_dir):
-                os.makedirs(self.wm_log_dir)
-        except Exception as e:
-            print(f"Failed to create wm log directory: {str(e)}")
-
     def export_log(self):
         """ Export the current log contents to a user-specified file. """
         try:
@@ -582,7 +749,17 @@ class MachineStatus():
         
         self._previous_status = status_dict.copy()
 
-        self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
+        self.after_id = self.parent.after(self.update_interval, self.update_status)  # Schedule the next update
+
+    def cancel_updates(self):
+        '''
+        Cancel after() scheduled updates, to be called by dashboard when app is quit.
+            Note: Does not do logging like the other cancel_updates() methods since the 
+            Machine Status class does not have a logger.
+        '''
+        if hasattr(self, 'after_id') and self.after_id:
+            self.parent.after_cancel(self.after_id)
+            self.after_id = None
 
     def update_labels(self, status_dict):
             for name, is_active in status_dict.items():

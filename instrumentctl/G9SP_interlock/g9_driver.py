@@ -100,7 +100,15 @@ class G9Driver:
         self.ser = None
 
     def _update_queue(self, response=None):
-        data = response if response else ([0] * 13, [0] * 13, 0)
+        data = response if response else (
+            [0] * self.NUMIN,                    # sitsf_bits
+            [0] * self.NUMIN,                    # sitdf_bits
+            0,                                   # g9_output
+            {},                                  # unit_status
+            bytearray(10),                       # input_terms
+            bytearray(10),                       # output_terms
+            {'sotdf': [0] * 7, 'sitdf': [0] * self.NUMIN}  # debug_data
+        )
         if self._response_queue.full():
             self._response_queue.get_nowait()
         self._response_queue.put(data)
@@ -138,6 +146,11 @@ class G9Driver:
 
             time.sleep(0.1)  # minimum sleep between successful reads
 
+    def stop_thread(self):
+        """Stops the communication thread"""
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1)
 
     def get_interlock_status(self):
         """
@@ -250,7 +263,7 @@ class G9Driver:
         unit_flags = {self.US_STATUS[k] : unit_status_flags[k] for k in self.US_STATUS.keys()}
 
         return (binary_data['sitsf'], binary_data['sitdf'],                 # sitsf_bits , sitdf_bits
-                    binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_active
+                    binary_data['sotsf'][4] & binary_data['sotdf'][4],      # g9_output
                     unit_flags,                                             # unit_status
                     data[self.SITEC_OFFSET:self.SITEC_OFFSET + 24][-10:],   # input 
                     data[self.SOTEC_OFFSET:self.SOTEC_OFFSET + 16][-10:],   # output

@@ -16,11 +16,11 @@ class OilSubsystem:
 
 
     def setup_gui(self):
-        """Creates and packs UI elements inside the given parent (horizontally)."""
+        """Creates and packs UI elements inside the given parent (stacked vertically)."""
         self.frame = tk.Frame(self.parent)
         self.frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         self.info_frame = tk.Frame(self.frame)
-        self.info_frame.pack(fill=tk.X, expand=True)
+        self.info_frame.pack(fill=tk.BOTH, expand=True, anchor="nw")
 
         self.create_sensor_frame("Temperature", f"{self.temperature:.1f}°C", "temp_label")
         self.create_sensor_frame("Pressure", f"{self.pressure:.1f} PSI", "pressure_label")
@@ -30,9 +30,9 @@ class OilSubsystem:
 
 
     def create_sensor_frame(self, title, default_text, label_attr):
-        """Creates a horizontally aligned sensor frame."""
-        frame = tk.Frame(self.info_frame, padx=20)
-        frame.pack(side=tk.LEFT, fill=tk.Y, expand=True)
+        """Creates one sensor row (title + value), stacked vertically."""
+        frame = tk.Frame(self.info_frame)
+        frame.pack(side=tk.TOP, fill=tk.X, anchor="w", pady=(0, 6))
         
         tk.Label(frame, text=title, font=("Helvetica", 10, "bold")).pack()
         label = tk.Label(frame, text=default_text, font=('Helvetica', 10), bg = "#d3d3d3", fg = "black", padx = 5, pady = 2)
@@ -48,6 +48,18 @@ class OilSubsystem:
         self.pressure_label.config(text=f"{self.pressure:.1f} PSI")
         self.flow_label.config(text=f"{self.flow_rate:.1f} GPM")
         self.pumpStat.config(text=f"{self.pump_status}")
-        self.parent.after(200, self.update_display)  
+        self.after_id = self.parent.after(200, self.update_display)  
+
+    def cancel_updates(self):
+        '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
+        if hasattr(self, 'after_id') and self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+                self.after_id = None
+                if self.logger:
+                    self.logger.debug('Canceled scheduled oil system display update.')
+            except Exception as e:
+                if self.logger:
+                    self.logger.debug('Failed to cancel scheduled oil system display update.')
 
 

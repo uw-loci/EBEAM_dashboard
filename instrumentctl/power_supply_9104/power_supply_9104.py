@@ -2,6 +2,7 @@ import serial
 import threading
 import time
 import math
+from queue import Queue, Empty
 from utils import LogLevel
 
 class PowerSupply9104:
@@ -15,12 +16,20 @@ class PowerSupply9104:
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
-        # self.serial_lock = threading.Lock()
+        self._main_thread_ident = threading.get_ident()
+        self._log_queue = Queue()
+        self.serial_lock = threading.Lock()
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
 
+    # Public serial interface methods with locking to ensure thread safety
     def setup_serial(self):
+        with self.serial_lock:
+            self._setup_serial_unlocked()
+    
+    # The unlocked version of setup_serial, should only be called within a serial_lock context like in setup_serial or update_com_port
+    def _setup_serial_unlocked(self):
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             self.log(f"Serial connection established on {self.port}", LogLevel.INFO)
@@ -28,44 +37,112 @@ class PowerSupply9104:
             self.log(f"Error opening serial port {self.port}: {e}", LogLevel.ERROR)
             self.ser = None
 
-    def update_com_port(self, new_port):
+    def update_com_port(self, new_port, lock_timeout=None):
         self.log(f"Updating COM port from {self.port} to {new_port}", LogLevel.INFO)
-        
-        # Close existing serial connection if it exists
-        if self.ser is not None:
-            self.ser.close()
+
+        if lock_timeout is None:
+            with self.serial_lock:
+                return self._update_com_port_unlocked(new_port)
+
+        # COM reconfiguration uses a bounded wait so a stuck serial transaction cannot hang the GUI.
+        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        if not acquired:
+            self.log(f"Timed out waiting for serial lock while updating COM port to {new_port}", LogLevel.WARNING)
+            return False
+
+        try:
+            return self._update_com_port_unlocked(new_port)
+        finally:
+            self.serial_lock.release()
+
+    def _update_com_port_unlocked(self, new_port):
+        try:
+            # Close existing serial connection if it exists
+            if self.ser is not None:
+                self.ser.close()
+                self.ser = None
+
+            self.port = new_port
+            self._setup_serial_unlocked()
+            connected = self.ser is not None
+        except Exception as e:
+            self.log(f"Failed to update COM port to {new_port}: {e}", LogLevel.ERROR)
             self.ser = None
+            return False
 
-        self.port = new_port
-        self.setup_serial()
-
-        if self.ser is not None:
+        if connected:
             self.log(f"Successfully updated COM port to {new_port}", LogLevel.INFO)
         else:
             self.log(f"Failed to establish connection on new port {new_port}", LogLevel.ERROR)
+        return connected
 
-    def is_connected(self):
+    # Thread-safe method to check connection status
+    def is_connected(self, lock_timeout=None):
+        if lock_timeout is None:
+            with self.serial_lock:
+                return self._is_connected_unlocked()
+
+        # Returning None means "busy", distinct from a confirmed disconnected port.
+        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        if not acquired:
+            self.log("Timed out waiting for serial lock while checking connection", LogLevel.WARNING)
+            return None
+
+        try:
+            return self._is_connected_unlocked()
+        finally:
+            self.serial_lock.release()
+
+    # Unlocked version of is_connected, should only be called within a serial_lock context like in is_connected or send_command
+    def _is_connected_unlocked(self):
         return self.ser is not None and self.ser.is_open
 
+    # Thread-safe method to flush serial input buffer
     def flush_serial(self):
+        with self.serial_lock:
+            self._flush_serial_unlocked()
+
+    # Unlocked version of flush_serial, should only be called within a serial_lock context like in flush_serial or send_command
+    def _flush_serial_unlocked(self):
         if self.ser and self.ser.is_open:
             self.log("Flushing serial input buffer", LogLevel.DEBUG)
             self.ser.reset_input_buffer()
         else:
             self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
 
-    def send_command(self, command):
+    def send_command(self, command, lock_timeout=None):
         """Send a command to the power supply and read the response."""
+        # Normal runtime calls preserve the original blocking lock behavior so
+        # command ordering stays simple. Shutdown paths pass lock_timeout so a
+        # dead-port poll cannot keep the dashboard waiting forever on this lock.
+        if lock_timeout is None:
+            with self.serial_lock:
+                return self._send_command_unlocked(command)
+
+        acquired = self.serial_lock.acquire(timeout=lock_timeout)
+        if not acquired:
+            self.log(f"Timed out waiting for serial lock while sending '{command}'", LogLevel.WARNING)
+            return None
+
         try:
-            if not self.is_connected():
+            return self._send_command_unlocked(command)
+        finally:
+            self.serial_lock.release()
+
+    def _send_command_unlocked(self, command):
+        # Caller must hold serial_lock. Keeping the serial transaction in one
+        # helper avoids duplicating read/write/error handling for timeout and
+        # non-timeout lock acquisition paths.
+        try:
+            if not self._is_connected_unlocked():
                 self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
                 return None # return immediately to prevent blocking GUI on serial read
-            
-            self.flush_serial()
-            
+
+            self._flush_serial_unlocked()
+
             self.log(f"Sending command: {command}", LogLevel.DEBUG)
             self.ser.write(f"{command}\r\n".encode())
-            
+
             response = self.ser.read_until(b'\r').decode()
 
             if 'OK' not in response:
@@ -78,7 +155,7 @@ class PowerSupply9104:
                 self.log(f"Acknowledgement not in 9104 supply response")
 
             self.log(f"Response: {response}", LogLevel.DEBUG)
-                
+
             return response.strip()
         except serial.SerialException as e:
             self.log(f"Serial error: {e}", LogLevel.ERROR)
@@ -94,7 +171,8 @@ class PowerSupply9104:
             self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
         except Exception as e:
-            self.log(f"Critical Error", LogLevel.ERROR)
+            self.log(f"Critical Error: {str(e)}", LogLevel.ERROR)
+            return None
 
     def set_output(self, state):
         """Set the output on/off."""
@@ -451,13 +529,13 @@ class PowerSupply9104:
         """
         self.stop_event.set()    
 
-    def get_display_readings(self):
+    def get_display_readings(self, lock_timeout=None):
         """Get the display readings for voltage and current mode."""
         """ Example response: 050001000[CR]OK[CR] """
         # Example corresponds to 05.00V, 01.00A, supply in CV mode
         command = "GETD"
         self.log(f"Sent command:{command}", LogLevel.DEBUG)
-        return self.send_command(command)
+        return self.send_command(command, lock_timeout=lock_timeout)
     
     def parse_getd_response(self, response):
         try:
@@ -498,7 +576,7 @@ class PowerSupply9104:
             self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
             return False
 
-    def get_voltage_current_mode(self):
+    def get_voltage_current_mode(self, lock_timeout=None):
         """
         Extract voltage and current from the power supply reading.
         
@@ -507,10 +585,11 @@ class PowerSupply9104:
         """
         for attempt in range(self.MAX_RETRIES):
             try:
-                if not self.is_connected():
+                # Bounded callers already acquire through send_command; avoid a second lock wait here.
+                if lock_timeout is None and not self.is_connected():
                     break
 
-                reading = self.get_display_readings()
+                reading = self.get_display_readings(lock_timeout=lock_timeout)
 
                 if not reading:
                     # Nothing came back – very likely no device on the port.
@@ -521,7 +600,7 @@ class PowerSupply9104:
                 voltage, current, mode = self.parse_getd_response(reading)
                 if voltage is not None and current is not None:
                     if abs(voltage) < 0.001:
-                        second_read = self.get_display_readings()
+                        second_read = self.get_display_readings(lock_timeout=lock_timeout)
                         v2, c2, m2 = self.parse_getd_response(second_read)
                         if v2 is not None and abs(v2) > 0.001:
                             # overwrite with second read if it's nonzero
@@ -557,18 +636,21 @@ class PowerSupply9104:
         command = "GOVP"
         response = self.send_command(command)
 
-        for attempt in range(self.MAX_RETRIES):
-            if "OK" in response:
-                try:
-                    # split the response and take the part before 'OK'
-                    ovp_str = response.split('\r')[0]
-                    # convert to integer, then to a float
-                    ovp_volts = int(ovp_str) / 100.0
-                    self.log(f"OVP value: {ovp_volts:.2f}")
-                    return ovp_volts
-                except (ValueError, IndexError) as e:
-                    self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
-                    return None
+        if not response:
+            self.log("Failed to get OVP value", LogLevel.ERROR)
+            return None
+
+        if "OK" in response:
+            try:
+                # split the response and take the part before 'OK'
+                ovp_str = response.split('\r')[0]
+                # convert to integer, then to a float
+                ovp_volts = int(ovp_str) / 100.0
+                self.log(f"OVP value: {ovp_volts:.2f}")
+                return ovp_volts
+            except (ValueError, IndexError) as e:
+                self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
+                return None
             
         self.log("Failed to get OVP value", LogLevel.ERROR)
         return None
@@ -710,13 +792,13 @@ class PowerSupply9104:
         command = f"SETM{setv1:04}{seti1:04}{swtime1:03}{setv2:04}{seti2:04}{swtime2:03}{setv3:04}{seti3:04}{swtime3:03}"
         return self.send_command(command)
     
-    def disable_output(self):
+    def disable_output(self, lock_timeout=None):
         """Disable the power supply output unconditionally (no OVP validation)."""
-        if not self.is_connected():
+        if lock_timeout is None and not self.is_connected():
             self.log("Cannot disable output: not connected.", LogLevel.WARNING)
             return False
         command = "SOUT0"
-        response = self.send_command(command)
+        response = self.send_command(command, lock_timeout=lock_timeout)
         if response and "OK" in response:
             self.log("Output disabled.", LogLevel.INFO)
             return True
@@ -724,7 +806,7 @@ class PowerSupply9104:
             self.log(f"Failed to disable output: {response}", LogLevel.ERROR)
             return False
 
-    def close(self):
+    def close(self, ramp_join_timeout=2.0, serial_lock_timeout=1.0):
         """Close the serial connection and stop threads."""
         self.log("Stopping threads and closing serial connection.", LogLevel.INFO)
 
@@ -733,18 +815,61 @@ class PowerSupply9104:
 
         # Wait for the ramping thread to finish
         if self.ramp_thread and self.ramp_thread.is_alive():
-            self.ramp_thread.join()
-            self.log("Ramping thread terminated.", LogLevel.INFO)
+            # A ramp may be blocked in serial I/O. During shutdown we request it
+            # to stop, then continue after a bounded wait so app close can finish.
+            self.ramp_thread.join(timeout=ramp_join_timeout)
+            if self.ramp_thread.is_alive():
+                self.log("Ramping thread did not stop before close timeout", LogLevel.WARNING)
+            else:
+                self.log("Ramping thread terminated.", LogLevel.INFO)
 
         # Close the serial connection
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-            self.log(f"Closed serial port {self.port}", LogLevel.INFO)
+        # Prefer closing while holding serial_lock, but do not let a stuck serial
+        # transaction prevent shutdown. If the lock is unavailable, make a
+        # best-effort close and clear self.ser so later calls fail fast.
+        acquired = self.serial_lock.acquire(timeout=serial_lock_timeout)
+        if acquired:
+            try:
+                if self.ser and self.ser.is_open:
+                    self.ser.close()
+                    self.log(f"Closed serial port {self.port}", LogLevel.INFO)
+                else:
+                    self.log(f"{self.port} port already closed", LogLevel.INFO)
+                self.ser = None
+            finally:
+                self.serial_lock.release()
         else:
-            self.log(f"{self.port} port already closed", LogLevel.INFO)
+            self.log("Could not acquire serial lock during close; attempting best-effort serial close", LogLevel.WARNING)
+            try:
+                if self.ser and self.ser.is_open:
+                    self.ser.close()
+                    self.log(f"Closed serial port {self.port}", LogLevel.INFO)
+            except Exception as e:
+                self.log(f"Error during best-effort serial close on {self.port}: {e}", LogLevel.WARNING)
+            self.ser = None
+        self.flush_queued_logs()
 
     def log(self, message, level=LogLevel.INFO):
-        if self.logger:
+        if not self.logger:
+            print(f"{level.name}: {message}")
+            return
+
+        # Tkinter-backed loggers must only be touched from the main GUI thread.
+        # Queue logs from ramp/background threads and let cathode_heating flush them.
+        if threading.get_ident() == self._main_thread_ident:
             self.logger.log(message, level)
         else:
-            print(f"{level.name}: {message}")
+            self._log_queue.put((message, level))
+
+    def flush_queued_logs(self, max_messages=200):
+        """Flush queued worker-thread log messages on the calling thread."""
+        if not self.logger:
+            return
+        processed = 0
+        while processed < max_messages:
+            try:
+                message, level = self._log_queue.get_nowait()
+            except Empty:
+                break
+            self.logger.log(message, level)
+            processed += 1

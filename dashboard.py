@@ -1,36 +1,56 @@
-import subprocess
 import sys
 import os
 import subsystem
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox
-from utils import MessagesFrame, SetupScripts, LogLevel, MachineStatus
+from instrumentctl.laser_monitor import LaserMonitorDriver
+from subsystem.main_control import MainControlPanel
+from utils import MessagesFrame, MachineStatus
 from usr.panel_config import save_pane_states, load_pane_states
 import serial.tools.list_ports
 
-frames_config = [
-    # Row 0
-    ("Interlocks", 0, 1916, 41),
-    
-    # Row 1
-    ("Oil System", 1, 604, 130),
-    ("Beam Steering", 1, 778, 130),
-    ("Beam Energy", 1, 528, 130),
-    
-    # Row 2
-    ("Vacuum System", 2, 604, 438),
-    ("Beam Pulse", 2, 777, 438),
-    ("Main Control", 2, 529, 438),
-    
-    # Row 4
-    ("Process Monitor", 3, 339, 458),
-    ("Cathode Heating", 3, 1041, 458),
-    ("Messages Frame", 3, 539, 458),
+def resource_path(relative_path):
+    """Get absolute path to resource for PyInstaller."""
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
-    # Row 5
-    ("Machine Status", 4, 1916, 38)
+
+# Total row width = 1916. Vertical guides (from left):
+#   x = w_be     — Oil | Process Monitor  lines up with  Beam Energy | Cathode Heating
+#   x = w_bp     — Process Monitor | Messages  lines up with  Beam Pulse | Main Control
+# Top-row slice widths: Vacuum+Oil = w_be; ProcessMonitor+Messages = w_ch; PM width = w_bp - w_be.
+frames_config = [
+    # Row 0 — safety strip (full width)
+    ("Interlocks", 0, 1916, 41),
+
+    # Row 1 — Vacuum | Oil | Process Monitor | Messages (left → right)
+    ("Vacuum System", 1, 350, 400),
+    ("Oil System", 1, 350, 400),
+    ("Process Monitor", 1, 258, 400),
+    ("Messages Frame", 1, 958, 400),
+
+    # Row 2 — Beam Energy | Cathode Heating  (w_be + w_ch = 1916)
+    ("Beam Energy", 2, 700, 400),
+    ("Cathode Heating", 2, 1216, 400),
+
+    # Row 3 — Beam Pulse | Main Control  (w_bp + w_mc = 1916)
+    ("Beam Pulse", 3, 958, 450),
+    ("Main Control", 3, 958, 450),
+
+    # Row 4 — machine status
+    ("Machine Status", 4, 1916, 38),
 ]
+
+
+def _messages_frame_layout():
+    """Return (row, width, height) for the Messages Frame entry in frames_config."""
+    for title, row, w, h in frames_config:
+        if title == "Messages Frame":
+            return row, w, h
+    raise RuntimeError("frames_config must include 'Messages Frame'")
 
 class EBEAMSystemDashboard:
     """
@@ -69,8 +89,18 @@ class EBEAMSystemDashboard:
         self.root.title("EBEAM Control System Dashboard")
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
-        
-        
+        self.ports_after_id = None
+
+        # Load toggle images
+        try:
+            self.toggle_on_image = tk.PhotoImage(file=resource_path("media/toggle_on.png"))
+            self.toggle_off_image = tk.PhotoImage(file=resource_path("media/toggle_off.png"))
+        except Exception as e:
+            self.toggle_on_image = None
+            self.toggle_off_image = None
+            print(f"Could not load toggle images: {e}")
+
+        # Restore saved pane state if one exists.
         if self.load_saved_pane_state():
             if self.logger is not None:
                 self.logger.info("Pane-state restore result: restored saved pane state")
@@ -79,7 +109,6 @@ class EBEAMSystemDashboard:
 
         # Initialize the frames dictionary to store various GUI components
         self.frames = {}
-        
         # Set up the main pane using PanedWindow for flexible layout
         self.setup_main_pane()
 
@@ -105,10 +134,38 @@ class EBEAMSystemDashboard:
         """Closes all open com ports before quitting the application."""
 
         print("Cleaning up com ports...")
-        for subsystem in self.subsystems.values():
+        for subsystem_name, subsystem in self.subsystems.items():
             if hasattr(subsystem, 'close_com_ports'):
-                subsystem.close_com_ports()
+                try:
+                    subsystem.close_com_ports()
+                except Exception as e:
+                    self.logger.error(f"Error closing COM ports for {subsystem_name}: {e}")
         print("Cleaned up com ports.")
+
+        '''Cancels all scheduled Dashboard updates before quitting the application.'''
+        # First cancel updates in each subsystem
+        print("Cancelling scheduled Dashboard updates...")
+        for subsystem_name, subsystem in self.subsystems.items():
+            if hasattr(subsystem, 'cancel_updates'):
+                try:
+                    subsystem.cancel_updates()
+                except Exception as e:
+                    self.logger.error(f"Error cancelling updates for {subsystem_name}: {e}")
+        # Now cancel com port checks
+        if self.ports_after_id is not None:
+            try:
+                self.root.after_cancel(self.ports_after_id)
+                self.ports_after_id = None
+                self.logger.debug("Cancelled scheduled com port checks.")
+            except Exception as e:
+                self.logger.debug("Failed to cancel scheduled com port checks.")
+        # Now cancel machine status updates
+        if hasattr(self.machine_status_frame, 'cancel_updates'):
+            try:
+                self.machine_status_frame.cancel_updates()
+            except Exception as e:
+                self.logger.error(f"Error cancelling machine status updates: {e}")
+        print("Dashboard upates cancelled.")
 
     def setup_main_pane(self):
         """Initialize the main layout pane and its rows for subsystem organization."""
@@ -120,6 +177,158 @@ class EBEAMSystemDashboard:
         for row_pane in self.rows:
             self.main_pane.add(row_pane, stretch='always')
 
+    def _compute_row_layout(self):
+        """Return structures for layout: row_max_heights, sorted_rows, row_to_y, row_x_offsets."""
+        row_max_heights = {}
+        for _, row, _w, h in frames_config:
+            row_max_heights[row] = max(row_max_heights.get(row, 0), h or 0)
+        sorted_rows = sorted(row_max_heights.keys())
+        row_to_y = {}
+        y_accum = 0
+        for r in sorted_rows:
+            row_to_y[r] = y_accum
+            y_accum += row_max_heights[r]
+        # initial x offsets per row
+        row_x_offsets = {r: 0 for r in sorted_rows}
+        return row_max_heights, sorted_rows, row_to_y, row_x_offsets
+
+    def _reflow_all(self):
+        """Re-place frames, sashes and grips after a resize change."""
+        # Clear overlays
+        for s in self._sashes:
+            s['widget'].place_forget()
+        for g in self._grips:
+            g['widget'].place_forget()
+        self._sashes.clear()
+        self._grips.clear()
+        # Recreate placements
+        self._place_frames_and_overlays()
+
+    def _place_frames_and_overlays(self):
+        row_max_heights, sorted_rows, row_to_y, row_x_offsets = self._compute_row_layout()
+        # Place frames
+        row_members = {}
+        for title, row, width, height in frames_config:
+            row_members.setdefault(row, []).append((title, width, height))
+
+        # Ensure frame objects exist
+        for title, row, width, height in frames_config:
+            frame = self.frames.get(title)
+            x = row_x_offsets.get(row, 0)
+            y = row_to_y.get(row, 0)
+            if frame:
+                frame.place(x=x, y=y, width=width, height=height)
+            # Always advance offset, even for spacer/non-rendered entries
+            row_x_offsets[row] = x + (width or 0)
+
+        # Add vertical sashes between neighbors in each row
+        for row, members in row_members.items():
+            # Recalculate X running sum for sash positions
+            x = 0
+            y = row_to_y[row]
+            for idx in range(len(members) - 1):
+                left_title, left_w, left_h = members[idx]
+                right_title, right_w, right_h = members[idx + 1]
+                x += left_w
+                sash = tk.Frame(self.main_pane, cursor='sb_h_double_arrow', bg='#CCCCCC')
+                sash_w = 5
+                sash.place(x=x - sash_w // 2, y=y, width=sash_w, height=row_max_heights[row])
+                self._attach_sash_handlers(sash, row, idx)
+                self._sashes.append({'widget': sash, 'row': row, 'index': idx})
+
+        # Add bottom grips for vertical resize per frame
+        for title, row, width, height in frames_config:
+            frame = self.frames.get(title)
+            if not frame:
+                continue
+            y = 0
+            for r in sorted_rows:
+                if r == row:
+                    break
+                y += row_max_heights[r]
+            x = 0
+            for t2, r2, w2, _ in frames_config:
+                if r2 != row:
+                    continue
+                if t2 == title:
+                    break
+                x += w2
+            grip = tk.Frame(self.main_pane, cursor='sb_v_double_arrow', bg='#CCCCCC')
+            grip_h = 5
+            grip.place(x=x, y=y + height - grip_h // 2, width=width, height=grip_h)
+            self._attach_grip_handlers(grip, row, title)
+            self._grips.append({'widget': grip, 'row': row, 'title': title})
+
+    def _attach_sash_handlers(self, sash, row, idx_in_row):
+        # Track state
+        state = {'start_x': 0, 'row': row, 'idx': idx_in_row}
+        def on_press(event):
+            state['start_x'] = event.x_root
+        def on_drag(event):
+            dx = event.x_root - state['start_x']
+            self._resize_horizontal(row, idx_in_row, dx)
+            state['start_x'] = event.x_root
+        sash.bind('<Button-1>', on_press)
+        sash.bind('<B1-Motion>', on_drag)
+
+    def _attach_grip_handlers(self, grip, row, title):
+        state = {'start_y': 0, 'row': row, 'title': title}
+        def on_press(event):
+            state['start_y'] = event.y_root
+        def on_drag(event):
+            dy = event.y_root - state['start_y']
+            self._resize_vertical(row, title, dy)
+            state['start_y'] = event.y_root
+        grip.bind('<Button-1>', on_press)
+        grip.bind('<B1-Motion>', on_drag)
+
+    def _resize_horizontal(self, row, idx_in_row, dx):
+        # Collect indices of frames in this row
+        indices = [i for i, (_t, r, _w, _h) in enumerate(frames_config) if r == row]
+        if idx_in_row >= len(indices) - 1:
+            return
+        left_i = indices[idx_in_row]
+        right_i = indices[idx_in_row + 1]
+        left_title, _r, left_w, left_h = frames_config[left_i]
+        right_title, _r2, right_w, right_h = frames_config[right_i]
+        # Apply delta with clamps
+        min_w = 80
+        new_left = max(min_w, left_w + dx)
+        delta = new_left - left_w
+        new_right = max(min_w, right_w - delta)
+        # If right clamped, adjust back left accordingly
+        if right_w - delta < min_w:
+            delta = right_w - min_w
+            new_left = left_w + delta
+            new_right = min_w
+        frames_config[left_i] = (left_title, row, new_left, left_h)
+        frames_config[right_i] = (right_title, row, new_right, right_h)
+
+        # Keep merged column width in sync across rows
+        if left_title in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
+            self._sync_merged_column_width(new_left)
+        if right_title in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
+            self._sync_merged_column_width(new_right)
+
+        self._reflow_all()
+
+    def _sync_merged_column_width(self, new_width):
+        """Ensure the merged middle column keeps the same width in all rows."""
+        for i, (t, r, w, h) in enumerate(frames_config):
+            if t in ("Beam Pulse", "Beam Steering/Pulse", "Beam Pulse Spacer"):
+                frames_config[i] = (t, r, int(new_width), h)
+
+    def _resize_vertical(self, row, title, dy):
+        # Change height of a single frame in the row, row stack height follows max of row
+        min_h = 10
+        # Find the target frame index
+        for i, (t, r, w, h) in enumerate(frames_config):
+            if r == row and t == title:
+                new_h = max(min_h, h + dy)
+                frames_config[i] = (t, r, w, int(new_h))
+                break
+        self._reflow_all()
+
     def create_frames(self):
         """
         Create and configure frames for all subsystems based on frames_config.
@@ -128,8 +337,11 @@ class EBEAMSystemDashboard:
         global frames_config
 
         for title, row, width, height in frames_config:
+            if title == "Beam Pulse Spacer":
+                continue
+
             if width and height and title:
-                frame = tk.Frame( borderwidth=1, relief="solid", width=width, height=height)
+                frame = tk.Frame(borderwidth=1, relief="solid", width=width, height=height)
                 frame.pack_propagate(False)
             else:
                 frame = tk.Frame(borderwidth=1, relief="solid")
@@ -140,106 +352,26 @@ class EBEAMSystemDashboard:
             self.frames[title] = frame
             self.rows[row].add(frame, stretch='always')
             if title == "Main Control":
-                self.create_main_control_notebook(frame)
+                self.main_control = MainControlPanel(
+                    parent_frame=frame,
+                    root=self.root,
+                    logger=self.logger,
+                    messages_frame=self.messages_frame,
+                    get_com_ports=lambda: self.com_ports,
+                    save_layout_callback=self.save_current_pane_state,
+                    update_com_ports_callback=self.update_com_ports,
+                    toggle_on_image=self.toggle_on_image,
+                    toggle_off_image=self.toggle_off_image,
+                )
 
-        self.rows[3].add(self.messages_frame.frame, stretch='always')
+        _msg_row, _, _ = _messages_frame_layout()
+        self.rows[_msg_row].add(self.messages_frame.frame, stretch='always')
         self.frames['Messages Frame'] = self.messages_frame.frame
-
-    def create_main_control_notebook(self, frame):
-        notebook = ttk.Notebook(frame)
-        notebook.pack(expand=True, fill='both')
-
-        main_tab = ttk.Frame(notebook)
-        config_tab = ttk.Frame(notebook)
-
-        notebook.add(main_tab, text='Main')
-        notebook.add(config_tab, text='Config')
-
-        # TODO: add main control buttons to main tab here
-        main_frame = ttk.Frame(main_tab, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Script dropdown
-        self.create_script_dropdown(main_frame)
-
-        config_frame = ttk.Frame(config_tab, padding="10")
-        config_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 1. COM Port Configuration
-        self.create_com_port_frame(config_frame)
-
-        # 2. Save Layout button
-        save_layout_frame = ttk.Frame(config_frame)
-        save_layout_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        ttk.Button(
-            save_layout_frame,
-            text="Save Layout",
-            command=self.save_current_pane_state
-        ).pack(side=tk.LEFT, padx=5)
-
-        # 3. Post Processor button
-        self.create_post_processor_button(config_frame)
-
-        # 4. Log Level dropdown
-        self.create_log_level_dropdown(config_frame)
-        self.file_create_log_level_dropdown(config_frame)
-
-        # Add F1 help hint
-        help_label = ttk.Label(
-            config_frame,
-            text="Press F1 for keyboard shortcuts",
-            font=("Helvetica", 8, "italic"),
-            foreground="gray"
-        )
-        help_label.pack(side=tk.BOTTOM, anchor='se', padx=5, pady=(10, 5))
-
-    def create_script_dropdown(self, parent_frame):
-        SetupScripts(parent_frame)
-
-    def create_post_processor_button(self, parent_frame):
-        """Create a button to launch the standalone post-processor application"""
-        post_processor_frame = ttk.Frame(parent_frame)
-        post_processor_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        
-        ttk.Button(
-            post_processor_frame,
-            text="Launch Log Post-processor",
-            command=self.launch_post_processor
-        ).pack(side=tk.LEFT, padx=5)
-
-    def launch_post_processor(self):
-        """Launch the post-processor as a separate process"""
-        try:
-            # Get the directory where the current script is located
-            if getattr(sys, 'frozen', False):
-                # If running as a bundled executable
-                base_path = sys._MEIPASS # type: ignore
-            else:
-                # If running as a script
-                base_path = os.path.dirname(os.path.abspath(__file__))
-
-            # Path to the post processor script
-            post_processor_path = os.path.join(base_path, 'scripts/post-process/post_process_gui.py')
-
-            # Launch the post-processor script
-            if sys.platform.startswith('win'):
-                # On Windows, use pythonw to avoid console window
-                subprocess.Popen([sys.executable, post_processor_path], 
-                            creationflags=subprocess.CREATE_NO_WINDOW)
-            else:
-                # On other platforms
-                subprocess.Popen([sys.executable, post_processor_path])
-                
-            self.logger.info("Log post-processor launched successfully")
-        except Exception as e:
-            self.logger.error(f"Failed to launch log post-processor: {str(e)}")
-            messagebox.showerror("Error", 
-                            f"Failed to launch log post-processor:\n{str(e)}")
 
     def add_title(self, frame, title):
         """
         Add a formatted title label to a frame.
-        
+
         Args:
             frame: Frame to add title to
             title: Title text to display
@@ -261,57 +393,6 @@ class EBEAMSystemDashboard:
                 frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
         return True
 
-    def create_log_level_dropdown(self, parent_frame):
-        log_level_frame = ttk.Frame(parent_frame)
-        log_level_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        ttk.Label(log_level_frame, text="Log Level:").pack(side=tk.LEFT)
-
-        self.log_level_var = tk.StringVar()
-        log_levels = [level.name for level in LogLevel]
-        log_level_dropdown = ttk.Combobox(
-            log_level_frame, 
-            textvariable=self.log_level_var, 
-            values=log_levels, 
-            state="readonly", 
-            width=15
-        )
-        log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
-        current_level = self.messages_frame.get_log_level()
-        log_level_dropdown.set(current_level.name) 
-        log_level_dropdown.bind("<<ComboboxSelected>>", self.on_log_level_change)
-
-    def file_create_log_level_dropdown(self, parent_frame):
-        file_log_frame = ttk.Frame(parent_frame)
-        file_log_frame.pack(side=tk.TOP, anchor='nw', padx=5, pady=5)
-        ttk.Label(file_log_frame, text="File Log Level:").pack(side=tk.LEFT)
-
-        self.file_log_level_var = tk.StringVar()
-        file_log_levels = ["DEBUG", "VERBOSE"]
-        self.file_log_level_dropdown = ttk.Combobox(
-            file_log_frame, 
-            textvariable=self.file_log_level_var, 
-            values=file_log_levels, 
-            state="readonly", 
-            width=15
-        )
-        self.file_log_level_dropdown.pack(side=tk.LEFT, padx=(5, 0))
-        
-        current_file_level = self.messages_frame.get_file_log_level()
-        self.file_log_level_dropdown.set(current_file_level.name) 
-        self.file_log_level_dropdown.bind("<<ComboboxSelected>>", self.on_file_log_level_change)
-
-    def on_log_level_change(self, event):
-        selected_level = LogLevel[self.log_level_var.get()]
-        self.messages_frame.set_log_level(selected_level)
-
-    def on_file_log_level_change(self, event):
-        selected_level = self.file_log_level_var.get()
-        if selected_level == "DEBUG":
-            self.messages_frame.logger.file_log_level = LogLevel.DEBUG
-        elif selected_level == "VERBOSE":
-            self.messages_frame.logger.file_log_level = LogLevel.VERBOSE
-
     def create_subsystems(self):
         """
         Initialize all subsystem objects with their respective frames and settings.
@@ -320,11 +401,11 @@ class EBEAMSystemDashboard:
         self.subsystems = {
             'Vacuum System': subsystem.VTRXSubsystem(
                 self.frames['Vacuum System'],
-                serial_port=self.com_ports['VTRXSubsystem'], 
+                serial_port=self.com_ports['VTRXSubsystem'],
                 logger=self.logger
             ),
             'Process Monitor [°C]': subsystem.ProcessMonitorSubsystem(
-                self.frames['Process Monitor'], 
+                self.frames['Process Monitor'],
                 com_port=self.com_ports['ProcessMonitors'],
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
@@ -339,83 +420,81 @@ class EBEAMSystemDashboard:
             'Oil System': subsystem.OilSubsystem(
                 self.frames['Oil System'],
                 logger=self.logger,
-            ), 
+            ),
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,
                 logger=self.logger,
                 active = self.machine_status_frame.MACHINE_STATUS
+            ),
+            'Beam Energy': subsystem.BeamEnergySubsystem(
+                self.frames['Beam Energy'],
+                com_ports=self.com_ports,
+                logger=self.logger
             )
         }
 
-        # Updates machine status progress bar
-        self.machine_status_frame.update_status(self.machine_status_frame.MACHINE_STATUS)
+        if hasattr(self, "main_control"):
+            self.main_control.subsystems = self.subsystems
+            self.main_control.wire_beam_energy(self.subsystems.get('Beam Energy'))
+
+        laser_monitor_port = str(self.com_ports.get('Laser Monitor', '') or '').strip()
+        try:
+            self.subsystems['Laser Monitor'] = LaserMonitorDriver(laser_monitor_port)
+            self.logger.info(f"Laser Monitor driver started for port {laser_monitor_port}")
+        except Exception as e:
+                self.logger.error(f"Failed to start Laser Monitor driver on port {laser_monitor_port}: {e}")
+        else:
+            self.logger.info("Laser Monitor driver not started; no real COM port configured")
+
+        beam_energy = self.subsystems.get('Beam Energy')
+        laser_monitor = self.subsystems.get('Laser Monitor')
+        if (
+            beam_energy is not None
+            and laser_monitor is not None
+            and hasattr(beam_energy, 'set_radiation_indicator_callback')
+            and hasattr(laser_monitor, 'set_radiation_indicator')
+        ):
+            beam_energy.set_radiation_indicator_callback(
+                laser_monitor.set_radiation_indicator
+            )
+
+        # Beam Pulse subsystem (BCON)
+        try:
+            bp_port = self.com_ports.get('BeamPulse', '')
+            # Host Beam Pulse UI inside the merged pane
+            parent = self.frames.get('Beam Steering/Pulse', self.frames.get('Beam Pulse'))
+            beam_pulse_subsystem = subsystem.BeamPulseSubsystem(
+                parent_frame=parent,
+                port=bp_port if bp_port else None,
+                unit=1,
+                baudrate=115200,
+                logger=self.logger
+            )
+
+            self.subsystems['Beam Pulse'] = beam_pulse_subsystem
+            laser_monitor = self.subsystems.get('Laser Monitor')
+            if (
+                laser_monitor is not None
+                and hasattr(laser_monitor, 'set_beams_on')
+                and hasattr(beam_pulse_subsystem, 'set_beam_activity_callback')
+            ):
+                beam_pulse_subsystem.set_beam_activity_callback(laser_monitor.set_beams_on)
+            if hasattr(self, "main_control"):
+                self.main_control.subsystems = self.subsystems
+                self.main_control.wire_beam_pulse(beam_pulse_subsystem)
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Beam Pulse subsystem: {e}")
 
     def create_messages_frame(self):
         """Create a scrollable frame for displaying system messages and errors."""
-        self.messages_frame = MessagesFrame(self.rows[3], width = frames_config[-2][2], height = frames_config[-2][3], logger=self.logger)
+        _msg_row, _msg_w, _msg_h = _messages_frame_layout()
+        self.messages_frame = MessagesFrame(self.rows[_msg_row], width=_msg_w, height=_msg_h, logger=self.logger)
         self.logger = self.messages_frame.logger
 
     def create_machine_status_frame(self):
         """Create a frame for displaying machine status information."""
         self.machine_status_frame = MachineStatus(self.frames['Machine Status'])
-
-    def create_com_port_frame(self, parent_frame):
-        """
-        Create the COM port configuration interface.
-        Allows dynamic assignment of COM ports to different subsystems.
-        """
-        self.com_port_frame = ttk.Frame(parent_frame)
-        self.com_port_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
-
-        self.com_port_button = ttk.Button(self.com_port_frame, text="Configure COM Ports", command=self.toggle_com_port_menu)
-        self.com_port_button.pack(side=tk.TOP, anchor='w')
-
-        self.com_port_menu = ttk.Frame(self.com_port_frame)
-        self.com_port_menu.pack(side=tk.TOP, fill=tk.X, expand=True)
-        self.com_port_menu.pack_forget()  # Initially hidden
-
-        self.port_selections = {}
-        self.port_dropdowns = {}
-
-        for subsystem in ['VTRXSubsystem', 'CathodeA PS', 'CathodeB PS', 'CathodeC PS', 'TempControllers', 'Interlocks', 'ProcessMonitors']:
-            frame = ttk.Frame(self.com_port_menu)
-            frame.pack(fill=tk.X, padx=5, pady=2)
-            ttk.Label(frame, text=f"{subsystem}:").pack(side=tk.LEFT)
-            port_var = tk.StringVar(value=self.com_ports.get(subsystem, ''))
-            self.port_selections[subsystem] = port_var
-            dropdown = ttk.Combobox(frame, textvariable=port_var)
-            dropdown.pack(side=tk.RIGHT)
-            self.port_dropdowns[subsystem] = dropdown
-
-        ttk.Button(self.com_port_menu, text="Apply", command=self.apply_com_port_changes).pack(pady=5)
-
-    def toggle_com_port_menu(self):
-        if self.com_port_menu.winfo_viewable():
-            self.com_port_menu.pack_forget()
-            self.com_port_button.config(text="Configure COM Ports")
-        else:
-            self.update_available_ports() 
-            self.com_port_menu.pack(after=self.com_port_button, fill=tk.X, expand=True)
-            self.com_port_button.config(text="Hide COM Port Configuration")
-
-    def update_available_ports(self):
-        """Scan for available COM ports and update dropdown menus."""
-        available_ports = [port.device for port in serial.tools.list_ports.comports()]
-        for dropdown in self.port_dropdowns.values():
-            current_value = dropdown.get()
-            dropdown['values'] = available_ports
-            if current_value in available_ports:
-                dropdown.set(current_value)
-            elif available_ports:
-                dropdown.set(available_ports[0])
-            else:
-                dropdown.set('')
-
-    def apply_com_port_changes(self):
-        new_com_ports = {subsystem: var.get() for subsystem, var in self.port_selections.items()}
-        self.update_com_ports(new_com_ports)
-        self.toggle_com_port_menu()
 
     def update_com_ports(self, new_com_ports):
         self.com_ports = new_com_ports
@@ -427,6 +506,8 @@ class EBEAMSystemDashboard:
                     subsystem.update_com_port(new_com_ports.get('VTRXSubsystem'))
                 elif subsystem_name == 'Cathode Heating':
                     subsystem.update_com_ports(new_com_ports)
+                elif subsystem_name == 'Beam Energy':
+                    subsystem.update_com_port(new_com_ports)
             else:
                 self.logger.warning(f"Subsystem {subsystem_name} does not have an update_com_port method")
         self.logger.info(f"COM ports updated: {self.com_ports}")
@@ -466,7 +547,7 @@ class EBEAMSystemDashboard:
 
         finally:
             self.set_com_ports = current_ports
-            self.root.after(500, self._check_ports)
+            self.ports_after_id = self.root.after(500, self._check_ports)
 
     def _update_com_ports(self, subsystem_str, port):
         """

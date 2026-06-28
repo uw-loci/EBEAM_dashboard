@@ -186,7 +186,21 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
-            self.parent.after(500, self.process_queue)
+            self.after_id = self.parent.after(500, self.process_queue)
+
+    def cancel_updates(self):
+        """
+        Cancel scheduled GUI updates, to be called by dashboard when app is quit.
+        """
+        if hasattr(self, 'after_id') and self.after_id:
+            try:
+                self.parent.after_cancel(self.after_id)
+                self.after_id = None
+                if self.logger:
+                    self.log('Canceled scheduled VTRX display update.', LogLevel.DEBUG)
+            except Exception as e:
+                if self.logger:
+                    self.log('Failed to cancel scheduled VTRX display update.', LogLevel.DEBUG)
 
     def update_gui_with_error_state(self):
         """
@@ -487,7 +501,7 @@ class VTRXSubsystem:
         self.stop_event.clear()
         self.serial_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.serial_thread.start()
-        self.parent.after(100, self.process_queue)
+        self.after_id = self.parent.after(100, self.process_queue)
 
     def stop_serial_thread(self):
         self.stop_event.set()
