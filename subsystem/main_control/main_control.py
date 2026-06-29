@@ -1663,9 +1663,15 @@ class MainControlPanel:
                                 RuntimeError("BCON all-off was not confirmed"),
                             )
                     else:
-                        self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse stop_all_channels API is unavailable")
+                        record_error(
+                            "Beams E-STOP cannot stop BCON channels",
+                            RuntimeError("Beam Pulse stop_all_channels API is unavailable"),
+                        )
                 else:
-                    self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse subsystem is unavailable")
+                    record_error(
+                        "Beams E-STOP cannot stop BCON channels",
+                        RuntimeError("Beam Pulse subsystem is unavailable"),
+                    )
             except Exception as e:
                 record_error("Beams E-STOP BCON channel stop failed", e)
 
