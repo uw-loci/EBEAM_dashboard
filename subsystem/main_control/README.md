@@ -125,8 +125,9 @@ Beam Pulse calls back into Main Control with:
 Main Control uses Cathode Heating in three ways:
 
 - It exposes `get_predicted_emission_currents_ma()` to Beam Pulse so Beam Pulse
-  can block output commands that would exceed the configured total predicted
-  emission-current limit.
+  can block output commands, when the emission-current limit is enabled, if
+  projected cathode emission predictions are unknown/invalid or would exceed the
+  configured total predicted emission-current limit.
 - It exposes the VTRX pressure guard setting, threshold, and latest valid VTRX
   pressure to Beam Pulse so output commands are blocked while pressure is above
   1e-5 mbar.

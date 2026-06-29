@@ -563,14 +563,16 @@ class BeamPulseSubsystem:
                 pass
 
     @staticmethod
-    def _safe_emission_current_ma(value) -> float:
-        """Convert one predicted current reading to a non-negative mA value."""
+    def _safe_emission_current_ma(value):
+        """Return a valid predicted current in mA, or None when unknown/invalid."""
+        if value is None:
+            return None
         try:
             numeric_value = float(value)
         except (TypeError, ValueError):
-            return 0.0
+            return None
         if not math.isfinite(numeric_value) or numeric_value < 0:
-            return 0.0
+            return None
         return numeric_value
 
     def _read_emission_limit_ma(self):
@@ -593,10 +595,21 @@ class BeamPulseSubsystem:
             raw_values = list(provider() or [])
         except Exception as e:
             return None, f"predicted emission current provider failed ({e})"
-        currents = [0.0, 0.0, 0.0]
+        currents = [None, None, None]
         for index, value in enumerate(raw_values[:3]):
             currents[index] = self._safe_emission_current_ma(value)
         return currents, None
+
+    def _prediction_unavailable_detail(self, currents, projected_channels):
+        unknown_channels = [
+            index
+            for index in sorted(projected_channels)
+            if index >= len(currents) or currents[index] is None
+        ]
+        if not unknown_channels:
+            return None
+        labels = ", ".join(self._channel_label(index) for index in unknown_channels)
+        return f"predicted emission current unavailable for {labels}"
 
     def _emission_block_message(self, action: str, detail: str = "total emission current limit exceeded") -> str:
         action_text = str(action or "output start").strip()
@@ -720,14 +733,21 @@ class BeamPulseSubsystem:
                         LogLevel.WARNING,
                     )
 
-        limit, error_message = self._read_emission_limit_ma()
+        currents, error_message = self._read_predicted_emission_currents_ma()
         if error_message:
             message = self._emission_block_message(action, error_message)
             if log_failure:
                 self._log_event(message, LogLevel.WARNING)
             return False, message
 
-        currents, error_message = self._read_predicted_emission_currents_ma()
+        unavailable_detail = self._prediction_unavailable_detail(currents, projected_channels)
+        if unavailable_detail:
+            message = self._emission_block_message(action, unavailable_detail)
+            if log_failure:
+                self._log_event(f"{action} blocked: {unavailable_detail}.", LogLevel.WARNING)
+            return False, message
+
+        limit, error_message = self._read_emission_limit_ma()
         if error_message:
             message = self._emission_block_message(action, error_message)
             if log_failure:
