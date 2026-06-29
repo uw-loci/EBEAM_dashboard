@@ -144,6 +144,11 @@ class BeamPulseSubsystem:
         # Dashboard-provided raw data sources for Beam Pulse-owned emission checks.
         self._emission_limit_provider = None
         self._predicted_currents_provider = None
+        self._emission_limit_enabled_provider = None
+        self._vtrx_pressure_guard_enabled_provider = None
+        self._vtrx_pressure_provider = None
+        self._vtrx_pressure_limit_provider = None
+        self._vtrx_pressure_fresh_provider = None
 
         # Ensure directories exist for presets, logs, sequences
         for d in ("presets", "sequences"):
@@ -602,6 +607,68 @@ class BeamPulseSubsystem:
             return f"Failed to set {action_text}, {detail}"
         return f"Failed to {action_text}, {detail}"
 
+    def _vtrx_pressure_allows_output(self, action, log_failure: bool = True):
+        enabled_provider = getattr(self, "_vtrx_pressure_guard_enabled_provider", None)
+        pressure_provider = getattr(self, "_vtrx_pressure_provider", None)
+        limit_provider = getattr(self, "_vtrx_pressure_limit_provider", None)
+        fresh_provider = getattr(self, "_vtrx_pressure_fresh_provider", None)
+        if not all(callable(provider) for provider in (enabled_provider, pressure_provider, limit_provider)):
+            return True, None
+
+        try:
+            if not bool(enabled_provider()):
+                return True, None
+            pressure = pressure_provider()
+            limit = limit_provider()
+            pressure_is_fresh = bool(fresh_provider()) if callable(fresh_provider) else True
+        except Exception as e:
+            message = self._emission_block_message(
+                action,
+                f"VTRX pressure check failed ({e})",
+            )
+            if log_failure:
+                self._log_event(message, LogLevel.WARNING)
+            return False, message
+
+        if not pressure_is_fresh:
+            detail = "VTRX pressure reading is stale"
+            if log_failure:
+                self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+            return False, self._emission_block_message(action, detail)
+
+        try:
+            pressure = float(pressure)
+        except (TypeError, ValueError):
+            detail = "VTRX pressure unavailable"
+            if log_failure:
+                self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+            return False, self._emission_block_message(action, detail)
+
+        try:
+            limit = float(limit)
+        except (TypeError, ValueError):
+            limit = None
+
+        if not math.isfinite(pressure):
+            detail = "VTRX pressure unavailable"
+            if log_failure:
+                self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+            return False, self._emission_block_message(action, detail)
+
+        if limit is None or not math.isfinite(limit):
+            message = self._emission_block_message(action, "VTRX pressure limit unavailable")
+            if log_failure:
+                self._log_event(message, LogLevel.WARNING)
+            return False, message
+
+        if pressure <= limit:
+            return True, None
+
+        detail = f"VTRX pressure {pressure:g} mbar is above limit {limit:g} mbar"
+        if log_failure:
+            self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
+        return False, self._emission_block_message(action, detail)
+
     def _emission_limit_allows_output(self, action, configs, log_failure: bool = True):
         """Return (allowed, error_message) before any non-OFF output command."""
         active_channels = {
@@ -636,6 +703,22 @@ class BeamPulseSubsystem:
         projected_channels = (active_channels - requested_off) | requested_output
         if not projected_channels:
             return True, None
+
+        allowed, error_message = self._vtrx_pressure_allows_output(action, log_failure)
+        if not allowed:
+            return False, error_message
+
+        enabled_provider = getattr(self, "_emission_limit_enabled_provider", None)
+        if callable(enabled_provider):
+            try:
+                if not bool(enabled_provider()):
+                    return True, None
+            except Exception as e:
+                if log_failure:
+                    self._log_event(
+                        f"Emission limit enable provider failed ({e}); keeping emission limit active.",
+                        LogLevel.WARNING,
+                    )
 
         limit, error_message = self._read_emission_limit_ma()
         if error_message:
@@ -1550,10 +1633,33 @@ class BeamPulseSubsystem:
         """
         self._channel_status_callback = callback
 
-    def set_emission_limit_providers(self, limit_provider, predicted_currents_provider):
+    def set_emission_limit_providers(
+        self,
+        limit_provider,
+        predicted_currents_provider,
+        enabled_provider=None,
+    ):
         """Register raw data providers used for Beam Pulse-owned emission checks."""
         self._emission_limit_provider = limit_provider
         self._predicted_currents_provider = predicted_currents_provider
+        self._emission_limit_enabled_provider = (
+            enabled_provider if callable(enabled_provider) else None
+        )
+
+    def set_vtrx_pressure_guard_providers(
+        self,
+        enabled_provider,
+        pressure_provider,
+        limit_provider=None,
+        fresh_provider=None,
+    ):
+        """Register providers used to block new output starts during high pressure."""
+        self._vtrx_pressure_guard_enabled_provider = (
+            enabled_provider if callable(enabled_provider) else None
+        )
+        self._vtrx_pressure_provider = pressure_provider if callable(pressure_provider) else None
+        self._vtrx_pressure_limit_provider = limit_provider if callable(limit_provider) else None
+        self._vtrx_pressure_fresh_provider = fresh_provider if callable(fresh_provider) else None
 
     def set_channel_enable_status_callback(self, callback):
         """Register callback(ch, enabled) invoked on every register poll."""

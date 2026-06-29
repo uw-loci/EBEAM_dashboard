@@ -29,6 +29,8 @@ class VTRXSubsystem:
     PLOT_Y_TICK_LABEL_SIZE = 8
     PLOT_TITLE_PAD = 2 # makes the title not get clipped
     NO_DATA_LOG_INTERVAL_SECONDS = 10
+    SERIAL_DATA_MAX_ATTEMPTS = 3
+    PRESSURE_READING_FRESH_SECONDS = 3.0
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -59,6 +61,7 @@ class VTRXSubsystem:
         self.data_queue = queue.Queue()
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
+        self._pressure_update_callback = None
         
         self.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60 # 7 days in seconds
         self.full_history_x = []    # Complete timestamp history
@@ -74,6 +77,8 @@ class VTRXSubsystem:
         self.last_no_data_log_time = 0.0
         self.stop_event = threading.Event()
         self.last_data_received_time = time.time()
+        self.last_successful_read_time = None
+        self.last_valid_pressure_value = None
         self.last_gui_update_time = time.time()
 
         self.setup_serial()
@@ -81,6 +86,9 @@ class VTRXSubsystem:
         
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
+
+    def set_pressure_update_callback(self, callback):
+        self._pressure_update_callback = callback if callable(callback) else None
 
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
@@ -193,12 +201,48 @@ class VTRXSubsystem:
                 if data is None:
                     self._handle_no_data()
                 else:
-                    self.handle_serial_data(data)
+                    self._handle_serial_data_with_retries(data)
         except queue.Empty:
             pass
         finally:
             self.flush_queued_logs()
+            self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
+
+    def _handle_serial_data_with_retries(self, data):
+        last_exception = None
+        for _attempt in range(self.SERIAL_DATA_MAX_ATTEMPTS):
+            try:
+                self.handle_serial_data(data)
+                return
+            except Exception as e:
+                last_exception = e
+
+        self.log(
+            f"VTRX serial data failed after {self.SERIAL_DATA_MAX_ATTEMPTS} attempts: "
+            f"{last_exception}. Data: {self._safe_raw_log_text(data)}",
+            LogLevel.ERROR
+        )
+
+    def _pressure_reading_is_fresh(self):
+        last_successful_read_time = getattr(self, "last_successful_read_time", None)
+        return (
+            last_successful_read_time is not None
+            and time.time() - last_successful_read_time <= self.PRESSURE_READING_FRESH_SECONDS
+        )
+
+    def _update_main_control(self):
+        pressure_callback = getattr(self, "_pressure_update_callback", None)
+        if not callable(pressure_callback):
+            return
+
+        try:
+            pressure_callback(
+                getattr(self, "last_valid_pressure_value", None),
+                self._pressure_reading_is_fresh(),
+            )
+        except Exception as e:
+            self.log(f"VTRX pressure update callback failed: {e}", LogLevel.ERROR)
 
     def cancel_updates(self):
         """
@@ -274,11 +318,10 @@ class VTRXSubsystem:
         """
         data_parts = data.split(';')
         if len(data_parts) < 3:
-            self.log("Incomplete data received.", LogLevel.ERROR)
-            self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
+            self._log_serial_data_error("Incomplete data received.", data)
             self.error_state = True
             self.update_gui_with_error_state()
-            return
+            raise ValueError("Incomplete data received.")
         
         try:
             pressure_raw = data_parts[1]            # raw string from 972b sensor
@@ -306,9 +349,9 @@ class VTRXSubsystem:
                     if error.startswith("972b ERR:"):
                         error_segments = error.split(":", 2)
                         if len(error_segments) < 3:
-                            self.log(f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}", LogLevel.ERROR)
-                            self.error_state = True
-                            continue
+                            raise ValueError(
+                                f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}"
+                            )
 
                         error_code_text = error_segments[1].strip()
                         error_message = error_segments[2].strip()
@@ -337,23 +380,31 @@ class VTRXSubsystem:
                     self.log("VTRX recovered; valid pressure data received.", LogLevel.INFO)
                 self.vacuum_fields_cleared = False
                 self.last_no_data_log_time = 0.0
+                self.last_successful_read_time = time.time()
+                self.last_valid_pressure_value = pressure_value
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
             self.error_logged = False # reset error flag on successful data processing
 
         except ValueError as e:    
-            self.log(f"VTRX Data processing error: {e}", LogLevel.ERROR)
+            self._log_serial_data_error(f"VTRX Data processing error: {e}", data)
             self.error_state = True
             self.update_gui_with_error_state()
+            raise
         except IndexError as e:
-            self.log(
+            self._log_serial_data_error(
                 f"VTRX Data processing error: Insufficient segments - "
                 f"{self._safe_raw_log_text(data)}. Error: {e}",
-                LogLevel.ERROR
+                data
             )
             self.error_state = True
             self.update_gui_with_error_state()
+            raise
+
+    def _log_serial_data_error(self, message, data):
+        self.log(message, LogLevel.DEBUG)
+        self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
 
     def log(self, message, level=LogLevel.INFO):
         if self.logger and threading.get_ident() != self._main_thread_id:
