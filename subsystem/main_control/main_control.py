@@ -1699,7 +1699,10 @@ class MainControlPanel:
                     if callable(stop_all_channels):
                         self._log_info("Beams E-STOP requesting all BCON channels stop")
                         if not stop_all_channels():
-                            self._log_critical("Beams E-STOP failed to stop all BCON channels")
+                            record_error(
+                                "Beams E-STOP failed to stop all BCON channels",
+                                RuntimeError("BCON all-off was not confirmed"),
+                            )
                     else:
                         self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse stop_all_channels API is unavailable")
                 else:

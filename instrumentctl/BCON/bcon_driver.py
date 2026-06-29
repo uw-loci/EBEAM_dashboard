@@ -463,10 +463,16 @@ class BCONDriver:
         self,
         cmd_code: int,
         baseline: Optional[Dict[str, int]] = None,
+        require_connected: bool = True,
     ) -> Optional[Dict[str, object]]:
         """Confirm a nonzero COMMAND write from LAST_CMD diagnostics."""
         cmd_code = int(cmd_code)
-        if cmd_code == COMMAND_NOP or not (self._serial and self._connected):
+        if cmd_code == COMMAND_NOP:
+            return None
+        if require_connected:
+            if not self.is_connected():
+                return None
+        elif not self._serial_is_open():
             return None
 
         if baseline is None:
@@ -479,11 +485,19 @@ class BCONDriver:
             try:
                 snapshot = self._read_command_snapshot_raw()
                 last_snapshot = snapshot
+                result_code = snapshot['last_command_result_code']
+                sequence_advanced = (
+                    baseline is None
+                    or snapshot['last_cmd_seq'] != baseline.get('last_cmd_seq')
+                )
                 if (
                     snapshot['last_command_code'] == cmd_code
-                    and snapshot['last_command_result_code'] in (
-                        int(BCONCommandResult.EXECUTED),
-                        int(BCONCommandResult.REJECTED),
+                    and (
+                        result_code == int(BCONCommandResult.REJECTED)
+                        or (
+                            result_code == int(BCONCommandResult.EXECUTED)
+                            and sequence_advanced
+                        )
                     )
                 ):
                     payload = self._build_command_result_payload(cmd_code, snapshot, baseline)
@@ -561,6 +575,7 @@ class BCONDriver:
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 timeout=self.timeout,
+                write_timeout=self.timeout,
             )
             ok = self._serial.is_open
         except Exception as e:
@@ -654,6 +669,14 @@ class BCONDriver:
     def is_connected(self) -> bool:
         """Check if connected to BCON hardware."""
         return self._connected and self._serial is not None
+
+    def _serial_is_open(self) -> bool:
+        """Return whether a serial handle is present and open."""
+        ser = self._serial
+        try:
+            return bool(ser and ser.is_open)
+        except Exception:
+            return False
 
     # ================================================================== #
     #          Raw Modbus RTU I/O  (bypasses pymodbus v3 framer bug)       #
@@ -767,20 +790,26 @@ class BCONDriver:
         """
         self._cmd_queue.put(("write", reg, value))
 
-    def write_register_immediate(self, reg: int, value: int) -> bool:
+    def write_register_immediate(self, reg: int, value: int,
+                                 require_connected: bool = True) -> bool:
         """
         Write a register synchronously (blocks until complete).
 
         Use this only when you need confirmation; prefer enqueue_write()
         for non-blocking UI interaction. Nonzero COMMAND writes are confirmed
         from LAST_CMD diagnostics rather than queue-depth or register echo timing.
+        Emergency shutdown paths may pass require_connected=False to try an
+        open serial handle even if the cached connected flag is stale.
 
         Returns:
             True if the write succeeded. For nonzero COMMAND writes, True means
             the firmware reported EXECUTED and False means rejected or inconclusive.
         """
-        if not self.is_connected():
+        if require_connected and not self.is_connected():
             self._log(f"Immediate write skipped while disconnected: R{reg}={value}", "WARNING")
+            return False
+        if not require_connected and not self._serial_is_open():
+            self._log(f"Immediate write skipped because serial port is not open: R{reg}={value}", "WARNING")
             return False
 
         reg = int(reg)
@@ -792,7 +821,11 @@ class BCONDriver:
         try:
             self._write_register_raw(reg, value)
             if baseline is not None:
-                result = self._confirm_command_write(value, baseline=baseline)
+                result = self._confirm_command_write(
+                    value,
+                    baseline=baseline,
+                    require_connected=require_connected,
+                )
                 return bool(result and result.get('accepted'))
             return True
         except Exception as e:
@@ -1137,8 +1170,19 @@ class BCONDriver:
         return self.set_channel_enable(channel, not self.is_channel_enabled(channel))
 
     def stop_all(self) -> bool:
-        """Force all three channels OFF using the firmware's dedicated command."""
-        return self.send_command(COMMAND_ALL_OFF)
+        """Force all three channels OFF using a confirmed firmware command."""
+        self._clear_cmd_queue()
+        try:
+            ok = self.write_register_immediate(
+                REG_COMMAND,
+                COMMAND_ALL_OFF,
+                require_connected=False,
+            )
+            if not ok:
+                self._log("ALL_OFF command was not confirmed", "ERROR")
+            return ok
+        finally:
+            self._clear_cmd_queue()
 
     # ================================================================== #
     #              Synchronous Multi-Channel Start/Stop                    #
