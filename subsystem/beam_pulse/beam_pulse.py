@@ -1912,6 +1912,7 @@ class BeamPulseSubsystem:
             if not ok:
                 self._cancel_firmware_ack(ack)
                 self._log_event("BCON Driver failed to stop all BCON channels", LogLevel.CRITICAL)
+                return False
             self._clear_output_state()
             self._notify_all_channel_enables(False)
             return bool(ok)
