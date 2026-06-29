@@ -392,7 +392,7 @@ class VTRXSubsystem:
         plot_frame = tk.Frame(layout_frame)
         plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.99, bottom=0.05)
+        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.97, bottom=0.05)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
@@ -402,6 +402,7 @@ class VTRXSubsystem:
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
         self.ax.tick_params(axis='x', labelsize=6, pad=1)
+        self.ax.tick_params(axis='y', labelsize=8, pad=1)
         self.ax.grid(True)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)

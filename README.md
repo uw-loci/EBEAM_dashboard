@@ -71,9 +71,6 @@ flowchart TD
   - Monitors the status of various safety critical interlocks (e.g., Vacuum, Water, Door sensors).
   - Updates GUI indicators based on interlock status.
 
-- **`oil_system/oil_system.py`**:
-  - Currently just a placeholder frame
-
 - **`cathode_heating/cathode_heating.py`**:
   - Manages three independent cathode heating channels
   - Power supply control interface

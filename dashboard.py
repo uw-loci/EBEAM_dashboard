@@ -19,29 +19,29 @@ def resource_path(relative_path):
 
 
 # Total row width = 1916. Vertical guides (from left):
-#   x = w_be     — Oil | Process Monitor  lines up with  Beam Energy | Cathode Heating
-#   x = w_bp     — Process Monitor | Messages  lines up with  Beam Pulse | Main Control
-# Top-row slice widths: Vacuum+Oil = w_be; ProcessMonitor+Messages = w_ch; PM width = w_bp - w_be.
+#   x = 350      - Vacuum | Process Monitor
+#   x = 958      - Process Monitor | Messages  lines up with  Beam Pulse | Main Control
+# Row 1 keeps the hidden Oil System slot
 frames_config = [
-    # Row 0 — safety strip (full width)
-    ("Interlocks", 0, 1916, 41),
+    # Row 0 - safety strip (full width)
+    ("Interlocks", 0, 1916, 30),
 
-    # Row 1 — Vacuum | Oil | Process Monitor | Messages (left → right)
-    ("Vacuum System", 1, 350, 400),
-    ("Oil System", 1, 350, 400),
-    ("Process Monitor", 1, 258, 400),
-    ("Messages Frame", 1, 958, 400),
+    # Row 1 - Vacuum | Process Monitor | Messages (left to right)
+    ("Vacuum System", 1, 505, 236),
+    # ("Oil System", 1, 350, 400),
+    ("Process Monitor", 1, 580, 236),
+    ("Messages Frame", 1, 831, 236),
 
-    # Row 2 — Beam Energy | Cathode Heating  (w_be + w_ch = 1916)
-    ("Beam Energy", 2, 700, 400),
-    ("Cathode Heating", 2, 1216, 400),
+    # Row 2 - Beam Energy | Cathode Heating
+    ("Beam Energy", 2, 700, 444),
+    ("Cathode Heating", 2, 1216, 444),
 
-    # Row 3 — Beam Pulse | Main Control  (w_bp + w_mc = 1916)
-    ("Beam Pulse", 3, 958, 450),
-    ("Main Control", 3, 958, 450),
+    # Row 3 - Beam Pulse | Main Control
+    ("Beam Pulse", 3, 958, 318),
+    ("Main Control", 3, 958, 318),
 
-    # Row 4 — machine status
-    ("Machine Status", 4, 1916, 38),
+    # Row 4 - machine status
+    ("Machine Status", 4, 1916, 29),
 ]
 
 
@@ -388,9 +388,20 @@ class EBEAMSystemDashboard:
         savedData = load_pane_states(logger=self.logger)
         if not savedData:
             return False
+        hidden_oil_width = 0
+        if "Oil System" in savedData and "Process Monitor" in savedData:
+            try:
+                hidden_oil_width = savedData["Oil System"][0]
+            except (TypeError, IndexError):
+                hidden_oil_width = 0
         for i in range(len(frames_config)):
             if frames_config[i][0] in savedData:
-                frames_config[i] = (frames_config[i][0], frames_config[i][1], savedData[frames_config[i][0]][0],savedData[frames_config[i][0]][1])
+                title, row, _width, _height = frames_config[i]
+                saved_width = savedData[title][0]
+                saved_height = savedData[title][1]
+                if title == "Process Monitor":
+                    saved_width += hidden_oil_width
+                frames_config[i] = (title, row, saved_width, saved_height)
         return True
 
     def create_subsystems(self):
@@ -417,10 +428,10 @@ class EBEAMSystemDashboard:
                 frames = self.frames,
                 active = self.machine_status_frame.MACHINE_STATUS
             ),
-            'Oil System': subsystem.OilSubsystem(
-                self.frames['Oil System'],
-                logger=self.logger,
-            ),
+            # 'Oil System': subsystem.OilSubsystem(
+            #     self.frames['Oil System'],
+            #     logger=self.logger,
+            # ),
             'Cathode Heating': subsystem.CathodeHeatingSubsystem(
                 self.frames['Cathode Heating'],
                 com_ports=self.com_ports,

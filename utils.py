@@ -569,7 +569,7 @@ class SetupScripts:
 
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)
-        self.frame.pack(pady=10, fill=tk.X)
+        self.frame.pack(fill=tk.X)
 
         # Label
         tk.Label(self.frame, text="Script:").pack(side=tk.LEFT)

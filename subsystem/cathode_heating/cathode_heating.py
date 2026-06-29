@@ -46,6 +46,8 @@ class CathodeHeatingSubsystem:
 
     def _init_ovl_live_values(self):
         self.ovl_live_values = [None, None, None]
+
+    TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     OUTPUT_MODE_LABEL_TO_VALUE = {
@@ -387,7 +389,7 @@ class CathodeHeatingSubsystem:
         self.cv_cc_labels: list[tuple[tk.Label, tk.Label]] = []   # (cv_label, cc_label) per cathode
         self.slew_rate_vars = []
         for i in range(3):
-            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding=(10, 5))
+            frame = ttk.LabelFrame(self.scrollable_frame, text=f'Cathode {cathode_labels[i]}', padding= (2,5))
             frame.grid(row=0, column=i, padx=5, pady=0.1, sticky='nsew')
             self.cathode_frames.append(frame)
 
@@ -395,7 +397,7 @@ class CathodeHeatingSubsystem:
             frame.columnconfigure(2, weight=0)
 
             notebook = ttk.Notebook(frame)
-            notebook.grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
+            notebook.grid(row=0, column=0, columnspan=2, sticky='w', pady=2)
 
             # Create the main tab
             main_tab = ttk.Frame(notebook)
@@ -416,14 +418,14 @@ class CathodeHeatingSubsystem:
             control_frame.rowconfigure(0, weight=0)
             control_frame.rowconfigure(1, weight=0)
 
-            left_control_frame = ttk.Frame(control_frame)
-            left_control_frame.grid(row=0, column=0, sticky='w')
-            left_control_frame.columnconfigure(0, weight=0)
-            left_control_frame.columnconfigure(1, weight=0)
+            heater_controls_frame = ttk.Frame(control_frame)
+            heater_controls_frame.grid(row=0, column=0, sticky='ew')
+            heater_controls_frame.columnconfigure(0, weight=1, uniform='heater_controls')
+            heater_controls_frame.columnconfigure(1, weight=1, uniform='heater_controls')
 
             # Create current control section
-            current_control_frame = ttk.LabelFrame(left_control_frame, text='Heater Current Control', padding=(6, 4), style='Subpanel.TLabelframe')
-            current_control_frame.grid(row=0, column=1, sticky='nw', padx=(4, 0))
+            current_control_frame = ttk.LabelFrame(heater_controls_frame, text='Heater Current Control', padding=(6, 4), style='Subpanel.TLabelframe')
+            current_control_frame.grid(row=0, column=1, sticky='ew', padx=(4, 0))
 
             # Set target current entry box
             current_entry_frame = ttk.Frame(current_control_frame)
@@ -463,8 +465,8 @@ class CathodeHeatingSubsystem:
             dec_current_button.grid(row=3, column=2, sticky='w', padx=(2, 0), pady=(3, 0))
 
             # Create voltage control section
-            voltage_control_frame = ttk.LabelFrame(left_control_frame, text='Heater Voltage Control', padding=(6, 4), style='Subpanel.TLabelframe')
-            voltage_control_frame.grid(row=0, column=0, sticky='nw')
+            voltage_control_frame = ttk.LabelFrame(heater_controls_frame, text='Heater Voltage Control', padding=(6, 4), style='Subpanel.TLabelframe')
+            voltage_control_frame.grid(row=0, column=0, sticky='ew')
 
             voltage_entry_frame = ttk.Frame(voltage_control_frame)
             voltage_entry_frame.grid(row=0, column=0, sticky='w')
@@ -670,18 +672,42 @@ class CathodeHeatingSubsystem:
             ttk.Label(predictions_frame, textvariable=self.predicted_heater_current_vars[i], style='Bold.TLabel').grid(row=2, column=3, sticky='w', padx=(2, 0))
 
             # Measured/Actual values
-            measured_frame = ttk.LabelFrame(main_tab, text='', padding=(6, 4))
+            measured_frame = ttk.LabelFrame(main_tab, text='Measured Output', padding=(6, 4), style='Subpanel.TLabelframe')
             measured_frame.grid(row=2, column=0, sticky='ew', pady=(4, 0), padx=2)
-            measured_frame.grid_rowconfigure(0, minsize=26)
+            
+            # Voltage
+            ttk.Label(measured_frame, text='Voltage', style='RightAlign.TLabel').grid(row=0, column=0, sticky='w', padx=(0, 2))
+            actual_voltage_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
+            actual_voltage_frame.configure(bg='#d9d9d9')
+            actual_voltage_frame.grid(row=0, column=1, sticky='w', padx=(0, 8))
+            actual_voltage_label = ttk.Label(actual_voltage_frame, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel') 
+            actual_voltage_label.pack(side='left')
+            unit_label = ttk.Label(actual_voltage_frame, text=" V", style="Bold.TLabel")
+            unit_label.pack(side='left')
 
-            measured_header_frame = ttk.Frame(measured_frame)
-            measured_header_frame.grid(row=0, column=0, columnspan=6, sticky='w')
+            # Current
+            ttk.Label(measured_frame, text='Current', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w', padx=(0, 2))
+            actual_current_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
+            actual_current_frame.configure(bg='#d9d9d9')
+            actual_current_frame.grid(row=0, column=3, sticky='w', padx=(0, 8))
+            actual_current_label = ttk.Label(actual_current_frame, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel') 
+            actual_current_label.pack(side='left')
+            unit_label = ttk.Label(actual_current_frame, text=" A", style="Bold.TLabel")
+            unit_label.pack(side='left')
+            
+            # Temp
+            ttk.Label(measured_frame, text='Temp', style='RightAlign.TLabel').grid(row=0, column=4, sticky='w', padx=(0, 2))
+            actual_temp_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
+            actual_temp_frame.configure(bg='#d9d9d9')
+            actual_temp_frame.grid(row=0, column=5, sticky='w')
+            actual_temp_label = ttk.Label(actual_temp_frame, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel') 
+            actual_temp_label.pack(side='left')
 
-            ttk.Label(measured_header_frame, text='Measured Output', style='SubpanelTitle.TLabel').grid(row=0, column=0, sticky='w')
+            self.clamp_temp_labels.append(actual_temp_label)
 
             # CV / CC mode indicator
-            indicator_frame = ttk.Frame(measured_header_frame)        # keeps both labels together
-            indicator_frame.grid(row=0, column=1, padx=(6, 0), sticky='w')
+            indicator_frame = ttk.Frame(measured_frame)
+            indicator_frame.grid(row=0, column=6, padx=(16, 0), sticky='e')
 
             cv_label = tk.Label(indicator_frame, text='CV', width=3,
                             fg='white', bg='grey', relief='ridge')
@@ -692,52 +718,23 @@ class CathodeHeatingSubsystem:
             cc_label.grid(row=0, column=1, padx=1)
 
             self.cv_cc_labels.append((cv_label, cc_label))
-            
-            # Current
-            ttk.Label(measured_frame, text='Current', style='RightAlign.TLabel').grid(row=1, column=0, sticky='w', padx=(0, 2))
-            actual_current_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
-            actual_current_frame.configure(bg='#d9d9d9')
-            actual_current_frame.grid(row=1, column=1, sticky='w', padx=(0, 8))
-            actual_current_label = ttk.Label(actual_current_frame, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel') 
-            actual_current_label.pack(side='left')
-            unit_label = ttk.Label(actual_current_frame, text=" A", style="Bold.TLabel")
-            unit_label.pack(side='left')
-            
-            # Voltage
-            ttk.Label(measured_frame, text='Voltage', style='RightAlign.TLabel').grid(row=1, column=2, sticky='w', padx=(0, 2))
-            actual_voltage_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
-            actual_voltage_frame.configure(bg='#d9d9d9')
-            actual_voltage_frame.grid(row=1, column=3, sticky='w', padx=(0, 8))
-            actual_voltage_label = ttk.Label(actual_voltage_frame, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel') 
-            actual_voltage_label.pack(side='left')
-            unit_label = ttk.Label(actual_voltage_frame, text=" V", style="Bold.TLabel")
-            unit_label.pack(side='left')
-            
-            # Temp
-            ttk.Label(measured_frame, text='Temp', style='RightAlign.TLabel').grid(row=1, column=4, sticky='w', padx=(0, 2))
-            actual_temp_frame = tk.Frame(measured_frame, bd=2, relief='groove', padx=2, pady=1)
-            actual_temp_frame.configure(bg='#d9d9d9')
-            actual_temp_frame.grid(row=1, column=5, sticky='w')
-            actual_temp_label = ttk.Label(actual_temp_frame, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel') 
-            actual_temp_label.pack(side='left')
 
-            self.clamp_temp_labels.append(actual_temp_label)
-
-            # Create plot for each cathode
-            fig, ax = plt.subplots(figsize=(2.8, 1.2))
-            line, = ax.plot([], [])
-            self.temperature_data[i].append(line)
-            ax.set_xlabel('Time', fontsize=8)
-            ax.set_ylim(15, 80)
-            ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-            ax.xaxis.set_major_locator(MaxNLocator(4))
-            ax.tick_params(axis='x', labelsize=6)
-            ax.tick_params(axis='y', labelsize=6)
-            fig.tight_layout(pad=0.01)
-            fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
-            canvas = FigureCanvasTkAgg(fig, master=main_tab)
-            canvas.draw()
-            canvas.get_tk_widget().grid(row=3, column=0, sticky='ew', padx=2, pady=(4, 0))
+            if self.TEMPERATURE_GRAPHS_ENABLED:
+                # Create plot for each cathode
+                fig, ax = plt.subplots(figsize=(2.8, 1.2))
+                line, = ax.plot([], [])
+                self.temperature_data[i].append(line)
+                ax.set_xlabel('Time', fontsize=8)
+                ax.set_ylim(15, 80)
+                ax.xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
+                ax.xaxis.set_major_locator(MaxNLocator(4))
+                ax.tick_params(axis='x', labelsize=6)
+                ax.tick_params(axis='y', labelsize=6)
+                fig.tight_layout(pad=0.01)
+                fig.subplots_adjust(left=0.14, right=0.99, top=0.99, bottom=0.15)
+                canvas = FigureCanvasTkAgg(fig, master=main_tab)
+                canvas.draw()
+                canvas.get_tk_widget().grid(row=3, column=0, sticky='ew', padx=2, pady=(4, 0))
             # ===== Config Tab =====
             ttk.Label(config_tab, text="Power Supply", style='Bold.TLabel').grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 0))
 
@@ -1698,6 +1695,9 @@ class CathodeHeatingSubsystem:
                 - 'overtemp': Red for over-temperature condition
                 - None: Blue for normal operation
         """
+        if not self.TEMPERATURE_GRAPHS_ENABLED or not self.temperature_data[index]:
+            return
+
         state = error_type if error_type else 'normal'
         if self.plot_color_states[index] == state:
             return
@@ -1968,7 +1968,10 @@ class CathodeHeatingSubsystem:
 
     def _update_data_once(self):
         current_time = datetime.datetime.now()
-        plot_this_cycle = (current_time - self.last_plot_time) >= self.plot_interval
+        plot_this_cycle = (
+            self.TEMPERATURE_GRAPHS_ENABLED
+            and (current_time - self.last_plot_time) >= self.plot_interval
+        )
 
         # Flush any queued logs from controllers to ensure log is up to date before processing new data
         if self.temperature_controller and hasattr(self.temperature_controller, "flush_queued_logs"):
@@ -2084,7 +2087,11 @@ class CathodeHeatingSubsystem:
                 self.after_id = None
 
     def update_plot(self, index):
-        if len(self.time_data[index]) == 0:
+        if (
+            not self.TEMPERATURE_GRAPHS_ENABLED
+            or len(self.time_data[index]) == 0
+            or not self.temperature_data[index]
+        ):
             return
         
         time_data = self.time_data[index]
