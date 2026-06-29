@@ -1,4 +1,5 @@
 import sys
+import importlib
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
@@ -253,8 +254,8 @@ def config_com_ports(saved_com_ports, logger=None):
     # Close the PyInstaller splash if running as bundled executable
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         try:
-            import pyi_splash
-            pyi_splash.close()
+            splash = importlib.import_module("pyi_splash")
+            getattr(splash, "close")()
         except ImportError:
             pass
     
