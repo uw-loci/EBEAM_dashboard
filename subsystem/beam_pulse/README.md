@@ -122,9 +122,11 @@ There are four layers of safety/status behavior to keep distinct:
   all-off, resets channel-enable state, and disables armed-gated controls.
 - BCON firmware safety: hardware interlock and watchdog state remain enforced by
   BCON firmware and are reported through registers.
-- Emission-current limit: Beam Pulse blocks non-OFF Beam ON, Activate Enabled Beams, and CSV
-  step commands when the projected predicted emission current is at or above the
-  Main Control limit.
+- Emission-current limit: when enabled, Beam Pulse blocks non-OFF Beam ON,
+  Activate Enabled Beams, and CSV step commands when any projected cathode
+  prediction is unknown/invalid, or when the projected predicted emission
+  current is at or above the Main Control limit. When disabled, Beam Pulse skips
+  both prediction validation and the threshold comparison.
 - BCON/CCS disconnect guard: Beam Pulse reports BCON disconnects to Main Control. Main Control then
   decides whether Cathode Heating should disable or block CCS output.
 
@@ -186,7 +188,7 @@ Main Control registers these callbacks/providers on Beam Pulse:
 | `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | live CH enable button state |
 | `set_armed_status_callback(callback)` | `callback(armed)` | mirror software armed state |
 | `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | action line and firmware acknowledgement display |
-| `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data |
+| `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data; `currents()` returns A/B/C values as non-negative finite mA floats or `None` for unknown |
 | `set_vtrx_pressure_guard_providers(enabled, pressure, limit, fresh)` | callables | VTRX high-pressure/freshness guard data |
 | `set_manual_disconnect_callback(callback)` | `callback() -> bool` | ask Main Control whether a user-requested BCON disconnect may continue |
 | `set_disconnect_callback(callback)` | `callback()` | notify Main Control after BCON disconnects |
