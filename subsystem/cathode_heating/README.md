@@ -220,7 +220,7 @@ The poller:
 
 - Runs independently of the Tkinter event loop.
 - Polls each configured 9104 roughly every 500 ms.
-- Calls `PowerSupply9104.get_voltage_current_mode(lock_timeout=...)` from the background thread.
+- Calls `PowerSupply9104.get_voltage_current_mode()` from the background thread; the driver applies its default bounded serial-lock wait.
 - Writes a small snapshot into `self.power_supply_readbacks` under `self.power_supply_readback_lock`.
 - Uses the existing `PowerSupply9104.serial_lock`, so regular commands and readback polling still serialize through the driver.
 - Marks disconnected, uninitialized, and invalid-read states in the snapshot.
@@ -304,7 +304,8 @@ It handles:
 - Serialized readback commands used by the cathode polling thread.
 - Background ramp threads.
 - Ramp stop signaling.
-- Bounded serial-lock waits for polling, reconnect, COM-port update, and shutdown paths through optional `lock_timeout` arguments on selected calls.
+- A default 0.5 s bounded serial-lock wait on public serial command paths, including GUI-triggered reads/writes, polling, reconnect, and COM-port updates.
+- Shutdown output-disable calls use a serial-lock wait of 1.5s.
 
 In short:
 
