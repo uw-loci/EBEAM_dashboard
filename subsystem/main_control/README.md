@@ -186,6 +186,10 @@ Dashboard callbacks.
   latest valid VTRX pressure is greater than 1e-5 mbar.
 - BEAMS E-STOP is the Main Control path that combines BCON stop, Cathode Heating
   output shutdown, Beam Pulse disarm, and Main Control UI reset.
+- If Cathode Heating cannot confirm a 9104 output-disable command during
+  E-STOP, BCON-disconnect shutdown, or VTRX-pressure CCS shutdown, it logs a
+  critical message and leaves the affected cathode output toggle showing ON
+  because the hardware output state is uncertain.
 - Disable CCS Output on BCON Disconnect is a runtime Main Control setting. When
   enabled, an unexpected BCON disconnect turns off active CCS outputs, and a
   manual BCON disconnect asks for confirmation before it shuts those outputs
