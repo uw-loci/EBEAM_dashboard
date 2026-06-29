@@ -83,6 +83,7 @@ def make_beam_energy():
     beam_energy.latest_actual_current_values = [None for _ in SUPPLY_KEYS]
     beam_energy.ui_elements = [None for _ in SUPPLY_KEYS]
     beam_energy.radiation_indicator_callback = lambda _active: None
+    beam_energy._radiation_indicator_last_valid_state = None
     beam_energy._radiation_indicator_sent = None
     beam_energy._radiation_indicator_missing_callback_state = None
     beam_energy.beams_estop_callback = None
@@ -183,6 +184,73 @@ class BeamEnergyWarningLimitSetterTest(unittest.TestCase):
                     beam_energy.warning_limits[POS20KV_SUPPLY_KEY]["max_current_ma"],
                     max_current,
                 )
+
+
+class BeamEnergyRadiationIndicatorTest(unittest.TestCase):
+    def test_initial_missing_pos20kv_readback_does_not_send_indicator_state(self):
+        beam_energy = make_beam_energy()
+        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
+        sent_states = []
+        beam_energy.radiation_indicator_callback = sent_states.append
+
+        beam_energy.apply_warning_indicators(pos20kv_index, None, None)
+
+        self.assertEqual(sent_states, [])
+
+    def test_missing_pos20kv_readback_preserves_asserted_indicator(self):
+        beam_energy = make_beam_energy()
+        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
+        sent_states = []
+        beam_energy.radiation_indicator_callback = sent_states.append
+
+        beam_energy.apply_warning_indicators(pos20kv_index, 12000.0, 0)
+        beam_energy.apply_warning_indicators(pos20kv_index, None, None)
+
+        self.assertEqual(sent_states, [True])
+
+    def test_invalid_pos20kv_readback_preserves_asserted_indicator(self):
+        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
+
+        for invalid_readback in ("bad", float("nan"), float("inf")):
+            with self.subTest(invalid_readback=invalid_readback):
+                beam_energy = make_beam_energy()
+                sent_states = []
+                beam_energy.radiation_indicator_callback = sent_states.append
+
+                beam_energy.apply_warning_indicators(pos20kv_index, 12000.0, 0)
+                beam_energy.apply_warning_indicators(pos20kv_index, invalid_readback, None)
+
+                self.assertEqual(sent_states, [True])
+
+    def test_valid_below_threshold_readback_clears_asserted_indicator(self):
+        beam_energy = make_beam_energy()
+        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
+        sent_states = []
+        beam_energy.radiation_indicator_callback = sent_states.append
+
+        beam_energy.apply_warning_indicators(pos20kv_index, 12000.0, 0)
+        beam_energy.apply_warning_indicators(pos20kv_index, 9000.0, 0)
+
+        self.assertEqual(sent_states, [True, False])
+
+    def test_set_default_values_preserves_asserted_indicator(self):
+        beam_energy = make_beam_energy()
+        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
+        sent_states = []
+        beam_energy.radiation_indicator_callback = sent_states.append
+        beam_energy.set_voltages = [FakeVar() for _ in SUPPLY_KEYS]
+        beam_energy.actual_voltages = [FakeVar() for _ in SUPPLY_KEYS]
+        beam_energy.actual_currents = [FakeVar() for _ in SUPPLY_KEYS]
+        beam_energy.update_connection_status = lambda *_args, **_kwargs: None
+        beam_energy.update_output_status = lambda *_args, **_kwargs: None
+        beam_energy.update_reset_status = lambda *_args, **_kwargs: None
+        beam_energy.update_supply_interlock_status = lambda *_args, **_kwargs: None
+        beam_energy.update_indicators_panel = lambda *_args, **_kwargs: None
+
+        beam_energy.apply_warning_indicators(pos20kv_index, 12000.0, 0)
+        beam_energy.set_default_values(pos20kv_index)
+
+        self.assertEqual(sent_states, [True])
 
 
 class MainControlBeamsEstopLimitUiTest(unittest.TestCase):

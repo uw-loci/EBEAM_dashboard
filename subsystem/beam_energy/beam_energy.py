@@ -141,6 +141,8 @@ class BeamEnergySubsystem:
         # Dashboard wires this to LaserMonitorDriver.set_radiation_indicator().
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
         self.radiation_indicator_callback = None
+        # Last valid readback-derived state; missing/invalid readbacks preserve it.
+        self._radiation_indicator_last_valid_state = None
         self._radiation_indicator_sent = None
         self._radiation_indicator_missing_callback_state = None
         self.warning_limit_entry_vars = [
@@ -585,13 +587,15 @@ class BeamEnergySubsystem:
             return False
 
     def _update_radiation_indicator(self, voltage):
-        # Missing/invalid +20kV readback clears the indicator; valid readings
-        # at or above the threshold assert it.
         voltage = self._coerce_reading(voltage)
-        active = (
-            voltage is not None
-            and voltage >= self.RADIATION_INDICATOR_THRESHOLD_V
-        )
+        if voltage is None:
+            active = getattr(self, "_radiation_indicator_last_valid_state", None)
+            if active is None:
+                return
+        else:
+            active = voltage >= self.RADIATION_INDICATOR_THRESHOLD_V
+            self._radiation_indicator_last_valid_state = active
+
         if active == getattr(self, "_radiation_indicator_sent", None):
             return
 
