@@ -51,12 +51,12 @@ class FakeProcessMonitor:
 class FakeVTRX:
     def __init__(self, pressure=5e-7, communicating=True):
         self.pressure = pressure
-        self.communicating = communicating
+        self.pressure_fresh = communicating
 
     def get_machine_status_inputs(self):
         return {
-            "last_pressure_mbar": self.pressure,
-            "vtrx_communicating": self.communicating,
+            "last_valid_pressure_value": self.pressure,
+            "pressure_fresh": self.pressure_fresh,
         }
 
 

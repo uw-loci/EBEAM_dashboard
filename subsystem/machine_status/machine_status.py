@@ -162,8 +162,8 @@ def _interlock_green(interlocks, name):
 
 
 def _pressure_below(vtrx_inputs, threshold_mbar):
-    pressure = _number(vtrx_inputs.get("last_pressure_mbar"))
-    if pressure is None or not vtrx_inputs.get("vtrx_communicating"):
+    pressure = _number(vtrx_inputs.get("last_valid_pressure_value"))
+    if pressure is None or not vtrx_inputs.get("pressure_fresh"):
         return False
     return pressure < threshold_mbar
 
