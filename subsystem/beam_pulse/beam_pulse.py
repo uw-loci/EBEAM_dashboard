@@ -1932,15 +1932,20 @@ class BeamPulseSubsystem:
         self.beams_armed_status = False
         self._notify_armed_status(False)
         self._stop_sequence_worker()
+        self._update_armed_button_states(False)
+        if not self.bcon_driver:
+            self._log_event("Failed to stop all BCON channels during disarm: driver not available", LogLevel.ERROR)
+            return False
+
+        ack = self._queue_firmware_ack("Disarm all OFF")
+        if not self.bcon_driver.stop_all():
+            self._cancel_firmware_ack(ack)
+            self._log_event("Failed to stop all BCON channels during disarm", LogLevel.ERROR)
+            return False
+
         self._clear_output_state()
-        if self.bcon_driver:
-            ack = self._queue_firmware_ack("Disarm all OFF")
-            if not self.bcon_driver.stop_all():
-                self._cancel_firmware_ack(ack)
-                self._log_event("Failed to stop all BCON channels during disarm", LogLevel.ERROR)
         self._notify_all_channel_enables(False)
         self._log("Beams DISARMED", LogLevel.INFO)
-        self._update_armed_button_states(False)
         return True
 
     def get_beams_armed_status(self) -> bool:
