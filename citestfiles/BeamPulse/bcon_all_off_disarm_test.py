@@ -180,7 +180,9 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem._seq_stop = threading.Event()
         subsystem._seq_thread = None
         subsystem.armed_status_updates = []
+        subsystem.armed_button_updates = []
         subsystem._armed_status_callback = subsystem.armed_status_updates.append
+        subsystem._update_armed_button_states = subsystem.armed_button_updates.append
         subsystem._channel_enable_status_callback = None
         subsystem._beam_activity_callback = None
         subsystem._last_beam_activity_sent = True
@@ -198,13 +200,14 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         ok = subsystem.disarm_beams()
 
         self.assertFalse(ok)
-        self.assertFalse(subsystem.beams_armed_status)
+        self.assertTrue(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [True, True, False])
         self.assertEqual(subsystem.channel_enable_status, [True, False, True])
         self.assertEqual(subsystem._active_channels, {0, 1})
         self.assertEqual(subsystem.bcon_driver.stop_all_calls, 1)
         self.assertEqual(subsystem.bcon_driver.reset_enable_cache_calls, [])
         self.assertEqual(subsystem.armed_status_updates, [])
+        self.assertEqual(subsystem.armed_button_updates, [])
 
     def test_disarm_clears_output_and_enable_state_after_confirmed_all_off(self):
         subsystem = self.make_subsystem(stop_all_result=True)
@@ -219,6 +222,7 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertEqual(subsystem.bcon_driver.stop_all_calls, 1)
         self.assertEqual(subsystem.bcon_driver.reset_enable_cache_calls, [False])
         self.assertEqual(subsystem.armed_status_updates, [False])
+        self.assertEqual(subsystem.armed_button_updates, [False])
 
     def test_disarm_returns_false_without_bcon_driver(self):
         subsystem = self.make_subsystem(stop_all_result=True)
@@ -227,10 +231,11 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         ok = subsystem.disarm_beams()
 
         self.assertFalse(ok)
-        self.assertFalse(subsystem.beams_armed_status)
+        self.assertTrue(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [True, True, False])
         self.assertEqual(subsystem.channel_enable_status, [True, False, True])
         self.assertEqual(subsystem.armed_status_updates, [])
+        self.assertEqual(subsystem.armed_button_updates, [])
 
 
 if __name__ == "__main__":
