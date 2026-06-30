@@ -815,12 +815,28 @@ class BCONDriver:
         reg = int(reg)
         value = int(value)
         baseline = None
-        if reg == REG_COMMAND and value != COMMAND_NOP:
-            baseline = self._get_cached_command_snapshot()
+        baseline_error = None
+        command_write = reg == REG_COMMAND and value != COMMAND_NOP
+        if command_write:
+            try:
+                baseline = self._read_command_snapshot_raw()
+            except Exception as e:
+                baseline_error = e
+                self._log(
+                    f"Immediate command pre-read failed; command will still be sent but unconfirmed: {e}",
+                    "ERROR",
+                )
 
         try:
             self._write_register_raw(reg, value)
-            if baseline is not None:
+            if command_write:
+                if baseline is None:
+                    self._ui_put(
+                        "error",
+                        f"Command {self._command_label(value)} sent, "
+                        f"but confirmation pre-read failed: {baseline_error}",
+                    )
+                    return False
                 result = self._confirm_command_write(
                     value,
                     baseline=baseline,
