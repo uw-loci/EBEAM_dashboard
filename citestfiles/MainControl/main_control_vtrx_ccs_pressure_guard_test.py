@@ -73,6 +73,28 @@ class FakeBeamPulse:
         self.disable_all_calls += 1
 
 
+class FakeBeamPulseEstop:
+    def __init__(self, stop_all_result=True, armed=True, disarm_result=True):
+        self.stop_all_result = stop_all_result
+        self.armed = armed
+        self.disarm_result = disarm_result
+        self.stop_all_calls = 0
+        self.disarm_calls = 0
+
+    def stop_all_channels(self):
+        self.stop_all_calls += 1
+        return self.stop_all_result
+
+    def get_beams_armed_status(self):
+        return self.armed
+
+    def disarm_beams(self):
+        self.disarm_calls += 1
+        if self.disarm_result:
+            self.armed = False
+        return self.disarm_result
+
+
 def make_main_control(now=100.0, cathode=None, beam_pulse=None):
     main_control = MainControlPanel.__new__(MainControlPanel)
     main_control.logger = FakeLogger()
@@ -102,6 +124,35 @@ def make_main_control(now=100.0, cathode=None, beam_pulse=None):
     current_time = {"value": float(now)}
     main_control._time_monotonic = lambda: current_time["value"]
     main_control._test_time = current_time
+    return main_control
+
+
+def make_main_control_for_beams_off(beam_pulse, cathode=None):
+    main_control = make_main_control(cathode=cathode, beam_pulse=beam_pulse)
+    main_control.beam_toggle_updates = []
+    main_control.enable_toggle_updates = []
+    main_control.activate_control_updates = []
+    main_control.armed_ui_updates = []
+    main_control.clear_output_calls = 0
+    main_control.update_beam_toggle_states = (
+        lambda **kwargs: main_control.beam_toggle_updates.append(kwargs)
+    )
+    main_control._update_enable_toggle_states = (
+        lambda **kwargs: main_control.enable_toggle_updates.append(kwargs)
+    )
+    main_control._update_activate_enabled_beams_control_state = (
+        lambda **kwargs: main_control.activate_control_updates.append(kwargs)
+    )
+    main_control._set_armed_ui = (
+        lambda armed, reset=False: main_control.armed_ui_updates.append((armed, reset))
+    )
+    main_control._clear_all_beam_output_displays = (
+        lambda: setattr(
+            main_control,
+            "clear_output_calls",
+            main_control.clear_output_calls + 1,
+        )
+    )
     return main_control
 
 
@@ -193,6 +244,38 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                 saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD],
                 DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
             )
+
+
+class MainControlBeamsOffTest(unittest.TestCase):
+    def test_disarm_failure_after_confirmed_all_off_reports_failure(self):
+        beam_pulse = FakeBeamPulseEstop(
+            stop_all_result=True,
+            armed=True,
+            disarm_result=False,
+        )
+        cathode = FakeCathode(active=True)
+        main_control = make_main_control_for_beams_off(
+            beam_pulse=beam_pulse,
+            cathode=cathode,
+        )
+
+        main_control.handle_beams_off()
+
+        self.assertEqual(beam_pulse.stop_all_calls, 1)
+        self.assertEqual(beam_pulse.disarm_calls, 1)
+        self.assertTrue(beam_pulse.armed)
+        self.assertEqual(cathode.turn_off_calls, 1)
+        self.assertEqual(
+            main_control._beam_action_status_text,
+            "Failed to stop beams: Beam Pulse disarm was not confirmed",
+        )
+        self.assertEqual(main_control._beam_action_status_outcome, "failure")
+        self.assertTrue(
+            any(
+                "Failed to disarm beams via Beams E-stop" in message
+                for message in main_control.logger.messages("CRITICAL")
+            )
+        )
 
 
 class MainControlVtrxCcsGracePeriodUiTest(unittest.TestCase):
