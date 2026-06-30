@@ -867,17 +867,17 @@ class BeamPulseSubsystem:
         ack = self._queue_firmware_ack("Disable All Beams")
         if not self.bcon_driver.stop_all():
             self._cancel_firmware_ack(ack)
-            message = "Disable All Beams failed: BCON did not queue command"
+            message = "Disable All Beams failed: BCON all-off was not confirmed"
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
             return
         self._clear_output_state()
         self._notify_action_feedback(
             "all_off",
-            "Disable All Beams: all channels -> OFF",
+            "Disable All Beams: confirmed all channels -> OFF",
             "neutral",
         )
-        self._log_event("Disable All Beams: all channels -> OFF")
+        self._log_event("Disable All Beams: confirmed all channels -> OFF")
 
     # ================================================================== #
     #                      CSV Sequence Tab Actions                      #

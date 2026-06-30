@@ -649,7 +649,7 @@ class BCONDriver:
         if self._serial and self._connected:
             try:
                 if self.write_register_immediate(REG_COMMAND, COMMAND_ALL_OFF):
-                    self._log("ALL_OFF sent before disconnect", "INFO")
+                    self._log("ALL_OFF confirmed before disconnect", "INFO")
                 else:
                     self._log("ALL_OFF before disconnect was inconclusive; relying on watchdog", "ERROR")
             except Exception as e:
@@ -1653,8 +1653,8 @@ def main():
                     bcon.set_channel_pulse(2, 250)
                     print("Enqueued: CH2 -> PULSE 250ms")
                 elif choice == "5":
-                    bcon.stop_all()
-                    print("Enqueued: STOP ALL")
+                    ok = bcon.stop_all()
+                    print("STOP ALL confirmed" if ok else "STOP ALL was not confirmed")
                 elif choice == "6":
                     bcon.set_watchdog(1000)
                     print("Enqueued: Watchdog = 1000ms")
