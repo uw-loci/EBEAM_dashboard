@@ -26,7 +26,7 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 |---------|--------|-------------|
 | `PING` | `ping()` | Check communication and refresh watchdog |
 | `STATUS` | `get_status()` | Get full system and channel status |
-| `STOP ALL` | `stop_all()` | Force all channels to OFF mode |
+| `STOP ALL` | `stop_all()` | Force all channels to OFF mode and confirm firmware execution |
 | `SET WATCHDOG` | `set_watchdog(ms)` | Configure watchdog timeout (50-60000 ms) |
 | `SET TELEMETRY` | `set_telemetry(ms)` | Configure telemetry interval (0=disabled) |
 | `SET CH OFF` | `set_channel_off(channel)` | Turn off specific channel |
@@ -71,8 +71,9 @@ if bcon.connect():
     telemetry = bcon.get_latest_telemetry()
     print(f"Channel 1 mode: {telemetry['channels'][0]['mode']}")
 
-    # Stop all channels
-    bcon.stop_all()
+    # Stop all channels and verify firmware confirmation
+    if not bcon.stop_all():
+        print("STOP ALL was not confirmed")
     
     # Disconnect
     bcon.disconnect()
@@ -128,7 +129,9 @@ Send PING command and wait for PONG response. Also refreshes communication watch
 Request and parse full system status. Returns dictionary with `system` and `channels` keys.
 
 #### `stop_all() -> bool`
-Force all channels to OFF mode immediately.
+Force all channels to OFF mode immediately. Returns `True` only when firmware
+diagnostics confirm the `ALL_OFF` command executed; disconnected, rejected, or
+inconclusive results return `False`.
 
 ### Configuration
 
