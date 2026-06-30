@@ -177,8 +177,8 @@ class BeamEnergySubsystem:
             )
             ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
             
-            # Configure grid weights for responsive layout
-            ps_container.grid_columnconfigure(i, weight=1)
+            # Configure grid weights for equal-width power supply panels.
+            ps_container.grid_columnconfigure(i, weight=1, uniform="beam_energy_supply")
 
             self.ps_frames.append(ps_frame)
             self.create_power_supply_displays(ps_frame, ps_config, i)
@@ -260,7 +260,7 @@ class BeamEnergySubsystem:
                 labelanchor="n"
             )
             ps_frame.grid(row=0, column=i, sticky="nsew", padx=3, pady=3)
-            supplies_container.grid_columnconfigure(i, weight=1)
+            supplies_container.grid_columnconfigure(i, weight=1, uniform="beam_energy_config_supply")
             self.create_warning_limit_controls(ps_frame, i)
 
         supplies_container.grid_rowconfigure(0, weight=1)
@@ -725,51 +725,42 @@ class BeamEnergySubsystem:
             ps_config: Power supply configuration dict
             index: Index of the power supply, 1 through 4
         """
-        # Connection status indicator (at top left)
-        top_row_frame = ttk.Frame(frame)
-        top_row_frame.pack(fill=tk.X, pady=(0, 5))
-        connection_label = ttk.Label(top_row_frame, text="Comms:", font=("Segoe UI", 8))
-        connection_label.pack(side=tk.LEFT)
-        connection_canvas, connection_oval = self.create_indicator_circle(
-            top_row_frame, color=self.connection_status_colors[index].get()
-        )
-        connection_canvas.pack(side=tk.LEFT, padx=4)
+        indicator_frame = ttk.Frame(frame)
+        indicator_frame.pack(fill=tk.X, pady=(0, 5))
+        indicator_frame.grid_columnconfigure(0, weight=1)
 
-        def update_connection_circle(*args):
-            connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
+        def add_indicator_row(row_index, label_text, color_var):
+            row_frame = ttk.Frame(indicator_frame)
+            row_frame.grid(row=row_index, column=0, sticky="w")
 
-        self.connection_status_colors[index].trace_add("write", update_connection_circle)
-        connection_canvas.itemconfig(connection_oval, fill=self.connection_status_colors[index].get())
+            label = ttk.Label(row_frame, text=label_text, font=("Segoe UI", 8))
+            label.pack(side=tk.LEFT)
+            canvas, oval = self.create_indicator_circle(row_frame, color=color_var.get())
+            canvas.pack(side=tk.LEFT, padx=(4, 0))
 
-        # Matsusada reset status indicator (at top right)
-        if index < 2:
-            reset_canvas, reset_oval = self.create_indicator_circle(
-                top_row_frame, color=self.reset_status_colors[index].get()
-            )
-            reset_canvas.pack(side=tk.RIGHT, padx=4)
-            reset_label = ttk.Label(top_row_frame, text="Overcurrent:", font=("Segoe UI", 8))
-            reset_label.pack(side=tk.RIGHT)
+            def update_circle(*args):
+                canvas.itemconfig(oval, fill=color_var.get())
 
-            def update_reset_circle(*args):
-                reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
+            color_var.trace_add("write", update_circle)
+            canvas.itemconfig(oval, fill=color_var.get())
+            return label
 
-            self.reset_status_colors[index].trace_add("write", update_reset_circle)
-            reset_canvas.itemconfig(reset_oval, fill=self.reset_status_colors[index].get())
+        def add_indicator_spacer(row_index):    # 20kV Bertan filler spacer under Comms label
+            row_frame = ttk.Frame(indicator_frame)
+            row_frame.grid(row=row_index, column=0, sticky="w")
+            ttk.Label(row_frame, text=" ", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+            spacer = ttk.Frame(row_frame, width=16, height=16)
+            spacer.pack(side=tk.LEFT, padx=(4, 0))
+            spacer.pack_propagate(False)
 
-        # 3kV Bertan "Forced Off" indicator (at top right)
-        if index == 3:
-            forced_off_canvas, forced_off_oval = self.create_indicator_circle(
-                top_row_frame, color=self.forced_off_color.get()
-            )
-            forced_off_canvas.pack(side=tk.RIGHT, padx=4)
-            forced_off_label = ttk.Label(top_row_frame, text="Forced Off:", font=("Segoe UI", 8))
-            forced_off_label.pack(side=tk.RIGHT)
+        connection_label = add_indicator_row(0, "Comms:", self.connection_status_colors[index])
 
-            def update_forced_off_circle(*args):
-                forced_off_canvas.itemconfig(forced_off_oval, fill=self.forced_off_color.get())
-
-            self.forced_off_color.trace_add("write", update_forced_off_circle)
-            forced_off_canvas.itemconfig(forced_off_oval, fill=self.forced_off_color.get())
+        if index < 2:   # For the Matsusadas
+            add_indicator_row(1, "Overcurrent:", self.reset_status_colors[index])
+        elif index == 3: #For the 3kV Bertan, show forced-off status
+            add_indicator_row(1, "Forced Off:", self.forced_off_color)
+        else:
+            add_indicator_spacer(1)
         
         # Output status indicator
         status_frame = ttk.Frame(frame)
@@ -1041,6 +1032,30 @@ class BeamEnergySubsystem:
                     LogLevel.ERROR
                 )
 
+    def _format_power_supply_display_values(self, unit_id, v_set, v_read, i_read):
+        """Format one power supply's readbacks for the dashboard display."""
+        actual_current = f"{i_read:.2f} mA" if i_read is not None else "-- mA"
+
+        match unit_id:
+            case 1:  # +1kV Matsusada
+                set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
+            case 2:  # -1kV Matsusada
+                set_voltage = f"{-abs(v_set):.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{-abs(v_read):.0f} V" if v_read is not None else "-- V"
+            case 3:  # +20kV Bertan
+                set_voltage = f"{v_set / 1000:.2f} kV" if v_set is not None else "-- kV"
+                actual_voltage = f"{v_read / 1000:.2f} kV" if v_read is not None else "-- kV"
+                actual_current = f"{i_read:.3f} mA" if i_read is not None else "-- mA"
+            case 4:  # +3kV Bertan
+                set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
+            case _:
+                set_voltage = f"{v_set:.0f} V" if v_set is not None else "-- V"
+                actual_voltage = f"{v_read:.0f} V" if v_read is not None else "-- V"
+
+        return set_voltage, actual_voltage, actual_current
+
     def _build_supplies_payload(self, knob_box, data_snapshot):
         """Build a structured payload of 4 power supply statuses for the Web Monitor."""
         supplies = {}
@@ -1149,26 +1164,12 @@ class BeamEnergySubsystem:
                 # self.update_connection_status(index, True)
 
                 # Update display values if data is valid
-                if v_set is not None:
-                    if unit_id == 2: # insert minus sign for -1kV Matsusada
-                        self.set_voltages[index].set(f"-{v_set:.1f} V")
-                    else:    
-                        self.set_voltages[index].set(f"{v_set:.1f} V")
-                else:
-                    self.set_voltages[index].set("-- V")
-
-                if v_read is not None:
-                    if unit_id == 2: # insert minus sign for -1kV Matsusada
-                        self.actual_voltages[index].set(f"-{v_read:.1f} V")
-                    else:
-                        self.actual_voltages[index].set(f"{v_read:.1f} V")
-                else:
-                    self.actual_voltages[index].set("-- V")
-
-                if i_read is not None:
-                    self.actual_currents[index].set(f"{i_read:.3f} mA")
-                else:
-                    self.actual_currents[index].set("-- mA")
+                set_voltage, actual_voltage, actual_current = self._format_power_supply_display_values(
+                    unit_id, v_set, v_read, i_read
+                )
+                self.set_voltages[index].set(set_voltage)
+                self.actual_voltages[index].set(actual_voltage)
+                self.actual_currents[index].set(actual_current)
 
                 self.apply_warning_indicators(index, v_read, i_read)
 
@@ -1221,9 +1222,13 @@ class BeamEnergySubsystem:
 
     def set_default_values(self, index):
         """Set display values to default '--'."""
-        self.set_voltages[index].set("-- V")
-        self.actual_voltages[index].set("-- V")
-        self.actual_currents[index].set("-- mA")
+        unit_id = index + 1
+        set_voltage, actual_voltage, actual_current = self._format_power_supply_display_values(
+            unit_id, None, None, None
+        )
+        self.set_voltages[index].set(set_voltage)
+        self.actual_voltages[index].set(actual_voltage)
+        self.actual_currents[index].set(actual_current)
         self.apply_warning_indicators(index, None, None)
         self.update_connection_status(index, False)
         self.update_output_status(index, False)
