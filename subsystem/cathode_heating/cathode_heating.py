@@ -282,8 +282,8 @@ class CathodeHeatingSubsystem:
         All variables are initialized with '--' to indicate no data available.
         Each cathode (A, B, C) has its own set of prediction variables.
         """
-        # Emission current predictions and ideal values (mA)
-        self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
+        # Emission current predictions and ideal values (mA). None means unknown.
+        self.ideal_cathode_emission_currents = [None for _ in range(3)]
         self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         
         # Grid current predictions - expect to intercept 28% of emission current
@@ -301,29 +301,39 @@ class CathodeHeatingSubsystem:
     def _set_predicted_emission_current_ma(self, index, value_ma=None):
         """Set or clear the numeric predicted emission current and display label."""
         if value_ma is None:
-            self.ideal_cathode_emission_currents[index] = 0.0
+            self.ideal_cathode_emission_currents[index] = None
             self.predicted_emission_current_vars[index].set('--')
             return
 
         try:
             numeric_value = float(value_ma)
         except (TypeError, ValueError):
-            numeric_value = 0.0
-        if not np.isfinite(numeric_value) or numeric_value < 0:
-            numeric_value = 0.0
+            numeric_value = None
+        if numeric_value is None or not np.isfinite(numeric_value) or numeric_value < 0:
+            self.ideal_cathode_emission_currents[index] = None
+            self.predicted_emission_current_vars[index].set('--')
+            return
         # Keep the machine-readable value and the operator-facing label in sync.
         self.ideal_cathode_emission_currents[index] = numeric_value
         self.predicted_emission_current_vars[index].set(f'{numeric_value:.2f} mA')
 
     def get_predicted_emission_currents_ma(self):
-        """Return numeric predicted cathode emission currents for A/B/C in mA."""
+        """Return predicted cathode emission currents for A/B/C in mA.
+
+        Each value is either a non-negative finite float or None when the
+        prediction is unknown/unavailable.
+        """
         currents = []
         for value in self.ideal_cathode_emission_currents[:3]:
             try:
                 numeric_value = float(value)
             except (TypeError, ValueError):
-                numeric_value = 0.0
-            currents.append(numeric_value if np.isfinite(numeric_value) and numeric_value >= 0 else 0.0)
+                numeric_value = None
+            currents.append(
+                numeric_value
+                if numeric_value is not None and np.isfinite(numeric_value) and numeric_value >= 0
+                else None
+            )
         return currents
 
     def get_machine_status_inputs(self):
@@ -2604,17 +2614,26 @@ class CathodeHeatingSubsystem:
             )
             if callable(pressure_allows_output):
                 cathode = ['A', 'B', 'C'][index]
+                pressure_block_reason = "VTRX pressure is above 1e-5 mbar."
                 try:
-                    blocked_by_pressure = not bool(pressure_allows_output())
+                    pressure_guard_result = pressure_allows_output()
                 except Exception as e:
                     self.log(
                         f"CCS output enable blocked for Cathode {cathode}: VTRX pressure check failed ({e}).",
                         LogLevel.WARNING,
                     )
                     return
+                if isinstance(pressure_guard_result, tuple):
+                    blocked_by_pressure = not bool(pressure_guard_result[0])
+                    if len(pressure_guard_result) > 1 and pressure_guard_result[1]:
+                        pressure_block_reason = str(pressure_guard_result[1])
+                else:
+                    blocked_by_pressure = not bool(pressure_guard_result)
                 if blocked_by_pressure:
+                    if not pressure_block_reason.endswith("."):
+                        pressure_block_reason = f"{pressure_block_reason}."
                     self.log(
-                        f"CCS output enable blocked for Cathode {cathode}: VTRX pressure is above 1e-5 mbar.",
+                        f"CCS output enable blocked for Cathode {cathode}: {pressure_block_reason}",
                         LogLevel.WARNING,
                     )
                     return

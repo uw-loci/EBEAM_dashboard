@@ -40,6 +40,23 @@ class CathodeHeatingVtrxPressureGuardTest(unittest.TestCase):
             subsystem.log_entries,
         )
 
+    def test_vtrx_pressure_guard_logs_stale_reason_from_provider(self):
+        subsystem = self.make_subsystem(
+            lambda: (False, "VTRX pressure reading is stale.")
+        )
+
+        subsystem.toggle_output(0)
+
+        self.assertFalse(subsystem.toggle_states[0])
+        subsystem.power_supplies[0].set_output.assert_not_called()
+        self.assertIn(
+            (
+                "CCS output enable blocked for Cathode A: VTRX pressure reading is stale.",
+                LogLevel.WARNING,
+            ),
+            subsystem.log_entries,
+        )
+
     def test_vtrx_pressure_guard_failure_blocks_output(self):
         def pressure_provider():
             raise RuntimeError("no pressure")
