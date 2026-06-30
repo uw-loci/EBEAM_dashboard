@@ -1983,7 +1983,6 @@ class BeamPulseSubsystem:
 
     def disarm_beams(self) -> bool:
         self.beams_armed_status = False
-        self._notify_armed_status(False)
         self._stop_sequence_worker()
         self._update_armed_button_states(False)
         if not self.bcon_driver:
@@ -1998,6 +1997,7 @@ class BeamPulseSubsystem:
 
         self._clear_output_state()
         self._notify_all_channel_enables(False)
+        self._notify_armed_status(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         return True
 

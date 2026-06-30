@@ -1684,6 +1684,7 @@ class MainControlPanel:
         turn off cathode heating, and disarm beams."""
         try:
             first_error = None
+            all_off_confirmed = False
 
             def record_error(message, error):
                 nonlocal first_error
@@ -1698,7 +1699,9 @@ class MainControlPanel:
                     stop_all_channels = getattr(beam_pulse, 'stop_all_channels', None)
                     if callable(stop_all_channels):
                         self._log_info("Beams E-STOP requesting all BCON channels stop")
-                        if not stop_all_channels():
+                        if stop_all_channels():
+                            all_off_confirmed = True
+                        else:
                             record_error(
                                 "Beams E-STOP failed to stop all BCON channels",
                                 RuntimeError("BCON all-off was not confirmed"),
@@ -1728,14 +1731,17 @@ class MainControlPanel:
                     if beams_armed:
                         disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
                         if callable(disarm_beams) and disarm_beams():
+                            all_off_confirmed = True
                             self._set_armed_ui(False)
                             self._log_info("Beams disarmed via Beams E-stop button")
                         else:
                             self._log_critical("Failed to disarm beams via Beams E-stop")
-                    self.update_beam_toggle_states(enabled=False, reset=True)
-                    self._update_enable_toggle_states(enabled=False)
-                    self._update_activate_enabled_beams_control_state(armed=False)
-                self._clear_all_beam_output_displays()
+                    if all_off_confirmed:
+                        self.update_beam_toggle_states(enabled=False, reset=True)
+                        self._update_enable_toggle_states(enabled=False)
+                        self._update_activate_enabled_beams_control_state(armed=False)
+                if all_off_confirmed:
+                    self._clear_all_beam_output_displays()
             except Exception as e:
                 record_error("Beams E-STOP disarm/UI update failed", e)
 
