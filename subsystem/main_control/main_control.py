@@ -1735,7 +1735,10 @@ class MainControlPanel:
                             self._set_armed_ui(False)
                             self._log_info("Beams disarmed via Beams E-stop button")
                         else:
-                            self._log_critical("Failed to disarm beams via Beams E-stop")
+                            record_error(
+                                "Failed to disarm beams via Beams E-stop",
+                                RuntimeError("Beam Pulse disarm was not confirmed"),
+                            )
                     if all_off_confirmed:
                         self.update_beam_toggle_states(enabled=False, reset=True)
                         self._update_enable_toggle_states(enabled=False)
