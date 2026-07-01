@@ -64,6 +64,16 @@ class CathodeHeatingSubsystem:
     RICHARDSON_CONSTANT_A_PER_CM2_K2 = 80.0
     RICHARDSON_WORK_FUNCTION_EV = 2.69
     BOLTZMANN_CONSTANT_EV_PER_K = 8.617333262145e-5
+    
+    # Empirical correction for using the ES440 heater V-I characterization as an
+    # outside-LUT fallback with CCS experimental LUT data.
+    #
+    # The Cbmark_Beam_A_07_2025 LUT boundary gives 6.03 A -> 0.81 V, while the
+    # uncorrected ES440 V-I model gives about 0.5174 V at 6.03 A. The offset
+    # below keeps the extrapolated ES440 V-I curve continuous with that
+    # experimental boundary without changing in-domain LUT interpolation.
+    HEATER_IV_CORRECTION_ENABLED = True
+    HEATER_IV_VOLTAGE_OFFSET_V = 0.2926
 
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
@@ -2947,19 +2957,30 @@ class CathodeHeatingSubsystem:
         return float(np.pi * radius_cm * radius_cm)
 
     def _estimate_heater_voltage_from_current_model(self, current):
-        """Estimate heater voltage from ES440 heater-current/voltage data."""
-        return self._linear_model_value(
+        """Estimate heater voltage from the corrected ES440 heater V-I model."""
+        voltage = self._linear_model_value(
             ES440_cathode.heater_voltage_current_data,
             current,
             x_index=0,
             y_index=1,
         )
+        if voltage is None:
+            return None
+        if self.HEATER_IV_CORRECTION_ENABLED:
+            voltage += self.HEATER_IV_VOLTAGE_OFFSET_V
+        return voltage
 
     def _estimate_heater_current_from_voltage_model(self, voltage):
-        """Estimate heater current from ES440 heater-current/voltage data."""
+        """Estimate heater current from the corrected ES440 heater V-I model."""
+        try:
+            model_voltage = float(voltage)
+        except (TypeError, ValueError):
+            return None
+        if self.HEATER_IV_CORRECTION_ENABLED:
+            model_voltage -= self.HEATER_IV_VOLTAGE_OFFSET_V
         return self._linear_model_value(
             ES440_cathode.heater_voltage_current_data,
-            voltage,
+            model_voltage,
             x_index=1,
             y_index=0,
         )
