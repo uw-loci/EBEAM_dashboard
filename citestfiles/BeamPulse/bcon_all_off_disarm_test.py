@@ -20,6 +20,7 @@ from instrumentctl.BCON.bcon_driver import (  # noqa: E402
     TOTAL_REGS,
 )
 from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem  # noqa: E402
+from utils import LogLevel  # noqa: E402
 
 
 class FakeOpenSerial:
@@ -212,6 +213,74 @@ class FakeStopAllBCONDriver:
 
     def reset_channel_enable_cache(self, enabled=False):
         self.reset_enable_cache_calls.append(bool(enabled))
+
+
+class FakeArmBCONDriver:
+    def __init__(self, serial_exists=True, connected=True):
+        self._serial = FakeOpenSerial() if serial_exists else None
+        self.connected = connected
+
+    def is_connected(self):
+        return self.connected
+
+
+class BeamPulseArmBeamsTest(unittest.TestCase):
+    def make_subsystem(self, serial_exists=True, connected=True):
+        subsystem = object.__new__(BeamPulseSubsystem)
+        subsystem.bcon_driver = FakeArmBCONDriver(
+            serial_exists=serial_exists,
+            connected=connected,
+        )
+        subsystem.beams_armed_status = False
+        subsystem.armed_status_updates = []
+        subsystem.armed_button_updates = []
+        subsystem._armed_status_callback = subsystem.armed_status_updates.append
+        subsystem._update_armed_button_states = subsystem.armed_button_updates.append
+        subsystem.log_events = []
+        subsystem.logs = []
+        subsystem._log_event = lambda message, level=None: subsystem.log_events.append(
+            (message, level)
+        )
+        subsystem._log = lambda message, level=None: subsystem.logs.append((message, level))
+        return subsystem
+
+    def test_arm_returns_false_without_bcon_serial(self):
+        subsystem = self.make_subsystem(serial_exists=False, connected=True)
+
+        ok = subsystem.arm_beams()
+
+        self.assertFalse(ok)
+        self.assertFalse(subsystem.beams_armed_status)
+        self.assertEqual(subsystem.armed_status_updates, [])
+        self.assertEqual(subsystem.armed_button_updates, [])
+        self.assertEqual(
+            subsystem.log_events,
+            [("Failed to arm beams: BCON serial port is not open", LogLevel.ERROR)],
+        )
+
+    def test_arm_returns_false_when_bcon_is_disconnected(self):
+        subsystem = self.make_subsystem(serial_exists=True, connected=False)
+
+        ok = subsystem.arm_beams()
+
+        self.assertFalse(ok)
+        self.assertFalse(subsystem.beams_armed_status)
+        self.assertEqual(subsystem.armed_status_updates, [])
+        self.assertEqual(subsystem.armed_button_updates, [])
+        self.assertEqual(
+            subsystem.log_events,
+            [("Failed to arm beams: BCON device not connected", LogLevel.ERROR)],
+        )
+
+    def test_arm_sets_armed_when_bcon_serial_exists_and_connected(self):
+        subsystem = self.make_subsystem(serial_exists=True, connected=True)
+
+        ok = subsystem.arm_beams()
+
+        self.assertTrue(ok)
+        self.assertTrue(subsystem.beams_armed_status)
+        self.assertEqual(subsystem.armed_status_updates, [True])
+        self.assertEqual(subsystem.armed_button_updates, [True])
 
 
 class BeamPulseDisarmBeamsTest(unittest.TestCase):
