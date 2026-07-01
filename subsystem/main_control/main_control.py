@@ -1421,8 +1421,13 @@ class MainControlPanel:
                 return False
             turn_off = getattr(cathode, "turn_off_all_beams", None)
             if callable(turn_off):
-                self.logger.warning("BCON manual disconnect requested; disabling CCS output")
-                turn_off()
+                self._log_warning("BCON manual disconnect requested; disabling CCS output")
+                if not turn_off():
+                    self._log_error("BCON manual disconnect blocked; CCS output shutdown was not confirmed")
+                    return False
+            elif ccs_output_active:
+                self._log_error("BCON manual disconnect blocked; Cathode Heating turn_off_all_beams API is unavailable")
+                return False
         return True
 
     def _handle_bcon_disconnected(self):
