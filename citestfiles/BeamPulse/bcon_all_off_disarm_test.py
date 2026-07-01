@@ -10,7 +10,13 @@ from instrumentctl.BCON.bcon_driver import (  # noqa: E402
     BCONCommandResult,
     BCONDriver,
     COMMAND_ALL_OFF,
+    REG_CMD_QUEUE_DEPTH,
     REG_COMMAND,
+    REG_LAST_CMD_CODE,
+    REG_LAST_CMD_RESULT,
+    REG_LAST_CMD_SEQ,
+    REG_LAST_REJECT_REASON,
+    REG_SUP_STATE,
     TOTAL_REGS,
 )
 from subsystem.beam_pulse.beam_pulse import BeamPulseSubsystem  # noqa: E402
@@ -50,13 +56,22 @@ def command_snapshot(seq, code=COMMAND_ALL_OFF, result=BCONCommandResult.EXECUTE
     }
 
 
+def seed_cached_command_snapshot(driver, snapshot):
+    driver._regs[REG_SUP_STATE] = snapshot["supervisor_state_code"]
+    driver._regs[REG_CMD_QUEUE_DEPTH] = snapshot["cmd_queue_depth"]
+    driver._regs[REG_LAST_CMD_CODE] = snapshot["last_command_code"]
+    driver._regs[REG_LAST_CMD_RESULT] = snapshot["last_command_result_code"]
+    driver._regs[REG_LAST_REJECT_REASON] = snapshot["last_reject_reason_code"]
+    driver._regs[REG_LAST_CMD_SEQ] = snapshot["last_cmd_seq"]
+
+
 class BCONAllOffDriverTest(unittest.TestCase):
-    def test_forced_immediate_write_can_use_open_serial_when_connected_flag_is_false(self):
+    def test_forced_immediate_write_uses_cached_baseline_when_connected_flag_is_false(self):
         driver = make_driver()
         writes = []
         confirms = []
         baseline = command_snapshot(7)
-        driver._read_command_snapshot_raw = lambda: baseline
+        seed_cached_command_snapshot(driver, baseline)
         driver._write_register_raw = lambda reg, value: writes.append((reg, value))
 
         def confirm(cmd_code, baseline=None, require_connected=True):
@@ -75,15 +90,19 @@ class BCONAllOffDriverTest(unittest.TestCase):
         self.assertEqual(writes, [(REG_COMMAND, COMMAND_ALL_OFF)])
         self.assertEqual(confirms, [(COMMAND_ALL_OFF, baseline, False)])
 
-    def test_immediate_command_sends_write_but_fails_when_preread_fails(self):
+    def test_immediate_command_does_not_raw_preread_before_write(self):
         driver = make_driver()
         writes = []
+        confirms = []
+        baseline = command_snapshot(9)
+        seed_cached_command_snapshot(driver, baseline)
 
         def preread():
-            raise RuntimeError("diagnostics offline")
+            self.fail("write_register_immediate should not raw-read before sending")
 
-        def confirm(*args, **kwargs):
-            self.fail("write_register_immediate should not confirm without a pre-read")
+        def confirm(cmd_code, baseline=None, require_connected=True):
+            confirms.append((cmd_code, baseline, require_connected))
+            return {"accepted": True}
 
         driver._read_command_snapshot_raw = preread
         driver._write_register_raw = lambda reg, value: writes.append((reg, value))
@@ -95,15 +114,10 @@ class BCONAllOffDriverTest(unittest.TestCase):
             require_connected=False,
         )
 
-        self.assertFalse(ok)
+        self.assertTrue(ok)
         self.assertEqual(writes, [(REG_COMMAND, COMMAND_ALL_OFF)])
-        self.assertFalse(any(msg[0] == "command_result" for msg in driver.ui_messages))
-        self.assertTrue(
-            any(
-                msg[0] == "error" and "confirmation pre-read failed" in msg[1]
-                for msg in driver.ui_messages
-            )
-        )
+        self.assertEqual(confirms, [(COMMAND_ALL_OFF, baseline, False)])
+        self.assertFalse(any(msg[0] == "error" for msg in driver.ui_messages))
 
     def test_stop_all_clears_queue_and_uses_forced_confirmed_write(self):
         driver = make_driver()
