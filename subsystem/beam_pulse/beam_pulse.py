@@ -1975,6 +1975,13 @@ class BeamPulseSubsystem:
     # --- Safety ---
 
     def arm_beams(self) -> bool:
+        if not self.bcon_driver or getattr(self.bcon_driver, "_serial", None) is None:
+            self._log_event("Failed to arm beams: BCON serial port is not open", LogLevel.ERROR)
+            return False
+        if not self.bcon_driver.is_connected():
+            self._log_event("Failed to arm beams: BCON device not connected", LogLevel.ERROR)
+            return False
+
         self.beams_armed_status = True
         self._notify_armed_status(True)
         self._log("Beams ARMED (software-only)", LogLevel.INFO)
