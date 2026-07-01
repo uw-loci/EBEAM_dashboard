@@ -302,7 +302,8 @@ class BCONDriver:
 
         # Serial port (raw pyserial — replaces pymodbus which has a v3 framer bug)
         self._serial: Optional[serial.Serial] = None
-        self._serial_lock = threading.Lock()  # serialize all serial I/O
+        self._serial_lock = threading.RLock()  # serialize all serial I/O
+        self._write_epoch = 0
         self._connected = False
 
         # Write command queue (thread-safe)
@@ -755,10 +756,15 @@ class BCONDriver:
 
         return response[:-2]  # strip CRC
 
-    def _write_register_raw(self, reg: int, val: int):
+    def _write_register_raw(self, reg: int, val: int, epoch: Optional[int] = None) -> bool:
         """Write a single holding register (FC 0x06) via raw serial."""
-        payload = struct.pack(">BBHH", self.unit, 0x06, reg, int(val) & 0xFFFF)
-        self._serial_transaction(payload, 8)  # FC 0x06 response is always 8 bytes
+        with self._serial_lock:
+            if epoch is not None and epoch != self._write_epoch:
+                self._log(f"Dropped stale queued write after ALL_OFF: R{reg}={val}", "DEBUG")
+                return False
+            payload = struct.pack(">BBHH", self.unit, 0x06, reg, int(val) & 0xFFFF)
+            self._serial_transaction(payload, 8)  # FC 0x06 response is always 8 bytes
+            return True
 
     def _read_holding_registers_raw(self, start: int, count: int) -> list:
         """Read holding registers (FC 0x03) via raw serial. Returns list of ints."""
@@ -788,7 +794,9 @@ class BCONDriver:
             reg: Register address.
             value: 16-bit unsigned value.
         """
-        self._cmd_queue.put(("write", reg, value))
+        with self._serial_lock:
+            epoch = self._write_epoch
+        self._cmd_queue.put(("write", reg, value, epoch))
 
     def write_register_immediate(self, reg: int, value: int,
                                  require_connected: bool = True) -> bool:
@@ -882,7 +890,7 @@ class BCONDriver:
                 while not self._cmd_queue.empty():
                     cmd = self._cmd_queue.get_nowait()
                     if cmd[0] == "write":
-                        _, reg, val = cmd
+                        _, reg, val, epoch = cmd
                         if not (self._serial and self._connected):
                             self._log(f"Dropped queued write while disconnected: R{reg}={val}", "DEBUG")
                             continue
@@ -892,7 +900,9 @@ class BCONDriver:
                         if reg == REG_COMMAND and val != COMMAND_NOP:
                             baseline = self._get_cached_command_snapshot()
                         try:
-                            self._write_register_raw(reg, val)
+                            wrote = self._write_register_raw(reg, val, epoch=epoch)
+                            if not wrote:
+                                continue
                             self._ui_put("wrote", reg, val)
                             if baseline is not None:
                                 self._confirm_command_write(val, baseline=baseline)
@@ -1187,18 +1197,20 @@ class BCONDriver:
 
     def stop_all(self) -> bool:
         """Force all three channels OFF using a confirmed firmware command."""
-        self._clear_cmd_queue()
-        try:
-            ok = self.write_register_immediate(
-                REG_COMMAND,
-                COMMAND_ALL_OFF,
-                require_connected=False,
-            )
-            if not ok:
-                self._log("ALL_OFF command was not confirmed", "ERROR")
-            return ok
-        finally:
+        with self._serial_lock:
+            self._write_epoch += 1
             self._clear_cmd_queue()
+            try:
+                ok = self.write_register_immediate(
+                    REG_COMMAND,
+                    COMMAND_ALL_OFF,
+                    require_connected=False,
+                )
+                if not ok:
+                    self._log("ALL_OFF command was not confirmed", "ERROR")
+                return ok
+            finally:
+                self._clear_cmd_queue()
 
     # ================================================================== #
     #              Synchronous Multi-Channel Start/Stop                    #

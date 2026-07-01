@@ -22,8 +22,11 @@ class FakeOpenSerial:
 
 def make_driver():
     driver = object.__new__(BCONDriver)
+    driver.unit = 1
     driver._connected = False
     driver._serial = FakeOpenSerial()
+    driver._serial_lock = threading.RLock()
+    driver._write_epoch = 0
     driver._cmd_queue = queue.Queue()
     driver._regs = [0] * TOTAL_REGS
     driver._regs_lock = threading.Lock()
@@ -117,6 +120,34 @@ class BCONAllOffDriverTest(unittest.TestCase):
         self.assertTrue(driver.stop_all())
         self.assertEqual(calls, [(REG_COMMAND, COMMAND_ALL_OFF, False)])
         self.assertTrue(driver._cmd_queue.empty())
+        self.assertEqual(driver._write_epoch, 1)
+
+    def test_stale_epoch_write_is_dropped_before_serial_transaction(self):
+        driver = make_driver()
+        driver._write_epoch = 1
+        transactions = []
+        driver._serial_transaction = lambda payload, expected_min: transactions.append(
+            (payload, expected_min)
+        )
+
+        ok = driver._write_register_raw(REG_COMMAND, COMMAND_ALL_OFF, epoch=0)
+
+        self.assertFalse(ok)
+        self.assertEqual(transactions, [])
+
+    def test_current_epoch_write_reaches_serial_transaction(self):
+        driver = make_driver()
+        driver._write_epoch = 1
+        transactions = []
+        driver._serial_transaction = lambda payload, expected_min: transactions.append(
+            (payload, expected_min)
+        )
+
+        ok = driver._write_register_raw(REG_COMMAND, COMMAND_ALL_OFF, epoch=1)
+
+        self.assertTrue(ok)
+        self.assertEqual(len(transactions), 1)
+        self.assertEqual(transactions[0][1], 8)
 
     def test_executed_command_requires_sequence_advance(self):
         driver = make_driver()
