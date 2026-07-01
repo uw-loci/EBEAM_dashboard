@@ -220,7 +220,10 @@ limit or projected emission current is at or above the configured limit, then ca
 requested modes, then commits them together with the firmware apply command.
 
 `disable_all_beams()` calls confirmed `bcon_driver.stop_all()` and clears local
-output state only after the BCON all-off command is confirmed.
+output state only after the BCON all-off command is confirmed. The driver
+invalidates pre-existing queued writes during this all-off path, so a Beam
+ON/apply write that was queued or already dequeued before the stop request
+cannot run after the confirmed `ALL_OFF`.
 
 ## CSV Sequences
 
@@ -309,3 +312,7 @@ Cleanup paths:
 - Most command writes are queued through the driver poll thread. Channel enable
   writes and BCON all-off use immediate confirmed write paths so Dashboard state
   changes can reflect confirmed firmware responses.
+- The BCON driver tags queued writes with a write epoch. `stop_all()` advances
+  that epoch under the serial lock and clears pending queue entries, causing
+  stale pre-all-off poll-thread writes to be dropped before they reach the
+  serial port.

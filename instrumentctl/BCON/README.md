@@ -133,6 +133,13 @@ Force all channels to OFF mode immediately. Returns `True` only when firmware
 diagnostics confirm the `ALL_OFF` command executed; disconnected, rejected, or
 inconclusive results return `False`.
 
+Before sending `ALL_OFF`, the driver advances an internal write epoch while
+holding the serial lock and clears the pending write queue. Queued writes carry
+the epoch captured when they were enqueued, so any poll-thread write that was
+already dequeued before `ALL_OFF` but reaches the serial port afterward is
+dropped as stale. This prevents earlier output-producing writes from running
+after a confirmed all-off shutdown.
+
 ### Configuration
 
 #### `set_watchdog(timeout_ms: int) -> bool`
@@ -187,7 +194,11 @@ if not bcon.set_channel_dc(1):
 
 ## Thread Safety
 
-The driver uses a threading lock (`_serial_lock`) to ensure thread-safe access to the serial port. Multiple threads can safely call driver methods concurrently.
+The driver uses a threading lock (`_serial_lock`) to ensure thread-safe access
+to the serial port. Multiple threads can safely call driver methods
+concurrently. Queued writes are also tagged with an internal write epoch;
+`stop_all()` advances that epoch to invalidate queued or already-dequeued writes
+from before the all-off request.
 
 ## Dependencies
 
