@@ -102,6 +102,7 @@ The `Config` tab includes:
 - Overcurrent protection (OCP).
 - Current slew rate.
 - Voltage slew rate.
+- Measured voltage/current difference warning thresholds.
 - `Log Power Settings` button and status readback.
 
 ## Output Modes
@@ -244,6 +245,47 @@ The UI tracks three different kinds of values:
 
 This separation is useful during ramps because the sent value can change step-by-step before the measured value settles.
 
+## Warning and Highlight Behavior
+
+The cathode UI has two warning/highlight paths:
+
+- Measured-output sent-vs-measured warnings for heater voltage and current.
+- Overtemperature warning state for clamp temperature.
+
+### Sent-vs-Measured Voltage and Current Warnings
+
+Each cathode has two configurable thresholds on the `Config` tab:
+
+- `Voltage Diff Warning (%)`
+- `Current Diff Warning (%)`
+
+The warning calculation is:
+
+```text
+abs(measured - sent) > abs(sent) * threshold_percent / 100
+```
+
+If that condition remains true for more `1.5`s the measured voltage or current box turns orange and a warning is logged once for that continuous breach. 
+
+Important nuances:
+
+- Voltage warnings are active only while output is enabled and the live 9104 mode is `CV Mode`.
+- Current warnings are active only while output is enabled and the live 9104 mode is `CC Mode`.
+- Warnings are cleared when output is off, readback is unavailable, the sent value is missing or invalid, the sent value is zero, the threshold changes, or the corresponding goal is cleared.
+- A `0%` threshold is allowed. With a nonzero sent value, any nonzero measured difference can warn after the delay.
+- A sent value of zero disables the percent-difference warning for that channel.
+- During a ramp, every successful sent update clears the warning timer for that channel.
+- COM-port reinitialization and reconnect paths reset live readbacks and command readiness, but the displayed sent values can represent the last successful command from before the reconnect until a new command updates them.
+
+### Overtemperature Warning
+
+When the measured temperature is above the configured limit:
+
+- The measured clamp-temperature box turns orange.
+- A critical log entry is emitted: `Cathode X OVERTEMP!`.
+
+When temperature returns below the limit, the measured temperature box returns to the normal measured-output background and status returns to `Normal`. If temperature is unavailable, status becomes `N/A` and the box is also returned to normal.
+
 ## Data Refresh Loop
 
 `update_data()` is the main GUI refresh loop. It runs every 500 ms and, for each cathode:
@@ -252,8 +294,9 @@ This separation is useful during ramps because the sent value can change step-by
 - Reads the latest 9104 voltage, current, and CV/CC mode snapshot.
 - Marks power-supply readbacks unavailable when the snapshot says the supply is disconnected or the read is invalid.
 - Publishes valid heater current and voltage readbacks to the logger.
+- Updates measured voltage/current warning highlights from sent-vs-measured comparisons.
 - Reads the latest clamp temperature data from the temperature-controller interface.
-- Updates overtemperature state and plot color.
+- Updates overtemperature status, temperature-box highlight, and plot color.
 - Appends plot data on the plot interval.
 - Schedules the next update with `self.parent.after(500, self.update_data)`.
 
@@ -520,16 +563,20 @@ flowchart TB
     CacheOK -- No --> ClearPS["Clear heater readback displays
     and publish None values"]
 
-    UpdatePS --> ReadTemp["Read cached E5CN temperature"]
-    ClearPS --> ReadTemp
+    UpdatePS --> WarnCheck["Update sent-vs-measured
+    voltage/current warnings"]
+    ClearPS --> WarnCheck
+    WarnCheck --> ReadTemp["Read cached E5CN temperature"]
     ReadTemp --> TempValid{"Temperature is a float?"}
     TempValid -- No --> TempUnavailable["Show -- C
     and update plot error state"]
     TempValid -- Yes --> CheckOT{"Temperature >
     overtemp limit?"}
     CheckOT -- Yes --> OTActions["Set OVERTEMP status
+    orange temp box
     and red plot state"]
     CheckOT -- No --> NormalTemp["Set Normal status
+    normal temp box
     and normal plot state"]
 
     OTActions --> PlotCheck{"5-second plot interval elapsed?"}
