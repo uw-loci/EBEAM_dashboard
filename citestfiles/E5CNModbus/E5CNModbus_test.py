@@ -140,9 +140,32 @@ class TestE5CNModbus(unittest.TestCase):
         result = self.device.stop_reading()
 
         self.assertFalse(result)
-        live_thread.join.assert_called_once_with(timeout=self.device.THREAD_JOIN_TIMEOUT)
+        self.assertEqual(live_thread.join.call_count, 2)
+        live_thread.join.assert_called_with(timeout=self.device.THREAD_JOIN_TIMEOUT)
         self.device.disconnect.assert_called_once()
         self.assertEqual(self.device.threads, [live_thread])
+
+    def test_stop_reading_returns_true_when_disconnect_unblocks_thread(self):
+        """A reader unblocked by disconnect is cleared before reporting success."""
+        blocked_thread = MagicMock()
+        blocked_thread.name = "TempReader-Unit1"
+        disconnected = {"value": False}
+        blocked_thread.is_alive.side_effect = lambda: not disconnected["value"]
+
+        def disconnect():
+            disconnected["value"] = True
+            return True
+
+        self.device.threads = [blocked_thread]
+        self.device.disconnect = MagicMock(side_effect=disconnect)
+
+        result = self.device.stop_reading()
+
+        self.assertTrue(result)
+        self.assertEqual(blocked_thread.join.call_count, 2)
+        blocked_thread.join.assert_called_with(timeout=self.device.THREAD_JOIN_TIMEOUT)
+        self.device.disconnect.assert_called_once()
+        self.assertEqual(self.device.threads, [])
 
     def test_stop_reading_clears_stopped_threads(self):
         """Stopped reader threads are removed after a clean shutdown."""
