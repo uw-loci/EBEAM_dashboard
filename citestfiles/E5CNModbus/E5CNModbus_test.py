@@ -113,6 +113,7 @@ class TestE5CNModbus(unittest.TestCase):
         
         with patch('threading.Thread') as mock_thread:
             mock_thread_instance = MagicMock()
+            mock_thread_instance.is_alive.return_value = False
             mock_thread.return_value = mock_thread_instance
 
             # start reading
@@ -124,7 +125,39 @@ class TestE5CNModbus(unittest.TestCase):
             mock_thread_instance.start.assert_called()
 
             # stop reading
-            self.device.stop_reading()
+            self.device.disconnect = MagicMock(return_value=True)
+            self.assertTrue(self.device.stop_reading())
+            self.assertEqual(self.device.threads, [])
+
+    def test_stop_reading_returns_false_when_thread_stays_alive(self):
+        """A live reader thread makes shutdown unsafe even if disconnect succeeds."""
+        live_thread = MagicMock()
+        live_thread.name = "TempReader-Unit1"
+        live_thread.is_alive.return_value = True
+        self.device.threads = [live_thread]
+        self.device.disconnect = MagicMock(return_value=True)
+
+        result = self.device.stop_reading()
+
+        self.assertFalse(result)
+        live_thread.join.assert_called_once_with(timeout=self.device.THREAD_JOIN_TIMEOUT)
+        self.device.disconnect.assert_called_once()
+        self.assertEqual(self.device.threads, [live_thread])
+
+    def test_stop_reading_clears_stopped_threads(self):
+        """Stopped reader threads are removed after a clean shutdown."""
+        stopped_thread = MagicMock()
+        stopped_thread.name = "TempReader-Unit1"
+        stopped_thread.is_alive.return_value = False
+        self.device.threads = [stopped_thread]
+        self.device.disconnect = MagicMock(return_value=True)
+
+        result = self.device.stop_reading()
+
+        self.assertTrue(result)
+        stopped_thread.join.assert_called_once_with(timeout=self.device.THREAD_JOIN_TIMEOUT)
+        self.device.disconnect.assert_called_once()
+        self.assertEqual(self.device.threads, [])
 
     def test_error_handling(self):
         """Test error handling during temperature reading"""
