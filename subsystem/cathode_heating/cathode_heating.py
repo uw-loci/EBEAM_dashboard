@@ -2918,6 +2918,17 @@ class CathodeHeatingSubsystem:
             self.ramp_toggle_buttons[index].config(text="RAMP OFF", style='RampOff.TButton')
             self.log(f"Disabled voltage ramping for Cathode {['A', 'B', 'C'][index]} - voltage changes will be immediate", LogLevel.INFO)
 
+    def _set_output_toggle_state(self, index: int, state: bool):
+        self.toggle_states[index] = bool(state)
+        current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
+        self.toggle_buttons[index].config(image=current_image)
+
+    def _log_uncertain_output_state(self, index: int, reason: str):
+        self.log(
+            f"Cathode {['A', 'B', 'C'][index]} output disable failed after {reason}; output state is uncertain.",
+            LogLevel.CRITICAL,
+        )
+
     def toggle_output(self, index, control_mode: str = None):
         if not self.power_supplies_initialized or not self.power_supplies:
             self.log("Power supplies not properly initialized or list is empty.", LogLevel.ERROR)
@@ -3061,7 +3072,9 @@ class CathodeHeatingSubsystem:
                     )
                     if not ramp_started:
                         self.log(f"Failed to start current ramp for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                        self.power_supplies[index].disable_output()
+                        if not self.power_supplies[index].disable_output():
+                            self._set_output_toggle_state(index, True)
+                            self._log_uncertain_output_state(index, "current ramp start failure")
                         return
                     self.on_ramp_start(index)
                 elif target_voltage is not None and control_mode == "voltage":
@@ -3099,7 +3112,9 @@ class CathodeHeatingSubsystem:
                     )
                     if not ramp_started:
                         self.log(f"Failed to start voltage ramp for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
-                        self.power_supplies[index].disable_output()
+                        if not self.power_supplies[index].disable_output():
+                            self._set_output_toggle_state(index, True)
+                            self._log_uncertain_output_state(index, "voltage ramp start failure")
                         return
                     self.on_ramp_start(index)
             else: # ramp is off; Immediate Set both voltage and current
@@ -3119,15 +3134,15 @@ class CathodeHeatingSubsystem:
             if output_disabled:
                 self.log(f"Disabled output for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
             else:
-                self.log(f"Failed to disable output for Cathode {['A', 'B', 'C'][index]}", LogLevel.ERROR)
+                self._log_uncertain_output_state(index, "manual OFF request")
+                self.on_ramp_complete(index)
+                return
             self.on_ramp_complete(index)
             self._clear_measured_output_warning(index, "voltage")
             self._clear_measured_output_warning(index, "current")
 
         # Update the toggle state and button image
-        self.toggle_states[index] = new_state
-        current_image = self.toggle_on_image if self.toggle_states[index] else self.toggle_off_image
-        self.toggle_buttons[index].config(image=current_image)
+        self._set_output_toggle_state(index, new_state)
 
     def turn_off_all_beams(self):
         """
@@ -4120,9 +4135,10 @@ class CathodeHeatingSubsystem:
                     if not self.power_supplies[index].set_current(3, new_current, sent_callback=sent_current_callback):
                         # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set current for Cathode {['A', 'B', 'C'][index]} power supply prior to voltage ramp", LogLevel.ERROR)
-                        self.power_supplies[index].disable_output()
-                        self.toggle_states[index] = False
-                        self.toggle_buttons[index].config(image=self.toggle_off_image)
+                        if self.power_supplies[index].disable_output():
+                            self._set_output_toggle_state(index, False)
+                        else:
+                            self._log_uncertain_output_state(index, "current setup failure before voltage ramp")
                         return
 
                     # Ramp Voltage
@@ -4197,9 +4213,10 @@ class CathodeHeatingSubsystem:
                     if not self.power_supplies[index].set_voltage(3, new_voltage, sent_callback=sent_voltage_callback):
                         # Log, disable output, and prevent ramp operation
                         self.log(f"Failed to set voltage for Cathode {['A', 'B', 'C'][index]} power supply prior to current ramp", LogLevel.ERROR)
-                        self.power_supplies[index].disable_output()
-                        self.toggle_states[index] = False
-                        self.toggle_buttons[index].config(image=self.toggle_off_image)
+                        if self.power_supplies[index].disable_output():
+                            self._set_output_toggle_state(index, False)
+                        else:
+                            self._log_uncertain_output_state(index, "voltage setup failure before current ramp")
                         return
 
                     # Ramp Current

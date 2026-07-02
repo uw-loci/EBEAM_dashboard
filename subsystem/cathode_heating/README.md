@@ -191,6 +191,25 @@ When the output toggle is switched on, `toggle_output()` also verifies:
 
 If any of those checks fail, output is not enabled.
 
+### Output Disable And Uncertain State
+
+Cathode Heating treats `PowerSupply9104.disable_output()` success as the point at
+which the dashboard may show a cathode output as off. `disable_output()` sends
+`SOUT0` without preset-voltage or OVP validation and returns true only when the
+9104 command response contains `OK`. It does not perform a separate `GOUT`
+readback.
+
+If `disable_output()` fails, the hardware output state is uncertain. This can
+happen if the serial lock cannot be acquired, the COM port is closed or
+disconnected, the 9104 does not respond, the response does not contain `OK`, or
+serial I/O raises an exception.
+
+When output disable cannot be confirmed, the dashboard logs a critical message
+and keeps the affected cathode output toggle showing ON. For ramp-start failures
+after `set_output("1")` has already succeeded, a failed cleanup disable also
+sets the toggle to ON, because the output may already be energized. The dashboard
+only changes the toggle to OFF after a successful disable acknowledgement.
+
 ## BCON Disconnect Guard
 
 Main Control gives Cathode Heating:
