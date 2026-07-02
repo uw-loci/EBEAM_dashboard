@@ -125,8 +125,9 @@ Beam Pulse calls back into Main Control with:
 Main Control uses Cathode Heating in three ways:
 
 - It exposes `get_predicted_emission_currents_ma()` to Beam Pulse so Beam Pulse
-  can block output commands that would exceed the configured total predicted
-  emission-current limit.
+  can block output commands, when the emission-current limit is enabled, if
+  projected cathode emission predictions are unknown/invalid or would exceed the
+  configured total predicted emission-current limit.
 - It exposes the VTRX pressure guard setting, threshold, and latest valid VTRX
   pressure to Beam Pulse so output commands are blocked while pressure is above
   1e-5 mbar.
@@ -136,10 +137,10 @@ Main Control uses Cathode Heating in three ways:
   `turn_off_all_beams()` if BCON disconnects while any cathode output is active.
   The same setting is passed to Cathode Heating so it can block new CCS output
   enables while BCON is disconnected.
-- When VTRX pressure rises above 1e-5 mbar, Main Control starts a CCS shutdown
-  grace-period timer. While the timer is active, Cathode Heating blocks new CCS
-  output enables; if pressure does not recover before the timer elapses, Main
-  Control calls `turn_off_all_beams()`.
+- When VTRX pressure rises above 1e-5 mbar or becomes stale while CCS output is
+  active, Main Control starts a CCS shutdown grace-period timer. While the timer
+  is active, Cathode Heating blocks new CCS output enables; if pressure does not
+  recover before the timer elapses, Main Control calls `turn_off_all_beams()`.
 
 ### Beam Energy
 
@@ -157,10 +158,11 @@ beam-disable guard is enabled, Main Control calls Beam Pulse `disable_all_beams(
 on the first pressure reading above 1e-5 mbar and waits for pressure to recover
 to 1e-5 mbar or below before it can trigger again.
 
-Main Control also uses VTRX pressure to protect CCS output. Pressure above
-1e-5 mbar starts the configured CCS grace-period timer. Subsequent high-pressure
-updates log countdown warnings and shut off active CCS output after the grace
-period elapses. Recovery to 1e-5 mbar or below clears the timer.
+Main Control also uses VTRX pressure to protect CCS output. Stale pressure or
+pressure above 1e-5 mbar starts the configured CCS grace-period timer only when
+CCS output is active. Subsequent unsafe updates log countdown warnings and shut
+off active CCS output after the grace period elapses. Recovery to 1e-5 mbar or
+below, or CCS output becoming inactive, clears the timer.
 
 ### Dashboard
 
@@ -193,7 +195,8 @@ Dashboard callbacks.
   setting. When enabled, a valid VTRX pressure reading greater than 1e-5 mbar
   logs a critical message and disables Beam Pulse output once until pressure
   recovers to 1e-5 mbar or below.
-- Disable CCS Output after the configured grace period above 10^-5 mbar is
-  always active. The grace-period duration is persisted in Main Control config,
-  defaults to 30 seconds, blocks new CCS output enables while counting down, and
-  turns off CCS output if pressure remains high until the timer elapses.
+- Disable CCS Output after the configured grace period above 10^-5 mbar applies
+  when CCS output is active. The grace-period duration is persisted in Main
+  Control config, defaults to 30 seconds, blocks new CCS output enables while
+  counting down, and turns off CCS output if pressure remains unsafe until the
+  timer elapses.
