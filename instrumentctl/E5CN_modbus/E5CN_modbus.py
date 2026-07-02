@@ -174,18 +174,24 @@ class E5CNModbus:
         self.stop_event.set()
         self.connected = False
         
+        threads_stopped = True
+        remaining_threads = []
+
         # Wait for threads to finish
-        for thread in self.threads:
+        for thread in list(self.threads):
             thread.join(timeout=self.THREAD_JOIN_TIMEOUT)
             if thread.is_alive():
+                threads_stopped = False
+                remaining_threads.append(thread)
                 self.log(f"Thread {thread.name} did not stop before timeout", LogLevel.WARNING)
             else:
                 self.log(f"Thread {thread.name} stopped", LogLevel.DEBUG)
             
-        self.threads.clear()
+        self.threads = remaining_threads
         
         try:
-            return self.disconnect()
+            disconnected = self.disconnect()
+            return threads_stopped and disconnected
         finally:
             self.is_initialized.clear()
             self.flush_queued_logs()
