@@ -271,6 +271,7 @@ class CathodeHeatingSubsystem:
         self.actual_heater_current_frames = []
         self.actual_heater_voltage_box_widgets = []
         self.actual_heater_current_box_widgets = []
+        self.actual_heater_temperature_box_widgets = []
         self.power_supply_comms_indicators = []
         self.temperature_comms_indicators = []
 
@@ -472,7 +473,6 @@ class CathodeHeatingSubsystem:
         style.configure('Subpanel.TLabelframe.Label', font=('Segoe UI', 8, 'bold'))
         style.configure('RightAlign.TLabel', font=('Segoe UI', 8), anchor='e')
         style.configure('Small.TLabel', font=('Segoe UI', 8))
-        style.configure('OverTemp.TLabel', foreground='red', font=('Segoe UI', 8, 'bold'))  # Overtemperature style
         style.configure('RampOn.TButton', background='green', foreground='black', font=('Segoe UI', 8, 'bold'), padding=(2, 0))
         style.configure('RampOff.TButton', background='red', foreground='black', font=('Segoe UI', 8, 'bold'), padding=(2, 0)) # Ramp button style
         style.configure('StopInactive.TButton', foreground='grey', font=('Segoe UI', 8), padding=(2, 0))
@@ -912,12 +912,22 @@ class CathodeHeatingSubsystem:
             # Temp
             ttk.Label(measured_frame, text='Temp', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w', padx=(0, 2))
             actual_temp_frame = tk.Frame(measured_frame, bd=1, relief='groove', padx=1, pady=0)
-            actual_temp_frame.configure(bg='#d9d9d9')
+            actual_temp_frame.configure(bg=self.MEASURED_OUTPUT_NORMAL_BG)
             actual_temp_frame.grid(row=0, column=3, sticky='w')
-            actual_temp_label = ttk.Label(actual_temp_frame, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel') 
+            actual_temp_label = tk.Label(
+                actual_temp_frame,
+                textvariable=self.clamp_temperature_vars[i],
+                bg=self.MEASURED_OUTPUT_NORMAL_BG,
+                fg=self.MEASURED_OUTPUT_NORMAL_FG,
+                font=('Segoe UI', 8, 'bold'),
+            )
             actual_temp_label.pack(side='left')
 
             self.clamp_temp_labels.append(actual_temp_label)
+            self.actual_heater_temperature_box_widgets.append([
+                actual_temp_frame,
+                actual_temp_label,
+            ])
 
             # CV / CC mode indicator
             indicator_frame = ttk.Frame(measured_frame)
@@ -2652,18 +2662,18 @@ class CathodeHeatingSubsystem:
             else:
                 self.operation_mode_var[i].set('Mode: --')
 
-            # Overtemperature check and update label style
+            # Overtemperature check and update warning highlight
             if temperature is not None:
                 if temperature > self.overtemp_limit_vars[i].get():
                     self.overtemp_status_vars[i].set("OVERTEMP!")
                     self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
-                    self.clamp_temp_labels[i].config(style='OverTemp.TLabel')  # Change to red style
+                    self._set_measured_temperature_warning_box(i, True)
                 else:
                     self.overtemp_status_vars[i].set('Normal')
-                    self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Revert to normal style
+                    self._set_measured_temperature_warning_box(i, False)
             else:
                 self.overtemp_status_vars[i].set('N/A')
-                self.clamp_temp_labels[i].config(style='Bold.TLabel')
+                self._set_measured_temperature_warning_box(i, False)
 
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
@@ -2786,6 +2796,19 @@ class CathodeHeatingSubsystem:
         for widget in box_widgets[index][1:]:
             widget.configure(fg=self.MEASURED_OUTPUT_NORMAL_FG)
         self.measured_output_warning_active[measurement_type][index] = bool(warning_active)
+
+    def _set_measured_temperature_warning_box(self, index, warning_active):
+        if index >= len(self.actual_heater_temperature_box_widgets):
+            return
+        background_color = (
+            self.MEASURED_OUTPUT_WARNING_BG
+            if warning_active
+            else self.MEASURED_OUTPUT_NORMAL_BG
+        )
+        for widget in self.actual_heater_temperature_box_widgets[index]:
+            widget.configure(bg=background_color)
+        for widget in self.actual_heater_temperature_box_widgets[index][1:]:
+            widget.configure(fg=self.MEASURED_OUTPUT_NORMAL_FG)
 
     def _measured_output_unit(self, measurement_type):
         return "V" if measurement_type == "voltage" else "A"
