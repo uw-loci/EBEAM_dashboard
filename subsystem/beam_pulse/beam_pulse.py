@@ -871,6 +871,7 @@ class BeamPulseSubsystem:
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
             return
+        self._clear_firmware_acks()
         ack = self._queue_firmware_ack("Disable All Beams")
         if not self.bcon_driver.stop_all():
             self._cancel_firmware_ack(ack)
@@ -1952,7 +1953,7 @@ class BeamPulseSubsystem:
                 self._log_once(f"Channel enable status callback failed for {self._channel_name(ch_index)}: {e}", LogLevel.ERROR)
 
         if current:
-            self.send_channel_off(ch_index, firmware_ack=False)
+            self.send_channel_off(ch_index)
 
         state = "enabled" if new_enabled else "disabled"
         self._log_event(f"{self._channel_name(ch_index)} successfully {state}")
@@ -1960,6 +1961,7 @@ class BeamPulseSubsystem:
 
     def stop_all_channels(self, firmware_ack: str = "All OFF") -> bool:
         if self.bcon_driver:
+            self._clear_firmware_acks()
             ack = self._queue_firmware_ack(firmware_ack)
             ok = self.bcon_driver.stop_all()
             if not ok:
@@ -1994,6 +1996,7 @@ class BeamPulseSubsystem:
             self._log_event("Failed to stop all BCON channels during disarm: driver not available", LogLevel.ERROR)
             return False
 
+        self._clear_firmware_acks()
         ack = self._queue_firmware_ack("Disarm all OFF")
         if not self.bcon_driver.stop_all():
             self._cancel_firmware_ack(ack)
