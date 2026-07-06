@@ -1689,7 +1689,7 @@ class MainControlPanel:
                         self._log_critical("Beams E-STOP cannot verify armed state: Beam Pulse get_beams_armed_status API is unavailable")
                     if beams_armed:
                         disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
-                        if callable(disarm_beams) and disarm_beams():
+                        if callable(disarm_beams) and disarm_beams(preserve_pending_acks=True):
                             all_off_confirmed = True
                             self._set_armed_ui(False)
                             self._log_info("Beams disarmed via Beams E-stop button")
