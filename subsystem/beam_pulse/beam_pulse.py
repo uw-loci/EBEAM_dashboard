@@ -1990,13 +1990,14 @@ class BeamPulseSubsystem:
         self._update_armed_button_states(True)
         return True
 
-    def disarm_beams(self) -> bool:
+    def disarm_beams(self, preserve_pending_acks: bool = False) -> bool:
         self._stop_sequence_worker()
         if not self.bcon_driver:
             self._log_event("Failed to stop all BCON channels during disarm: driver not available", LogLevel.ERROR)
             return False
 
-        self._clear_firmware_acks()
+        if not preserve_pending_acks:
+            self._clear_firmware_acks()
         ack = self._queue_firmware_ack("Disarm all OFF")
         if not self.bcon_driver.stop_all():
             self._cancel_firmware_ack(ack)

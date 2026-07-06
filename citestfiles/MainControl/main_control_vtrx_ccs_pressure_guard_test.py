@@ -92,6 +92,7 @@ class FakeBeamPulseEstop:
         self.disarm_result = disarm_result
         self.stop_all_calls = 0
         self.disarm_calls = 0
+        self.disarm_preserve_pending_acks_values = []
 
     def stop_all_channels(self):
         self.stop_all_calls += 1
@@ -100,8 +101,9 @@ class FakeBeamPulseEstop:
     def get_beams_armed_status(self):
         return self.armed
 
-    def disarm_beams(self):
+    def disarm_beams(self, preserve_pending_acks=False):
         self.disarm_calls += 1
+        self.disarm_preserve_pending_acks_values.append(preserve_pending_acks)
         if self.disarm_result:
             self.armed = False
         return self.disarm_result
@@ -277,6 +279,7 @@ class MainControlBeamsOffTest(unittest.TestCase):
 
         self.assertEqual(beam_pulse.stop_all_calls, 1)
         self.assertEqual(beam_pulse.disarm_calls, 1)
+        self.assertEqual(beam_pulse.disarm_preserve_pending_acks_values, [True])
         self.assertTrue(beam_pulse.armed)
         self.assertEqual(cathode.turn_off_calls, 1)
         self.assertEqual(
