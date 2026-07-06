@@ -493,12 +493,10 @@ class BCONDriver:
                 )
                 if (
                     snapshot['last_command_code'] == cmd_code
-                    and (
-                        result_code == int(BCONCommandResult.REJECTED)
-                        or (
-                            result_code == int(BCONCommandResult.EXECUTED)
-                            and sequence_advanced
-                        )
+                    and sequence_advanced
+                    and result_code in (
+                        int(BCONCommandResult.REJECTED),
+                        int(BCONCommandResult.EXECUTED),
                     )
                 ):
                     payload = self._build_command_result_payload(cmd_code, snapshot, baseline)
