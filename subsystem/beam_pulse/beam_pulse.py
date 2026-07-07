@@ -682,7 +682,13 @@ class BeamPulseSubsystem:
             self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
         return False, self._emission_block_message(action, detail)
 
-    def _emission_limit_allows_output(self, action, configs, log_failure: bool = True):
+    def _emission_limit_allows_output(
+        self,
+        action,
+        configs,
+        log_failure: bool = True,
+        check_vtrx_pressure: bool = True,
+    ):
         """Return (allowed, error_message) before any non-OFF output command."""
         active_channels = {
             index
@@ -717,9 +723,10 @@ class BeamPulseSubsystem:
         if not projected_channels:
             return True, None
 
-        allowed, error_message = self._vtrx_pressure_allows_output(action, log_failure)
-        if not allowed:
-            return False, error_message
+        if check_vtrx_pressure:
+            allowed, error_message = self._vtrx_pressure_allows_output(action, log_failure)
+            if not allowed:
+                return False, error_message
 
         enabled_provider = getattr(self, "_emission_limit_enabled_provider", None)
         if callable(enabled_provider):
@@ -1850,6 +1857,7 @@ class BeamPulseSubsystem:
                 "Activate Enabled Beams",
                 enabled_configs,
                 log_failure=False,
+                check_vtrx_pressure=False,
             )
             return bool(allowed)
         except Exception:

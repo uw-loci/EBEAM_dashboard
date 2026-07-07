@@ -32,7 +32,7 @@ class StatusConditions:
 
 
 STATUS_DEFINITIONS = (
-    StatusDefinition(STATUS_TEMPS, "PMON Temperatures Ok"),
+    StatusDefinition(STATUS_TEMPS, "PMON Temperatures OK"),
     StatusDefinition(STATUS_PRESSURE_1E_4, "Pressure Below 1e-4 mbar"),
     StatusDefinition(STATUS_INTERLOCKS, "All Safety Interlocks Pass"),
     StatusDefinition(STATUS_HV_PANEL, "High Voltage Subpanel On"),

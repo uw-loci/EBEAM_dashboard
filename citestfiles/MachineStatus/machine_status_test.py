@@ -285,7 +285,7 @@ class MachineStatusTest(unittest.TestCase):
 
         entries = build_status_transition_logs(previous, current)
 
-        self.assertEqual(entries[0], ("PMON Temperatures Ok", STATE_GRAY, STATE_RED, LogLevel.WARNING))
+        self.assertEqual(entries[0], ("PMON Temperatures OK", STATE_GRAY, STATE_RED, LogLevel.WARNING))
         self.assertEqual(entries[1], ("Pressure Below 1e-4 mbar", STATE_GREEN, STATE_GRAY, LogLevel.INFO))
         self.assertEqual(entries[2], ("All Safety Interlocks Pass", STATE_RED, STATE_GREEN, LogLevel.INFO))
 
