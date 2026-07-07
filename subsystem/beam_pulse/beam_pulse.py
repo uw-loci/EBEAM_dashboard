@@ -682,7 +682,13 @@ class BeamPulseSubsystem:
             self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
         return False, self._emission_block_message(action, detail)
 
-    def _emission_limit_allows_output(self, action, configs, log_failure: bool = True):
+    def _emission_limit_allows_output(
+        self,
+        action,
+        configs,
+        log_failure: bool = True,
+        check_vtrx_pressure: bool = True,
+    ):
         """Return (allowed, error_message) before any non-OFF output command."""
         active_channels = {
             index
@@ -717,9 +723,10 @@ class BeamPulseSubsystem:
         if not projected_channels:
             return True, None
 
-        allowed, error_message = self._vtrx_pressure_allows_output(action, log_failure)
-        if not allowed:
-            return False, error_message
+        if check_vtrx_pressure:
+            allowed, error_message = self._vtrx_pressure_allows_output(action, log_failure)
+            if not allowed:
+                return False, error_message
 
         enabled_provider = getattr(self, "_emission_limit_enabled_provider", None)
         if callable(enabled_provider):
@@ -1817,6 +1824,44 @@ class BeamPulseSubsystem:
             'has_channel_status_callback': self._channel_status_callback is not None,
             'bcon_connected': self.bcon_connection_status,
         }
+
+    def get_machine_status_inputs(self) -> dict:
+        """Return existing Beam Pulse variables needed by MachineStatus."""
+        connected = bool(self.bcon_connection_status and self.is_connected())
+        active_channels = {
+            int(channel)
+            for channel in getattr(self, "_active_channels", set())
+            if isinstance(channel, int)
+        }
+        return {
+            "bcon_connected": connected,
+            "any_beam_active": bool(active_channels),
+            "active_channels": active_channels,
+            "channel_enable_status": list(getattr(self, "channel_enable_status", [])),
+            "beams_armed_status": bool(getattr(self, "beams_armed_status", False)),
+            "activate_enabled_beams_guard_clear": (
+                self._activate_enabled_beams_guard_clear()
+            ),
+        }
+
+    def _activate_enabled_beams_guard_clear(self) -> bool:
+        enabled_configs = [
+            {"ch": index + 1, "mode": "DC", "duration_ms": 0, "count": 1}
+            for index, enabled in enumerate(
+                list(getattr(self, "channel_enable_status", []))[:3]
+            )
+            if enabled
+        ]
+        try:
+            allowed, _message = self._emission_limit_allows_output(
+                "Activate Enabled Beams",
+                enabled_configs,
+                log_failure=False,
+                check_vtrx_pressure=False,
+            )
+            return bool(allowed)
+        except Exception:
+            return False
 
     # --- Hardware driver interface ---
 

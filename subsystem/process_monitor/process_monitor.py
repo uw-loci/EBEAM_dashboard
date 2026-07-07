@@ -226,7 +226,7 @@ class ProcessMonitorSubsystem:
     MAX_VALID_TEMP = 500
     WARNING_LOG_INTERVAL_SECONDS = 60.0
 
-    def __init__(self, parent, com_port, active=None, logger=None):
+    def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
         self.environment_pass = False

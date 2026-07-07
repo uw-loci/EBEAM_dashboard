@@ -90,6 +90,12 @@ class VTRXSubsystem:
     def set_pressure_update_callback(self, callback):
         self._pressure_update_callback = callback if callable(callback) else None
 
+    def get_machine_status_inputs(self):
+        return {
+            "last_valid_pressure_value": getattr(self, "last_valid_pressure_value", None),
+            "pressure_fresh": self._pressure_reading_is_fresh(),
+        }
+
     def update_com_port(self, new_port):
         self.log(f"Updating COM port from {self.serial_port} to {new_port}", LogLevel.INFO)
         

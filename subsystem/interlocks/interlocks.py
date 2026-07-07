@@ -38,11 +38,10 @@ class InterlocksSubsystem:
         'HVolt ON': None
     }
 
-    def __init__(self, parent, com_ports, logger=None, frames=None, active=None):
+    def __init__(self, parent, com_ports, logger=None, frames=None):
         self.parent = parent
         self.logger = logger
         self.frames = frames
-        self.active = active
         self.com_port = com_ports
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
@@ -51,6 +50,7 @@ class InterlocksSubsystem:
         self._last_status = None
         self.hvolt_on = False
         self.after_id = None
+        self.interlock_states = {name: False for name in self.INDICATORS}
         self.setup_gui()
 
         try:
@@ -191,6 +191,7 @@ class InterlocksSubsystem:
         color = 'green' if (safety & data) == 1 else 'red'
 
         if name in self.INDICATORS:
+            self.interlock_states[name] = color == 'green'
             canvas, oval_id = self.INDICATORS[name]
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
@@ -206,11 +207,16 @@ class InterlocksSubsystem:
 
         if self.INDICATORS:
             for name in self.INDICATORS:
+                self.interlock_states[name] = color == 'green'
                 canvas, oval_id = self.INDICATORS[name]
                 current_color = canvas.itemcget(oval_id, 'fill')
                 if current_color != color:
                     canvas.itemconfig(oval_id, fill=color)
                     self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+
+    def get_interlock_status(self, name):
+        """Return the latest non-Tk boolean state for one interlock indicator."""
+        return bool(self.interlock_states.get(name, False))
 
     def _check_terminal_status(self, data, status_dict, terminal_type):
         """
@@ -331,10 +337,6 @@ class InterlocksSubsystem:
                 # Checks all 11 first interlocks
                 all_good = sitsf_bits[:11] == sitdf_bits[:11] == [1] * 11
                 self.update_interlock("All Interlocks", True, all_good)
-
-                # Updates progress bar on dashboard if all interlocks pass
-                if self.active:
-                    self.active['Interlocks Pass'] = all_good
 
                 # High Voltage Interlock (unrelated to All interlocks)
                 self.hvolt_on = sitsf_bits[11] == 1 and sitdf_bits[11] == 0
