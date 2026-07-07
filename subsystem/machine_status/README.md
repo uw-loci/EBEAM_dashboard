@@ -190,7 +190,7 @@ Stays gray or becomes behind-red when:
 - Either `+1 kV` or `-1 kV` has missing data.
 - Either `+1 kV` or `-1 kV` is outside its warning limits.
 - Either `+1 kV` or `-1 kV` has an interlock flag active.
-- Logic Arduino communication is unavailable.
+- Matsusada Monitoring Arduino communication is unavailable.
 
 ### 8. Cathode Heating
 
