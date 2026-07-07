@@ -18,13 +18,13 @@ DEFAULT_PROCESS_MONITOR_CONFIG = {
             "warning_min_c": -90.0,
             "warning_max_c": 500.0,
             "display_min_c": 10.0,
-            "display_max_c": 120.0,
+            "display_max_c": 130.0,
         },
         "Solenoid 2": {
             "warning_min_c": -90.0,
             "warning_max_c": 500.0,
             "display_min_c": 10.0,
-            "display_max_c": 120.0,
+            "display_max_c": 130.0,
         },
         "Chamber Top": {
             "warning_min_c": -90.0,

@@ -89,13 +89,10 @@ class TemperatureBar(tk.Canvas):
             tags='static'
         )
 
-        temp_range = self.temp_max - self.temp_min
-
         # Scale marks and labels
-        divisions = 5
-        for step in range(divisions + 1):
-            value = self.temp_min + (temp_range * step / divisions)
-            relative_pos = step / divisions
+        temp_range = self.temp_max - self.temp_min
+        for value in self._scale_tick_values(self.temp_min, self.temp_max):
+            relative_pos = (value - self.temp_min) / temp_range
             x = self.scale_left + (relative_pos * scale_width)
             self.create_line(
                 x,
@@ -113,6 +110,33 @@ class TemperatureBar(tk.Canvas):
                 font=('Segoe UI', 6),
                 tags='scale_labels'
             )
+
+    @staticmethod
+    def _scale_tick_values(temp_min, temp_max):
+        temp_range = temp_max - temp_min
+        if temp_range <= 100:
+            return TemperatureBar._stepped_tick_values(temp_min, temp_max, 10, 5)
+        if temp_range <= 200:
+            return TemperatureBar._stepped_tick_values(temp_min, temp_max, 20, 10)
+
+        divisions = 5
+        return [
+            temp_min + (temp_range * step / divisions)
+            for step in range(divisions + 1)
+        ]
+
+    @staticmethod
+    def _stepped_tick_values(temp_min, temp_max, step_size, max_gap):
+        ticks = []
+        value = temp_min
+        while value < temp_max:
+            ticks.append(value)
+            value += step_size
+
+        if ticks and temp_max - ticks[-1] < max_gap:
+            ticks.pop()
+        ticks.append(temp_max)
+        return ticks
         
     def update_value(self, name, value: float):
         """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
