@@ -249,7 +249,7 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
 
         self.assertEqual(main_control._vtrx_ccs_disable_timer_started_at, 100.0)
         self.assertTrue(
-            any("CCS output will be disabled after 30 seconds" in message for message in main_control.logger.messages("CRITICAL"))
+            any("CCS output will be disabled in 30 seconds" in message for message in main_control.logger.messages("CRITICAL"))
         )
 
         main_control._test_time["value"] = 109.0
@@ -325,7 +325,7 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
         self.assertEqual(cathode.turn_off_calls, 0)
         self.assertTrue(
             any(
-                "pressure reading is stale; CCS output will be disabled after 30 seconds" in message
+                "pressure reading is stale; CCS output will be disabled in 30 seconds" in message
                 for message in main_control.logger.messages("CRITICAL")
             )
         )
