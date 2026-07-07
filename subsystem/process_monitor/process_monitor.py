@@ -226,10 +226,10 @@ class ProcessMonitorSubsystem:
     MAX_VALID_TEMP = 500
     WARNING_LOG_INTERVAL_SECONDS = 60.0
 
-    def __init__(self, parent, com_port, active, logger=None):
+    def __init__(self, parent, com_port, active=None, logger=None):
         self.parent = parent
         self.logger = logger
-        self.active = active
+        self.environment_pass = False
         self.last_error_time = 0
         self.error_count = 0
         self.com_port = com_port
@@ -386,7 +386,7 @@ class ProcessMonitorSubsystem:
         if self._latest_temperatures:
             self._apply_temperature_snapshot(self._latest_temperatures)
         elif enabled:
-            self.active["Environment Pass"] = False
+            self._set_environment_pass(False)
 
         if not save_process_monitor_config(self.config, logger=self.logger):
             message = f"{name}: enabled state changed for this session but could not be saved."
@@ -413,6 +413,7 @@ class ProcessMonitorSubsystem:
                 if not self._monitor_missing_logged:
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self._monitor_missing_logged = True
+                self._set_environment_pass(False)
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
                     if self.logger and hasattr(self.logger, "clear_value"):
@@ -445,13 +446,14 @@ class ProcessMonitorSubsystem:
                         self._set_all_temps_disconnected()
                         if self.logger and hasattr(self.logger, "clear_value"):
                             self.logger.clear_value("temperatures")
-                        self.active['Environment Pass'] = False
+                        self._set_environment_pass(False)
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                 else:
                     self._apply_temperature_snapshot(temps)
 
         except Exception as e:
+            self._set_environment_pass(False)
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
             if current_time - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error updating temperatures: {str(e)}", LogLevel.ERROR)
@@ -465,6 +467,15 @@ class ProcessMonitorSubsystem:
     def _unit_affects_environment_pass(self, unit):
         name = next((sensor for sensor, sensor_unit in self.thermometer_map.items() if sensor_unit == unit), None)
         return name not in self.disabled_sensors
+
+    def _set_environment_pass(self, environment_pass):
+        self.environment_pass = bool(environment_pass)
+
+    def get_environment_pass(self):
+        return bool(self.environment_pass)
+
+    def get_machine_status_inputs(self):
+        return {"environment_pass": self.get_environment_pass()}
 
     def _apply_temperature_snapshot(self, temps):
         self._latest_temperatures = dict(temps)
@@ -513,7 +524,7 @@ class ProcessMonitorSubsystem:
                 if affects_environment_pass:
                     environment_pass = False
 
-        self.active['Environment Pass'] = environment_pass
+        self._set_environment_pass(environment_pass)
 
     def _log_temperature_warning(self, name, temperature, limits):
         now = time.monotonic()
