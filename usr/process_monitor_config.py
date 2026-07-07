@@ -132,6 +132,7 @@ def normalize_process_monitor_config(raw_config, logger=None):
 
 def load_process_monitor_config(filepath=CONFIG_FILE, logger=None):
     if not os.path.exists(filepath):
+        _log(logger, "info", "No PMON configuration file found. Creating defaults.")
         config = _copy_defaults()
         save_process_monitor_config(config, filepath=filepath, logger=logger)
         return config
