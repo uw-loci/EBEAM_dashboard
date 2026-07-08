@@ -45,8 +45,6 @@ Important values:
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `STATUS_RUNNING` | `0x0006` | Expected running state |
-| `SPARE_UNIT_EXPECTED_STATUSES` | `{6: 0x0001}` | Unit-specific expected status for installed spare channels |
-| `SPARE_ZERO_READING_UNITS` | `{6}` | Units where a zero process value is expected because no sensor input is connected |
 | `DISCONNECTED` | `-1` | Driver-level disconnected state for UI display |
 | `SENSOR_ERROR` | `-2` | Driver-level sensor/error state for UI display |
 
@@ -74,6 +72,7 @@ monitor.disconnect()
 | Method | Description |
 |--------|-------------|
 | `connect()` | Opens the serial port if needed and probes the configured units. Returns `True` if at least one unit responds. The polling thread calls this automatically when disconnected. |
+| `set_disabled_units(units)` | Updates the unit addresses whose polling errors, status warnings, and recovery logs are ignored while the matching PMON sensor is disabled in dashboard config. |
 | `get_all_temperatures()` | Returns a thread-safe copy of the latest `{unit: value}` dictionary. Also flushes queued background logs when called from the main thread. |
 | `get_reading_config(unit)` | Reads `RDGCNF_REG` for one unit. Returns the register value or `None` on error. |
 | `disconnect()` | Requests the polling thread to stop, marks readings disconnected, joins the worker with a timeout, and closes the serial port. |
@@ -95,15 +94,16 @@ The loop:
 5. Reads `PROCESS_VALUE_REG` as two holding registers.
 6. Interprets the two registers as a big-endian IEEE-754 float.
 7. Validates that the value is nonzero and within `MIN_TEMP` to `MAX_TEMP`.
-   Unit 6 is the current installed spare channel, so status `0x0001` and a
-   zero process value are treated as expected communication, not a sensor
-   failure.
 8. Updates `temperature_readings` and `last_good_readings`.
 
 On transient per-unit errors, the driver keeps showing the last known good
 reading when one exists. After `ERROR_THRESHOLD` consecutive errors for a unit,
 that unit is marked `DISCONNECTED`. If no good reading has ever been seen, the
 unit is marked `SENSOR_ERROR` until the threshold is reached.
+
+Units disabled by dashboard PMON config are still polled, but their polling
+errors, status warnings, and first-read/recovery messages are ignored until the
+unit is enabled again.
 
 ## Logging Behavior
 

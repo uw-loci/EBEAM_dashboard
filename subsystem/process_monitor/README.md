@@ -16,7 +16,7 @@ sensor, in the same order as the Main tab. Each row controls whether the sensor
 participates in Environment Pass, its minimum and maximum warning temperatures,
 and the minimum and maximum values shown on its bar. Settings are persisted in
 `usr/usr_data/process_monitor_config.json`; disabled sensors are stored in the
-`disabled_sensors` list. The unassigned spare channel is disabled by default.
+`disabled_sensors` list. The unassigned channel is disabled by default.
 
 An enabled sensor outside its configured warning range is displayed in orange
 and makes Environment Pass false. PMON logs the temperature and configured

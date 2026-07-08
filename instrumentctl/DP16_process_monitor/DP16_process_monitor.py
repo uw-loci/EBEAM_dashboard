@@ -23,8 +23,6 @@ class DP16ProcessMonitor:
     STATUS_REG = 0x240          # Page 9: CNPt Series Programming User's Guide Modbus Interface
 
     STATUS_RUNNING = 0x0006
-    SPARE_UNIT_EXPECTED_STATUSES = {6: 0x0001}
-    SPARE_ZERO_READING_UNITS = {6}
 
     # PT100 RTD temperature range
     MIN_TEMP = -90      # [C]
@@ -56,7 +54,7 @@ class DP16ProcessMonitor:
     UNIT_DEGRADED = "degraded"
     UNIT_DISCONNECTED = "disconnected"
 
-    def __init__(self, port, unit_numbers=(1, 2, 3, 4, 5), baudrate=9600, logger=None):
+    def __init__(self, port, unit_numbers=(1, 2, 3, 4, 5, 6), baudrate=9600, logger=None, disabled_units=None):
         """Initialize serial settings and start the background polling thread."""
         if serial is None:
             raise RuntimeError("pyserial is not installed. Install with: python -m pip install pyserial")
@@ -76,6 +74,7 @@ class DP16ProcessMonitor:
         self.consecutive_connection_errors = 0
 
         self.response_lock = threading.Lock()
+        self.disabled_units = frozenset()
         self._last_rate_limited_log_times = {}
         self._unit_states = {unit: self.UNIT_UNKNOWN for unit in self.unit_numbers}
         self._last_error_type_by_unit = {unit: None for unit in self.unit_numbers}
@@ -86,12 +85,30 @@ class DP16ProcessMonitor:
         self._all_units_disconnected_logged = False
         self._has_connected_once = False
         self._stop_event = threading.Event()
+        self.set_disabled_units(disabled_units)
         self._thread = threading.Thread(
             target=self.poll_all_units,
             name=f"DP16ProcessMonitor[{self.port}]",
             daemon=True,
         )
         self._thread.start()
+
+    def set_disabled_units(self, disabled_units):
+        """Set units whose polling errors should not be logged or counted."""
+        previous_disabled_units = self.disabled_units
+        self.disabled_units = frozenset(disabled_units or ()) & self.unit_numbers
+
+        for unit in self.disabled_units - previous_disabled_units:
+            self.consecutive_error_counts[unit] = 0
+            self._last_error_type_by_unit[unit] = None
+            self._last_status_by_unit[unit] = None
+            self._first_valid_reading_logged.discard(unit)
+
+    def _unit_is_disabled(self, unit):
+        return unit in self.disabled_units
+
+    def _enabled_units(self):
+        return self.unit_numbers - self.disabled_units
 
     def _stop_requested(self) -> bool:
         return self._stop_event.is_set()
@@ -223,12 +240,14 @@ class DP16ProcessMonitor:
                     self._serial.reset_input_buffer()
                     self._serial.reset_output_buffer()
 
-                # Check if any unit responds.
+                # Check if any enabled unit responds.
+                enabled_units = self._enabled_units()
                 working_unit_count = 0
                 missing_units = []
                 for unit in sorted(self.unit_numbers):
                     if self._stop_requested():
                         return False
+                    unit_enabled = unit in enabled_units
                     try:
                         status_registers = self._read_holding_registers_unlocked(
                             unit=unit,
@@ -236,12 +255,16 @@ class DP16ProcessMonitor:
                             count=1,
                         )
                     except Exception as exc:
-                        missing_units.append(unit)
-                        self._log_rate_limited(
-                            ("connect_probe", unit),
-                            f"DP16 Unit {unit} did not respond during connect probe: {exc}",
-                            LogLevel.DEBUG,
-                        )
+                        if unit_enabled:
+                            missing_units.append(unit)
+                            self._log_rate_limited(
+                                ("connect_probe", unit),
+                                f"DP16 Unit {unit} did not respond during connect probe: {exc}",
+                                LogLevel.DEBUG,
+                            )
+                        continue
+
+                    if not unit_enabled:
                         continue
 
                     working_unit_count += 1
@@ -250,7 +273,11 @@ class DP16ProcessMonitor:
                         LogLevel.VERBOSE,
                     )
 
-                total_units = len(self.unit_numbers)
+                if not enabled_units:
+                    self._mark_pmon_available()
+                    return True
+
+                total_units = len(enabled_units)
                 if working_unit_count:
                     if missing_units:
                         self.log(
@@ -266,7 +293,7 @@ class DP16ProcessMonitor:
                     self._mark_pmon_available()
                     return True
                 self._mark_pmon_unavailable()
-                self._log_pmon_disconnected("serial port is open, but no configured DP16 units responded")
+                self._log_pmon_disconnected("serial port is open, but no enabled DP16 units responded")
                 return False
 
             except serial.SerialException as exc:
@@ -643,11 +670,12 @@ class DP16ProcessMonitor:
                     except Exception as exc:
                         if self._stop_requested():
                             break
-                        self.log(
-                            f"DP16 Unit {unit} poll failed; trying again after "
-                            f"{self.BETWEEN_UNIT_DELAY:.1f}s: {type(exc).__name__}: {exc}",
-                            LogLevel.DEBUG,
-                        )
+                        if not self._unit_is_disabled(unit):
+                            self.log(
+                                f"DP16 Unit {unit} poll failed; trying again after "
+                                f"{self.BETWEEN_UNIT_DELAY:.1f}s: {type(exc).__name__}: {exc}",
+                                LogLevel.DEBUG,
+                            )
                         if self._sleep_or_stop(self.BETWEEN_UNIT_DELAY):
                             break
                         try:
@@ -660,15 +688,16 @@ class DP16ProcessMonitor:
                                 break
                             self._handle_poll_error(unit, retry_exc)
 
+                enabled_units = self._enabled_units()
                 if (
-                    self.unit_numbers
+                    enabled_units
                     and all(
                         self._unit_states.get(unit) == self.UNIT_DISCONNECTED
-                        for unit in self.unit_numbers
+                        for unit in enabled_units
                     )
                 ):
                     self._log_pmon_disconnected(
-                        "all configured units are disconnected after poll failures",
+                        "all enabled units are disconnected after poll failures",
                         current_time=time.time(),
                     )
 
@@ -693,10 +722,12 @@ class DP16ProcessMonitor:
 
     def _record_status(self, unit, status):
         """Track status-register transitions and log only meaningful changes."""
+        if self._unit_is_disabled(unit):
+            return
+
         previous_status = self._last_status_by_unit.get(unit)
         self._last_status_by_unit[unit] = status
-        expected_status = self.SPARE_UNIT_EXPECTED_STATUSES.get(unit, self.STATUS_RUNNING)
-        expected_label = "RUNNING" if expected_status == self.STATUS_RUNNING else f"expected {expected_status}"
+        expected_status = self.STATUS_RUNNING
 
         if previous_status == status:
             return
@@ -714,7 +745,7 @@ class DP16ProcessMonitor:
                     LogLevel.WARNING,
                 )
         elif previous_status is not None and previous_status != expected_status:
-            self.log(f"DP16 Unit {unit} status returned to {expected_label}", LogLevel.INFO)
+            self.log(f"DP16 Unit {unit} status returned to RUNNING", LogLevel.INFO)
 
     def _record_successful_reading(self, unit, value):
         """Record a valid unit reading and log first-read or recovery events."""
@@ -724,10 +755,12 @@ class DP16ProcessMonitor:
         self.consecutive_error_counts[unit] = 0
         self._unit_states[unit] = self.UNIT_HEALTHY
         self._last_error_type_by_unit[unit] = None
+        if self._unit_is_disabled(unit):
+            return
+
         self._all_units_disconnected_logged = False
         self._mark_pmon_available()
-        is_expected_spare_zero = unit in self.SPARE_ZERO_READING_UNITS and abs(value) < 0.001
-        reading_text = "spare channel zero reading" if is_expected_spare_zero else f"temperature={value:.1f} C"
+        reading_text = f"temperature={value:.1f} C"
 
         if previous_error_count > 0:
             poll_word = "poll" if previous_error_count == 1 else "polls"
@@ -740,10 +773,7 @@ class DP16ProcessMonitor:
             self.log(f"DP16 Unit {unit} recovered; {reading_text}", LogLevel.INFO)
             self._first_valid_reading_logged.add(unit)
         elif unit not in self._first_valid_reading_logged:
-            if is_expected_spare_zero:
-                self.log(f"DP16 Unit {unit} spare channel responding with zero reading", LogLevel.INFO)
-            else:
-                self.log(f"DP16 Unit {unit} first valid reading: {value:.1f} C", LogLevel.INFO)
+            self.log(f"DP16 Unit {unit} first valid reading: {value:.1f} C", LogLevel.INFO)
             self._first_valid_reading_logged.add(unit)
 
     def _poll_single_unit(self, unit):
@@ -776,7 +806,7 @@ class DP16ProcessMonitor:
             value = struct.unpack(">f", raw_float)[0]
 
             # In-line validation.
-            if abs(value) < 0.001 and unit not in self.SPARE_ZERO_READING_UNITS:
+            if abs(value) < 0.001:
                 raise ValueError("Zero reading indicates communication error")
             if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                 raise ValueError(f"Temperature out of range: {value}")
@@ -832,6 +862,11 @@ class DP16ProcessMonitor:
         Increment consecutive error counts, log the error, and update
         self.temperature_readings based on the single ERROR_THRESHOLD logic.
         """
+        if self._unit_is_disabled(unit):
+            self.consecutive_error_counts[unit] = 0
+            self._last_error_type_by_unit[unit] = None
+            return
+
         self.log(f"Poll error on unit {unit}: {exception}", LogLevel.VERBOSE)
         previous_error_count = self.consecutive_error_counts[unit]
         previous_state = self._unit_states.get(unit, self.UNIT_UNKNOWN)

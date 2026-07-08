@@ -254,7 +254,8 @@ class ProcessMonitorSubsystem:
             self.monitor = DP16ProcessMonitor(
                 port=com_port,
                 unit_numbers=list(self.thermometer_map.values()),
-                logger=logger
+                logger=logger,
+                disabled_units=self._disabled_unit_numbers(),
             )
         except Exception as e:
             self.monitor = None
@@ -377,6 +378,7 @@ class ProcessMonitorSubsystem:
         self.config["disabled_sensors"] = [
             sensor for sensor in self.thermometers if sensor in self.disabled_sensors
         ]
+        self._sync_disabled_units_to_monitor()
 
         if self._latest_temperatures:
             self._apply_temperature_snapshot(self._latest_temperatures)
@@ -393,6 +395,17 @@ class ProcessMonitorSubsystem:
         state = "enabled" if enabled else "disabled"
         self.log(f"{name} sensor {state}.", LogLevel.INFO)
         return True
+
+    def _disabled_unit_numbers(self):
+        return {
+            self.thermometer_map[sensor]
+            for sensor in self.disabled_sensors
+            if sensor in self.thermometer_map
+        }
+
+    def _sync_disabled_units_to_monitor(self):
+        if self.monitor is not None and hasattr(self.monitor, "set_disabled_units"):
+            self.monitor.set_disabled_units(self._disabled_unit_numbers())
 
     def _config_error(self, name, message, show_dialogs):
         full_message = f"{name}: {message}"
