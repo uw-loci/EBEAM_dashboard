@@ -12,7 +12,7 @@ RANGE_FIELDS = (
 )
 
 DEFAULT_PROCESS_MONITOR_CONFIG = {
-    "disabled_sensors": [],
+    "disabled_sensors": ["Unassigned"],
     "sensors": {
         "Solenoid 1": {
             "warning_min_c": -90.0,
