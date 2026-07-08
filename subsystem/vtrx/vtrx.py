@@ -81,6 +81,7 @@ class VTRXSubsystem:
         self.last_valid_pressure_value = None
         self.last_gui_update_time = time.time()
         self.after_id = None
+        self._serial_data_failure_count = 0
 
         self.setup_serial()
         self.setup_gui()
@@ -203,7 +204,7 @@ class VTRXSubsystem:
                 if data is None:
                     self._handle_no_data()
                 else:
-                    self._handle_serial_data_with_retries(data)
+                    self._handle_serial_data_with_failure_limit(data)
         except queue.Empty:
             pass
         finally:
@@ -211,20 +212,22 @@ class VTRXSubsystem:
             self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
 
-    def _handle_serial_data_with_retries(self, data):
-        last_exception = None
-        for _attempt in range(self.SERIAL_DATA_MAX_ATTEMPTS):
-            try:
-                self.handle_serial_data(data)
-                return
-            except Exception as e:
-                last_exception = e
+    def _handle_serial_data_with_failure_limit(self, data):
+        try:
+            self.handle_serial_data(data)
+        except Exception as e:
+            self._serial_data_failure_count += 1
 
-        self.log(
-            f"VTRX serial data failed after {self.SERIAL_DATA_MAX_ATTEMPTS} attempts: "
-            f"{last_exception}. Data: {self._safe_raw_log_text(data)}",
-            LogLevel.ERROR
-        )
+            if self._serial_data_failure_count >= self.SERIAL_DATA_MAX_ATTEMPTS:
+                self.log(
+                    f"VTRX serial data failed after {self.SERIAL_DATA_MAX_ATTEMPTS} attempts: "
+                    f"{e}. Data: {self._safe_raw_log_text(data)}",
+                    LogLevel.ERROR
+                )
+                self._serial_data_failure_count = 0
+            return
+
+        self._serial_data_failure_count = 0
 
     def _pressure_reading_is_fresh(self):
         last_successful_read_time = getattr(self, "last_successful_read_time", None)
