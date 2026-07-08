@@ -166,18 +166,19 @@ class MainControlPanel:
 
     def wire_vtrx(self, vtrx):
         """Register the VTRX pressure update callback."""
-        if vtrx is None:
-            return
+        if vtrx is not None:
+            setter = getattr(vtrx, "set_pressure_update_callback", None)
+            if callable(setter):
+                setter(self._handle_vtrx_pressure_update)
+            else:
+                self._log_error("VTRX pressure update callback was not wired: API not available")
 
-        setter = getattr(vtrx, "set_pressure_update_callback", None)
-        if callable(setter):
-            setter(self._handle_vtrx_pressure_update)
-        else:
-            self._log_error("VTRX pressure update callback was not wired: API not available")
+        self._wire_cathode_heating_guards()
 
     def wire_beam_pulse(self, beam_pulse):
         """Wire Beam Pulse callbacks and providers."""
         if beam_pulse is None:
+            self._wire_cathode_heating_guards()
             return
 
         if hasattr(beam_pulse, "set_channel_status_callback"):
@@ -213,17 +214,26 @@ class MainControlPanel:
             beam_pulse.set_disconnect_callback(self._handle_bcon_disconnected)
         else:
             self._log_error("Beam Pulse disconnect callback was not wired: API not available")
-        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
-        if cathode is not None:
-            cathode.disable_ccs_output_on_bcon_disconnect = (
-                self.disable_ccs_output_on_bcon_disconnect
-            )
-            cathode.vtrx_ccs_pressure_allows_output = (
-                self._vtrx_ccs_pressure_output_status
-            )
-            if callable(getattr(beam_pulse, "is_connected", None)):
-                cathode.bcon_is_connected = beam_pulse.is_connected
+        self._wire_cathode_heating_guards(beam_pulse)
         self._apply_logging_suppression_settings()
+
+    def _wire_cathode_heating_guards(self, beam_pulse=None):
+        """Wire Main Control safety providers consumed by Cathode Heating."""
+        cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
+        if cathode is None:
+            return
+
+        cathode.disable_ccs_output_on_bcon_disconnect = (
+            self.disable_ccs_output_on_bcon_disconnect
+        )
+        cathode.vtrx_ccs_pressure_allows_output = (
+            self._vtrx_ccs_pressure_output_status
+        )
+
+        if beam_pulse is None:
+            beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
+        if callable(getattr(beam_pulse, "is_connected", None)):
+            cathode.bcon_is_connected = beam_pulse.is_connected
 
     def _get_predicted_emission_currents_for_beam_pulse(self):
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
