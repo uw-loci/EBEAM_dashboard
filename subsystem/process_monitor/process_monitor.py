@@ -210,39 +210,10 @@ class TemperatureBar(tk.Canvas):
         )
         
     def get_temperature_color(self, name, temp: float) -> str:
-        """Return a color based on temperature value."""
+        """Return green when the temperature is within the configured range."""
         if temp < self.warning_min or temp > self.warning_max:
             return '#FFA500'
-
-        if name.startswith('Solenoid'): 
-            if 20 <= temp < 70:
-                return '#00FF00'  # Green for normal 
-            elif 70 <= temp < 100:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot
-            
-        elif name.startswith('Chamber'): 
-            if 20 <= temp < 50:
-                return '#00FF00'  # Green for normal 
-            elif 50 <= temp < 70:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot 
-        elif name.startswith('Air'):
-            if 20 <= temp < 30:
-                return '#00FF00'  # Green for normal 
-            elif 30 <= temp < 40:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot
-        else:
-            if temp < 70:
-                return '#00FF00'  # Green for normal
-            elif temp < 100:
-                return '#FFFF00'  # Yellow for warm
-            else:
-                return '#FF0000'  # Red for hot 
+        return '#00FF00'
 
 
 class ProcessMonitorSubsystem:
