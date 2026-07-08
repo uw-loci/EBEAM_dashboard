@@ -66,11 +66,23 @@ class FakeCathode:
 
 
 class FakeBeamPulse:
-    def __init__(self):
+    def __init__(self, connected=True):
         self.disable_all_calls = 0
+        self.connected = connected
 
     def disable_all_beams(self):
         self.disable_all_calls += 1
+
+    def is_connected(self):
+        return self.connected
+
+
+class FakeVtrx:
+    def __init__(self):
+        self.pressure_callback = None
+
+    def set_pressure_update_callback(self, callback):
+        self.pressure_callback = callback
 
 
 def make_main_control(now=100.0, cathode=None, beam_pulse=None):
@@ -82,6 +94,7 @@ def make_main_control(now=100.0, cathode=None, beam_pulse=None):
         main_control.subsystems["Cathode Heating"] = cathode
     if beam_pulse is not None:
         main_control.subsystems["Beam Pulse"] = beam_pulse
+    main_control.disable_ccs_output_on_bcon_disconnect = True
     main_control.disable_beams_on_vtrx_pressure_exceeded = False
     main_control.vtrx_ccs_pressure_shutdown_enabled = True
     main_control.total_max_emission_current_limit_enabled = True
@@ -241,6 +254,54 @@ class MainControlVtrxCcsGracePeriodUiTest(unittest.TestCase):
 
 
 class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
+    def test_wire_vtrx_gives_cathode_pressure_guard_without_beam_pulse(self):
+        cathode = FakeCathode(active=False)
+        vtrx = FakeVtrx()
+        main_control = make_main_control(cathode=cathode)
+
+        main_control.wire_vtrx(vtrx)
+
+        self.assertEqual(vtrx.pressure_callback.__self__, main_control)
+        self.assertEqual(
+            vtrx.pressure_callback.__func__,
+            MainControlPanel._handle_vtrx_pressure_update,
+        )
+        pressure_guard = cathode.vtrx_ccs_pressure_allows_output
+        self.assertEqual(pressure_guard.__self__, main_control)
+        self.assertEqual(
+            pressure_guard.__func__,
+            MainControlPanel._vtrx_ccs_pressure_output_status,
+        )
+
+    def test_wire_vtrx_none_still_gives_cathode_pressure_guard(self):
+        cathode = FakeCathode(active=False)
+        main_control = make_main_control(cathode=cathode)
+
+        main_control.wire_vtrx(None)
+
+        pressure_guard = cathode.vtrx_ccs_pressure_allows_output
+        self.assertEqual(pressure_guard.__self__, main_control)
+        self.assertEqual(
+            pressure_guard.__func__,
+            MainControlPanel._vtrx_ccs_pressure_output_status,
+        )
+
+    def test_wire_beam_pulse_uses_passed_instance_for_cathode_guard_wiring(self):
+        cathode = FakeCathode(active=False)
+        beam_pulse = FakeBeamPulse(connected=True)
+        main_control = make_main_control(cathode=cathode)
+
+        main_control.wire_beam_pulse(beam_pulse)
+
+        self.assertTrue(cathode.disable_ccs_output_on_bcon_disconnect)
+        self.assertTrue(cathode.bcon_is_connected())
+        pressure_guard = cathode.vtrx_ccs_pressure_allows_output
+        self.assertEqual(pressure_guard.__self__, main_control)
+        self.assertEqual(
+            pressure_guard.__func__,
+            MainControlPanel._vtrx_ccs_pressure_output_status,
+        )
+
     def test_timer_warns_and_turns_off_ccs_once_after_grace_period(self):
         cathode = FakeCathode(active=True)
         main_control = make_main_control(cathode=cathode)
