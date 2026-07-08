@@ -80,9 +80,11 @@ class VTRXSubsystem:
         self.last_successful_read_time = None
         self.last_valid_pressure_value = None
         self.last_gui_update_time = time.time()
+        self.after_id = None
 
         self.setup_serial()
         self.setup_gui()
+        self.start_process_queue()
         
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
@@ -648,6 +650,10 @@ class VTRXSubsystem:
         self.stop_event.clear()
         self.serial_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.serial_thread.start()
+
+    def start_process_queue(self):
+        if getattr(self, "after_id", None) is not None:
+            return
         self.after_id = self.parent.after(100, self.process_queue)
 
     def stop_serial_thread(self):
