@@ -49,6 +49,7 @@ class InterlocksSubsystem:
         self.update_interval = 500  # Default update interval (ms)
         self.max_interval = 5000   # Maximum update interval (ms)
         self._last_status = None
+        self.hvolt_on = False
         self.after_id = None
         self.setup_gui()
 
@@ -200,6 +201,8 @@ class InterlocksSubsystem:
         """Set all indicators to specified color"""
         if color == None or color == "":
             self.log("Invalid inputs to _set_all_indicators", LogLevel.ERROR)
+        if color != 'green':
+            self.hvolt_on = False
 
         if self.INDICATORS:
             for name in self.INDICATORS:
@@ -263,6 +266,7 @@ class InterlocksSubsystem:
         current_time = time.time()
         try:
             if not self.driver or not self.driver.is_connected():
+                self.hvolt_on = False
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_indicators('red')
                     self.log("G9 driver not connected", LogLevel.WARNING)
@@ -274,6 +278,7 @@ class InterlocksSubsystem:
                 status = self.driver.get_interlock_status()
                 
                 if status is None:
+                    self.hvolt_on = False
                     self._set_all_indicators('red')
                     if current_time - self.last_error_time > (self.update_interval / 1000):
                         self.log("No data available from G9", LogLevel.CRITICAL)
@@ -332,7 +337,8 @@ class InterlocksSubsystem:
                     self.active['Interlocks Pass'] = all_good
 
                 # High Voltage Interlock (unrelated to All interlocks)
-                if sitsf_bits[11] == 1 and sitdf_bits[11] == 0:
+                self.hvolt_on = sitsf_bits[11] == 1 and sitdf_bits[11] == 0
+                if self.hvolt_on:
                     self.update_interlock(self.INPUTS[11], True, True)
                 else:
                     self.update_interlock(self.INPUTS[11], True, False)
@@ -346,6 +352,7 @@ class InterlocksSubsystem:
                 self._adjust_update_interval(success=True)
 
         except Exception as e:
+            self.hvolt_on = False
             if time.time() - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
@@ -370,9 +377,7 @@ class InterlocksSubsystem:
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
         if self.logger:
-            self.logger.log(message, level)
-        else:
-            print(f"{level.name}: {message}")
+            self.logger.log(message, level, tag="SIC")
 
     def close_com_ports(self):
         """

@@ -39,7 +39,7 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 from instrumentctl.BCON import BCONDriver
 
 # Create driver instance
-bcon = BCONDriver(port='COM3', baudrate=115200, timeout=1.0, debug=True)
+bcon = BCONDriver(port='COM3', baudrate=115200, timeout=1.0)
 
 # Connect to hardware
 if bcon.connect():
@@ -180,11 +180,6 @@ if not bcon.set_channel_dc(1):
     # Check if system is in READY state
     if bcon.get_system_state() != "READY":
         print("System not in READY state")
-```
-
-Enable debug mode to see command/response traffic:
-```python
-bcon = BCONDriver(port='COM3', debug=True)
 ```
 
 ## Thread Safety

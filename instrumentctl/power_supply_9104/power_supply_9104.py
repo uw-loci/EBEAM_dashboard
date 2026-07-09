@@ -11,23 +11,54 @@ class PowerSupply9104:
     VOLTAGE_SETTLE_TOLERANCE = 0.20  # 9104 voltage resolution is 200 mV
     DEFAULT_SERIAL_LOCK_TIMEOUT = 0.5
     WORKER_LOG_QUEUE_MAXSIZE = 1000
+    POLL_ERROR_LOG_INTERVAL = 10.0
 
-    def __init__(self, port, baudrate=9600, timeout=0.5, logger=None, debug_mode=False, serial_lock_timeout=DEFAULT_SERIAL_LOCK_TIMEOUT):
+    def __init__(
+        self,
+        port,
+        baudrate=9600,
+        timeout=0.5,
+        logger=None,
+        debug_mode=False,
+        serial_lock_timeout=DEFAULT_SERIAL_LOCK_TIMEOUT,
+        disable_logging_when_ccs_power_off=False,
+        ccs_power_on_provider=None,
+        supply_name=None,
+    ):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.logger = logger
         self.debug_mode = debug_mode
+        self.supply_name = supply_name
+        self.disable_logging_when_ccs_power_off = bool(disable_logging_when_ccs_power_off)
+        self.ccs_power_on_provider = ccs_power_on_provider if callable(ccs_power_on_provider) else None
         self.serial_lock_timeout = serial_lock_timeout
         self._main_thread_ident = threading.get_ident()
         self._log_queue = Queue(maxsize=self.WORKER_LOG_QUEUE_MAXSIZE)
         self._dropped_worker_log_count = 0
         self._dropped_worker_log_lock = threading.Lock()
+        self._rate_limited_log_times = {}
+        self._rate_limited_log_lock = threading.Lock()
         self.serial_lock = threading.Lock()
         self.ser = None
         self.setup_serial()
         self.stop_event = threading.Event()  # Stop flag for threads
         self.ramp_thread = None  # Track the ramping thread
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_ccs_power_off or self.ccs_power_on_provider is None:
+            return False
+        try:
+            return not bool(self.ccs_power_on_provider())
+        except Exception:
+            return False
+
+    def _log_context(self):
+        return self.supply_name or f"9104 supply on {self.port}"
+
+    def _format_log_message(self, message):
+        return f"{self._log_context()}: {message}"
 
     def _acquire_serial_lock(self, action, lock_timeout=None):
         timeout = self.serial_lock_timeout if lock_timeout is None else lock_timeout
@@ -37,7 +68,11 @@ class PowerSupply9104:
 
         acquired = self.serial_lock.acquire(timeout=timeout)
         if not acquired:
-            self.log(f"Timed out waiting for serial lock while {action}", LogLevel.WARNING)
+            self._log_rate_limited(
+                ("serial_lock_timeout", action),
+                f"Timed out waiting for serial lock while {action}",
+                LogLevel.WARNING,
+            )
         return acquired
 
     # Public serial interface methods with locking to ensure thread safety
@@ -126,7 +161,11 @@ class PowerSupply9104:
             self.log("Flushing serial input buffer", LogLevel.DEBUG)
             self.ser.reset_input_buffer()
         else:
-            self.log("Serial port is not open. Cannot flush.", LogLevel.WARNING)
+            self._log_rate_limited(
+                "serial_flush_closed",
+                "Serial port is not open. Cannot flush.",
+                LogLevel.WARNING,
+            )
 
     def send_command(self, command, lock_timeout=None):
         """Send a command to the power supply and read the response."""
@@ -148,7 +187,14 @@ class PowerSupply9104:
         # non-timeout lock acquisition paths.
         try:
             if not self._is_connected_unlocked():
-                self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
+                if command == "GETD":
+                    self._log_rate_limited(
+                        ("command_port_closed", command),
+                        "Serial port is not open. Cannot send command.",
+                        LogLevel.ERROR,
+                    )
+                else:
+                    self.log("Serial port is not open. Cannot send command.", LogLevel.ERROR)
                 return None # return immediately to prevent blocking GUI on serial read
 
             self._flush_serial_unlocked()
@@ -165,13 +211,24 @@ class PowerSupply9104:
             if not response:
                 raise ValueError("No response received from 9104 supply")
             if 'OK' not in response:
-                self.log(f"Acknowledgement not in 9104 supply response")
+                self._log_rate_limited(
+                    "missing_9104_acknowledgement",
+                    "Acknowledgement not in 9104 supply response",
+                    LogLevel.ERROR,
+                )
 
             self.log(f"Response: {response}", LogLevel.DEBUG)
 
             return response.strip()
         except serial.SerialException as e:
-            self.log(f"Serial error: {e}", LogLevel.ERROR)
+            if command == "GETD":
+                self._log_rate_limited(
+                    ("serial_error", command),
+                    f"Serial error: {e}",
+                    LogLevel.ERROR,
+                )
+            else:
+                self.log(f"Serial error: {e}", LogLevel.ERROR)
             # Mark port as dead so subsequent calls in this cycle fail fast
             try:
                 if self.ser:
@@ -181,10 +238,30 @@ class PowerSupply9104:
             self.ser = None
             return None
         except ValueError as e:
-            self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
+            if str(e) == "No response received from 9104 supply":
+                self._log_rate_limited(
+                    "no_9104_response",
+                    f"Error processing response for command '{command}': {str(e)}",
+                    LogLevel.ERROR,
+                )
+            elif command == "GETD":
+                self._log_rate_limited(
+                    ("response_error", command),
+                    f"Error processing response for command '{command}': {str(e)}",
+                    LogLevel.ERROR,
+                )
+            else:
+                self.log(f"Error processing response for command '{command}': {str(e)}", LogLevel.ERROR)
             return None
         except Exception as e:
-            self.log(f"Critical Error: {str(e)}", LogLevel.ERROR)
+            if command == "GETD":
+                self._log_rate_limited(
+                    ("unexpected_command_error", command),
+                    f"Critical Error: {str(e)}",
+                    LogLevel.ERROR,
+                )
+            else:
+                self.log(f"Critical Error: {str(e)}", LogLevel.ERROR)
             return None
 
     def set_output(self, state):
@@ -236,7 +313,7 @@ class PowerSupply9104:
         
         self.log(f"Raw command sent to preset {preset}: {command}", LogLevel.DEBUG)
         if response and response.strip().startswith("OK"):
-            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.INFO)
+            self.log(f"Voltage set to {voltage:.2f}V for preset {preset}: {response}", LogLevel.DEBUG)
             if sent_callback:
                 try:
                     sent_callback(voltage)
@@ -266,7 +343,7 @@ class PowerSupply9104:
         command = f"CURR {preset}{formatted_current:04d}"
         response = self.send_command(command)
         if response and response.strip() == "OK":
-            self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.INFO)
+            self.log(f"Current set to {current:.2f}A for preset {preset}: {response}", LogLevel.DEBUG)
             if sent_callback:
                 try:
                     sent_callback(current)
@@ -302,7 +379,11 @@ class PowerSupply9104:
         )
         try:
             self.ramp_thread.start()
-            self.log(f"Ramping current to {target_current:.2f}A started.", LogLevel.INFO)
+            self.log(
+                f"Ramping current to {target_current:.2f}A started "
+                f"(step size {step_size:.3f}A, delay {step_delay:.1f}s, preset {preset}).",
+                LogLevel.INFO,
+            )
             return True
         except Exception as e:
             self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
@@ -331,6 +412,7 @@ class PowerSupply9104:
             current_step = current_difference / num_steps
 
             # Simple ramping loop
+            last_progress_log_time = time.monotonic()
             for step in range(num_steps):
                 if self.stop_event.is_set(): # Check if stop is requested
                     self.log("Ramping thread stopped.", LogLevel.INFO)
@@ -363,7 +445,7 @@ class PowerSupply9104:
                         if self.set_current(preset, next_current, sent_callback=sent_callback):
                             break # Success, exit retry loop
                         else:
-                            self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.ERROR)
+                            self.log(f"Attempt: {attempt} Failed to set current to {next_current:.2f}A.", LogLevel.DEBUG)
                     except Exception as e:
                         self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
                         time.sleep(0.1)  # Short delay before retrying
@@ -376,9 +458,11 @@ class PowerSupply9104:
                 # Update tracking current without querying device
                 current_current = next_current
 
-                # Only log every few steps
-                if step % 5 == 0:
+                # Log operator-visible ramp progress at a time cadence rather than every serial step.
+                now = time.monotonic()
+                if now - last_progress_log_time >= 5.0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_current:.2f}A", LogLevel.INFO)
+                    last_progress_log_time = now
 
                 # Longer delay between steps
                 if self.stop_event.wait(step_delay):
@@ -440,7 +524,11 @@ class PowerSupply9104:
         )
         try:
             self.ramp_thread.start()
-            self.log(f"Ramping voltage to {target_voltage:.2f}V started.", LogLevel.INFO)
+            self.log(
+                f"Ramping voltage to {target_voltage:.2f}V started "
+                f"(step size {step_size:.3f}V, delay {step_delay:.1f}s, preset {preset}).",
+                LogLevel.INFO,
+            )
             return True
         except Exception as e:
             self.log(f"Error starting ramping thread: {str(e)}", LogLevel.ERROR)
@@ -469,6 +557,7 @@ class PowerSupply9104:
             voltage_step = voltage_difference / num_steps
             
             # Simple ramping loop
+            last_progress_log_time = time.monotonic()
             for step in range(num_steps):
                 if self.stop_event.is_set():  # Check if stop is requested
                     self.log("Ramping thread stopped.", LogLevel.INFO)
@@ -496,7 +585,7 @@ class PowerSupply9104:
                         if self.set_voltage(preset, next_voltage, sent_callback=sent_callback):
                             break # Success, exit retry loop
                         else:
-                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.ERROR)
+                            self.log(f"Attempt: {attempt} Failed to set voltage to {next_voltage:.2f}V.", LogLevel.DEBUG)
                     except Exception as e:
                         self.log(f"Error during ramping step: {str(e)}. Aborting ramp.", LogLevel.ERROR)
                         time.sleep(0.1) # brief pause before retry
@@ -510,9 +599,11 @@ class PowerSupply9104:
                 # Update tracking voltage without querying device
                 current_voltage = next_voltage
                 
-                # Only log every few steps
-                if step % 5 == 0:
+                # Log operator-visible ramp progress at a time cadence rather than every serial step.
+                now = time.monotonic()
+                if now - last_progress_log_time >= 5.0:
                     self.log(f"Ramp progress: Step {step + 1}/{num_steps}, Setting {next_voltage:.2f}V", LogLevel.INFO)
+                    last_progress_log_time = now
                     
                 # Longer delay between steps
                 if self.stop_event.wait(step_delay):
@@ -591,7 +682,11 @@ class PowerSupply9104:
             self.log(f"Parsed GETD response: {voltage:.2f}V, {current:.2f}A, {mode}", LogLevel.DEBUG)
             return voltage, current, mode
         except Exception as e:
-            self.log(f"Error parsing GETD response: {response}. {e}", LogLevel.ERROR)
+            self._log_rate_limited(
+                "parse_getd_error",
+                f"Error parsing GETD response: {response}. {e}",
+                LogLevel.ERROR,
+            )
             return 0.0, 0.0, "Err"
     
     def set_over_voltage_protection(self, ovp_volts):
@@ -604,7 +699,7 @@ class PowerSupply9104:
         if response and "OK" in response:
             return True
         else:
-            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.DEBUG)
+            self.log(f"Failed to set OVP to {ovp_centivolts:04d}", LogLevel.ERROR)
             return False
 
     def get_voltage_current_mode(self, lock_timeout=None):
@@ -621,7 +716,11 @@ class PowerSupply9104:
                 if not reading:
                     # Nothing came back – very likely no device on the port.
                     # Bail out immediately so the GUI thread is not blocked.
-                    self.log("No data on GETD; skipping remaining retries", LogLevel.DEBUG)
+                    self._log_rate_limited(
+                        "getd_no_data",
+                        "No data on GETD; skipping remaining retries",
+                        LogLevel.DEBUG,
+                    )
                     break
                 self.log(f"Raw GETD response (attempt {attempt + 1}): {reading}", LogLevel.DEBUG)
                 voltage, current, mode = self.parse_getd_response(reading)
@@ -634,13 +733,25 @@ class PowerSupply9104:
                             self.log(f"Replaced 9104 0.0 V reading with second read {v2:.2f} V", LogLevel.VERBOSE)
                             voltage, current, mode = v2, c2, m2
                     return voltage, current, mode
-                self.log(f"Failed to get valid reading, attempt {attempt + 1}", LogLevel.WARNING)
+                self._log_rate_limited(
+                    "getd_invalid_read_attempt",
+                    f"Failed to get valid reading, attempt {attempt + 1}",
+                    LogLevel.WARNING,
+                )
                 time.sleep(0.05)
             except Exception as e:
-                self.log(f"Error getting voltage mode", LogLevel.ERROR)
+                self._log_rate_limited(
+                    "getd_voltage_mode_error",
+                    "Error getting voltage mode",
+                    LogLevel.ERROR,
+                )
                 break  # Don't retry on unexpected errors
 
-        self.log(f"Failed to get valid reading after {attempt + 1} attempt(s)", LogLevel.WARNING)
+        self._log_rate_limited(
+            "getd_failed_reading",
+            f"Failed to get valid reading after {attempt + 1} attempt(s)",
+            LogLevel.WARNING,
+        )
         return None, None, "Err"
 
     def set_over_current_protection(self, ocp_amps):
@@ -653,7 +764,7 @@ class PowerSupply9104:
         if response and "OK" in response:
             return True
         else:
-            self.log(f"Failed to set OCP to {ocp_centiamps:04d}", LogLevel.DEBUG)
+            self.log(f"Failed to set OCP to {ocp_centiamps:04d}", LogLevel.ERROR)
             return False
 
     def get_over_voltage_protection(self):
@@ -673,7 +784,7 @@ class PowerSupply9104:
                 ovp_str = response.split('\r')[0]
                 # convert to integer, then to a float
                 ovp_volts = int(ovp_str) / 100.0
-                self.log(f"OVP value: {ovp_volts:.2f}")
+                self.log(f"OVP value: {ovp_volts:.2f}", LogLevel.DEBUG)
                 return ovp_volts
             except (ValueError, IndexError) as e:
                 self.log(f"Error parsing OVP response: {response}. Error: {str(e)}", LogLevel.ERROR)
@@ -873,15 +984,30 @@ class PowerSupply9104:
             self.ser = None
         self.flush_queued_logs()
 
+    def _log_rate_limited(self, key, message, level=LogLevel.INFO, interval=None):
+        interval = self.POLL_ERROR_LOG_INTERVAL if interval is None else interval
+        now = time.monotonic()
+        with self._rate_limited_log_lock:
+            last_logged = self._rate_limited_log_times.get(key)
+            if last_logged is not None and now - last_logged < interval:
+                log_level = LogLevel.VERBOSE
+            else:
+                self._rate_limited_log_times[key] = now
+                log_level = level
+        self.log(message, log_level)
+
     def log(self, message, level=LogLevel.INFO):
-        if not self.logger:
-            print(f"{level.name}: {message}")
+        if self._logging_suppressed():
             return
+        if not self.logger:
+            return
+
+        message = self._format_log_message(message)
 
         # Tkinter-backed loggers must only be touched from the main GUI thread.
         # Queue logs from ramp/background threads and let cathode_heating flush them.
         if threading.get_ident() == self._main_thread_ident:
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS-9104")
         else:
             self._enqueue_worker_log(message, level)
 
@@ -919,11 +1045,22 @@ class PowerSupply9104:
         """Flush queued worker-thread log messages on the calling thread."""
         if not self.logger:
             return
+        if self._logging_suppressed():
+            self._pop_dropped_worker_log_count()
+            while True:
+                try:
+                    self._log_queue.get_nowait()
+                except Empty:
+                    break
+            return
         dropped_count = self._pop_dropped_worker_log_count()
         if dropped_count:
             self.logger.log(
-                f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full.",
+                self._format_log_message(
+                    f"Dropped {dropped_count} queued 9104 worker log message(s) because the log queue was full."
+                ),
                 LogLevel.WARNING,
+                tag="CCS-9104",
             )
         processed = 0
         while processed < max_messages:
@@ -931,5 +1068,5 @@ class PowerSupply9104:
                 message, level = self._log_queue.get_nowait()
             except Empty:
                 break
-            self.logger.log(message, level)
+            self.logger.log(message, level, tag="CCS-9104")
             processed += 1

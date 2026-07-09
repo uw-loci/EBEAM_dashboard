@@ -12,34 +12,24 @@ def save_com_ports(com_ports, filepath=CONFIG_FILE, logger=None):
         with open(filepath, 'w') as file:
             json.dump(com_ports, file, indent=4)
         if logger is not None:
-            logger.info(f"COM ports saved to {filepath}.")
-        else:
-            print(f"COM ports saved to {filepath}.")
+            logger.debug(f"COM ports saved to {filepath}.", tag="Config")
     except Exception as e:
         if logger is not None:
-            logger.error(f"Error saving COM ports: {e}")
-        else:
-            print(f"Error saving COM ports: {e}")
+            logger.error(f"Error saving COM ports: {e}", tag="Config")
 
 def load_com_ports(filepath=CONFIG_FILE, logger=None):
     """Load COM port selections from a JSON file."""
     if not os.path.exists(filepath):
         if logger is not None:
-            logger.info("No COM port configuration file found.")
-        else:
-            print("No COM port configuration file found.")
+            logger.info("No COM port configuration file found.", tag="Config")
         return {}
     try:
         with open(filepath, 'r') as file:
             com_ports = json.load(file)
         if logger is not None:
-            logger.info(f"COM ports loaded from {filepath}.")
-        else:
-            print(f"COM ports loaded from {filepath}.")
+            logger.debug(f"COM ports loaded from {filepath}.", tag="Config")
         return com_ports
     except Exception as e:
         if logger is not None:
-            logger.error(f"Error loading COM ports: {e}")
-        else:
-            print(f"Error loading COM ports: {e}")
+            logger.error(f"Error loading COM ports: {e}", tag="Config")
         return {}

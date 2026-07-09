@@ -41,6 +41,7 @@ class LogLevel(enum.IntEnum):
     ERROR = 4
     CRITICAL = 5
 
+
 class Logger:
     STARTUP_BUFFER_MAX = 500
     SUPABASE_WRITE_MIN_INTERVAL_SECONDS = 2
@@ -60,6 +61,8 @@ class Logger:
         self.webMonitor_log_file = None
         self.webMonitor_log_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
+        self._startup_buffer_overflow_logged = False
+        self._log_file_unavailable_reported = False
         self.supabase_client = None
         self.last_supabase_write = None
         self._closed = False
@@ -96,17 +99,80 @@ class Logger:
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
 
-    def _write_to_text_widget(self, formatted_message):
+    def _format_log_message(self, msg, level, tag=None):
+        msg = str(msg)
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        level_field = f"{level.name}"
+        if tag is not None and not msg.startswith("("):
+            tag_field = f"({str(tag)}) >"
+            return f"[{timestamp}] - {level_field} {tag_field} {msg}\n"
+        return f"[{timestamp}] - {level_field} {msg}\n"
+
+    def _append_pending_widget_message(self, formatted_message, level):
+        if len(self._pending_widget_messages) >= self.STARTUP_BUFFER_MAX:
+            self._pending_widget_messages.popleft()
+            if not self._startup_buffer_overflow_logged:
+                warning_message = self._format_log_message(
+                    "Startup message buffer full; oldest pending messages were discarded.",
+                    LogLevel.WARNING,
+                    tag="Utils",
+                )
+                self._pending_widget_messages.append((warning_message, LogLevel.WARNING))
+                self._startup_buffer_overflow_logged = True
+                if len(self._pending_widget_messages) >= self.STARTUP_BUFFER_MAX:
+                    self._pending_widget_messages.popleft()
+        self._pending_widget_messages.append((formatted_message, level))
+
+    def _log_internal(self, message, level=LogLevel.ERROR):
+        if self._closed:
+            _safe_console_write(self._format_log_message(message, level, tag="Utils").rstrip())
+            return
+        log_to_file = self.log_to_file
+        try:
+            self.log_to_file = False
+            self.log(message, level, tag="Utils")
+        finally:
+            self.log_to_file = log_to_file
+
+    def _configure_text_tags(self):
         if self.text_widget is None:
             return
-        self.text_widget.insert(tk.END, formatted_message, ("log",))
-        self.text_widget.tag_config("log", font=("Helvetica", 9))
+        self.text_widget.tag_config("log", font=("Segoe UI", 9))
+        self.text_widget.tag_config("log_error_level", font=("Segoe UI", 9, "bold"))
+        self.text_widget.tag_config("log_critical_level", font=("Segoe UI", 9, "bold"), foreground="red")
+
+    def _write_to_text_widget(self, formatted_message, level=None):
+        if self.text_widget is None:
+            return
+        self._configure_text_tags()
+        level_tag_by_level = {
+            LogLevel.ERROR: "log_error_level",
+            LogLevel.CRITICAL: "log_critical_level",
+        }
+        level_tag = level_tag_by_level.get(level)
+        level_field = f"{level.name}" if level is not None else None
+        if level_tag is not None and level_field is not None:
+            level_start = formatted_message.find(level_field)
+            if level_start != -1:
+                level_end = level_start + len(level_field)
+                self.text_widget.insert(tk.END, formatted_message[:level_start], ("log",))
+                self.text_widget.insert(tk.END, formatted_message[level_start:level_end], (level_tag,))
+                self.text_widget.insert(tk.END, formatted_message[level_end:], ("log",))
+            else:
+                self.text_widget.insert(tk.END, formatted_message, ("log",))
+        else:
+            self.text_widget.insert(tk.END, formatted_message, ("log",))
         self.text_widget.see(tk.END)
 
     def attach_text_widget(self, text_widget):
         self.text_widget = text_widget
         while self._pending_widget_messages:
-            self._write_to_text_widget(self._pending_widget_messages.popleft())
+            pending_message = self._pending_widget_messages.popleft()
+            if isinstance(pending_message, tuple):
+                formatted_message, level = pending_message
+                self._write_to_text_widget(formatted_message, level)
+            else:
+                self._write_to_text_widget(pending_message)
 
     def setup_log_file(self):
         """Setup a new log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
@@ -123,9 +189,10 @@ class Logger:
             self.log_filepath = os.path.join(log_dir, log_file_name)
             self.log_file = open(self.log_filepath, 'w')
             self.log_start_time = datetime.datetime.now()
-            self.info(f"Log file created at {self.log_filepath}")
+            self._log_file_unavailable_reported = False
+            self.info(f"Log file created at {self.log_filepath}", tag="Utils")
         except Exception as e:
-            print(f"Error creating log file: {str(e)}")
+            self._log_internal(f"Error creating log file: {str(e)}")
 
     def setup_wm_logfile(self):
         """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
@@ -140,9 +207,9 @@ class Logger:
             self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
             self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
             self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}")
+            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}", tag="Utils")
         except Exception as e:
-            print(f"Error creating web monitor log file: {str(e)}")
+            self._log_internal(f"Error creating web monitor log file: {str(e)}")
 
     def _reopen_wm_logfile_append(self):
         """Reopen the current web monitor log file without resetting its rotation window."""
@@ -152,62 +219,86 @@ class Logger:
                 return
             self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
         except Exception as e:
-            print(f"Error opening web monitor log file: {str(e)}")
+            self._log_internal(f"Error opening web monitor log file: {str(e)}")
 
-    def log(self, msg, level=LogLevel.INFO):
-        """ Log a message to the text widget and optionally to local file """
+    def log(self, msg, level=LogLevel.INFO, tag=None):
+        """Log a message to the text widget and optionally to local file."""
         if self._closed:
             return
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
+
+        formatted_message = self._format_log_message(msg, level, tag)
+
         if level >= self.log_level:
             if self.text_widget is not None:
-                self._write_to_text_widget(formatted_message)
+                self._write_to_text_widget(formatted_message, level)
             else:
-                self._pending_widget_messages.append(formatted_message)
+                self._append_pending_widget_message(formatted_message, level)
+
         # return early if file logging is disabled
         if not self.log_to_file:
             return
+
         # write to log file if enabled
-        if self.log_to_file and level >= self.file_log_level:
+        if level >= self.file_log_level:
             now = datetime.datetime.now()
+
             # close the log file at intervals of 8 hours and create a new one
-            if self.log_start_time == None or (now - self.log_start_time).total_seconds() > 8*60*60:
+            if self.log_start_time is None or (now - self.log_start_time).total_seconds() > 8 * 60 * 60:
                 self.setup_log_file()
+
             if self.log_file is None:
+                if not self._log_file_unavailable_reported:
+                    self._log_file_unavailable_reported = True
+                    self._log_internal("Log file is not open; message could not be written to file.")
                 return
+
             try:
-                file_formatted_message = f"[{timestamp}] - {level.name}: {msg}\n"
-                self.log_file.write(file_formatted_message)
+                self.log_file.write(formatted_message)
                 self.log_file.flush()
+                self._log_file_unavailable_reported = False
             except Exception as e:
-                print(f"Error writing to log file: {str(e)}")   
+                self._log_internal(f"Error writing to log file: {str(e)}")
+
     def update_field(self, field, value):
         if field == "cathode":
-            raise KeyError("'cathode' cannot be updated with update_field; use update_cathode_field for cathode subfields.")
+            message = "'cathode' cannot be updated with update_field; use update_cathode_field for cathode subfields."
+            self.error(message, tag="Utils")
+            raise KeyError(message)
         if field in self.dict_logger:
             self.dict_logger[field] = value
             self.log_dict_update(self.dict_logger)
         else:
-            raise KeyError(f"'{field}' is not a valid key in status dict.")
+            message = f"'{field}' is not a valid key in status dict."
+            self.error(message, tag="Utils")
+            raise KeyError(message)
     def update_cathode_field(self, cathode_label, subfield, value):
         cathode = self.dict_logger["cathode"]
         if not isinstance(cathode, dict):
-            raise TypeError("Logger cathode schema is corrupted; expected 'cathode' to be a dict.")
+            message = "Logger cathode schema is corrupted; expected 'cathode' to be a dict."
+            self.error(message, tag="Utils")
+            raise TypeError(message)
         if cathode_label not in cathode:
-            raise KeyError(f"'{cathode_label}' is not a valid cathode label. Expected one of {list(cathode.keys())}.")
+            message = f"'{cathode_label}' is not a valid cathode label. Expected one of {list(cathode.keys())}."
+            self.error(message, tag="Utils")
+            raise KeyError(message)
         if subfield not in cathode[cathode_label]:
-            raise KeyError(f"'{subfield}' is not a valid cathode subfield. Expected one of {list(cathode[cathode_label].keys())}.")
+            message = f"'{subfield}' is not a valid cathode subfield. Expected one of {list(cathode[cathode_label].keys())}."
+            self.error(message, tag="Utils")
+            raise KeyError(message)
         cathode[cathode_label][subfield] = value
         self.log_dict_update(self.dict_logger)
     def clear_value(self, field):
         if field == "cathode":
-            raise KeyError("'cathode' cannot be cleared with clear_value; use update_cathode_field to reset individual subfields.")
+            message = "'cathode' cannot be cleared with clear_value; use update_cathode_field to reset individual subfields."
+            self.error(message, tag="Utils")
+            raise KeyError(message)
         if field in self.dict_logger:
             self.dict_logger[field] = None
             self.log_dict_update(self.dict_logger)
         else:
-            raise KeyError(f"'{field}' is not a valid key in status dict.")
+            message = f"'{field}' is not a valid key in status dict."
+            self.error(message, tag="Utils")
+            raise KeyError(message)
     def log_dict_update(self, update_dict):
         if self._closed:
             return
@@ -246,10 +337,11 @@ class Logger:
                         if self.webMonitor_log_file:
                             self.webMonitor_log_file.write(json.dumps(entry) + "\n")
                             self.webMonitor_log_file.flush()
+                            self.warning(f"Web Monitor log write failed once and succeeded after retry: {e}", tag="Utils")
                         else:
-                            print(f"Error writing web monitor updates: {e}")
+                            self._log_internal(f"Error writing web monitor updates: {e}")
                     except Exception as retry_error:
-                        print(f"Error writing web monitor updates: {retry_error}")
+                        self._log_internal(f"Error writing web monitor updates: {retry_error}")
 
     def _enqueue_supabase_update(self, update_dict, now):
         if self._closed or not self.supabase_client or not self.log_to_file:
@@ -348,24 +440,31 @@ class Logger:
         worker.join(timeout=self.SUPABASE_WORKER_SHUTDOWN_TIMEOUT_SECONDS)
         if not worker.is_alive():
             self._supabase_worker = None
+        else:
+            self._log_internal(
+                f"Supabase log worker did not stop within {self.SUPABASE_WORKER_SHUTDOWN_TIMEOUT_SECONDS} seconds.",
+                LogLevel.WARNING,
+            )
 
-    def debug(self, message):
-        self.log(message, LogLevel.DEBUG)
+    def debug(self, message, tag=None):
+        self.log(message, LogLevel.DEBUG, tag=tag)
 
-    def info(self, message):
-        self.log(message, LogLevel.INFO)
+    def info(self, message, tag=None):
+        self.log(message, LogLevel.INFO, tag=tag)
 
-    def warning(self, message):
-        self.log(message, LogLevel.WARNING)
+    def warning(self, message, tag=None):
+        self.log(message, LogLevel.WARNING, tag=tag)
     
-    def error(self, message):
-        self.log(message, LogLevel.ERROR)
+    def error(self, message, tag=None):
+        self.log(message, LogLevel.ERROR, tag=tag)
 
-    def critical(self, message):
-        self.log(message, LogLevel.CRITICAL)
+    def critical(self, message, tag=None):
+        self.log(message, LogLevel.CRITICAL, tag=tag)
 
     def set_log_level(self, level):
+        old_level = self.log_level
         self.log_level = level
+        self.info(f"Message log level changed from {old_level.name} to {level.name}", tag="Utils")
 
     def close(self):
         self._closed = True
@@ -376,13 +475,13 @@ class Logger:
                 self.log_file.close()
                 self.log_file = None
             except Exception as e:
-                print(f"Error closing log file {str(e)}")
+                self._log_internal(f"Error closing log file {str(e)}")
         if self.webMonitor_log_file:
             try:
                 self.webMonitor_log_file.close()
                 self.webMonitor_log_file = None
             except Exception as e:
-                print(f"Error closing web monitor log file: {str(e)}")
+                self._log_internal(f"Error closing web monitor log file: {str(e)}")
 
 import tkinter as tk
 import sys
@@ -440,7 +539,7 @@ class MessagesFrame:
             self.logger.attach_text_widget(self.text_widget)
 
         self.file_logging_enabled = self.logger.log_to_file
-        self.logger.info("Messages pane attached to logger")
+        self.logger.debug("Messages pane attached to logger", tag="Utils")
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
@@ -456,20 +555,20 @@ class MessagesFrame:
     def toggle_file_logging(self):
         if self.file_logging_enabled:
             # Currently ON, turn it OFF
-            self.logger.info("Log recording has been turned OFF.")
+            self.logger.info("Log recording has been turned OFF.", tag="Utils")
             self.file_logging_enabled = False
             self.logger.log_to_file = False
             if self.logger.log_file:
                 try:
                     self.logger.log_file.close()
                 except Exception as e:
-                    print(f"Error closing log file: {e}")
+                    self.logger.error(f"Error closing log file: {e}", tag="Utils")
                 self.logger.log_file = None
             if self.logger.webMonitor_log_file:
                 try:
                     self.logger.webMonitor_log_file.close()
                 except Exception as e:
-                    print(f"Error closing web monitor log file: {e}")
+                    self.logger.error(f"Error closing web monitor log file: {e}", tag="Utils")
                 self.logger.webMonitor_log_file = None
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
@@ -487,7 +586,7 @@ class MessagesFrame:
                 self.logging_indicator_circle, 
                 fill="#00FF24"
             )
-            self.logger.info("Log recording has been turned ON.")
+            self.logger.info("Log recording has been turned ON.", tag="Utils")
 
     def set_log_level(self, level):
         self.logger.set_log_level(level)
@@ -525,7 +624,7 @@ class MessagesFrame:
             if not os.path.exists(self.log_dir):
                 os.makedirs(self.log_dir)
         except Exception as e:
-            print(f"Failed to create log directory: {str(e)}")
+            self.logger.error(f"Failed to create log directory: {str(e)}", tag="Utils")
     
     def export_log(self):
         """ Export the current log contents to a user-specified file. """
@@ -541,8 +640,10 @@ class MessagesFrame:
             if file_path:
                 with open(file_path, 'a') as file:
                     file.write(self.text_widget.get("1.0", tk.END))
+                self.logger.info(f"Log exported to {file_path}", tag="Utils")
                 messagebox.showinfo("Export Successful", f"Log exported to {file_path}")
         except Exception as e:
+            self.logger.error(f"Failed to export log: {str(e)}", tag="Utils")
             messagebox.showerror("Export Error", f"Failed to export log: {str(e)}")
 
     def confirm_clear(self):
@@ -563,9 +664,20 @@ class TextRedirector:
         pass  # Needed for compatibility
 
 class SetupScripts:
-    def __init__(self, parent):
+    def __init__(self, parent, logger=None):
         self.parent = parent
+        self.logger = logger
         self.setup_gui()
+
+    def _log(self, message, level):
+        if self.logger and hasattr(self.logger, "log"):
+            self.logger.log(message, level, tag="Setup Scripts")
+        else:
+            _safe_console_write(self._format_fallback_message(message, level))
+
+    def _format_fallback_message(self, message, level):
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        return f"[{timestamp}] - {level.name} (Setup Scripts) > {message}"
 
     def setup_gui(self):
         self.frame = tk.Frame(self.parent)
@@ -601,9 +713,13 @@ class SetupScripts:
             try:
                 # Execute the script
                 subprocess.run(['python', script_path], check=True)
-                print(f"Script {script_name} executed successfully.")
+                self._log(f"Script {script_name} executed successfully.", LogLevel.INFO)
             except subprocess.CalledProcessError as e:
-                print(f"An error occurred while executing {script_name}: {e}")
+                self._log(f"An error occurred while executing {script_name}: {e}", LogLevel.ERROR)
+            except Exception as e:
+                self._log(f"Unexpected error executing {script_name}: {e}", LogLevel.ERROR)
+        else:
+            self._log("Script execution blocked: no script selected.", LogLevel.WARNING)
 
 class ToolTip(object):
     def __init__(self, widget, text=None, plot_data=None, voltage_var=None, current_var=None, messages_frame=None):
@@ -616,6 +732,13 @@ class ToolTip(object):
         self.widget.bind("<Enter>", self.enter)
         self.widget.bind("<Leave>", self.leave)
         self.tip_window = None
+
+    def _log_warning(self, message):
+        log_target = getattr(self.messages_frame, "logger", self.messages_frame)
+        if log_target and hasattr(log_target, "warning"):
+            log_target.warning(message, tag="Utils")
+        elif log_target and hasattr(log_target, "log"):
+            log_target.log(message, LogLevel.WARNING, tag="Utils")
 
     def enter(self, event=None):
         self.show_tip()
@@ -657,8 +780,7 @@ class ToolTip(object):
                     ax.axvline(voltage, color='red', linestyle='--')
                     ax.axhline(current, color='red', linestyle='--')
                 except ValueError as e:
-                    if self.messages_frame and hasattr(self.messages_frame, 'log_message'):
-                        self.messages_frame.log_message(f"Error parsing tooltip values: {str(e)}")
+                    self._log_warning(f"Error parsing tooltip values: {str(e)}")
         else:
             label = tk.Label(tw, text=self.text, justify='left',
                              background="#ffffe0", relief='solid', borderwidth=1,
@@ -689,13 +811,36 @@ class MachineStatus():
         'Running Experiment': False,
      }
 
-    def __init__(self, parent):
+    def __init__(self, parent, logger=None):
         self.parent = parent
+        self.logger = logger
         self.status_labels = {}  # Store labels for updates
         self._previous_status = {}
         self.setup_gui()
         self.update_interval = 500  # Update interval in milliseconds
         self.update_status()  # Start the perpetual update loop
+
+    def _log(self, message, level):
+        if self.logger and hasattr(self.logger, "log"):
+            self.logger.log(message, level, tag="Machine Status")
+
+    def _log_status_changes(self, status_dict):
+        if not self._previous_status:
+            self._log("Machine status initialized.", LogLevel.DEBUG)
+            return
+
+        changes = []
+        top_level_changed = False
+        for name, status in status_dict.items():
+            previous_status = self._previous_status.get(name)
+            if previous_status != status:
+                if name == "Machine Status":
+                    top_level_changed = True
+                changes.append(f"{name}={'ON' if status else 'OFF'}")
+
+        if changes:
+            level = LogLevel.INFO if top_level_changed else LogLevel.DEBUG
+            self._log(f"Machine status changed: {', '.join(changes)}", level)
 
     def setup_gui(self):
         """Setup the GUI for the Machine Status Panel"""
@@ -745,6 +890,7 @@ class MachineStatus():
                     break
         
         if any_change:
+            self._log_status_changes(status_dict)
             self.update_labels(status_dict)
         
         self._previous_status = status_dict.copy()
@@ -760,6 +906,7 @@ class MachineStatus():
         if hasattr(self, 'after_id') and self.after_id:
             self.parent.after_cancel(self.after_id)
             self.after_id = None
+            self._log("Cancelled scheduled Machine Status update.", LogLevel.DEBUG)
 
     def update_labels(self, status_dict):
             for name, is_active in status_dict.items():

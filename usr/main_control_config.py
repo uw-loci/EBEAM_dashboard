@@ -11,9 +11,11 @@ _LEGACY_FIELD = "total_max_emission_current_ma"
 def _log(logger, level, message):
     if logger is None:
         return
-    log_func = getattr(logger, level, None) or getattr(logger, "log", None)
+    log_func = getattr(logger, level, None)
     if log_func:
-        log_func(message)
+        log_func(message, tag="Config")
+    elif hasattr(logger, "log"):
+        logger.log(message, tag="Config")
 
 
 def _as_limit(value):
