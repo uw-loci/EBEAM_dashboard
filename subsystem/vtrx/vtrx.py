@@ -72,6 +72,7 @@ class VTRXSubsystem:
 
         self.circle_indicators = []
         self.error_state = False
+        self.firmware_error = False
         self.error_logged = False
         self.vacuum_fields_cleared = False
         self.last_no_data_log_time = 0.0
@@ -80,9 +81,12 @@ class VTRXSubsystem:
         self.last_successful_read_time = None
         self.last_valid_pressure_value = None
         self.last_gui_update_time = time.time()
+        self.after_id = None
+        self._serial_data_failure_count = 0
 
         self.setup_serial()
         self.setup_gui()
+        self.start_process_queue()
         
         if self.ser is not None and self.ser.is_open:
             self.start_serial_thread()
@@ -207,28 +211,13 @@ class VTRXSubsystem:
                 if data is None:
                     self._handle_no_data()
                 else:
-                    self._handle_serial_data_with_retries(data)
+                    self.handle_serial_data(data)
         except queue.Empty:
             pass
         finally:
             self.flush_queued_logs()
             self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
-
-    def _handle_serial_data_with_retries(self, data):
-        last_exception = None
-        for _attempt in range(self.SERIAL_DATA_MAX_ATTEMPTS):
-            try:
-                self.handle_serial_data(data)
-                return
-            except Exception as e:
-                last_exception = e
-
-        self.log(
-            f"VTRX serial data failed after {self.SERIAL_DATA_MAX_ATTEMPTS} attempts: "
-            f"{last_exception}. Data: {self._safe_raw_log_text(data)}",
-            LogLevel.ERROR
-        )
 
     def _pressure_reading_is_fresh(self):
         last_successful_read_time = getattr(self, "last_successful_read_time", None)
@@ -246,6 +235,7 @@ class VTRXSubsystem:
             pressure_callback(
                 getattr(self, "last_valid_pressure_value", None),
                 self._pressure_reading_is_fresh(),
+                getattr(self, "firmware_error", False),
             )
         except Exception as e:
             self.log(f"VTRX pressure update callback failed: {e}", LogLevel.ERROR)
@@ -318,18 +308,15 @@ class VTRXSubsystem:
         Args:
             data: The raw data string read from the serial port (e.g., "1.23;1.23E-01;10110010;972b ERR:...").
 
-        Raises:
-            ValueError: If the pressure value cannot be converted to float.
-            IndexError: If the data string has fewer parts than expected.
+        Malformed input is logged, places the VTRX display in an error state,
+        and returns without raising so the queue drain can continue.
         """
-        data_parts = data.split(';')
-        if len(data_parts) < 3:
-            self._log_serial_data_error("Incomplete data received.", data)
-            self.error_state = True
-            self.update_gui_with_error_state()
-            raise ValueError("Incomplete data received.")
-        
         try:
+            data_parts = data.split(';')
+            if len(data_parts) < 3:
+                self._handle_serial_data_error("Incomplete data received.", data)
+                return
+
             pressure_raw = data_parts[1]            # raw string from 972b sensor
             pressure_raw = pressure_raw.strip()  # Clean up any whitespace
             pressure_value = float(pressure_raw)  if pressure_raw else float(data_parts[0]) # use raw value if available for greater precision
@@ -346,6 +333,7 @@ class VTRXSubsystem:
             switch_states = [int(bit) for bit in f"{int(switch_states_binary, 2):08b}"] # Ensures it's 8 bits long
 
             previous_error_state = self.error_state
+            firmware_error = False
             self.error_state = False # Assume no error unless found
             if len(data_parts) > 3: # Handle errors
                 for error in data_parts[3:]: # All subsequent parts are errors
@@ -355,9 +343,11 @@ class VTRXSubsystem:
                     if error.startswith("972b ERR:"):
                         error_segments = error.split(":", 2)
                         if len(error_segments) < 3:
-                            raise ValueError(
-                                f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}"
+                            self._handle_serial_data_error(
+                                f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}",
+                                data,
                             )
+                            return
 
                         error_code_text = error_segments[1].strip()
                         error_message = error_segments[2].strip()
@@ -377,9 +367,12 @@ class VTRXSubsystem:
                             f"Actual:{self._safe_raw_log_text(error_message)}",
                             level
                         )
+                        firmware_error = True
                         self.error_state = True
                     else:
                         self.log(f"Unrecognized VTRX data segment: {self._safe_raw_log_text(error)}", LogLevel.DEBUG)
+
+            self.firmware_error = firmware_error
             
             if not self.error_state:    
                 if previous_error_state:
@@ -394,22 +387,29 @@ class VTRXSubsystem:
             self.error_logged = False # reset error flag on successful data processing
 
         except ValueError as e:    
-            self._log_serial_data_error(f"VTRX Data processing error: {e}", data)
-            self.error_state = True
-            self.update_gui_with_error_state()
-            raise
+            self._handle_serial_data_error(f"VTRX Data processing error: {e}", data)
         except IndexError as e:
-            self._log_serial_data_error(
+            self._handle_serial_data_error(
                 f"VTRX Data processing error: Insufficient segments - "
                 f"{self._safe_raw_log_text(data)}. Error: {e}",
                 data
             )
-            self.error_state = True
+        except Exception as e:
+            self._handle_serial_data_error(
+                f"VTRX unexpected data handling error: {type(e).__name__}: {e}",
+                data,
+            )
+
+    def _handle_serial_data_error(self, message, data):
+        self._log_serial_data_error(message, data)
+        self.error_state = True
+        try:
             self.update_gui_with_error_state()
-            raise
+        except Exception as e:
+            self.log(f"VTRX error-state GUI update failed: {e}", LogLevel.ERROR)
 
     def _log_serial_data_error(self, message, data):
-        self.log(message, LogLevel.DEBUG)
+        self.log(message, LogLevel.ERROR)
         self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
 
     def log(self, message, level=LogLevel.INFO):
@@ -654,6 +654,10 @@ class VTRXSubsystem:
         self.stop_event.clear()
         self.serial_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.serial_thread.start()
+
+    def start_process_queue(self):
+        if getattr(self, "after_id", None) is not None:
+            return
         self.after_id = self.parent.after(100, self.process_queue)
 
     def stop_serial_thread(self):
