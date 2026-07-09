@@ -4,9 +4,9 @@ Dashboard-side USB serial driver for the EBEAM Laser Monitor indicator.
 
 This module complements the `ebeam-laser-monitor` Arduino firmware. The
 firmware drives the physical radiation and beams-on indicator outputs; this
-dashboard driver owns the host-side serial connection, periodically verifies
-that the Arduino is alive, and sends state changes from the dashboard
-subsystems.
+dashboard driver owns the host-side serial connection and periodically sends
+the complete desired state from the dashboard subsystems. Each state exchange
+also verifies that the Arduino is alive.
 
 ## System Overview
 
@@ -69,7 +69,26 @@ the connection is treated as unhealthy and the worker reconnects.
 
 ### Poll
 
-Sent every `0.5 s`:
+Sent on initial connection and every `0.5 s` thereafter:
+
+```text
+STATE beams=<0|1> radiation=<0|1>
+```
+
+Expected response:
+
+```text
+OK
+```
+
+Successful polls set `is_connected()` to `True` and refresh both physical
+outputs, even when the desired dashboard values have not changed.
+
+### Diagnostic Ping
+
+The firmware's liveness-only command remains available for diagnostics, but the
+dashboard does not use it as its regular poll because it cannot resynchronize
+indicator outputs:
 
 ```text
 PING
@@ -81,21 +100,7 @@ Expected response:
 PONG
 ```
 
-Successful polls set `is_connected()` to `True`.
-
-### State Update
-
-Sent after reconnect and whenever either desired indicator value changes:
-
-```text
-STATE beams=<0|1> radiation=<0|1>
-```
-
-Expected response:
-
-```text
-OK
-```
+### State Values
 
 Examples:
 
@@ -131,12 +136,14 @@ The worker handles serial failures without blocking dashboard callbacks:
 1. If the port is closed or a transaction fails, mark the driver disconnected.
 2. Close the serial object.
 3. Reconnect with exponential backoff from `0.5 s` up to `5.0 s`.
-4. After a successful reconnect, send the latest desired state again.
+4. After a successful reconnect, resume polling with the latest desired state.
 
 Unexpected responses, missing responses, write failures, and decode issues are
 recorded in `last_error`.
 
 The firmware also has its own dashboard communication watchdog. If it receives
 no valid dashboard message for 4 seconds, it forces only the beams-on output LOW
-and leaves the radiation indicator unchanged. The driver therefore polls every
-500 ms to keep the firmware watchdog satisfied during normal operation.
+and leaves the radiation indicator unchanged. The driver therefore sends the
+complete state every 500 ms. This both keeps the firmware watchdog satisfied
+during normal operation and restores the desired outputs after communication
+resumes without requiring a dashboard state change.
