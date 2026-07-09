@@ -18,6 +18,37 @@ class TestBeamsOff(unittest.TestCase):
             ps.disable_output.return_value = disable_result
         return ps
 
+    def make_warning_widgets(self):
+        return [[MagicMock(), MagicMock()] for _ in range(3)]
+
+    def install_measured_output_warning_state(self):
+        self.subsys.measured_output_warning_since = {
+            "voltage": [object(), object(), object()],
+            "current": [object(), object(), object()],
+        }
+        self.subsys.measured_output_warning_active = {
+            "voltage": [True, True, True],
+            "current": [True, True, True],
+        }
+        self.subsys.measured_output_warning_logged = {
+            "voltage": [True, True, True],
+            "current": [True, True, True],
+        }
+        self.subsys.actual_heater_voltage_box_widgets = self.make_warning_widgets()
+        self.subsys.actual_heater_current_box_widgets = self.make_warning_widgets()
+
+    def assert_measured_output_warning_cleared(self, index):
+        for measurement_type in ("voltage", "current"):
+            self.assertIsNone(
+                self.subsys.measured_output_warning_since[measurement_type][index]
+            )
+            self.assertFalse(
+                self.subsys.measured_output_warning_active[measurement_type][index]
+            )
+            self.assertFalse(
+                self.subsys.measured_output_warning_logged[measurement_type][index]
+            )
+
     def setUp(self):
         # Bypass __init__ to avoid Tk and image loading
         self.subsys = object.__new__(CathodeHeatingSubsystem)
@@ -31,6 +62,7 @@ class TestBeamsOff(unittest.TestCase):
         # Simple logger hook
         self.subsys.logger = MagicMock()
         self.subsys.log = lambda msg, lvl=LogLevel.INFO: None
+        self.install_measured_output_warning_state()
 
         # Alias method under test (name in your file)
         self.turn_off_all_beams = self.subsys.turn_off_all_beams
@@ -46,6 +78,8 @@ class TestBeamsOff(unittest.TestCase):
         self.assertFalse(self.subsys.toggle_states[2])
         self.subsys.toggle_buttons[0].config.assert_called_once()
         self.subsys.toggle_buttons[2].config.assert_called_once()
+        self.assert_measured_output_warning_cleared(0)
+        self.assert_measured_output_warning_cleared(2)
         # Uninitialized index 1 untouched
         self.subsys.toggle_buttons[1].config.assert_not_called()
 
