@@ -44,6 +44,7 @@ class InterlocksSubsystem:
         self.frames = frames
         self.active = active
         self.com_port = com_ports
+        self.driver = None
         self.last_error_time = 0  # Track last error time
         self.error_count = 0      # Track consecutive errors
         self.update_interval = 500  # Default update interval (ms)
@@ -57,17 +58,20 @@ class InterlocksSubsystem:
             if com_ports is not None:
                 try:
                     self.driver = g9_driv.G9Driver(com_ports, logger=self.logger)
-                    self.log("G9 driver initialized", LogLevel.INFO)
+                    if self.driver.is_connected():
+                        self.log("G9 driver initialized", LogLevel.INFO)
+                    else:
+                        self.log(f"Failed to connect to G9 driver on port {com_ports}", LogLevel.ERROR)
+                        self._set_all_indicators('red')
                 except Exception as e:
                     self.log(f"Failed to connect: {e}", LogLevel.ERROR)
                     self._set_all_indicators('red')
             else:
-                self.driver = None
                 self.log("No COM port provided for G9 driver", LogLevel.WARNING)
                 self._set_all_indicators('red')
         except Exception as e:
             self.driver = None
-            self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.WARNING)
+            self.log(f"Failed to initialize G9 driver: {str(e)}", LogLevel.ERROR)
             self._set_all_indicators('red')
         
         self._schedule_update()
@@ -83,18 +87,25 @@ class InterlocksSubsystem:
             try:
                 if not self.driver:
                     self.driver = g9_driv.G9Driver(com_port, logger=self.logger)
+                    connected = self.driver.is_connected()
                 else:
-                    self.driver.setup_serial(port=com_port)
+                    connected = self.driver.setup_serial(port=com_port)
+                if not connected:
+                    raise ConnectionError(f"Unable to open G9 driver on port {com_port}")
                 # Test connection by getting status
                 self.driver.get_interlock_status()
+                self.com_port = com_port
                 self.log(f"G9 driver updated to port {com_port}", LogLevel.INFO)
+                self._schedule_update()
             except Exception as e:
                 self.log(f"Failed to update G9 driver: {str(e)}", LogLevel.ERROR)
                 self._set_all_indicators('red')
         else:
-            self.driver.setup_serial(port=None)
+            if self.driver:
+                self.driver.disconnect()
+            self.com_port = None
             self._set_all_indicators('red')
-            self.log("update_com_port is being called without a com port", LogLevel.ERROR)
+            self.log("update_com_port is being called without a com port", LogLevel.WARNING)
 
     def _adjust_update_interval(self, success=True):
         """Adjust the polling interval based on connection success/failure"""
@@ -195,7 +206,8 @@ class InterlocksSubsystem:
             current_color = canvas.itemcget(oval_id, 'fill')
             if current_color != color:
                 canvas.itemconfig(oval_id, fill=color)
-                self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+                level = LogLevel.CRITICAL if color == 'red' else LogLevel.INFO
+                self.log(f"Interlock {name}: {current_color} -> {color}", level)
 
     def _set_all_indicators(self, color):
         """Set all indicators to specified color"""
@@ -210,7 +222,7 @@ class InterlocksSubsystem:
                 current_color = canvas.itemcget(oval_id, 'fill')
                 if current_color != color:
                     canvas.itemconfig(oval_id, fill=color)
-                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.INFO)
+                    self.log(f"Interlock {name}: {current_color} -> {color}", LogLevel.DEBUG)
 
     def _check_terminal_status(self, data, status_dict, terminal_type):
         """
@@ -225,7 +237,7 @@ class InterlocksSubsystem:
 
             for nibble, position in [(msb, 'H'), (lsb, 'L')]:
                 if nibble in status_dict and nibble != 0:
-                    self.log(f"{terminal_type} error at byte {i}{position}: {status_dict[nibble]} (code {nibble})", LogLevel.ERROR)
+                    self.log(f"{terminal_type} error at byte {i}{position}: {status_dict[nibble]} (code {nibble})", LogLevel.CRITICAL)
 
     def extract_flags(self, byte_string, num_bits):
         """Extracts num_bits from the data
@@ -249,6 +261,32 @@ class InterlocksSubsystem:
             extracted_bits.extend(((byte >> i) & 1) for i in range(bits_to_extract - 1, -1, -1)[::-1])
 
         return extracted_bits[:num_bits]
+
+    def _drain_driver_logger_events(self):
+        """Apply queued driver logger events from the Tk/main thread."""
+        if not self.driver or not hasattr(self.driver, "drain_logger_events"):
+            return
+
+        level_by_name = {level.name: level for level in LogLevel}
+        for event in self.driver.drain_logger_events():
+            if not event:
+                continue
+
+            kind = event[0]
+            try:
+                if kind == "log":
+                    _, level_name, message = event
+                    self.log(message, level_by_name.get(level_name, LogLevel.ERROR))
+                elif kind == "update_field":
+                    _, field, value = event
+                    if self.logger and hasattr(self.logger, "update_field"):
+                        self.logger.update_field(field, value)
+                elif kind == "clear_value":
+                    _, field, _ = event
+                    if self.logger and hasattr(self.logger, "clear_value"):
+                        self.logger.clear_value(field)
+            except Exception as e:
+                self.log(f"Failed to apply G9 logger event {kind}: {e}", LogLevel.ERROR)
     
     def update_data(self):
         """
@@ -263,13 +301,16 @@ class InterlocksSubsystem:
             Exception: If anything else in message process throws an error
 
         """
+        self.after_id = None
         current_time = time.time()
         try:
+            self._drain_driver_logger_events()
+
             if not self.driver or not self.driver.is_connected():
                 self.hvolt_on = False
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_indicators('red')
-                    self.log("G9 driver not connected", LogLevel.WARNING)
+                    self.log("G9 driver not connected", LogLevel.ERROR)
                     self.last_error_time = current_time
                     self.last_error_time = time.time()
                     self._adjust_update_interval(success=False)
@@ -281,7 +322,7 @@ class InterlocksSubsystem:
                     self.hvolt_on = False
                     self._set_all_indicators('red')
                     if current_time - self.last_error_time > (self.update_interval / 1000):
-                        self.log("No data available from G9", LogLevel.CRITICAL)
+                        self.log("No data available from G9", LogLevel.ERROR)
                         self.last_error_time = current_time
                         self._adjust_update_interval(success=False)
                         return
@@ -289,8 +330,8 @@ class InterlocksSubsystem:
                 sitsf_bits, sitdf_bits, g9_output, unit_status, input_terms, output_terms, debug_data = status
 
                 # Log debug data for web monitor
-                self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.DEBUG)
-                self.log(f"Safety Input Terminal Data Flags: {debug_data['sitdf']}", LogLevel.DEBUG)
+                self.log(f"Safety Output Terminal Data Flags: {debug_data['sotdf']}", LogLevel.VERBOSE)
+                self.log(f"Safety Input Terminal Data Flags: {debug_data['sitdf']}", LogLevel.VERBOSE)
 
                 # parse unit status
                 for k, v in unit_status.items():
@@ -360,8 +401,9 @@ class InterlocksSubsystem:
                 self._adjust_update_interval(success=False)
             
         finally:
+            self._drain_driver_logger_events()
             # Schedule next update
-            if self.driver:
+            if getattr(self, 'driver', None):
                 self._schedule_update()
     
     def cancel_updates(self):
