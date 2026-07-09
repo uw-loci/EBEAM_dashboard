@@ -198,7 +198,6 @@ class VTRXSubsystem:
 
         After processing all items, reschedules itself to run again after 500 ms.
         """
-        data = None
         try:
             self.flush_queued_logs()
             while True:
@@ -209,16 +208,6 @@ class VTRXSubsystem:
                     self.handle_serial_data(data)
         except queue.Empty:
             pass
-        except Exception as e:
-            self.error_state = True
-            if data is None:
-                self.log(f"VTRX queue processing error: {e}", LogLevel.ERROR)
-            else:
-                self.log(
-                    f"VTRX queue processing error while handling data "
-                    f"{self._safe_raw_log_text(data)}: {e}",
-                    LogLevel.ERROR
-                )
         finally:
             self.flush_queued_logs()
             self._update_main_control()
@@ -313,18 +302,15 @@ class VTRXSubsystem:
         Args:
             data: The raw data string read from the serial port (e.g., "1.23;1.23E-01;10110010;972b ERR:...").
 
-        Raises:
-            ValueError: If the pressure value cannot be converted to float.
-            IndexError: If the data string has fewer parts than expected.
+        Malformed input is logged, places the VTRX display in an error state,
+        and returns without raising so the queue drain can continue.
         """
-        data_parts = data.split(';')
-        if len(data_parts) < 3:
-            self._log_serial_data_error("Incomplete data received.", data)
-            self.error_state = True
-            self.update_gui_with_error_state()
-            raise ValueError("Incomplete data received.")
-        
         try:
+            data_parts = data.split(';')
+            if len(data_parts) < 3:
+                self._handle_serial_data_error("Incomplete data received.", data)
+                return
+
             pressure_raw = data_parts[1]            # raw string from 972b sensor
             pressure_raw = pressure_raw.strip()  # Clean up any whitespace
             pressure_value = float(pressure_raw)  if pressure_raw else float(data_parts[0]) # use raw value if available for greater precision
@@ -351,9 +337,11 @@ class VTRXSubsystem:
                     if error.startswith("972b ERR:"):
                         error_segments = error.split(":", 2)
                         if len(error_segments) < 3:
-                            raise ValueError(
-                                f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}"
+                            self._handle_serial_data_error(
+                                f"Malformed VTRX error segment: {self._safe_raw_log_text(error)}",
+                                data,
                             )
+                            return
 
                         error_code_text = error_segments[1].strip()
                         error_message = error_segments[2].strip()
@@ -393,22 +381,29 @@ class VTRXSubsystem:
             self.error_logged = False # reset error flag on successful data processing
 
         except ValueError as e:    
-            self._log_serial_data_error(f"VTRX Data processing error: {e}", data)
-            self.error_state = True
-            self.update_gui_with_error_state()
-            raise
+            self._handle_serial_data_error(f"VTRX Data processing error: {e}", data)
         except IndexError as e:
-            self._log_serial_data_error(
+            self._handle_serial_data_error(
                 f"VTRX Data processing error: Insufficient segments - "
                 f"{self._safe_raw_log_text(data)}. Error: {e}",
                 data
             )
-            self.error_state = True
+        except Exception as e:
+            self._handle_serial_data_error(
+                f"VTRX unexpected data handling error: {type(e).__name__}: {e}",
+                data,
+            )
+
+    def _handle_serial_data_error(self, message, data):
+        self._log_serial_data_error(message, data)
+        self.error_state = True
+        try:
             self.update_gui_with_error_state()
-            raise
+        except Exception as e:
+            self.log(f"VTRX error-state GUI update failed: {e}", LogLevel.ERROR)
 
     def _log_serial_data_error(self, message, data):
-        self.log(message, LogLevel.DEBUG)
+        self.log(message, LogLevel.ERROR)
         self.log(f"Literal data from VTRX: {self._safe_raw_log_text(data)}", LogLevel.DEBUG)
 
     def log(self, message, level=LogLevel.INFO):
