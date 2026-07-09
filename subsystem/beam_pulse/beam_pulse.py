@@ -682,7 +682,7 @@ class BeamPulseSubsystem:
             self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
         return False, self._emission_block_message(action, detail)
 
-    def _emission_limit_allows_output(self, action, configs, log_failure: bool = True):
+    def _beam_checks_allow_output(self, action, configs, log_failure: bool = True):
         """Return (allowed, error_message) before any non-OFF output command."""
         active_channels = {
             index
@@ -826,7 +826,7 @@ class BeamPulseSubsystem:
             })
 
         if configs:
-            allowed, error_message = self._emission_limit_allows_output("Activate Enabled Beams", configs)
+            allowed, error_message = self._beam_checks_allow_output("Activate Enabled Beams", configs)
             if not allowed:
                 # Surface guard-rail failures without writing to BCON.
                 if error_message:
@@ -1102,7 +1102,7 @@ class BeamPulseSubsystem:
                 stopped_for_disarm = True
                 break
 
-            allowed, error_message = self._emission_limit_allows_output(
+            allowed, error_message = self._beam_checks_allow_output(
                 f"CSV Sequence step {step_num}",
                 configs,
                 log_failure=False,
@@ -1884,6 +1884,13 @@ class BeamPulseSubsystem:
 
         current = bool(self.bcon_driver.is_channel_enabled(ch_index + 1))
         new_enabled = not current
+        if new_enabled:
+            allowed, error_message = self._vtrx_pressure_allows_output(
+                f"enable {self._channel_name(ch_index)}"
+            )
+            if not allowed:
+                return False, current, error_message
+
         if not self.bcon_driver.set_channel_enable(ch_index + 1, new_enabled):
             self._log_event(f"Failed to set {self._channel_name(ch_index)} enable", LogLevel.ERROR)
             return (
@@ -2030,7 +2037,7 @@ class BeamPulseSubsystem:
         count      = config['count']
 
         if mode_label != 'OFF':
-            allowed, error_message = self._emission_limit_allows_output(
+            allowed, error_message = self._beam_checks_allow_output(
                 f"Beam {self._channel_label(ch)} ON",
                 [{
                     'ch': ch + 1,
