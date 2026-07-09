@@ -53,6 +53,12 @@ class CathodeHeatingSubsystem:
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
     WORKER_LOG_QUEUE_MAXSIZE = 1000
+    DEFAULT_VOLTAGE_DIFF_WARNING_PERCENT = 10.0
+    DEFAULT_CURRENT_DIFF_WARNING_PERCENT = 10.0
+    MEASURED_OUTPUT_WARNING_SECONDS = 1.5
+    MEASURED_OUTPUT_NORMAL_BG = 'white'
+    MEASURED_OUTPUT_NORMAL_FG = 'black'
+    MEASURED_OUTPUT_WARNING_BG = '#FF8000'
     # Failed deferred 9104 setup is retried by the poller, but not on every poll cycle.
     POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS = 10.0
     
@@ -234,15 +240,38 @@ class CathodeHeatingSubsystem:
         self.entry_fields = []
         self.user_set_voltages = [None, None, None]
         self.user_set_currents = [None, None, None]
+        self.sent_heater_voltage_values = [None, None, None]
+        self.sent_heater_current_values = [None, None, None]
         self.vlt_slew_rate = [0.02, 0.02, 0.02] # Default slew rates in V/s, 0.02 is mimimum ps resolution
         self.curr_slew_rate = [0.01, 0.01, 0.01] # Default slew rates in A/s, 0.01 is mimimum ps resolution
         self.ramp_status = [False, False, False]
         self.ramp_control_mode = ["current", "current", "current"] # "current" | "voltage"
+        self.measured_output_warning_thresholds = {
+            "voltage": [self.DEFAULT_VOLTAGE_DIFF_WARNING_PERCENT for _ in range(3)],
+            "current": [self.DEFAULT_CURRENT_DIFF_WARNING_PERCENT for _ in range(3)],
+        }
+        self.measured_output_warning_since = {
+            "voltage": [None, None, None],
+            "current": [None, None, None],
+        }
+        self.measured_output_warning_active = {
+            "voltage": [False, False, False],
+            "current": [False, False, False],
+        }
+        self.measured_output_warning_logged = {
+            "voltage": [False, False, False],
+            "current": [False, False, False],
+        }
         self.log_power_settings_buttons = []
         self.lookup_table_comboboxes = []
         self.curr_adjustment_buttons = []  # Track current +/- buttons 
         self.vlt_adjustment_buttons = []  # Track voltage +/- buttons 
         self.set_button_states = [] # Track both voltage and current set button states to disable during ramp
+        self.actual_heater_voltage_frames = []
+        self.actual_heater_current_frames = []
+        self.actual_heater_voltage_box_widgets = []
+        self.actual_heater_current_box_widgets = []
+        self.actual_heater_temperature_box_widgets = []
         self.power_supply_comms_indicators = []
         self.temperature_comms_indicators = []
 
@@ -420,6 +449,16 @@ class CathodeHeatingSubsystem:
         self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
         self.ovl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
         self.ocl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
+        self.voltage_diff_warning_entry_vars = [tk.StringVar(value='') for _ in range(3)]
+        self.current_diff_warning_entry_vars = [tk.StringVar(value='') for _ in range(3)]
+        self.voltage_diff_warning_value_vars = [
+            tk.StringVar(value=self._format_measured_output_warning_threshold(i, "voltage"))
+            for i in range(3)
+        ]
+        self.current_diff_warning_value_vars = [
+            tk.StringVar(value=self._format_measured_output_warning_threshold(i, "current"))
+            for i in range(3)
+        ]
 
     def setup_gui(self):
         self._init_ocl_live_values()
@@ -434,7 +473,6 @@ class CathodeHeatingSubsystem:
         style.configure('Subpanel.TLabelframe.Label', font=('Segoe UI', 8, 'bold'))
         style.configure('RightAlign.TLabel', font=('Segoe UI', 8), anchor='e')
         style.configure('Small.TLabel', font=('Segoe UI', 8))
-        style.configure('OverTemp.TLabel', foreground='red', font=('Segoe UI', 8, 'bold'))  # Overtemperature style
         style.configure('RampOn.TButton', background='green', foreground='black', font=('Segoe UI', 8, 'bold'), padding=(2, 0))
         style.configure('RampOff.TButton', background='red', foreground='black', font=('Segoe UI', 8, 'bold'), padding=(2, 0)) # Ramp button style
         style.configure('StopInactive.TButton', foreground='grey', font=('Segoe UI', 8), padding=(2, 0))
@@ -819,31 +857,77 @@ class CathodeHeatingSubsystem:
             
             # Voltage
             actual_voltage_frame = tk.Frame(measured_frame, bd=1, relief='groove', padx=1, pady=0)
-            actual_voltage_frame.configure(bg='#d9d9d9')
+            actual_voltage_frame.configure(bg=self.MEASURED_OUTPUT_NORMAL_BG)
             actual_voltage_frame.grid(row=0, column=0, sticky='w', padx=(0, 6))
-            actual_voltage_label = ttk.Label(actual_voltage_frame, textvariable=self.actual_heater_voltage_vars[i], style='Bold.TLabel') 
+            actual_voltage_label = tk.Label(
+                actual_voltage_frame,
+                textvariable=self.actual_heater_voltage_vars[i],
+                bg=self.MEASURED_OUTPUT_NORMAL_BG,
+                fg=self.MEASURED_OUTPUT_NORMAL_FG,
+                font=('Segoe UI', 8, 'bold'),
+            )
             actual_voltage_label.pack(side='left')
-            unit_label = ttk.Label(actual_voltage_frame, text=" V", style="Bold.TLabel")
-            unit_label.pack(side='left')
+            actual_voltage_unit_label = tk.Label(
+                actual_voltage_frame,
+                text=" V",
+                bg=self.MEASURED_OUTPUT_NORMAL_BG,
+                fg=self.MEASURED_OUTPUT_NORMAL_FG,
+                font=('Segoe UI', 8, 'bold'),
+            )
+            actual_voltage_unit_label.pack(side='left')
+            self.actual_heater_voltage_frames.append(actual_voltage_frame)
+            self.actual_heater_voltage_box_widgets.append([
+                actual_voltage_frame,
+                actual_voltage_label,
+                actual_voltage_unit_label,
+            ])
 
             # Current
             actual_current_frame = tk.Frame(measured_frame, bd=1, relief='groove', padx=1, pady=0)
-            actual_current_frame.configure(bg='#d9d9d9')
+            actual_current_frame.configure(bg=self.MEASURED_OUTPUT_NORMAL_BG)
             actual_current_frame.grid(row=0, column=1, sticky='w', padx=(0, 8))
-            actual_current_label = ttk.Label(actual_current_frame, textvariable=self.actual_heater_current_vars[i], style='Bold.TLabel') 
+            actual_current_label = tk.Label(
+                actual_current_frame,
+                textvariable=self.actual_heater_current_vars[i],
+                bg=self.MEASURED_OUTPUT_NORMAL_BG,
+                fg=self.MEASURED_OUTPUT_NORMAL_FG,
+                font=('Segoe UI', 8, 'bold'),
+            )
             actual_current_label.pack(side='left')
-            unit_label = ttk.Label(actual_current_frame, text=" A", style="Bold.TLabel")
-            unit_label.pack(side='left')
+            actual_current_unit_label = tk.Label(
+                actual_current_frame,
+                text=" A",
+                bg=self.MEASURED_OUTPUT_NORMAL_BG,
+                fg=self.MEASURED_OUTPUT_NORMAL_FG,
+                font=('Segoe UI', 8, 'bold'),
+            )
+            actual_current_unit_label.pack(side='left')
+            self.actual_heater_current_frames.append(actual_current_frame)
+            self.actual_heater_current_box_widgets.append([
+                actual_current_frame,
+                actual_current_label,
+                actual_current_unit_label,
+            ])
             
             # Temp
             ttk.Label(measured_frame, text='Temp', style='RightAlign.TLabel').grid(row=0, column=2, sticky='w', padx=(0, 2))
             actual_temp_frame = tk.Frame(measured_frame, bd=1, relief='groove', padx=1, pady=0)
-            actual_temp_frame.configure(bg='#d9d9d9')
+            actual_temp_frame.configure(bg=self.MEASURED_OUTPUT_NORMAL_BG)
             actual_temp_frame.grid(row=0, column=3, sticky='w')
-            actual_temp_label = ttk.Label(actual_temp_frame, textvariable=self.clamp_temperature_vars[i], style='Bold.TLabel') 
+            actual_temp_label = tk.Label(
+                actual_temp_frame,
+                textvariable=self.clamp_temperature_vars[i],
+                bg=self.MEASURED_OUTPUT_NORMAL_BG,
+                fg=self.MEASURED_OUTPUT_NORMAL_FG,
+                font=('Segoe UI', 8, 'bold'),
+            )
             actual_temp_label.pack(side='left')
 
             self.clamp_temp_labels.append(actual_temp_label)
+            self.actual_heater_temperature_box_widgets.append([
+                actual_temp_frame,
+                actual_temp_label,
+            ])
 
             # CV / CC mode indicator
             indicator_frame = ttk.Frame(measured_frame)
@@ -1179,6 +1263,75 @@ class CathodeHeatingSubsystem:
             if not hasattr(self, '_sync_vsr_funcs'):
                 self._sync_vsr_funcs = []
             self._sync_vsr_funcs.append(sync_vsr)
+
+            voltage_warning_frame = ttk.Frame(config_tab)
+            voltage_warning_frame.grid(row=7, column=0, columnspan=3, sticky='w', pady=(2, 2))
+            voltage_warning_label_frame = ttk.Frame(voltage_warning_frame)
+            voltage_warning_label_frame.grid(row=0, column=0, sticky='w')
+            voltage_warning_label = ttk.Label(
+                voltage_warning_label_frame,
+                text='Voltage Diff Warning (%):',
+                style='RightAlign.TLabel',
+            )
+            voltage_warning_label.pack(side='left')
+            voltage_warning_display_frame = tk.Frame(voltage_warning_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            voltage_warning_display_frame.configure(bg=self.MEASURED_OUTPUT_NORMAL_BG)
+            voltage_warning_display_frame.pack(side='left', padx=(6, 0))
+            ttk.Label(
+                voltage_warning_display_frame,
+                textvariable=self.voltage_diff_warning_value_vars[i],
+                style='Bold.TLabel',
+                width=5,
+                anchor='e',
+            ).pack(side='left')
+            voltage_warning_entry = ttk.Entry(
+                voltage_warning_frame,
+                textvariable=self.voltage_diff_warning_entry_vars[i],
+                width=7,
+            )
+            voltage_warning_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            ttk.Button(
+                voltage_warning_frame,
+                text="Set",
+                width=4,
+                command=lambda i=i: self.set_measured_output_warning_threshold(i, "voltage"),
+            ).grid(row=0, column=2, sticky='w', padx=(2, 2))
+            ToolTip(voltage_warning_label, "Measured voltage warning threshold as a percentage of sent voltage")
+
+            current_warning_frame = ttk.Frame(config_tab)
+            current_warning_frame.grid(row=8, column=0, columnspan=3, sticky='w', pady=(2, 2))
+            current_warning_label_frame = ttk.Frame(current_warning_frame)
+            current_warning_label_frame.grid(row=0, column=0, sticky='w')
+            current_warning_label = ttk.Label(
+                current_warning_label_frame,
+                text='Current Diff Warning (%):',
+                style='RightAlign.TLabel',
+            )
+            current_warning_label.pack(side='left')
+            current_warning_display_frame = tk.Frame(current_warning_label_frame, bd=2, relief='groove', padx=2, pady=1)
+            current_warning_display_frame.configure(bg=self.MEASURED_OUTPUT_NORMAL_BG)
+            current_warning_display_frame.pack(side='left', padx=(7, 0))
+            ttk.Label(
+                current_warning_display_frame,
+                textvariable=self.current_diff_warning_value_vars[i],
+                style='Bold.TLabel',
+                width=5,
+                anchor='e',
+            ).pack(side='left')
+            current_warning_entry = ttk.Entry(
+                current_warning_frame,
+                textvariable=self.current_diff_warning_entry_vars[i],
+                width=7,
+            )
+            current_warning_entry.grid(row=0, column=1, sticky='w', padx=(5, 2))
+            ttk.Button(
+                current_warning_frame,
+                text="Set",
+                width=4,
+                command=lambda i=i: self.set_measured_output_warning_threshold(i, "current"),
+            ).grid(row=0, column=2, sticky='w', padx=(2, 2))
+            ToolTip(current_warning_label, "Measured current warning threshold as a percentage of sent current")
+
             # Add label for Temperature Controller
             ttk.Label(config_tab, text="\nTemperature Controller", style='Bold.TLabel').grid(row=9, column=0, columnspan=3, sticky="ew")
 
@@ -2366,6 +2519,8 @@ class CathodeHeatingSubsystem:
         self.actual_heater_current_vars[index].set("--")
         self.actual_heater_voltage_vars[index].set("--")
         self.operation_mode_var[index].set("Mode: --")
+        self._clear_measured_output_warning(index, "voltage")
+        self._clear_measured_output_warning(index, "current")
 
         if index < len(self.cv_cc_labels):
             cv_lbl, cc_lbl = self.cv_cc_labels[index]
@@ -2477,6 +2632,8 @@ class CathodeHeatingSubsystem:
                 self._log_power_supply_readback_state(i, "not_initialized")
                 self._mark_power_supply_unavailable(i)
 
+            self._update_measured_output_warning_indicators(i, voltage, current, mode)
+
             temperature = self.read_temperature(i)
             self._latest_clamp_temperatures[i] = temperature
             if self.logger and hasattr(self.logger, "update_cathode_field"):
@@ -2505,18 +2662,18 @@ class CathodeHeatingSubsystem:
             else:
                 self.operation_mode_var[i].set('Mode: --')
 
-            # Overtemperature check and update label style
+            # Overtemperature check and update warning highlight
             if temperature is not None:
                 if temperature > self.overtemp_limit_vars[i].get():
                     self.overtemp_status_vars[i].set("OVERTEMP!")
                     self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
-                    self.clamp_temp_labels[i].config(style='OverTemp.TLabel')  # Change to red style
+                    self._set_measured_temperature_warning_box(i, True)
                 else:
                     self.overtemp_status_vars[i].set('Normal')
-                    self.clamp_temp_labels[i].config(style='Bold.TLabel')  # Revert to normal style
+                    self._set_measured_temperature_warning_box(i, False)
             else:
                 self.overtemp_status_vars[i].set('N/A')
-                self.clamp_temp_labels[i].config(style='Bold.TLabel')
+                self._set_measured_temperature_warning_box(i, False)
 
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
@@ -2576,6 +2733,177 @@ class CathodeHeatingSubsystem:
         ax.relim()
         ax.autoscale_view(scaley=False)  # Only autoscale x-axis
         ax.figure.canvas.draw()
+
+    def _format_measured_output_warning_threshold(self, index, measurement_type):
+        value = self.measured_output_warning_thresholds[measurement_type][index]
+        return f"{value:g} %"
+
+    def set_measured_output_warning_threshold(self, index, measurement_type):
+        if measurement_type == "voltage":
+            entry_var = self.voltage_diff_warning_entry_vars[index]
+            value_var = self.voltage_diff_warning_value_vars[index]
+            label = "voltage"
+        else:
+            entry_var = self.current_diff_warning_entry_vars[index]
+            value_var = self.current_diff_warning_value_vars[index]
+            label = "current"
+
+        raw_value = entry_var.get().strip()
+        if raw_value == "":
+            self.log(f"Missing CCS measured-output {label} warning threshold for Cathode {['A', 'B', 'C'][index]}", LogLevel.WARNING)
+            msgbox.showerror("Error", f"Please enter a {label} warning threshold percentage.")
+            return
+
+        try:
+            new_value = float(raw_value)
+        except ValueError:
+            self.log(f"Invalid CCS measured-output {label} warning threshold for Cathode {['A', 'B', 'C'][index]}: {raw_value}", LogLevel.WARNING)
+            msgbox.showerror("Error", f"Please enter a valid {label} warning threshold percentage.")
+            return
+
+        if not np.isfinite(new_value) or new_value < 0:
+            self.log(
+                f"Invalid CCS measured-output {label} warning threshold for Cathode {['A', 'B', 'C'][index]}: {new_value}",
+                LogLevel.WARNING,
+            )
+            msgbox.showerror("Error", "Warning threshold percentage must be zero or greater.")
+            return
+
+        self.measured_output_warning_thresholds[measurement_type][index] = new_value
+        value_var.set(self._format_measured_output_warning_threshold(index, measurement_type))
+        entry_var.set("")
+        self._clear_measured_output_warning(index, measurement_type)
+        self.log(
+            f"Set Cathode {['A', 'B', 'C'][index]} measured-output {label} warning threshold to {new_value:g}%",
+            LogLevel.INFO,
+        )
+
+    def _set_measured_output_warning_box(self, index, measurement_type, warning_active):
+        box_widgets = (
+            self.actual_heater_voltage_box_widgets
+            if measurement_type == "voltage"
+            else self.actual_heater_current_box_widgets
+        )
+        if index >= len(box_widgets):
+            return
+        background_color = (
+            self.MEASURED_OUTPUT_WARNING_BG
+            if warning_active
+            else self.MEASURED_OUTPUT_NORMAL_BG
+        )
+        for widget in box_widgets[index]:
+            widget.configure(bg=background_color)
+        for widget in box_widgets[index][1:]:
+            widget.configure(fg=self.MEASURED_OUTPUT_NORMAL_FG)
+        self.measured_output_warning_active[measurement_type][index] = bool(warning_active)
+
+    def _set_measured_temperature_warning_box(self, index, warning_active):
+        if index >= len(self.actual_heater_temperature_box_widgets):
+            return
+        background_color = (
+            self.MEASURED_OUTPUT_WARNING_BG
+            if warning_active
+            else self.MEASURED_OUTPUT_NORMAL_BG
+        )
+        for widget in self.actual_heater_temperature_box_widgets[index]:
+            widget.configure(bg=background_color)
+        for widget in self.actual_heater_temperature_box_widgets[index][1:]:
+            widget.configure(fg=self.MEASURED_OUTPUT_NORMAL_FG)
+
+    def _measured_output_unit(self, measurement_type):
+        return "V" if measurement_type == "voltage" else "A"
+
+    def _log_measured_output_warning_breach(self, index, measurement_type, sent, measured, threshold_percent, difference):
+        if self.measured_output_warning_logged[measurement_type][index]:
+            return
+        self.measured_output_warning_logged[measurement_type][index] = True
+        cathode = ['A', 'B', 'C'][index]
+        unit = self._measured_output_unit(measurement_type)
+        self.log(
+            f"Cathode {cathode} measured-output {measurement_type} warning: "
+            f"measured {measured:.2f}{unit}, sent {sent:.2f}{unit}, "
+            f"difference {difference:.2f}{unit} exceeds {threshold_percent:g}% threshold.",
+            LogLevel.WARNING,
+        )
+
+    def _clear_measured_output_warning(self, index, measurement_type, *, log_clear=False):
+        was_logged = self.measured_output_warning_logged[measurement_type][index]
+        self.measured_output_warning_since[measurement_type][index] = None
+        self._set_measured_output_warning_box(index, measurement_type, False)
+        self.measured_output_warning_logged[measurement_type][index] = False
+        if log_clear and was_logged:
+            cathode = ['A', 'B', 'C'][index]
+            self.log(
+                f"Cathode {cathode} measured-output {measurement_type} warning cleared.",
+                LogLevel.INFO,
+            )
+
+    def _update_single_measured_output_warning(self, index, measurement_type, sent_value, measured_value, active, now):
+        if not active:
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
+            return
+
+        try:
+            sent = float(sent_value)
+            measured = float(measured_value)
+        except (TypeError, ValueError):
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
+            return
+
+        if not np.isfinite(sent) or not np.isfinite(measured) or sent == 0.0:
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
+            return
+
+        threshold_percent = self.measured_output_warning_thresholds[measurement_type][index]
+        allowed_difference = abs(sent) * (threshold_percent / 100.0)
+        difference = abs(measured - sent)
+        if difference <= allowed_difference:
+            self._clear_measured_output_warning(index, measurement_type, log_clear=True)
+            return
+
+        violation_started = self.measured_output_warning_since[measurement_type][index]
+        if violation_started is None:
+            self.measured_output_warning_since[measurement_type][index] = now
+            self._set_measured_output_warning_box(index, measurement_type, False)
+            return
+
+        warning_active = (now - violation_started) > self.MEASURED_OUTPUT_WARNING_SECONDS
+        self._set_measured_output_warning_box(index, measurement_type, warning_active)
+        if warning_active:
+            self._log_measured_output_warning_breach(
+                index,
+                measurement_type,
+                sent,
+                measured,
+                threshold_percent,
+                difference,
+            )
+
+    def _update_measured_output_warning_indicators(self, index, voltage, current, mode):
+        if not (0 <= index < 3):
+            return
+
+        output_enabled = bool(self.toggle_states[index])
+        active_voltage = output_enabled and mode == "CV Mode"
+        active_current = output_enabled and mode == "CC Mode"
+        now = time.monotonic()
+
+        self._update_single_measured_output_warning(
+            index,
+            "voltage",
+            self.sent_heater_voltage_values[index],
+            voltage,
+            active_voltage,
+            now,
+        )
+        self._update_single_measured_output_warning(
+            index,
+            "current",
+            self.sent_heater_current_values[index],
+            current,
+            active_current,
+            now,
+        )
 
     def toggle_ramp(self, index):
         """
@@ -2820,6 +3148,8 @@ class CathodeHeatingSubsystem:
                 self.on_ramp_complete(index)
                 return
             self.on_ramp_complete(index)
+            self._clear_measured_output_warning(index, "voltage")
+            self._clear_measured_output_warning(index, "current")
 
         # Update the toggle state and button image
         self._set_output_toggle_state(index, new_state)
@@ -2859,6 +3189,8 @@ class CathodeHeatingSubsystem:
                     # Update toggle state and button image
                     self.toggle_states[i] = False
                     self.toggle_buttons[i].config(image=self.toggle_off_image)
+                    self._clear_measured_output_warning(i, "voltage")
+                    self._clear_measured_output_warning(i, "current")
                 else:
                     self.log(f"Failed to turn off heater for Cathode {cathode_label}", LogLevel.ERROR)
             except Exception as e:
@@ -3309,8 +3641,10 @@ class CathodeHeatingSubsystem:
                 self.user_set_currents[index] = None
                 self.current_set[index] = False
                 self.heater_current_vars[index].set('--')
+                self.sent_heater_current_values[index] = None
                 self.sent_heater_current_vars[index].set('--')
                 self.predicted_heater_current_vars[index].set('--')
+                self._clear_measured_output_warning(index, "current")
                 self.log(f"Cleared current goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
                 self.refresh_predictions(index)
                 return
@@ -3361,8 +3695,10 @@ class CathodeHeatingSubsystem:
                 self.user_set_voltages[index] = None
                 self.voltage_set[index] = False
                 self.heater_voltage_vars[index].set('--')
+                self.sent_heater_voltage_values[index] = None
                 self.sent_heater_voltage_vars[index].set('--')
                 self.predicted_heater_voltage_vars[index].set('--')
+                self._clear_measured_output_warning(index, "voltage")
                 self.log(f"Cleared voltage goal for Cathode {['A', 'B', 'C'][index]}", LogLevel.INFO)
                 self.refresh_predictions(index)
                 return
@@ -4130,11 +4466,23 @@ class CathodeHeatingSubsystem:
 
     def _update_sent_current_display(self, index: int, sent_current: float):
         if index < len(self.sent_heater_current_vars):
-            self.sent_heater_current_vars[index].set(f"{sent_current:.2f}")
+            try:
+                self.sent_heater_current_values[index] = float(sent_current)
+                self.sent_heater_current_vars[index].set(f"{float(sent_current):.2f}")
+            except (TypeError, ValueError):
+                self.sent_heater_current_values[index] = None
+                self.sent_heater_current_vars[index].set('--')
+            self._clear_measured_output_warning(index, "current")
 
     def _update_sent_voltage_display(self, index: int, sent_voltage: float):
         if index < len(self.sent_heater_voltage_vars):
-            self.sent_heater_voltage_vars[index].set(f"{sent_voltage:.2f}")
+            try:
+                self.sent_heater_voltage_values[index] = float(sent_voltage)
+                self.sent_heater_voltage_vars[index].set(f"{float(sent_voltage):.2f}")
+            except (TypeError, ValueError):
+                self.sent_heater_voltage_values[index] = None
+                self.sent_heater_voltage_vars[index].set('--')
+            self._clear_measured_output_warning(index, "voltage")
 
     def is_ramping(self, index:int) -> bool:
         ps = self.power_supplies[index] if index < len(self.power_supplies) else None
