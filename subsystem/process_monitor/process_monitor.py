@@ -1,6 +1,6 @@
 import time
 import tkinter as tk
-from typing import Dict, List
+from typing import Dict
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
 from utils import LogLevel
 
@@ -208,6 +208,9 @@ class TemperatureBar(tk.Canvas):
 
 
 class ProcessMonitorSubsystem:
+    MIN_VALID_TEMP = -90
+    MAX_VALID_TEMP = 500
+
     def __init__(self, parent, com_port, active, logger=None):
         self.parent = parent
         self.logger = logger
@@ -216,6 +219,7 @@ class ProcessMonitorSubsystem:
         self.error_count = 0
         self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
+        self._monitor_missing_logged = False
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.thermometer_map = {
@@ -266,14 +270,18 @@ class ProcessMonitorSubsystem:
         current_time = time.time()
         try:
             if not self.monitor:
-                self.log("Checking DP16 monitor connection status", LogLevel.DEBUG)
+                if not self._monitor_missing_logged:
+                    self.log("DP16 monitor not connected", LogLevel.WARNING)
+                    self._monitor_missing_logged = True
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
                     if self.logger and hasattr(self.logger, "clear_value"):
                         self.logger.clear_value("temperatures")
-                    self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self.last_error_time = current_time
             else:
+                if self._monitor_missing_logged:
+                    self.log("DP16 monitor connection available", LogLevel.INFO)
+                    self._monitor_missing_logged = False
                 temps = self.monitor.get_all_temperatures()
                 
                 # Format both valid readings and error states
@@ -288,7 +296,7 @@ class ProcessMonitorSubsystem:
                     else:
                         formatted_temps[unit] = str(value)
                         
-                self.log(f"PMON temps: {formatted_temps}", LogLevel.DEBUG)
+                self.log(f"PMON temps: {formatted_temps}", LogLevel.VERBOSE)
                 if self.logger and hasattr(self.logger, "update_field"):
                     self.logger.update_field("temperatures", formatted_temps)
 
@@ -301,39 +309,7 @@ class ProcessMonitorSubsystem:
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                 else:
-                    # Update each temperature bar
-                    for name, unit in self.thermometer_map.items():
-                        temp = temps.get(unit)
-                        self.log(f"Processing temperature for {name} (unit {unit}): {temp}", LogLevel.VERBOSE)
-                        temp = temps.get(unit)
-                        if temp is None:
-                            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
-                            self.active['Environment Pass'] = False
-                        elif temp == self.monitor.SENSOR_ERROR:
-                            self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
-                            self.active['Environment Pass'] = False
-                        elif temp == self.monitor.DISCONNECTED:
-                            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
-                            self.active['Environment Pass'] = False
-                        elif isinstance(temp, (int, float)):
-                            try:
-                                temp_value = float(temp)
-                                if -90 <= temp_value <= 500:  # Valid temperature range
-                                    self.temp_bars[name].update_value(name, temp_value)
-                                    self.active['Environment Pass'] = True # Update Machine Status Progress Bar
-                                    self.log(f"Temperature update - {name}: {temp_value:.1f}C", LogLevel.VERBOSE)
-                                else:
-                                    self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
-                                    self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
-                                    self.active['Environment Pass'] = False
-                            except (ValueError, TypeError):
-                                self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
-                                self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
-                                self.active['Environment Pass'] = False
-                        else:
-                            self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
-                            self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
-                            self.active['Environment Pass'] = False
+                    self._apply_temperature_snapshot(temps)
 
         except Exception as e:
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
@@ -345,6 +321,52 @@ class ProcessMonitorSubsystem:
             # Schedule next update, store after_id for cancellation if needed.
             if self.monitor:
                 self.after_id = self.parent.after(self.update_interval, self.update_temperatures)
+
+    def _unit_affects_environment_pass(self, unit):
+        spare_units = getattr(self.monitor, "SPARE_ZERO_READING_UNITS", set())
+        return unit not in spare_units
+
+    def _apply_temperature_snapshot(self, temps):
+        environment_pass = True
+
+        for name, unit in self.thermometer_map.items():
+            temp = temps.get(unit)
+            affects_environment_pass = self._unit_affects_environment_pass(unit)
+
+            if temp is None:
+                self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                if affects_environment_pass:
+                    environment_pass = False
+            elif temp == self.monitor.SENSOR_ERROR:
+                self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                if affects_environment_pass:
+                    environment_pass = False
+            elif temp == self.monitor.DISCONNECTED:
+                self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                if affects_environment_pass:
+                    environment_pass = False
+            elif isinstance(temp, (int, float)):
+                try:
+                    temp_value = float(temp)
+                    if self.MIN_VALID_TEMP <= temp_value <= self.MAX_VALID_TEMP:
+                        self.temp_bars[name].update_value(name, temp_value)
+                    else:
+                        self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                        self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
+                        if affects_environment_pass:
+                            environment_pass = False
+                except (ValueError, TypeError):
+                    self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                    self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
+                    if affects_environment_pass:
+                        environment_pass = False
+            else:
+                self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
+                if affects_environment_pass:
+                    environment_pass = False
+
+        self.active['Environment Pass'] = environment_pass
 
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
@@ -373,9 +395,7 @@ class ProcessMonitorSubsystem:
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
         if self.logger:
-            self.logger.log(message, level)
-        else:
-            print(f"{level.name}: {message}")
+            self.logger.log(message, level, tag="PMON")
 
     def close_com_ports(self):
         """
