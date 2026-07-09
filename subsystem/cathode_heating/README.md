@@ -303,6 +303,8 @@ Manual setpoint handlers now actively update predictions before applying output 
 
 Those handlers call either `update_predictions_from_current()` or `update_predictions_from_voltage()` after validation. LUT selector changes call `refresh_predictions()`, which recomputes predictions from the currently requested setpoint when one exists.
 
+Within the selected LUT, beam-current interpolation follows the binding heater constraint. Current-limited operation maps heater current directly to beam current. Voltage-limited operation retains the voltage-to-beam-current mapping and uses voltage to resolve heater current. This avoids converting a current-limited request through the potentially non-monotonic heater current-to-voltage relationship before predicting beam current. Above the applicable LUT domain, both modes continue to use the dataset-calibrated ES440 temperature and Richardson-Dushman fallback.
+
 The prediction path is still display-side guidance for Cathode Heating output behavior. Output behavior is still governed by validation, output state, and the selected immediate/ramp mode.
 
 Predicted emission current is also published to Beam Pulse for its output-start guard. Unknown or unavailable emission predictions are stored and returned as `None`, while a real predicted `0.0 mA` remains numeric. The UI displays unknown predictions as `--`, and Beam Pulse blocks projected beam-output starts when the emission-current limit is enabled and a projected cathode has an unknown or invalid emission prediction.
