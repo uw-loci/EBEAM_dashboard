@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import unittest
 from unittest.mock import MagicMock
 
@@ -24,6 +25,9 @@ class TestReadTemperature(unittest.TestCase):
         self.subsys.clamp_temperature_vars = [FakeStringVar("--") for _ in range(3)]
         self.subsys.set_plot_color = MagicMock()
         self.subsys.log = MagicMock()
+        self.subsys.temperature_valid_connections = [False, False, False]
+        self.subsys.poll_error_last_log_times = {}
+        self.subsys.poll_error_log_lock = threading.Lock()
 
     def test_cached_string_error_displays_err_without_fallthrough(self):
         self.subsys.temperature_controller.temperatures = ["ERROR", None, None]

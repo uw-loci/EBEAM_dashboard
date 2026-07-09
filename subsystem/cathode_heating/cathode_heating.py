@@ -2070,6 +2070,7 @@ class CathodeHeatingSubsystem:
                         f"Reading temperature for cathode {index+1} returned an error: {temperature}",
                         LogLevel.ERROR,
                     )
+                    return None
                 else:
                     self.temperature_valid_connections[index] = False
                     self._log_poll_error_rate_limited(
