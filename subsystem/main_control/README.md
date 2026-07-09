@@ -82,7 +82,7 @@ Main Control is a two-tab subpanel.
 | Method | Purpose |
 | --- | --- |
 | `handle_arm_beams()` | Toggles Beam Pulse software arming and updates Main Control button state. |
-| `handle_beams_off()` | Stops all BCON channels, turns off cathode heating outputs, disarms Beam Pulse, resets controls, and posts the E-stop action message. |
+| `handle_beams_off()` | Requests confirmed BCON all-off, turns off cathode heating outputs, disarms Beam Pulse, and only resets beam controls/posts all-disabled status after all-off confirmation. |
 | `toggle_individual_beam_with_status()` | Turns one Beam A/B/C output on or off using the current Beam Pulse manual channel configuration. |
 | `_toggle_channel_enable()` | Toggles a BCON channel enable state through Beam Pulse. |
 | `handle_activate_enabled_beams()` | Starts all enabled/manual-configured Beam Pulse channels together. |
@@ -184,12 +184,9 @@ Dashboard callbacks.
 - Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
   before BCON output commands when the VTRX pressure guard is enabled and the
   latest valid VTRX pressure is greater than 1e-5 mbar.
-- BEAMS E-STOP is the Main Control path that combines BCON stop, Cathode Heating
-  output shutdown, Beam Pulse disarm, and Main Control UI reset.
-- If Cathode Heating cannot confirm a 9104 output-disable command during
-  E-STOP, BCON-disconnect shutdown, or VTRX-pressure CCS shutdown, it logs a
-  critical message and leaves the affected cathode output toggle showing ON
-  because the hardware output state is uncertain.
+- BEAMS E-STOP is the Main Control path that combines confirmed BCON all-off,
+  Cathode Heating output shutdown, Beam Pulse disarm, and confirmation-gated
+  Main Control UI reset.
 - Disable CCS Output on BCON Disconnect is a runtime Main Control setting. When
   enabled, an unexpected BCON disconnect turns off active CCS outputs, and a
   manual BCON disconnect asks for confirmation before it shuts those outputs
