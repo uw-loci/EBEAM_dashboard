@@ -11,6 +11,18 @@ The Process Monitor Subsystem is a real-time temperature monitoring system that 
 - **Chamber Top**
 - **Air temp**
 
+The panel has `Main` and `Config` tabs. The Config tab contains one row per
+sensor, in the same order as the Main tab. Each row controls whether the sensor
+participates in Environment Pass, its minimum and maximum warning temperatures,
+and the minimum and maximum values shown on its bar. Settings are persisted in
+`usr/usr_data/process_monitor_config.json`; disabled sensors are stored in the
+`disabled_sensors` list. The unassigned channel is disabled by default.
+
+An enabled sensor outside its configured warning range is displayed in orange
+and makes Environment Pass false. PMON logs the temperature and configured
+bounds immediately, then at most once every 60 seconds while it remains outside
+the range. Disabled sensors display `OFF` and do not affect Environment Pass.
+
 
 ## Process Monitor Subsystem Class
 ### Overview:
