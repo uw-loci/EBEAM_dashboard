@@ -25,6 +25,9 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 class VTRXSubsystem: 
+    PLOT_X_TICK_LABEL_SIZE = 6
+    PLOT_Y_TICK_LABEL_SIZE = 8
+    PLOT_TITLE_PAD = 2 # makes the title not get clipped
     ERROR_CODES = {
         0: "VALVE CONTENTION",
         1: "COLD CATHODE FAILURE",
@@ -211,7 +214,7 @@ class VTRXSubsystem:
         """
         self.label_pressure.config(text="No data...", fg="red")
         self.line.set_color('red')
-        self.ax.set_title('(Error)', fontsize=10, color='red')
+        self.ax.set_title('(Error)', fontsize=10, color='red', pad=self.PLOT_TITLE_PAD)
         for canvas, oval_id in self.circle_indicators:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
@@ -296,13 +299,17 @@ class VTRXSubsystem:
         """
         layout_frame = tk.Frame(self.parent)
         layout_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        layout_frame.grid_columnconfigure(0, weight=0)
+        layout_frame.grid_columnconfigure(1, weight=1)
+        layout_frame.grid_rowconfigure(0, weight=1)
+        layout_frame.grid_rowconfigure(1, weight=0)
 
         # Formatting status indicators
         switches_frame = tk.Frame(layout_frame)
-        switches_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=5)
+        switches_frame.grid(row=0, column=0, sticky='nsew', padx=5)
 
         # Distribute vertical space
-        switches_frame.grid_rowconfigure(tuple(range(10)), weight=1)
+        switches_frame.grid_rowconfigure(tuple(range(8)), weight=1)
         switches_frame.grid_columnconfigure(0, weight=3) # Label colunm
         switches_frame.grid_columnconfigure(1, weight=1) # indicator column 
 
@@ -327,29 +334,9 @@ class VTRXSubsystem:
             canvas.grid(row=idx, column=1, sticky='nsew', pady=2, padx=(0, 1))
             self.circle_indicators.append((canvas, oval_id))
 
-        # Pressure label setup
-        pressure_frame = tk.Frame(switches_frame)
-        pressure_frame.grid(row=len(switch_labels), column=0, columnspan=2, sticky='nsew', pady=1)
-        # Configure columns to center the label
-        pressure_frame.grid_columnconfigure(0, weight=1) 
-        pressure_frame.grid_columnconfigure(2, weight=1) 
-        pressure_frame.grid_columnconfigure(1, weight=0) 
-
-        self.label_pressure = tk.Label(
-            pressure_frame,
-            text="No data...", 
-            anchor='center',
-            font=('Helvetica', 11, 'bold'), 
-            relief='ridge', 
-            bg='white',
-            fg='black', 
-            padx=3, pady=2
-        )
-        self.label_pressure.grid(row=0, column=1, ipady=2, pady=(0,2))
-
         # Buttons frame
-        button_frame = tk.Frame(switches_frame)
-        button_frame.grid(row=len(switch_labels)+1, column=0, columnspan=2, sticky='nsew', pady=1)
+        button_frame = tk.Frame(layout_frame)
+        button_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=(2, 1))
         button_frame.bind("<Configure>", self._on_button_frame_resize)
 
         self.button_frame = button_frame
@@ -390,25 +377,40 @@ class VTRXSubsystem:
 
         # Plot frame
         plot_frame = tk.Frame(layout_frame)
-        plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=1) 
+        plot_frame.grid(row=0, column=1, sticky='nsew', padx=(4, 6), pady=(3, 1)) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.15, right=0.99, top=0.97, bottom=0.05)
+        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.92, bottom=0.18)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.fig.autofmt_xdate()  
-        self.ax.set_title('')
-        self.ax.set_xlabel('Time', fontsize=8)
+        self.ax.set_title('', pad=self.PLOT_TITLE_PAD)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
-        self.ax.tick_params(axis='x', labelsize=6, pad=1)
-        self.ax.tick_params(axis='y', labelsize=8, pad=1)
+        self._apply_plot_label_sizes()
         self.ax.grid(True)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=3)
+
+        # Pressure label setup
+        pressure_frame = tk.Frame(layout_frame)
+        pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
+        pressure_frame.grid_columnconfigure(0, weight=1)
+
+        self.label_pressure = tk.Label(
+            pressure_frame,
+            text="No data...", 
+            anchor='center',
+            font=('Helvetica', 11, 'bold'), 
+            relief='ridge', 
+            bg='white',
+            fg='black', 
+            padx=3, pady=2
+        )
+        self.label_pressure.grid(row=0, column=0, ipady=2)
      
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """
@@ -458,8 +460,9 @@ class VTRXSubsystem:
             self.line.set_color('green' if not self.error_state else 'red')
             self.ax.set_title(
                 'VTRX Pressure Readout',
-                fontsize=10,
-                color='black' if not self.error_state else 'red'
+                fontsize=8,
+                color='black' if not self.error_state else 'red',
+                pad=self.PLOT_TITLE_PAD
             )
             self.update_plot()
 
@@ -495,8 +498,15 @@ class VTRXSubsystem:
             start_time = current_time - datetime.timedelta(seconds=self.display_window)
             self.ax.set_xlim(start_time, current_time)
 
+        self._apply_plot_label_sizes()
         self.canvas.draw_idle()
         self.canvas.flush_events()
+
+    def _apply_plot_label_sizes(self):
+        """Keep static and dynamically generated graph labels the same size."""
+        self.ax.tick_params(axis='x', which='both', labelsize=self.PLOT_X_TICK_LABEL_SIZE, pad=1)
+        self.ax.tick_params(axis='y', which='both', labelsize=self.PLOT_Y_TICK_LABEL_SIZE, pad=1)
+        self.ax.yaxis.get_offset_text().set_fontsize(self.PLOT_Y_TICK_LABEL_SIZE)
 
     def start_serial_thread(self):
         self.stop_event.clear()
