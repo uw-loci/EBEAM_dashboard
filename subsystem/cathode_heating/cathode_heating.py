@@ -55,6 +55,35 @@ class CathodeHeatingSubsystem:
     WORKER_LOG_QUEUE_MAXSIZE = 1000
     # Failed deferred 9104 setup is retried by the poller, but not on every poll cycle.
     POWER_SUPPLY_CONFIG_RETRY_COOLDOWN_SECONDS = 10.0
+
+    # Prediction model constants.
+    # LUT beam_current values are in mA, and the system convention is that
+    # 72% of total emitted current reaches the beam/target.
+    BEAM_CURRENT_FRACTION_OF_EMISSION = 0.72
+    RICHARDSON_CATHODE_DIAMETER_MM = 1.78
+    RICHARDSON_CONSTANT_A_PER_CM2_K2 = 80.0
+    RICHARDSON_WORK_FUNCTION_EV = 2.69
+    BOLTZMANN_CONSTANT_EV_PER_K = 8.617333262145e-5
+    
+    # Outside-LUT calibration is dataset-specific. Add future LUT calibrations
+    # here rather than changing the ES440 reference data or prediction logic.
+    # Unlisted datasets retain the raw ES440/Richardson fallback (zero offsets).
+    PREDICTION_MODEL_DEFAULT_CALIBRATION = {
+        "heater_iv_voltage_offset_v": 0.0,
+        "voltage_mode_model_offset_v": 0.0,
+        "current_mode_temperature_offset_k": 0.0,
+    }
+    PREDICTION_MODEL_DATASET_CALIBRATIONS = {
+        "Cbmark_Beam_A_07_2025.csv": {
+            # Physical I-V alignment: 6.03 A -> 0.81 V at the LUT boundary.
+            "heater_iv_voltage_offset_v": 0.2926,
+            # Internal beam-model calibration used only when voltage binds.
+            "voltage_mode_model_offset_v": 0.0914943979,
+            # Internal beam-model calibration used only when current binds.
+            "current_mode_temperature_offset_k": 511.0,
+        },
+    }
+
     OUTPUT_MODE_LABEL_TO_VALUE = {
         'Ramp Current': 'ramp_current',
         'Ramp Voltage': 'ramp_voltage',
@@ -177,6 +206,7 @@ class CathodeHeatingSubsystem:
         self.power_supply_poll_stop = self.power_supply_poll_stop_event
         self.disable_ccs_output_on_bcon_disconnect = True
         self.bcon_is_connected = None
+        self.vtrx_ccs_pressure_allows_output = None
         # Tells the long-lived poller to pause while COM-port updates swap driver objects.
         self.power_supply_reconfiguring = threading.Event()
         self.power_supply_readback_lock = threading.Lock()
@@ -233,7 +263,6 @@ class CathodeHeatingSubsystem:
         self._snapshot_desired_power_supply_limits()
 
         # System initialization sequence
-        self.init_cathode_model()                   # Initialize cathode physics models
         self.setup_gui()                            # Set up graphical interface
         self.initialize_temperature_controllers()   # Connect to temperature controllers
         self.initialize_power_supplies()            # Connect to power supplies
@@ -271,8 +300,8 @@ class CathodeHeatingSubsystem:
         All variables are initialized with '--' to indicate no data available.
         Each cathode (A, B, C) has its own set of prediction variables.
         """
-        # Emission current predictions and ideal values (mA)
-        self.ideal_cathode_emission_currents = [0.0 for _ in range(3)]
+        # Emission current predictions and ideal values (mA). None means unknown.
+        self.ideal_cathode_emission_currents = [None for _ in range(3)]
         self.predicted_emission_current_vars = [tk.StringVar(value='--') for _ in range(3)]
         
         # Grid current predictions - expect to intercept 28% of emission current
@@ -284,35 +313,45 @@ class CathodeHeatingSubsystem:
         # Heater voltage predictions - used for power supply control
         self.predicted_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]
         
-        # Temperature predictions from heater current model
+        # Temperature predictions are currently unavailable for direct setpoint control.
         self.predicted_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]
 
     def _set_predicted_emission_current_ma(self, index, value_ma=None):
         """Set or clear the numeric predicted emission current and display label."""
         if value_ma is None:
-            self.ideal_cathode_emission_currents[index] = 0.0
+            self.ideal_cathode_emission_currents[index] = None
             self.predicted_emission_current_vars[index].set('--')
             return
 
         try:
             numeric_value = float(value_ma)
         except (TypeError, ValueError):
-            numeric_value = 0.0
-        if not np.isfinite(numeric_value) or numeric_value < 0:
-            numeric_value = 0.0
+            numeric_value = None
+        if numeric_value is None or not np.isfinite(numeric_value) or numeric_value < 0:
+            self.ideal_cathode_emission_currents[index] = None
+            self.predicted_emission_current_vars[index].set('--')
+            return
         # Keep the machine-readable value and the operator-facing label in sync.
         self.ideal_cathode_emission_currents[index] = numeric_value
         self.predicted_emission_current_vars[index].set(f'{numeric_value:.2f} mA')
 
     def get_predicted_emission_currents_ma(self):
-        """Return numeric predicted cathode emission currents for A/B/C in mA."""
+        """Return predicted cathode emission currents for A/B/C in mA.
+
+        Each value is either a non-negative finite float or None when the
+        prediction is unknown/unavailable.
+        """
         currents = []
         for value in self.ideal_cathode_emission_currents[:3]:
             try:
                 numeric_value = float(value)
             except (TypeError, ValueError):
-                numeric_value = 0.0
-            currents.append(numeric_value if np.isfinite(numeric_value) and numeric_value >= 0 else 0.0)
+                numeric_value = None
+            currents.append(
+                numeric_value
+                if numeric_value is not None and np.isfinite(numeric_value) and numeric_value >= 0
+                else None
+            )
         return currents
     
     def _init_measurement_variables(self):
@@ -321,8 +360,6 @@ class CathodeHeatingSubsystem:
         
         Sets up StringVar objects for displaying real-time measurements including:
         - Heater voltages and currents
-        - Target currents
-        - Grid currents
         - Clamp temperatures
         
         Also initializes timing variables for data collection and plotting.
@@ -335,12 +372,6 @@ class CathodeHeatingSubsystem:
         self.actual_heater_voltage_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured voltage
         self.actual_heater_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured current
         
-        # Beam current monitoring
-        self.e_beam_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Total emission
-        self.target_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current hitting target
-        self.grid_current_vars = [tk.StringVar(value='--') for _ in range(3)]  # Current intercepted by grid
-        self.actual_target_current_vars = [tk.StringVar(value='-- mA') for _ in range(3)] # Measured target current
-
         # Temperature monitoring
         self.clamp_temperature_vars = [tk.StringVar(value='--') for _ in range(3)]  # Measured temperatures
         self.clamp_temp_labels = []  # Labels for temperature display
@@ -1737,34 +1768,6 @@ class CathodeHeatingSubsystem:
         except Exception as e:
             self.log(f"Error checking settings for Cathode {['A', 'B', 'C'][index]}: {str(e)}", LogLevel.ERROR)
 
-    def init_cathode_model(self):
-        """
-        Initialize the physics model for cathode behavior prediction.
-
-        Sets up three interedependent models:
-        1. Heater voltage Model: Maps current to required voltage
-        2. Emission current model: Predicts emission based on heater current 
-        3. Temperature Model: Estimates cathode temperature
-        """
-        try:
-            # initialize heater voltage model
-            heater_current = [data[0] for data in ES440_cathode.heater_voltage_current_data]
-            heater_voltage = [data[1] for data in ES440_cathode.heater_voltage_current_data]
-            self.heater_voltage_model = ES440_cathode(heater_current, heater_voltage, log_transform=False)
-
-            # initialize emission current model
-            heater_current_emission = [data[0] for data in ES440_cathode.heater_current_emission_current_data]
-            emission_current = [data[1] for data in ES440_cathode.heater_current_emission_current_data]
-            self.emission_current_model = ES440_cathode(heater_current_emission, emission_current, log_transform=True)
-        
-            # Initialize true temperature model
-            heater_current_temp = [data[0] for data in ES440_cathode.heater_current_true_temperature_data]
-            true_temperature = [data[1] for data in ES440_cathode.heater_current_true_temperature_data]
-            self.true_temperature_model = ES440_cathode(heater_current_temp, true_temperature, log_transform=False)
-
-        except Exception as e:
-            self.log(f"Failed to initialize cathode models: {str(e)}", LogLevel.ERROR)
-
     def initialize_temperature_controllers(self):
         """
         Initialize the connection to the E5CN Temperature controllers over Modbus.
@@ -2354,7 +2357,6 @@ class CathodeHeatingSubsystem:
 
         self.actual_heater_current_vars[index].set("--")
         self.actual_heater_voltage_vars[index].set("--")
-        self.actual_target_current_vars[index].set("--")
         self.operation_mode_var[index].set("Mode: --")
 
         if index < len(self.cv_cc_labels):
@@ -2486,9 +2488,6 @@ class CathodeHeatingSubsystem:
 
                 self.last_plot_time = current_time  # Reset the plot timer
 
-            # Update Main Page labels for voltage and current
-            self.e_beam_current_vars[i].set(f"{current:.2f}" if current is not None else "--")
-
             # Update Config page labels
             self.voltage_display_vars[i].set(f'Voltage: {voltage:.2f}' if voltage is not None else 'Voltage: --')
             self.current_display_vars[i].set(f'Current: {current:.2f}' if current is not None else 'Current: --')
@@ -2615,6 +2614,37 @@ class CathodeHeatingSubsystem:
                     cathode = ['A', 'B', 'C'][index]
                     self.log(
                         f"CCS output enable blocked for Cathode {cathode}: BCON device not connected.",
+                        LogLevel.WARNING,
+                    )
+                    return
+
+            pressure_allows_output = getattr(
+                self,
+                "vtrx_ccs_pressure_allows_output",
+                None,
+            )
+            if callable(pressure_allows_output):
+                cathode = ['A', 'B', 'C'][index]
+                pressure_block_reason = "VTRX pressure is above 1e-5 mbar."
+                try:
+                    pressure_guard_result = pressure_allows_output()
+                except Exception as e:
+                    self.log(
+                        f"CCS output enable blocked for Cathode {cathode}: VTRX pressure check failed ({e}).",
+                        LogLevel.WARNING,
+                    )
+                    return
+                if isinstance(pressure_guard_result, tuple):
+                    blocked_by_pressure = not bool(pressure_guard_result[0])
+                    if len(pressure_guard_result) > 1 and pressure_guard_result[1]:
+                        pressure_block_reason = str(pressure_guard_result[1])
+                else:
+                    blocked_by_pressure = not bool(pressure_guard_result)
+                if blocked_by_pressure:
+                    if not pressure_block_reason.endswith("."):
+                        pressure_block_reason = f"{pressure_block_reason}."
+                    self.log(
+                        f"CCS output enable blocked for Cathode {cathode}: {pressure_block_reason}",
                         LogLevel.WARNING,
                     )
                     return
@@ -2810,128 +2840,6 @@ class CathodeHeatingSubsystem:
             except Exception as e:
                 self.log(f"Error turning off heater for Cathode {cathode_label}: {str(e)}", LogLevel.ERROR)
 
-    def set_target_current(self, index, entry_field):
-        """
-        Set target beam current for a cathode and calculate required heater settings.
-        Uses the target beam current to calculate ideal emission current, then determines
-        the appropritate heater voltage and current using the ES440 cathode data model.
-        Args:
-            index (int): Index of the cathode (0-2)
-            entry_field (ttk.Entry): Entry widget containing target current value
-        Raises:
-            ValueError: If target current is negative or invalid
-        Side effects:
-            - programs power supply voltage and current settings
-            - updates predicted values displays (emission, grid current, temperature)
-            - Updates heater voltage display
-            - Logs actions and any errors
-        """
-        if not self.power_supply_status[index]:
-            self.log(f"Power supply {index + 1} is not initialized. Cannot set target current.", LogLevel.ERROR)
-            msgbox.showerror("Error", f"Power supply {index + 1} is not initialized. Cannot set target current.")
-            return
-        if entry_field is None:
-            self.log("Target current entry field is missing", LogLevel.ERROR)
-            return
-        try:
-            target_current_mA = float(entry_field.get())
-            ideal_emission_current = target_current_mA / 0.72 # this is from CCS Software Dev Spec _2024-06-07A
-            if ideal_emission_current < 0:
-                raise ValueError("Target current must be positive")
-            log_ideal_emission_current = np.log10(ideal_emission_current / 1000)
-            self.log(f"Calculated ideal emission current for Cathode {['A', 'B', 'C'][index]}: {ideal_emission_current:.3f}mA", LogLevel.INFO)
-            if ideal_emission_current == 0:
-                # Set all related variables to zero
-                self.reset_power_supply(index)
-                return
-            # Ensure current is within the data range
-            if ideal_emission_current < min(self.emission_current_model.y_data) * 1000 or ideal_emission_current > max(self.emission_current_model.y_data) * 1000:
-                self.log("Desired emission current is outside the range of the model.", LogLevel.WARNING)
-                self._set_predicted_emission_current_ma(index, 0.0)
-                self.predicted_grid_current_vars[index].set('0.00')
-                self.predicted_heater_current_vars[index].set('0.00')
-                self.heater_voltage_vars[index].set('0.00')
-                self.predicted_temperature_vars[index].set('0.00')
-            else:
-                # Calculate heater current from the ES440 model
-                heater_current = self.emission_current_model.interpolate(log_ideal_emission_current, inverse=True)
-                heater_voltage = self.heater_voltage_model.interpolate(heater_current)
-                self.log(f"Interpolated heater current for Cathode {['A', 'B', 'C'][index]}: {heater_current:.3f}A", LogLevel.INFO)
-                self.log(f"Interpolated heater voltage for Cathode {['A', 'B', 'C'][index]}: {heater_voltage:.3f}V", LogLevel.INFO)
-                # set_voltage handles these checks now
-                # current_ovp = self.get_ovp(index)
-                # if current_ovp is None:
-                #     self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                #     return
-                # if heater_voltage > current_ovp:
-                #     self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                #     msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                #     return
-                # Set Upper Current Limit on the power supply
-                if self.power_supplies and len(self.power_supplies) > index:
-                    self.log(f"Setting voltage: {heater_voltage:.2f}V", LogLevel.DEBUG)
-                    current_ovp = self.get_ovp(index)
-                    if current_ovp is None:
-                        self.log(f"Unable to get current OVP for Cathode {['A', 'B', 'C'][index]}. Aborting voltage set.", LogLevel.ERROR)
-                        return
-                    if heater_voltage > current_ovp:
-                        self.log(f"Calculated voltage ({heater_voltage:.2f}V) exceeds OVP ({current_ovp:.2f}V) for Cathode {['A', 'B', 'C'][index]}. Aborting.", LogLevel.WARNING)
-                        msgbox.showwarning("Voltage Exceeds OVP", f"The calculated voltage ({heater_voltage:.2f}V) exceeds the current OVP setting ({current_ovp:.2f}V). Please adjust the OVP or choose a lower target current.")
-                        return
-                    # Set the upper current limit on the power supply
-                    # voltage_set_success = self.power_supplies[index].set_voltage(3, Decimal(heater_voltage))
-                    current_set_success = self.power_supplies[index].set_current(3, heater_current)
-                    if current_set_success:
-                        self.user_set_voltages[index] = heater_voltage
-                        # Fixes issue where the power supply ramps up to the set voltage, then down, then up again
-                        if self.toggle_states[index]:
-                            if self.ramp_status[index]:
-                                self.power_supplies[index].ramp_voltage(
-                                    heater_voltage,
-                                    step_size=self.slew_rates[index],
-                                    step_delay=1.0,
-                                    preset=3
-                                )
-                                self.voltage_set[index] = True
-                            else:
-                                self.power_supplies[index].set_voltage(3, heater_voltage)
-                                self.voltage_set[index] = True
-                        # Confirm the set values
-                        _ , set_current = self.power_supplies[index].get_settings(3)
-                        if set_current is not None:
-                            # voltage_mismatch = abs(set_voltage - heater_voltage) > 0.01  # 0.01V tolerance
-                            current_mismatch = abs(set_current - heater_current) > 0.01  # 0.01A tolerance
-                            if current_mismatch:
-                                self.log(f"Mismatch in set values for Cathode {['A', 'B', 'C'][index]}:", LogLevel.WARNING)
-                                # if voltage_mismatch:
-                                #     self.log(f"  Voltage - Intended: {heater_voltage:.2f}V, Actual: {set_voltage:.2f}V", LogLevel.WARNING)
-                                if current_mismatch:
-                                    self.log(f"  Current - Intended: {heater_current:.2f}A, Actual: {set_current:.2f}A", LogLevel.WARNING)
-                                    return
-                                # GUI is updated with actual voltage
-                                self.heater_voltage_vars[index].set(f"{heater_voltage:.2f}")
-                            else:
-                                self.log(f"Values confirmed for Cathode {['A', 'B', 'C'][index]}: {set_current:.2f}A", LogLevel.INFO)
-                        else:
-                            self.log(f"Failed to confirm set values for Cathode {['A', 'B', 'C'][index]}. No response received.", LogLevel.ERROR)
-                        predicted_temperature_K = self.true_temperature_model.interpolate(heater_current)
-                        predicted_temperature_C = predicted_temperature_K - 273.15  # Convert Kelvin to Celsius
-                        predicted_grid_current = 0.28 * ideal_emission_current # display in milliamps
-                        self._set_predicted_emission_current_ma(index, ideal_emission_current)
-                        self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-                        self.predicted_heater_current_vars[index].set(f'{heater_current:.2f} A')
-                        self.predicted_temperature_vars[index].set(f'{predicted_temperature_C:.0f} C')
-                        self.heater_voltage_vars[index].set(f'{heater_voltage:.2f}')
-                        setattr(self, f'last_set_voltage_{index}', heater_voltage)
-                        self.log(f"Set Cathode {['A', 'B', 'C'][index]} power supply to {heater_voltage:.2f}V, targetting {heater_current:.2f}A heater current", LogLevel.INFO)
-                    else:
-                        self.reset_related_variables(index)
-                        self.log(f"Failed to set voltage/current for Cathode {['A', 'B', 'C'][index]}.", LogLevel.ERROR)
-        except ValueError as e:
-            self.log("Invalid input for target current", LogLevel.ERROR)
-            msgbox.showerror("Invalid Input", str(e))
-            return
-
     def reset_related_variables(self, index):
         """
         Reset display variables when configuration action fails.
@@ -2995,6 +2903,320 @@ class CathodeHeatingSubsystem:
         x_vals = collapsed[x_col].to_numpy(dtype=float)
         y_vals = collapsed[y_col].to_numpy(dtype=float)
         return x_vals, y_vals
+
+    def _is_above_lut_domain(self, index: int, x_value: float, x_col: str, y_col: str):
+        """Return True only when x_value is above the available LUT domain."""
+        x_vals, _ = self._get_interpolation_axes(index, x_col, y_col)
+        if x_vals is None or len(x_vals) == 0:
+            return False
+        try:
+            return float(x_value) > float(x_vals[-1])
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _linear_model_value(points, x_value, x_index=0, y_index=1):
+        """
+        Return a linear interpolation/extrapolation from static model points.
+
+        This is intentionally separate from LUT interpolation. Operator LUT data is
+        treated as authoritative and is never extrapolated. The ES440 characterization
+        data is a fallback physics model, so when the requested setpoint is above the
+        measured LUT domain we continue the nearest ES440 segment rather than clearing
+        the prediction. That makes the output visibly model-derived instead of silently
+        pretending the LUT contained the point.
+        """
+        try:
+            x_target = float(x_value)
+        except (TypeError, ValueError):
+            return None
+
+        numeric = pd.DataFrame(
+            {
+                "x": [float(point[x_index]) for point in points],
+                "y": [float(point[y_index]) for point in points],
+            }
+        ).replace([np.inf, -np.inf], np.nan).dropna()
+        if numeric.empty:
+            return None
+
+        collapsed = numeric.groupby("x", as_index=False)["y"].median().sort_values("x")
+        x_vals = collapsed["x"].to_numpy(dtype=float)
+        y_vals = collapsed["y"].to_numpy(dtype=float)
+        if len(x_vals) == 1:
+            return float(y_vals[0])
+
+        if x_target <= x_vals[0]:
+            x0, x1 = x_vals[0], x_vals[1]
+            y0, y1 = y_vals[0], y_vals[1]
+        elif x_target >= x_vals[-1]:
+            x0, x1 = x_vals[-2], x_vals[-1]
+            y0, y1 = y_vals[-2], y_vals[-1]
+        else:
+            return float(np.interp(x_target, x_vals, y_vals))
+
+        if x1 == x0:
+            return float(y1)
+        return float(y0 + (x_target - x0) * (y1 - y0) / (x1 - x0))
+
+    @classmethod
+    def _richardson_cathode_area_cm2(cls):
+        """Return circular emitting area in cm^2 from configured cathode diameter."""
+        radius_cm = (cls.RICHARDSON_CATHODE_DIAMETER_MM / 10.0) / 2.0
+        return float(np.pi * radius_cm * radius_cm)
+
+    def _prediction_model_calibration(self, index):
+        """Return the outside-LUT calibration for the selected dataset."""
+        calibration = dict(self.PREDICTION_MODEL_DEFAULT_CALIBRATION)
+        selected_files = getattr(self, "selected_lut_files", None)
+        selected_filename = None
+        if selected_files is not None and 0 <= index < len(selected_files):
+            selected_filename = selected_files[index]
+
+        if selected_filename:
+            selected_key = str(selected_filename).lower()
+            for filename, overrides in self.PREDICTION_MODEL_DATASET_CALIBRATIONS.items():
+                if filename.lower() == selected_key:
+                    calibration.update(overrides)
+                    break
+        return calibration
+
+    def _estimate_heater_voltage_from_current_model(self, index, current):
+        """Estimate physical heater voltage from the dataset-corrected I-V model."""
+        voltage = self._linear_model_value(
+            ES440_cathode.heater_voltage_current_data,
+            current,
+            x_index=0,
+            y_index=1,
+        )
+        if voltage is None:
+            return None
+        calibration = self._prediction_model_calibration(index)
+        return voltage + calibration["heater_iv_voltage_offset_v"]
+
+    def _estimate_heater_current_from_voltage_model(self, index, voltage):
+        """Estimate physical heater current from the dataset-corrected I-V model."""
+        try:
+            model_voltage = float(voltage)
+        except (TypeError, ValueError):
+            return None
+        calibration = self._prediction_model_calibration(index)
+        model_voltage -= calibration["heater_iv_voltage_offset_v"]
+        return self._linear_model_value(
+            ES440_cathode.heater_voltage_current_data,
+            model_voltage,
+            x_index=1,
+            y_index=0,
+        )
+
+    def _estimate_true_temperature_from_current_model(self, current):
+        """Estimate true emitting-surface temperature in K from heater current."""
+        return self._linear_model_value(
+            ES440_cathode.heater_current_true_temperature_data,
+            current,
+            x_index=0,
+            y_index=1,
+        )
+
+    def _estimate_mode_aware_temperature(
+        self,
+        index,
+        heater_voltage,
+        heater_current,
+        controlling_mode,
+    ):
+        """Return the effective temperature for the binding outside-LUT constraint.
+
+        The physical heater I-V correction and the emission-model corrections are
+        intentionally separate. Voltage control uses its voltage only as an
+        internal coordinate in the raw ES440 model. Current control uses physical
+        heater current and applies the dataset's temperature calibration.
+        """
+        calibration = self._prediction_model_calibration(index)
+        if controlling_mode == "voltage":
+            try:
+                model_voltage = (
+                    float(heater_voltage)
+                    + calibration["voltage_mode_model_offset_v"]
+                )
+            except (TypeError, ValueError):
+                return None
+            model_heater_current = self._linear_model_value(
+                ES440_cathode.heater_voltage_current_data,
+                model_voltage,
+                x_index=1,
+                y_index=0,
+            )
+            if model_heater_current is None:
+                return None
+            temperature_k = self._estimate_true_temperature_from_current_model(
+                model_heater_current
+            )
+            correction = "voltage-model offset"
+        elif controlling_mode == "current":
+            try:
+                model_heater_current = float(heater_current)
+            except (TypeError, ValueError):
+                return None
+            temperature_k = self._estimate_true_temperature_from_current_model(
+                model_heater_current
+            )
+            if temperature_k is not None:
+                temperature_k += calibration["current_mode_temperature_offset_k"]
+            correction = "current-temperature offset"
+        else:
+            return None
+
+        if temperature_k is None:
+            return None
+        return {
+            "temperature_k": float(temperature_k),
+            "model_heater_current": float(model_heater_current),
+            "control_mode": controlling_mode,
+            "correction": correction,
+        }
+
+    def _richardson_emission_current_a(self, temperature_k):
+        """
+        Predict total thermionic emission current with Richardson-Dushman.
+
+        I = area * A * T^2 * exp(-phi / (k_B * T))
+
+        - area is the configured circular LaB6 emitting area in cm^2.
+        - A is the configured Richardson constant in A cm^-2 K^-2.
+        - phi is the configured LaB6 work function in eV.
+        - k_B is in eV/K, so phi / (k_B*T) is dimensionless.
+        """
+        try:
+            temp_k = float(temperature_k)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(temp_k) or temp_k <= 0:
+            return None
+
+        area_cm2 = self._richardson_cathode_area_cm2()
+        exponent = -self.RICHARDSON_WORK_FUNCTION_EV / (self.BOLTZMANN_CONSTANT_EV_PER_K * temp_k)
+        emission_a = area_cm2 * self.RICHARDSON_CONSTANT_A_PER_CM2_K2 * temp_k * temp_k * np.exp(exponent)
+        if not np.isfinite(emission_a) or emission_a < 0:
+            return None
+        return float(emission_a)
+
+    def _richardson_fallback_beam_current_ma(
+        self,
+        index,
+        heater_voltage,
+        target_heater_current=None,
+        controlling_mode=None,
+    ):
+        """
+        Predict beam current above the LUT domain using Richardson-Dushman.
+
+        The dashboard's normal prediction source is the selected LUT. That table is
+        based on system data and stores beam_current in mA, so it should remain the
+        authority for all in-range points. This fallback is used only when the
+        requested heater voltage/current is above the LUT range.
+
+        The physics path is:
+        1. Resolve the physical heater current from the requested limits and the
+           dataset-corrected I-V relationship.
+        2. Use the correction for the binding constraint to estimate effective
+           emitting-surface temperature. This is a model temperature, not clamp
+           temperature.
+        3. Apply Richardson-Dushman to predict total emission current in amps.
+        4. Convert total emission current to beam current in mA using the configured
+           beam/emission fraction, matching the existing dashboard convention:
+           emission_mA = beam_current_mA / 0.72.
+
+        Because Richardson-Dushman is exponentially sensitive to temperature, this
+        should be treated as an outside-LUT model estimate, not a measured value.
+        """
+        above_voltage_lut = self._is_above_lut_domain(index, heater_voltage, "voltage", "beam_current")
+
+        heater_current = None
+        try:
+            if target_heater_current is not None:
+                heater_current = float(target_heater_current)
+        except (TypeError, ValueError):
+            heater_current = None
+
+        if heater_current is None:
+            if not above_voltage_lut:
+                return None
+            heater_current = self._estimate_heater_current_from_voltage_model(
+                index,
+                heater_voltage,
+            )
+        else:
+            above_current_lut = self._is_above_lut_domain(index, heater_current, "heater_current", "voltage")
+            if not above_voltage_lut and not above_current_lut:
+                return None
+
+        if controlling_mode not in ("current", "voltage"):
+            # Compatibility fallback for callers that have not resolved a binding
+            # constraint: supplied current implies current control; otherwise use
+            # voltage control.
+            controlling_mode = "current" if target_heater_current is not None else "voltage"
+
+        temperature_prediction = self._estimate_mode_aware_temperature(
+            index,
+            heater_voltage,
+            heater_current,
+            controlling_mode,
+        )
+        if temperature_prediction is None:
+            return None
+        temperature_k = temperature_prediction["temperature_k"]
+        emission_current_a = self._richardson_emission_current_a(temperature_k)
+        if emission_current_a is None:
+            return None
+
+        beam_current_ma = emission_current_a * 1000.0 * self.BEAM_CURRENT_FRACTION_OF_EMISSION
+        return {
+            "heater_current": float(heater_current),
+            "model_heater_current": temperature_prediction["model_heater_current"],
+            "temperature_k": float(temperature_k),
+            "emission_current_a": float(emission_current_a),
+            "beam_current_ma": float(beam_current_ma),
+            "control_mode": controlling_mode,
+            "correction": temperature_prediction["correction"],
+        }
+
+    def _log_richardson_fallback_prediction(self, index, heater_voltage, fallback, reason):
+        """
+        Log that prediction has left measured LUT data and is using ES440/RD data.
+
+        Classification follows the dashboard logging policy:
+        - WARNING: outside-LUT prediction is a degraded state. The dashboard can
+          still provide a prediction, but it is model-derived rather than measured
+          LUT-derived.
+        - DEBUG: numeric model details are diagnostics. They are useful for
+          validating the fallback and constants, but too detailed for normal
+          operator-level INFO logs.
+        """
+        cathode_label = ['A', 'B', 'C'][index]
+        self.log(
+            (
+                f"Cathode {cathode_label} emission prediction is above the selected LUT "
+                f"domain ({reason}); using ES440 temperature data and Richardson-Dushman fallback."
+            ),
+            LogLevel.WARNING,
+        )
+        self.log(
+            (
+                f"Cathode {cathode_label} Richardson fallback details: "
+                f"control_mode={fallback['control_mode']}, "
+                f"heater_voltage={float(heater_voltage):.3f}V, "
+                f"heater_current={fallback['heater_current']:.3f}A, "
+                f"model_heater_current={fallback['model_heater_current']:.3f}A, "
+                f"effective_temperature={fallback['temperature_k']:.1f}K, "
+                f"emission={fallback['emission_current_a'] * 1000.0:.6f}mA, "
+                f"beam={fallback['beam_current_ma']:.6f}mA, "
+                f"diameter={self.RICHARDSON_CATHODE_DIAMETER_MM:.3f}mm, "
+                f"A={self.RICHARDSON_CONSTANT_A_PER_CM2_K2:g}A/cm^2/K^2, "
+                f"phi={self.RICHARDSON_WORK_FUNCTION_EV:g}eV."
+            ),
+            LogLevel.DEBUG,
+        )
 
     def _interpolate_lut_value(self, index: int, x_value: float, x_col: str, y_col: str):
         """Linearly interpolate LUT value for x_value; return None when out of range."""
@@ -3255,14 +3477,17 @@ class CathodeHeatingSubsystem:
                     # Current is limited by voltage and will not reach full set value
                     pred_heater_current = limited_current
                     pred_heater_voltage = self.user_set_voltages[index]
+                    controlling_mode = "voltage"
                 else:
                     # Voltage is potentially limited by current
                     pred_heater_current = current
                     pred_heater_voltage = min(self.user_set_voltages[index], limited_voltage)
+                    controlling_mode = "current"
             else:
                 # If no heater voltage is set we will predict the voltage produced by the new current and set it on the power supply
                 pred_heater_voltage = self._voltage_for_current(index, current)
                 pred_heater_current = current
+                controlling_mode = "current"
 
             if pred_heater_voltage is None:
                 self.clear_prediction_variables(index)
@@ -3276,7 +3501,8 @@ class CathodeHeatingSubsystem:
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
                 index,
                 pred_heater_voltage,
-                target_heater_current=pred_heater_current
+                target_heater_current=pred_heater_current,
+                controlling_mode=controlling_mode,
             )
 
             # Check that LUT returned values, if not then reset predicted values
@@ -3286,7 +3512,7 @@ class CathodeHeatingSubsystem:
                 return False
 
             # Calculate dependent variables - beam_current is what hits the target, emission is total
-            ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
+            ideal_emission_current = pred_beam_current / self.BEAM_CURRENT_FRACTION_OF_EMISSION  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
 
             # Update GUI with new values
@@ -3295,7 +3521,24 @@ class CathodeHeatingSubsystem:
             # Publish the derived emission value for both display and dashboard limit checks.
             self._set_predicted_emission_current_ma(index, ideal_emission_current)
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-            self.predicted_temperature_vars[index].set('--')
+            if (
+                self._is_above_lut_domain(index, pred_heater_current, "heater_current", "voltage")
+                or self._is_above_lut_domain(index, pred_heater_voltage, "voltage", "beam_current")
+            ):
+                temperature_prediction = self._estimate_mode_aware_temperature(
+                    index,
+                    pred_heater_voltage,
+                    pred_heater_current,
+                    controlling_mode,
+                )
+                temp_k = (
+                    temperature_prediction["temperature_k"]
+                    if temperature_prediction is not None
+                    else None
+                )
+                self.predicted_temperature_vars[index].set(f'{temp_k - 273.15:.0f} C' if temp_k is not None else '--')
+            else:
+                self.predicted_temperature_vars[index].set('--')
 
             return True
 
@@ -3333,14 +3576,17 @@ class CathodeHeatingSubsystem:
                     # Voltage is limited by current and will not reach full set value
                     pred_heater_voltage = limited_voltage
                     pred_heater_current = self.user_set_currents[index]
+                    controlling_mode = "current"
                 else:
                     # Current is potentially limited by voltage
                     pred_heater_voltage = voltage
                     pred_heater_current = min(self.user_set_currents[index], limited_current)
+                    controlling_mode = "voltage"
             else:
                 # If no heater current is set we will predict the current produced by the new voltage and set it on the power supply
                 pred_heater_current = self._current_for_voltage(index, voltage)
                 pred_heater_voltage = voltage
+                controlling_mode = "voltage"
 
             if pred_heater_current is None or pred_heater_voltage is None:
                 self.clear_prediction_variables(index)
@@ -3354,7 +3600,8 @@ class CathodeHeatingSubsystem:
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
                 index,
                 pred_heater_voltage,
-                target_heater_current=pred_heater_current
+                target_heater_current=pred_heater_current,
+                controlling_mode=controlling_mode,
             )
 
             # Check that LUT returned values, if not then reset predicted values
@@ -3364,7 +3611,7 @@ class CathodeHeatingSubsystem:
                 return False
 
             # Calculate dependent variables - beam_current is what hits the target, emission is total
-            ideal_emission_current = pred_beam_current / 0.72  # Convert beam current to emission current
+            ideal_emission_current = pred_beam_current / self.BEAM_CURRENT_FRACTION_OF_EMISSION  # Convert beam current to emission current
             predicted_grid_current = 0.28 * ideal_emission_current
 
             # Update GUI with new values
@@ -3373,7 +3620,24 @@ class CathodeHeatingSubsystem:
             # Publish the derived emission value for both display and dashboard limit checks.
             self._set_predicted_emission_current_ma(index, ideal_emission_current)
             self.predicted_grid_current_vars[index].set(f'{predicted_grid_current:.2f} mA')
-            self.predicted_temperature_vars[index].set('--')
+            if (
+                self._is_above_lut_domain(index, pred_heater_voltage, "voltage", "beam_current")
+                or self._is_above_lut_domain(index, pred_heater_current, "heater_current", "voltage")
+            ):
+                temperature_prediction = self._estimate_mode_aware_temperature(
+                    index,
+                    pred_heater_voltage,
+                    pred_heater_current,
+                    controlling_mode,
+                )
+                temp_k = (
+                    temperature_prediction["temperature_k"]
+                    if temperature_prediction is not None
+                    else None
+                )
+                self.predicted_temperature_vars[index].set(f'{temp_k - 273.15:.0f} C' if temp_k is not None else '--')
+            else:
+                self.predicted_temperature_vars[index].set('--')
 
             return True
 
@@ -3383,33 +3647,94 @@ class CathodeHeatingSubsystem:
             return False
 
     def _current_for_voltage(self, index: int, voltage: float):
-        """Return heater current for voltage using LUT linear interpolation."""
-        return self._interpolate_lut_value(index, voltage, "voltage", "heater_current")
+        """Return heater current for voltage using LUT interpolation, then ES440 above-LUT model."""
+        heater_current = self._interpolate_lut_value(index, voltage, "voltage", "heater_current")
+        if heater_current is not None:
+            return heater_current
+        if self._is_above_lut_domain(index, voltage, "voltage", "heater_current"):
+            return self._estimate_heater_current_from_voltage_model(index, voltage)
+        return None
 
     def _voltage_for_current(self, index: int, current: float):
-        """Return heater voltage for current using LUT linear interpolation."""
-        return self._interpolate_lut_value(index, current, "heater_current", "voltage")
+        """Return heater voltage for current using LUT interpolation, then ES440 above-LUT model."""
+        heater_voltage = self._interpolate_lut_value(index, current, "heater_current", "voltage")
+        if heater_voltage is not None:
+            return heater_voltage
+        if self._is_above_lut_domain(index, current, "heater_current", "voltage"):
+            return self._estimate_heater_voltage_from_current_model(index, current)
+        return None
 
-    def emission_cur_vlt_converter(self, index, val, target_heater_current=None):
+    def emission_cur_vlt_converter(
+        self,
+        index,
+        val,
+        target_heater_current=None,
+        controlling_mode=None,
+    ):
         """
         Convert between voltage and current using the DataFrame lookup.
 
         LUT data is treated as a function for voltage->(heater current, beam current)
         lookups. For a given voltage, there must be exactly one output pair.
+        Above the LUT voltage/current domain, beam current falls back to a
+        Richardson-Dushman estimate based on the ES440 temperature model.
 
         Args:
             index (int): Index of the cathode (0-2)
             val (float): Input value (voltage or current)
-            target_heater_current (float | None): Unused; retained for call-site
-                compatibility.
+            target_heater_current (float | None): Resolved heater current from
+                the active setpoint path. Used by the above-LUT Richardson
+                fallback because temperature is estimated from heater current.
+            controlling_mode (str | None): Binding physical constraint, either
+                ``current`` or ``voltage``. Selects the dataset correction used
+                by the outside-LUT temperature model.
 
         Returns:
             tuple: (heater_voltage, heater_current, beam_current)
         """
         if isinstance(self.lookup_table_setting[index], pd.DataFrame):
+            above_voltage_lut = self._is_above_lut_domain(index, val, "voltage", "beam_current")
+            above_current_lut = (
+                target_heater_current is not None
+                and self._is_above_lut_domain(index, target_heater_current, "heater_current", "voltage")
+            )
+            reason_parts = []
+            if above_voltage_lut:
+                reason_parts.append("heater voltage above LUT")
+            if above_current_lut:
+                reason_parts.append("heater current above LUT")
+            reason = " and ".join(reason_parts) if reason_parts else "outside LUT"
+            if above_voltage_lut or above_current_lut:
+                fallback = self._richardson_fallback_beam_current_ma(
+                    index,
+                    val,
+                    target_heater_current=target_heater_current,
+                    controlling_mode=controlling_mode,
+                )
+                if fallback is not None:
+                    self._log_richardson_fallback_prediction(index, val, fallback, reason)
+                    return (
+                        float(val),
+                        float(fallback["heater_current"]),
+                        float(fallback["beam_current_ma"]),
+                    )
+
             heater_current = self._interpolate_lut_value(index, val, "voltage", "heater_current")
             beam_current = self._interpolate_lut_value(index, val, "voltage", "beam_current")
             if heater_current is None or beam_current is None:
+                fallback = self._richardson_fallback_beam_current_ma(
+                    index,
+                    val,
+                    target_heater_current=target_heater_current,
+                    controlling_mode=controlling_mode,
+                )
+                if fallback is not None:
+                    self._log_richardson_fallback_prediction(index, val, fallback, reason)
+                    return (
+                        float(val),
+                        float(fallback["heater_current"]),
+                        float(fallback["beam_current_ma"]),
+                    )
                 return (val, -1, -1)
             return (float(val), float(heater_current), float(beam_current))
         else:
