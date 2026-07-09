@@ -682,7 +682,7 @@ class BeamPulseSubsystem:
             self._log_event(f"{action} blocked: {detail}.", LogLevel.WARNING)
         return False, self._emission_block_message(action, detail)
 
-    def _emission_limit_allows_output(
+    def _beam_checks_allow_output(
         self,
         action,
         configs,
@@ -1854,7 +1854,7 @@ class BeamPulseSubsystem:
             if enabled
         ]
         try:
-            allowed, _message = self._emission_limit_allows_output(
+            allowed, _message = self._beam_checks_allow_output(
                 "Activate Enabled Beams",
                 enabled_configs,
                 log_failure=False,
