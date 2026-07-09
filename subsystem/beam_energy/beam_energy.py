@@ -1018,6 +1018,42 @@ class BeamEnergySubsystem:
         for interlock_log_var in self.interlock_log_vars:
             interlock_log_var.set("")
 
+    def get_machine_status_inputs(self):
+        """Return existing Beam Energy variables needed by MachineStatus."""
+        data_snapshot = {}
+        unit_connected = {}
+        knob_box = self.knob_box_controller
+        if self.knob_box_connected and knob_box:
+            data_snapshot = knob_box.get_data_snapshot()
+            unit_connected = {
+                unit_id: knob_box.get_unit_connection_status(unit_id)
+                for _supply_key, unit_id in self.supply_payload_map
+            }
+        global_data = (
+            data_snapshot.get(4)
+            if unit_connected.get(4)
+            else None
+        )
+
+        supplies = {}
+        for index, (supply_key, unit_id) in enumerate(self.supply_payload_map):
+            supplies[supply_key] = {
+                "unit_id": unit_id,
+                "actual_voltage_v": self.latest_actual_voltage_values[index],
+                "actual_current_ma": self.latest_actual_current_values[index],
+                "warning_limits": dict(self.warning_limits.get(supply_key, {})),
+            }
+
+        return {
+            "data": data_snapshot,
+            "unit_connected": unit_connected,
+            "supplies": supplies,
+            "interlock_flags": dict(self.supply_interlock_flag_map),
+            "nomop": bool(global_data and global_data.get("nomop_flag")),
+            "logic_comms": bool(global_data and global_data.get("logic_alive")),
+            "arm_beams_hardware": bool(global_data and global_data.get("arm_beams")),
+        }
+
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
         """Update system status indicators."""
         self.ccs_power_on = bool(ccs_power)
