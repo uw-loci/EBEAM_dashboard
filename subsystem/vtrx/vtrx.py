@@ -72,6 +72,7 @@ class VTRXSubsystem:
 
         self.circle_indicators = []
         self.error_state = False
+        self.firmware_error = False
         self.error_logged = False
         self.vacuum_fields_cleared = False
         self.last_no_data_log_time = 0.0
@@ -204,30 +205,13 @@ class VTRXSubsystem:
                 if data is None:
                     self._handle_no_data()
                 else:
-                    self._handle_serial_data_with_failure_limit(data)
+                    self.handle_serial_data(data)
         except queue.Empty:
             pass
         finally:
             self.flush_queued_logs()
             self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
-
-    def _handle_serial_data_with_failure_limit(self, data):
-        try:
-            self.handle_serial_data(data)
-        except Exception as e:
-            self._serial_data_failure_count += 1
-
-            if self._serial_data_failure_count >= self.SERIAL_DATA_MAX_ATTEMPTS:
-                self.log(
-                    f"VTRX serial data failed after {self.SERIAL_DATA_MAX_ATTEMPTS} attempts: "
-                    f"{e}. Data: {self._safe_raw_log_text(data)}",
-                    LogLevel.ERROR
-                )
-                self._serial_data_failure_count = 0
-            return
-
-        self._serial_data_failure_count = 0
 
     def _pressure_reading_is_fresh(self):
         last_successful_read_time = getattr(self, "last_successful_read_time", None)
@@ -245,6 +229,7 @@ class VTRXSubsystem:
             pressure_callback(
                 getattr(self, "last_valid_pressure_value", None),
                 self._pressure_reading_is_fresh(),
+                getattr(self, "firmware_error", False),
             )
         except Exception as e:
             self.log(f"VTRX pressure update callback failed: {e}", LogLevel.ERROR)
@@ -345,6 +330,7 @@ class VTRXSubsystem:
             switch_states = [int(bit) for bit in f"{int(switch_states_binary, 2):08b}"] # Ensures it's 8 bits long
 
             previous_error_state = self.error_state
+            firmware_error = False
             self.error_state = False # Assume no error unless found
             if len(data_parts) > 3: # Handle errors
                 for error in data_parts[3:]: # All subsequent parts are errors
@@ -376,9 +362,12 @@ class VTRXSubsystem:
                             f"Actual:{self._safe_raw_log_text(error_message)}",
                             level
                         )
+                        firmware_error = True
                         self.error_state = True
                     else:
                         self.log(f"Unrecognized VTRX data segment: {self._safe_raw_log_text(error)}", LogLevel.DEBUG)
+
+            self.firmware_error = firmware_error
             
             if not self.error_state:    
                 if previous_error_state:

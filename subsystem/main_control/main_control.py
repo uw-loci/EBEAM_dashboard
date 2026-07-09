@@ -88,6 +88,7 @@ class MainControlPanel:
         self._vtrx_pressure_beam_disable_latched = True
         self._last_vtrx_pressure_mbar = None
         self.pressure_reading_is_fresh = False
+        self.vtrx_firmware_error = False
         self.vtrx_ccs_disable_grace_period_s = self._coerce_vtrx_ccs_disable_grace_period_s(
             load_vtrx_ccs_disable_grace_period_s(logger=self.logger)
         )
@@ -202,7 +203,7 @@ class MainControlPanel:
                 lambda: self.disable_beams_on_vtrx_pressure_exceeded,
                 lambda: self._last_vtrx_pressure_mbar,
                 lambda: VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR,
-                lambda: self.pressure_reading_is_fresh,
+                lambda: self.pressure_reading_is_fresh and not self.vtrx_firmware_error,
             )
         else:
             self._log_error("Beam Pulse VTRX pressure guard providers were not wired: API not available")
@@ -1074,6 +1075,8 @@ class MainControlPanel:
     def _vtrx_ccs_pressure_output_status(self):
         if not bool(getattr(self, "vtrx_ccs_pressure_shutdown_enabled", True)):
             return True, ""
+        if bool(getattr(self, "vtrx_firmware_error", False)):
+            return False, "VTRX firmware error reported."
         if not bool(getattr(self, "pressure_reading_is_fresh", False)):
             return False, "VTRX pressure reading is stale."
         try:
@@ -1436,12 +1439,17 @@ class MainControlPanel:
         else:
             self._log_critical("BCON disconnected but Cathode Heating turn_off_all_beams API is unavailable; CCS output may remain enabled")
 
-    def _handle_vtrx_ccs_pressure_update(self, pressure, pressure_reading_is_fresh):
+    def _handle_vtrx_ccs_pressure_update(self, pressure, pressure_reading_is_fresh, firmware_error=False):
+        firmware_error = bool(firmware_error)
         if not bool(getattr(self, "vtrx_ccs_pressure_shutdown_enabled", True)):
             self._clear_vtrx_ccs_disable_timer()
             return
 
-        if pressure_reading_is_fresh and pressure <= VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR:
+        if (
+            not firmware_error
+            and pressure_reading_is_fresh
+            and pressure <= VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR
+        ):
             self._clear_vtrx_ccs_disable_timer()
             return
 
@@ -1464,7 +1472,12 @@ class MainControlPanel:
             started_at = now
             self._vtrx_ccs_disable_timer_started_at = started_at
             self._vtrx_ccs_disable_last_warning_at = now
-            if pressure_is_stale:
+            if firmware_error:
+                self._log_critical(
+                    "VTRX firmware error reported; CCS output will be disabled in "
+                    f"{duration_display_s} seconds if the firmware error does not clear."
+                )
+            elif pressure_is_stale:
                 self._log_critical(
                     "VTRX pressure reading is stale; CCS output will be disabled in "
                     f"{duration_display_s} seconds if a valid reading is not received."
@@ -1486,7 +1499,12 @@ class MainControlPanel:
             ):
                 seconds_left = max(0.0, duration_s - elapsed_s)
                 seconds_left_display = round(seconds_left)
-                if pressure_is_stale:
+                if firmware_error:
+                    self._log_warning(
+                        f"CCS output will be disabled in {seconds_left_display} seconds because "
+                        "VTRX reported a firmware error"
+                    )
+                elif pressure_is_stale:
                     self._log_warning(
                         f"CCS output will be disabled in {seconds_left_display} seconds because "
                         "the VTRX pressure reading is stale"
@@ -1499,7 +1517,12 @@ class MainControlPanel:
                 self._vtrx_ccs_disable_last_warning_at = now
             return
 
-        if pressure_is_stale:
+        if firmware_error:
+            self._log_critical(
+                f"VTRX firmware error remained active for {duration_display_s} seconds; "
+                "disabling CCS output."
+            )
+        elif pressure_is_stale:
             self._log_critical(
                 f"VTRX pressure reading remained stale for {duration_display_s} seconds; "
                 "disabling CCS output."
@@ -1519,11 +1542,16 @@ class MainControlPanel:
         else:
             self._log_critical("VTRX pressure CCS disable failed: Cathode Heating turn_off_all_beams API is unavailable")
 
-    def _handle_vtrx_bcon_pressure_update(self, pressure, pressure_reading_is_fresh):
+    def _handle_vtrx_bcon_pressure_update(self, pressure, pressure_reading_is_fresh, firmware_error=False):
+        firmware_error = bool(firmware_error)
         if not self.disable_beams_on_vtrx_pressure_exceeded:
             return
 
-        if pressure_reading_is_fresh and pressure <= VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR:
+        if (
+            not firmware_error
+            and pressure_reading_is_fresh
+            and pressure <= VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR
+        ):
             self._vtrx_pressure_beam_disable_latched = False
             return
 
@@ -1531,7 +1559,9 @@ class MainControlPanel:
             return
 
         self._vtrx_pressure_beam_disable_latched = True
-        if pressure_reading_is_fresh:
+        if firmware_error:
+            self._log_critical("VTRX firmware error reported; disabling all beams.")
+        elif pressure_reading_is_fresh:
             self._log_critical(
                 f"VTRX pressure exceeded {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar ({pressure:g} mbar); disabling all beams."
             )
@@ -1550,7 +1580,8 @@ class MainControlPanel:
                 "VTRX pressure unsafe but Beam Pulse disable_all_beams API is unavailable"
             )
 
-    def _handle_vtrx_pressure_update(self, pressure_mbar, pressure_reading_is_fresh=False):
+    def _handle_vtrx_pressure_update(self, pressure_mbar, pressure_reading_is_fresh=False, firmware_error=False):
+        self.vtrx_firmware_error = bool(firmware_error)
         pressure_is_valid = False
         pressure = None
         try:
@@ -1567,8 +1598,8 @@ class MainControlPanel:
 
         self.pressure_reading_is_fresh = bool(pressure_reading_is_fresh) and pressure_is_valid
 
-        self._handle_vtrx_ccs_pressure_update(pressure, self.pressure_reading_is_fresh)
-        self._handle_vtrx_bcon_pressure_update(pressure, self.pressure_reading_is_fresh)
+        self._handle_vtrx_ccs_pressure_update(pressure, self.pressure_reading_is_fresh, self.vtrx_firmware_error)
+        self._handle_vtrx_bcon_pressure_update(pressure, self.pressure_reading_is_fresh, self.vtrx_firmware_error)
 
     def _set_armed_ui(self, armed, reset=False):
         if hasattr(self, "beams_ready_button"):
