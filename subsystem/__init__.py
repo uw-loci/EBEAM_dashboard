@@ -8,6 +8,7 @@ from .beam_extraction.beam_extraction import BeamExtractionSubsystem
 from .beam_pulse.beam_pulse import BeamPulseSubsystem
 from .deflection_monitor.deflection_monitor import DeflectionMonitorSubsystem
 from .beam_energy.beam_energy import BeamEnergySubsystem
+from .machine_status.machine_status import MachineStatus
 
 __all__ = [
     'VTRXSubsystem',
@@ -19,5 +20,6 @@ __all__ = [
     'BeamExtractionSubsystem',
     'BeamPulseSubsystem',
     'DeflectionMonitorSubsystem',
-    'BeamEnergySubsystem'
+    'BeamEnergySubsystem',
+    'MachineStatus',
 ]

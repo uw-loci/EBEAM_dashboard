@@ -141,34 +141,26 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
 
         self.assert_allows(subsystem, [{"ch": 1, "mode": "DC"}])
 
-    def test_channel_enable_is_blocked_by_vtrx_pressure_guard(self):
+    def test_machine_status_guard_ignores_vtrx_pressure_guard(self):
         subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
-        self.set_unsafe_vtrx_pressure(subsystem)
-        driver = DummyBCONDriver(enabled=False)
-        subsystem.bcon_driver = driver
-
-        ok, enabled, message = subsystem.toggle_channel_enable(0)
-
-        self.assertFalse(ok)
-        self.assertFalse(enabled)
-        self.assertIn("VTRX pressure", message)
-        self.assertEqual([], driver.enable_calls)
-
-    def test_channel_disable_is_not_blocked_by_vtrx_pressure_guard(self):
-        subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
-        self.set_unsafe_vtrx_pressure(subsystem)
         subsystem.channel_enable_status = [True, False, False]
-        subsystem.beam_on_status = [True, False, False]
-        driver = DummyBCONDriver(enabled=True)
-        subsystem.bcon_driver = driver
+        subsystem._vtrx_pressure_guard_enabled_provider = lambda: True
+        subsystem._vtrx_pressure_provider = lambda: 2e-5
+        subsystem._vtrx_pressure_limit_provider = lambda: 1e-5
+        subsystem._vtrx_pressure_fresh_provider = lambda: False
 
-        ok, enabled, message = subsystem.toggle_channel_enable(0)
+        self.assertTrue(subsystem._activate_enabled_beams_guard_clear())
 
-        self.assertTrue(ok)
-        self.assertFalse(enabled)
-        self.assertIn("successfully disabled", message)
-        self.assertEqual([(1, False)], driver.enable_calls)
-        self.assertEqual([1], driver.off_calls)
+    def test_machine_status_guard_allows_output_when_emission_limit_disabled(self):
+        def fail_if_called():
+            raise AssertionError("provider should not be called")
+
+        subsystem = self.make_subsystem([], limit_enabled=False)
+        subsystem.channel_enable_status = [True, False, False]
+        subsystem._predicted_currents_provider = fail_if_called
+        subsystem._emission_limit_provider = fail_if_called
+
+        self.assertTrue(subsystem._activate_enabled_beams_guard_clear())
 
 
 if __name__ == "__main__":
