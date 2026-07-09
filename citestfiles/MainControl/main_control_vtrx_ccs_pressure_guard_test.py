@@ -101,6 +101,7 @@ def make_main_control(now=100.0, cathode=None, beam_pulse=None):
     main_control.beams_estop_current_limit_enabled = True
     main_control._last_vtrx_pressure_mbar = None
     main_control.pressure_reading_is_fresh = False
+    main_control.vtrx_firmware_error = False
     main_control._vtrx_pressure_beam_disable_latched = True
     main_control.vtrx_ccs_disable_grace_period_s = 30.0
     main_control.vtrx_ccs_disable_grace_period_entry_var = FakeVar()
@@ -406,6 +407,64 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
             (False, "VTRX pressure reading is stale."),
         )
 
+    def test_vtrx_firmware_error_starts_ccs_shutdown_sequence_and_blocks_output(self):
+        cathode = FakeCathode(active=True)
+        main_control = make_main_control(cathode=cathode)
+
+        main_control._handle_vtrx_pressure_update(
+            5e-6,
+            pressure_reading_is_fresh=True,
+            firmware_error=True,
+        )
+
+        self.assertTrue(main_control.vtrx_firmware_error)
+        self.assertEqual(main_control._vtrx_ccs_disable_timer_started_at, 100.0)
+        self.assertEqual(
+            main_control._vtrx_ccs_pressure_output_status(),
+            (False, "VTRX firmware error reported."),
+        )
+        self.assertEqual(cathode.turn_off_calls, 0)
+        self.assertTrue(
+            any(
+                "VTRX firmware error reported; CCS output will be disabled in 30 seconds"
+                in message
+                for message in main_control.logger.messages("CRITICAL")
+            )
+        )
+
+        main_control._test_time["value"] = 130.0
+        main_control._handle_vtrx_pressure_update(
+            5e-6,
+            pressure_reading_is_fresh=True,
+            firmware_error=True,
+        )
+
+        self.assertEqual(cathode.turn_off_calls, 1)
+        self.assertTrue(
+            any(
+                "VTRX firmware error remained active for 30 seconds; disabling CCS output."
+                in message
+                for message in main_control.logger.messages("CRITICAL")
+            )
+        )
+
+    def test_fresh_safe_pressure_clears_firmware_error_ccs_shutdown(self):
+        main_control = make_main_control(cathode=FakeCathode(active=True))
+        main_control._vtrx_ccs_disable_timer_started_at = 90.0
+        main_control._vtrx_ccs_disable_last_warning_at = 90.0
+        main_control.vtrx_firmware_error = True
+
+        main_control._handle_vtrx_pressure_update(
+            5e-6,
+            pressure_reading_is_fresh=True,
+            firmware_error=False,
+        )
+
+        self.assertFalse(main_control.vtrx_firmware_error)
+        self.assertTrue(main_control.pressure_reading_is_fresh)
+        self.assertIsNone(main_control._vtrx_ccs_disable_timer_started_at)
+        self.assertTrue(main_control._vtrx_ccs_pressure_allows_output())
+
     def test_fresh_pressure_below_limit_clears_stale_ccs_shutdown(self):
         main_control = make_main_control(cathode=FakeCathode(active=True))
         main_control._vtrx_ccs_disable_timer_started_at = 90.0
@@ -435,6 +494,35 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
         )
 
         main_control._handle_vtrx_pressure_update(5e-6, pressure_reading_is_fresh=True)
+
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_vtrx_firmware_error_turns_off_bcon_channels_and_latches_until_clear(self):
+        beam_pulse = FakeBeamPulse()
+        main_control = make_main_control(beam_pulse=beam_pulse)
+        main_control.disable_beams_on_vtrx_pressure_exceeded = True
+        main_control._vtrx_pressure_beam_disable_latched = False
+
+        main_control._handle_vtrx_pressure_update(
+            5e-6,
+            pressure_reading_is_fresh=True,
+            firmware_error=True,
+        )
+
+        self.assertEqual(beam_pulse.disable_all_calls, 1)
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+        self.assertTrue(
+            any(
+                "VTRX firmware error reported; disabling all beams" in message
+                for message in main_control.logger.messages("CRITICAL")
+            )
+        )
+
+        main_control._handle_vtrx_pressure_update(
+            5e-6,
+            pressure_reading_is_fresh=True,
+            firmware_error=False,
+        )
 
         self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
 
