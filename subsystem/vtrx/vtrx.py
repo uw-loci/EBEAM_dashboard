@@ -198,6 +198,7 @@ class VTRXSubsystem:
 
         After processing all items, reschedules itself to run again after 500 ms.
         """
+        data = None
         try:
             self.flush_queued_logs()
             while True:
@@ -208,6 +209,16 @@ class VTRXSubsystem:
                     self.handle_serial_data(data)
         except queue.Empty:
             pass
+        except Exception as e:
+            self.error_state = True
+            if data is None:
+                self.log(f"VTRX queue processing error: {e}", LogLevel.ERROR)
+            else:
+                self.log(
+                    f"VTRX queue processing error while handling data "
+                    f"{self._safe_raw_log_text(data)}: {e}",
+                    LogLevel.ERROR
+                )
         finally:
             self.flush_queued_logs()
             self._update_main_control()
