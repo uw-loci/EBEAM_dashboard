@@ -3865,7 +3865,9 @@ class CathodeHeatingSubsystem:
                 )
                 return False
 
-            # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
+            # Predict beam current from whichever heater constraint is binding.
+            # Current control uses heater_current->beam_current directly; voltage
+            # control retains the voltage-keyed LUT path.
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
                 index,
                 pred_heater_voltage,
@@ -3964,7 +3966,9 @@ class CathodeHeatingSubsystem:
                 )
                 return False
 
-            # Predict beam current from the new voltage; may be reworked to use current for greater accuracy
+            # Predict beam current from whichever heater constraint is binding.
+            # Current control uses heater_current->beam_current directly; voltage
+            # control retains the voltage-keyed LUT path.
             _,_, pred_beam_current = self.emission_cur_vlt_converter(
                 index,
                 pred_heater_voltage,
@@ -4040,16 +4044,18 @@ class CathodeHeatingSubsystem:
         controlling_mode=None,
     ):
         """
-        Convert between voltage and current using the DataFrame lookup.
+        Resolve heater and beam values from the selected LUT or physics fallback.
 
-        LUT data is treated as a function for voltage->(heater current, beam current)
-        lookups. For a given voltage, there must be exactly one output pair.
-        Above the LUT voltage/current domain, beam current falls back to a
+        In-range beam-current lookup follows the binding heater constraint:
+        current control uses heater_current->beam_current directly, while voltage
+        control uses voltage->beam_current and voltage->heater_current. Duplicate
+        input coordinates are collapsed to their median by the shared interpolation
+        helper. Above the applicable LUT domain, beam current falls back to a
         Richardson-Dushman estimate based on the ES440 temperature model.
 
         Args:
             index (int): Index of the cathode (0-2)
-            val (float): Input value (voltage or current)
+            val (float): Resolved physical heater voltage.
             target_heater_current (float | None): Resolved heater current from
                 the active setpoint path. Used by the above-LUT Richardson
                 fallback because temperature is estimated from heater current.
@@ -4064,15 +4070,26 @@ class CathodeHeatingSubsystem:
             above_voltage_lut = self._is_above_lut_domain(index, val, "voltage", "beam_current")
             above_current_lut = (
                 target_heater_current is not None
-                and self._is_above_lut_domain(index, target_heater_current, "heater_current", "voltage")
+                and self._is_above_lut_domain(index, target_heater_current, "heater_current", "beam_current")
             )
+            if controlling_mode == "current" and target_heater_current is not None:
+                outside_lut = above_current_lut
+            elif controlling_mode == "voltage":
+                outside_lut = above_voltage_lut
+            else:
+                # Preserve voltage-keyed compatibility for callers that have not
+                # identified which physical constraint is binding.
+                outside_lut = above_voltage_lut
+
             reason_parts = []
-            if above_voltage_lut:
+            if outside_lut and controlling_mode == "voltage":
                 reason_parts.append("heater voltage above LUT")
-            if above_current_lut:
+            elif outside_lut and controlling_mode == "current":
                 reason_parts.append("heater current above LUT")
+            elif outside_lut:
+                reason_parts.append("heater voltage above LUT")
             reason = " and ".join(reason_parts) if reason_parts else "outside LUT"
-            if above_voltage_lut or above_current_lut:
+            if outside_lut:
                 fallback = self._richardson_fallback_beam_current_ma(
                     index,
                     val,
@@ -4087,8 +4104,17 @@ class CathodeHeatingSubsystem:
                         float(fallback["beam_current_ma"]),
                     )
 
-            heater_current = self._interpolate_lut_value(index, val, "voltage", "heater_current")
-            beam_current = self._interpolate_lut_value(index, val, "voltage", "beam_current")
+            if controlling_mode == "current" and target_heater_current is not None:
+                heater_current = float(target_heater_current)
+                beam_current = self._interpolate_lut_value(
+                    index,
+                    heater_current,
+                    "heater_current",
+                    "beam_current",
+                )
+            else:
+                heater_current = self._interpolate_lut_value(index, val, "voltage", "heater_current")
+                beam_current = self._interpolate_lut_value(index, val, "voltage", "beam_current")
             if heater_current is None or beam_current is None:
                 fallback = self._richardson_fallback_beam_current_ma(
                     index,
