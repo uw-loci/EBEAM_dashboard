@@ -39,6 +39,27 @@ Main Control may also provide a BCON connection checker and a runtime guard
 setting. When that guard is enabled, Cathode Heating treats a disconnected BCON
 as a reason to block new CCS output enables.
 
+## Subsystem State Reference
+
+Most per-cathode state is stored in three-element lists indexed as A, B, C.
+
+| State | Indicates | Changed by | Used by |
+| --- | --- | --- | --- |
+| `power_supplies[index]` | Driver handle exists for a BK 9104. This does not prove the hardware is responsive or command-ready. | Startup, COM-port reconfiguration, retry reconnect, shutdown. | Poller hardware I/O, setpoint commands, output toggles, ramping, shutdown. |
+| `power_supplies_initialized` | At least one power-supply driver handle exists. This is a handle-level state, not a ready/safe state. | `initialize_power_supplies()`, `_disconnect_existing_connections()`, retry reconnect, shutdown. | Early guards before power-supply operations and fallback shutdown behavior. |
+| `power_supply_readbacks[index]` | Latest cached poller snapshot: voltage, current, mode, connected flag, error, timestamp. | `Cathode9104Poller` through `_set_power_supply_readback()`. | `update_data()`, measured-value displays, CV/CC indicators, telemetry publishing, readback error logging. |
+| `power_supply_valid_connections[index]` | Main-thread connection-transition logging state: whether a valid 9104 readback has already been logged. | `_update_power_supply_connection_state_from_readback()` and runtime resets on the Tk thread. | Suppresses repeated "valid connection established" logs. |
+| `power_supply_configured[index]` | The supply has returned a valid readback and preset 3, OVP, and OCP have been confirmed. | `_configure_power_supply_after_readback()` sets true; config resets, readback failures, exceptions, and COM/runtime resets set false. | Command readiness, comms indicators, confirmed OVP/OCP display mirroring. |
+| `power_supply_status[index]` | Operator commands are allowed for this cathode. This is the main UI/command-ready state. | `_set_power_supply_command_ready()` after valid configured readbacks, unavailable readbacks, initialization, reset, and shutdown. | Set buttons, nudge buttons, output controls, OVP/OCP setters, target-current handling. |
+| `power_supply_reconfiguring` | COM-port update is replacing power-supply driver objects. | `update_com_ports()` sets and clears it. | Poller stands down while the shared `power_supplies` list is being replaced. |
+| `temp_controllers_connected` | E5CN temperature-controller driver was created and its polling loop started. | `initialize_temperature_controllers()`, COM-port reconfiguration, shutdown, controller cleanup failures. | Temperature read path and connection diagnostics. |
+| `temperature_valid_connections[index]` | A valid numeric temperature has been seen and logged for this cathode. | `read_temperature()` and `_log_valid_temperature_connection()` on valid/invalid temperature reads and resets. | Temperature comms indicators and transition logging. |
+| `toggle_states[index]` | Dashboard belief that the cathode heater output is on. This mirrors commanded output state, not a hardware output readback. | `toggle_output()`, `turn_off_all_beams()`, fault paths that disable output. | Output button image/state, BCON disconnect handling, manual setpoint behavior while output is active. |
+| `ramp_status[index]` | Ramp mode is enabled for this cathode. | Output-mode controls and `set_ramp_mode()`. | `toggle_output()`, manual current/voltage updates, button enable/disable rules. |
+| `ramp_control_mode[index]` | Which quantity is ramp-controlled: `current` or `voltage`. | Output-mode dropdown handling. | Ramp selection when enabling output or changing setpoints while output is on. |
+| `current_set[index]` / `voltage_set[index]` | A current or voltage goal has been accepted. | Manual set handlers, prediction/reset paths, successful output updates, empty entry clears. | Prediction refresh, output-enable validation, ramp setup. |
+| `user_set_currents[index]` / `user_set_voltages[index]` | Stored requested heater current/voltage values. | Manual set handlers, target-current model calculations, adjustment buttons, reset paths. | Output enable, immediate/ramped set commands, prediction refresh. |
+
 ## UI Structure Per Cathode
 
 Each cathode frame contains:
