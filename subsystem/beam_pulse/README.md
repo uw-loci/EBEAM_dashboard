@@ -122,9 +122,11 @@ There are four layers of safety/status behavior to keep distinct:
   all-off, resets channel-enable state, and disables armed-gated controls.
 - BCON firmware safety: hardware interlock and watchdog state remain enforced by
   BCON firmware and are reported through registers.
-- Emission-current limit: Beam Pulse blocks non-OFF Beam ON, Activate Enabled Beams, and CSV
-  step commands when the projected predicted emission current is at or above the
-  Main Control limit.
+- Emission-current limit: when enabled, Beam Pulse blocks non-OFF Beam ON,
+  Activate Enabled Beams, and CSV step commands when any projected cathode
+  prediction is unknown/invalid, or when the projected predicted emission
+  current is at or above the Main Control limit. When disabled, Beam Pulse skips
+  both prediction validation and the threshold comparison.
 - BCON/CCS disconnect guard: Beam Pulse reports BCON disconnects to Main Control. Main Control then
   decides whether Cathode Heating should disable or block CCS output.
 
@@ -186,7 +188,8 @@ Main Control registers these callbacks/providers on Beam Pulse:
 | `set_channel_enable_status_callback(callback)` | `callback(ch, enabled)` | live CH enable button state |
 | `set_armed_status_callback(callback)` | `callback(armed)` | mirror software armed state |
 | `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | action line and firmware acknowledgement display |
-| `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data |
+| `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data; `currents()` returns A/B/C values as non-negative finite mA floats or `None` for unknown |
+| `set_vtrx_pressure_guard_providers(enabled, pressure, limit, fresh)` | callables | VTRX high-pressure/freshness guard data |
 | `set_manual_disconnect_callback(callback)` | `callback() -> bool` | ask Main Control whether a user-requested BCON disconnect may continue |
 | `set_disconnect_callback(callback)` | `callback()` | notify Main Control after BCON disconnects |
 
@@ -202,7 +205,7 @@ treated as running even though it has no remaining pulse countdown.
 
 1. Requires beams to be armed and BCON to be connected.
 2. Validates mode, duration, and count.
-3. Runs the emission-current check for non-OFF output.
+3. Runs the VTRX pressure and emission-current checks for non-OFF output.
 4. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
 5. Updates local output state; register polling remains the hardware truth.
 
@@ -210,10 +213,10 @@ treated as running even though it has no remaining pulse countdown.
 
 `Activate Enabled Beams` reads all three Manual Control configurations, filters out
 hardware-disabled channels using Beam Pulse's register-backed channel enable
-state, blocks non-OFF output when projected emission current is at or above the
-configured limit, then calls `bcon_driver.sync_start(configs)`. The driver
-stages pulse parameters and requested modes, then commits them together with the
-firmware apply command.
+state, blocks non-OFF output when VTRX pressure is above Main Control's pressure
+limit or projected emission current is at or above the configured limit, then calls
+`bcon_driver.sync_start(configs)`. The driver stages pulse parameters and
+requested modes, then commits them together with the firmware apply command.
 
 `disable_all_beams()` calls `bcon_driver.stop_all()` and clears local output state.
 

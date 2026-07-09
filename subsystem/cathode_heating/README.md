@@ -303,7 +303,9 @@ Manual setpoint handlers now actively update predictions before applying output 
 
 Those handlers call either `update_predictions_from_current()` or `update_predictions_from_voltage()` after validation. LUT selector changes call `refresh_predictions()`, which recomputes predictions from the currently requested setpoint when one exists.
 
-The prediction path is still display-side guidance. Output behavior is still governed by validation, output state, and the selected immediate/ramp mode.
+The prediction path is still display-side guidance for Cathode Heating output behavior. Output behavior is still governed by validation, output state, and the selected immediate/ramp mode.
+
+Predicted emission current is also published to Beam Pulse for its output-start guard. Unknown or unavailable emission predictions are stored and returned as `None`, while a real predicted `0.0 mA` remains numeric. The UI displays unknown predictions as `--`, and Beam Pulse blocks projected beam-output starts when the emission-current limit is enabled and a projected cathode has an unknown or invalid emission prediction.
 
 ## Main Methods To Read First
 
