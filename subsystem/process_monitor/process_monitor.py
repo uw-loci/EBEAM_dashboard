@@ -1,13 +1,21 @@
+import math
 import time
 import tkinter as tk
+from tkinter import messagebox, ttk
 from typing import Dict
 from instrumentctl.DP16_process_monitor.DP16_process_monitor import DP16ProcessMonitor
+from usr.process_monitor_config import (
+    RANGE_FIELDS,
+    load_process_monitor_config,
+    save_process_monitor_config,
+)
 from utils import LogLevel
 
 class TemperatureBar(tk.Canvas):
 
     DISCONNECTED = -1
     SENSOR_ERROR = -2
+    DISABLED = -3
     TOP_PADDING = 1
     SCALE_LABELS = {
         'Solenoids': [10 , 120], 
@@ -20,13 +28,19 @@ class TemperatureBar(tk.Canvas):
         SENSOR_ERROR: '#FFA500',  # Keep orange for actual sensor errors
     }
 
-    def __init__(self, parent, name: str, height: int = 36, width: int = 580):
+    def __init__(self, parent, name: str, height: int = 36, width: int = 580,
+                 display_min=10.0, display_max=100.0,
+                 warning_min=-90.0, warning_max=500.0):
         super().__init__(parent, height=height, width=width, highlightthickness=0)
         self.name = name
         self.height = height
         self.width = width
         self.bar_height = 11
         self.value = None
+        self.temp_min = display_min
+        self.temp_max = display_max
+        self.warning_min = warning_min
+        self.warning_max = warning_max
 
         self.bind('<Configure>', self._handle_resize)
         self._redraw_all()
@@ -75,22 +89,10 @@ class TemperatureBar(tk.Canvas):
             tags='static'
         )
 
-        # Determine scale based on name
-        if 'Solenoid' in self.name:
-            scale_key = 'Solenoids'
-        elif 'Chamber' in self.name:
-            scale_key = 'Chambers'
-        elif 'Air' in self.name:
-            scale_key = 'Air'
-        else:
-            scale_key = None  # Default behavior if name does not match
-
-        self.temp_min, self.temp_max = self.SCALE_LABELS.get(scale_key, self.SCALE_LABELS[None])
-        temp_range = self.temp_max - self.temp_min
-
         # Scale marks and labels
-        for i in range(self.temp_min, self.temp_max + 1, 10):    
-            relative_pos = (i - self.temp_min) / temp_range
+        temp_range = self.temp_max - self.temp_min
+        for value in self._scale_tick_values(self.temp_min, self.temp_max):
+            relative_pos = (value - self.temp_min) / temp_range
             x = self.scale_left + (relative_pos * scale_width)
             self.create_line(
                 x,
@@ -103,16 +105,50 @@ class TemperatureBar(tk.Canvas):
             self.create_text(
                 x,
                 self.bar_bottom + 4,
-                text=str(i), 
+                text=f"{value:g}",
                 anchor='n',
                 font=('Segoe UI', 6),
                 tags='scale_labels'
             )
+
+    @staticmethod
+    def _scale_tick_values(temp_min, temp_max):
+        temp_range = temp_max - temp_min
+        if temp_range <= 100:
+            return TemperatureBar._stepped_tick_values(temp_min, temp_max, 10, 5)
+        if temp_range <= 200:
+            return TemperatureBar._stepped_tick_values(temp_min, temp_max, 20, 10)
+
+        divisions = 5
+        return [
+            temp_min + (temp_range * step / divisions)
+            for step in range(divisions + 1)
+        ]
+
+    @staticmethod
+    def _stepped_tick_values(temp_min, temp_max, step_size, max_gap):
+        ticks = []
+        value = temp_min
+        while value < temp_max:
+            ticks.append(value)
+            value += step_size
+
+        if ticks and temp_max - ticks[-1] < max_gap:
+            ticks.pop()
+        ticks.append(temp_max)
+        return ticks
         
     def update_value(self, name, value: float):
         """Update the temperature bar with a new value. If value == -1 then this indicates an error"""
         self.value = value
         self._draw_bar()
+
+    def set_ranges(self, display_min, display_max, warning_min, warning_max):
+        self.temp_min = display_min
+        self.temp_max = display_max
+        self.warning_min = warning_min
+        self.warning_max = warning_max
+        self._redraw_all()
 
     def _draw_bar(self):
         self.delete('bar')
@@ -121,7 +157,7 @@ class TemperatureBar(tk.Canvas):
         if self.value is None:
             return
 
-        if self.value == self.DISCONNECTED:
+        if self.value in (self.DISCONNECTED, self.DISABLED):
             # grey out bar area with hatched pattern
             self.create_rectangle(
                 self.scale_left,
@@ -132,7 +168,7 @@ class TemperatureBar(tk.Canvas):
                 stipple='gray50', # hatched pattern
                 tags='bar'
             )
-            value_text = "---"
+            value_text = "OFF" if self.value == self.DISABLED else "---"
         elif self.value == self.SENSOR_ERROR:
             # Show orange bar for sensor error
             self.create_rectangle(
@@ -174,52 +210,28 @@ class TemperatureBar(tk.Canvas):
         )
         
     def get_temperature_color(self, name, temp: float) -> str:
-        """Return a color based on temperature value."""
-        
-        if name.startswith('Solenoid'): 
-            if 20 <= temp < 70:
-                return '#00FF00'  # Green for normal 
-            elif 70 <= temp < 100:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot
-            
-        elif name.startswith('Chamber'): 
-            if 20 <= temp < 50:
-                return '#00FF00'  # Green for normal 
-            elif 50 <= temp < 70:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot 
-        elif name.startswith('Air'):
-            if 20 <= temp < 30:
-                return '#00FF00'  # Green for normal 
-            elif 30 <= temp < 40:
-                return '#FFFF00'  # Yellow for warm 
-            else:
-                return '#FF0000'  # Red for hot
-        else:
-            if temp < 70:
-                return '#00FF00'  # Green for normal
-            elif temp < 100:
-                return '#FFFF00'  # Yellow for warm
-            else:
-                return '#FF0000'  # Red for hot 
+        """Return green when the temperature is within the configured range."""
+        if temp < self.warning_min or temp > self.warning_max:
+            return '#FFA500'
+        return '#00FF00'
 
 
 class ProcessMonitorSubsystem:
     MIN_VALID_TEMP = -90
     MAX_VALID_TEMP = 500
+    WARNING_LOG_INTERVAL_SECONDS = 60.0
 
     def __init__(self, parent, com_port, logger=None):
         self.parent = parent
         self.logger = logger
-        self.pmon_communicating = False
+        self.environment_pass = False
         self.last_error_time = 0
         self.error_count = 0
         self.com_port = com_port
         self.update_interval = 500  # default update interval (ms)
         self._monitor_missing_logged = False
+        self._last_warning_log_times = {}
+        self._latest_temperatures = {}
 
         self.thermometers = ['Solenoid 1', 'Solenoid 2', 'Chamber Top', 'Chamber Bot', 'Air temp', 'Unassigned']
         self.thermometer_map = {
@@ -230,6 +242,8 @@ class ProcessMonitorSubsystem:
             'Air temp': 5,
             'Unassigned': 6
         }
+        self.config = load_process_monitor_config(logger=self.logger)
+        self.disabled_sensors = set(self.config["disabled_sensors"])
 
         self.setup_gui()
         self.monitor = None
@@ -240,7 +254,8 @@ class ProcessMonitorSubsystem:
             self.monitor = DP16ProcessMonitor(
                 port=com_port,
                 unit_numbers=list(self.thermometer_map.values()),
-                logger=logger
+                logger=logger,
+                disabled_units=self._disabled_unit_numbers(),
             )
         except Exception as e:
             self.monitor = None
@@ -251,7 +266,14 @@ class ProcessMonitorSubsystem:
         self.update_temperatures()
 
     def setup_gui(self):
-        self.frame = tk.Frame(self.parent)
+        notebook = ttk.Notebook(self.parent)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        main_tab = ttk.Frame(notebook)
+        config_tab = ttk.Frame(notebook)
+        notebook.add(main_tab, text="Main")
+        notebook.add(config_tab, text="Config")
+
+        self.frame = tk.Frame(main_tab)
         self.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         
         # Configure grid weights for responsive layout
@@ -262,9 +284,135 @@ class ProcessMonitorSubsystem:
         # Create temperature bars
         self.temp_bars: Dict[str, TemperatureBar] = {}
         for i, name in enumerate(self.thermometers):
-            bar = TemperatureBar(self.frame, name)
+            limits = self.config["sensors"][name]
+            bar = TemperatureBar(
+                self.frame,
+                name,
+                display_min=limits["display_min_c"],
+                display_max=limits["display_max_c"],
+                warning_min=limits["warning_min_c"],
+                warning_max=limits["warning_max_c"],
+            )
             bar.grid(row=i, column=0, padx=4, pady=(1, 0), sticky='nsew')
             self.temp_bars[name] = bar
+            if name in self.disabled_sensors:
+                bar.update_value(name, TemperatureBar.DISABLED)
+
+        self._create_config_tab(config_tab)
+
+    def _create_config_tab(self, parent):
+        container = ttk.Frame(parent, padding=4)
+        container.pack(fill=tk.BOTH, expand=True)
+        headers = ("Sensor", "Enabled", "Warn min °C", "Warn max °C", "Bar min °C", "Bar max °C", "")
+        for column, text in enumerate(headers):
+            ttk.Label(container, text=text, font=("Segoe UI", 8, "bold")).grid(
+                row=0, column=column, padx=3, pady=(0, 4), sticky="w"
+            )
+
+        self.enabled_vars = {}
+        self.config_entry_vars = {}
+        for row, name in enumerate(self.thermometers, start=1):
+            ttk.Label(container, text=name).grid(row=row, column=0, padx=3, pady=3, sticky="w")
+            enabled_var = tk.BooleanVar(value=name not in self.disabled_sensors)
+            self.enabled_vars[name] = enabled_var
+            ttk.Checkbutton(
+                container,
+                variable=enabled_var,
+                command=lambda sensor=name: self._set_sensor_enabled(sensor),
+            ).grid(row=row, column=1)
+
+            self.config_entry_vars[name] = {}
+            limits = self.config["sensors"][name]
+            for column, field in enumerate(RANGE_FIELDS, start=2):
+                var = tk.StringVar(value=f"{limits[field]:g}")
+                self.config_entry_vars[name][field] = var
+                ttk.Entry(container, textvariable=var, width=9).grid(
+                    row=row, column=column, padx=3, pady=3, sticky="ew"
+                )
+            ttk.Button(
+                container,
+                text="Set",
+                width=5,
+                command=lambda sensor=name: self._save_sensor_config(sensor),
+            ).grid(row=row, column=6, padx=3, pady=3)
+
+        container.grid_columnconfigure(0, weight=1)
+
+    def _save_sensor_config(self, name, show_dialogs=True):
+        candidate = {}
+        try:
+            for field in RANGE_FIELDS:
+                candidate[field] = float(self.config_entry_vars[name][field].get().strip())
+        except (TypeError, ValueError):
+            return self._config_error(name, "All temperature limits must be valid numbers.", show_dialogs)
+
+        if not all(math.isfinite(value) for value in candidate.values()):
+            return self._config_error(name, "All temperature limits must be finite numbers.", show_dialogs)
+        if candidate["warning_min_c"] >= candidate["warning_max_c"]:
+            return self._config_error(name, "Warning minimum must be less than warning maximum.", show_dialogs)
+        if candidate["display_min_c"] >= candidate["display_max_c"]:
+            return self._config_error(name, "Bar minimum must be less than bar maximum.", show_dialogs)
+
+        self.config["sensors"][name] = candidate
+        self.temp_bars[name].set_ranges(
+            candidate["display_min_c"], candidate["display_max_c"],
+            candidate["warning_min_c"], candidate["warning_max_c"],
+        )
+        saved = save_process_monitor_config(self.config, logger=self.logger)
+        if not saved:
+            return self._config_error(name, "Settings changed for this session but could not be saved.", show_dialogs)
+        self.log(f"{name} configuration updated.", LogLevel.INFO)
+        return True
+
+    def _set_sensor_enabled(self, name, show_dialogs=True):
+        """Apply and persist a sensor checkbox change immediately."""
+        enabled = bool(self.enabled_vars[name].get())
+        if enabled:
+            self.disabled_sensors.discard(name)
+            self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+        else:
+            self.disabled_sensors.add(name)
+            self._last_warning_log_times.pop(name, None)
+            self.temp_bars[name].update_value(name, TemperatureBar.DISABLED)
+
+        self.config["disabled_sensors"] = [
+            sensor for sensor in self.thermometers if sensor in self.disabled_sensors
+        ]
+        self._sync_disabled_units_to_monitor()
+
+        if self._latest_temperatures:
+            self._apply_temperature_snapshot(self._latest_temperatures)
+        elif enabled:
+            self._set_environment_pass(False)
+
+        if not save_process_monitor_config(self.config, logger=self.logger):
+            message = f"{name}: enabled state changed for this session but could not be saved."
+            self.log(message, LogLevel.WARNING)
+            if show_dialogs:
+                messagebox.showwarning("Save Failed", message)
+            return False
+
+        state = "enabled" if enabled else "disabled"
+        self.log(f"{name} sensor {state}.", LogLevel.INFO)
+        return True
+
+    def _disabled_unit_numbers(self):
+        return {
+            self.thermometer_map[sensor]
+            for sensor in self.disabled_sensors
+            if sensor in self.thermometer_map
+        }
+
+    def _sync_disabled_units_to_monitor(self):
+        if self.monitor is not None and hasattr(self.monitor, "set_disabled_units"):
+            self.monitor.set_disabled_units(self._disabled_unit_numbers())
+
+    def _config_error(self, name, message, show_dialogs):
+        full_message = f"{name}: {message}"
+        self.log(full_message, LogLevel.WARNING)
+        if show_dialogs:
+            messagebox.showerror("Invalid PMON Configuration", full_message)
+        return False
 
     def update_temperatures(self):
         current_time = time.time()
@@ -273,11 +421,11 @@ class ProcessMonitorSubsystem:
                 if not self._monitor_missing_logged:
                     self.log("DP16 monitor not connected", LogLevel.WARNING)
                     self._monitor_missing_logged = True
+                self._set_environment_pass(False)
                 if current_time - self.last_error_time > (self.update_interval / 1000):
                     self._set_all_temps_disconnected()
                     if self.logger and hasattr(self.logger, "clear_value"):
                         self.logger.clear_value("temperatures")
-                    self.pmon_communicating = False
                     self.last_error_time = current_time
             else:
                 if self._monitor_missing_logged:
@@ -306,15 +454,14 @@ class ProcessMonitorSubsystem:
                         self._set_all_temps_disconnected()
                         if self.logger and hasattr(self.logger, "clear_value"):
                             self.logger.clear_value("temperatures")
-                        self.pmon_communicating = False
+                        self._set_environment_pass(False)
                         self.log("No temperature data available from DP16", LogLevel.ERROR)
                         self.last_error_time = current_time
                 else:
-                    self.pmon_communicating = self._has_pmon_communication(temps)
                     self._apply_temperature_snapshot(temps)
 
         except Exception as e:
-            self.pmon_communicating = False
+            self._set_environment_pass(False)
             self.log(f"DP16 exception details: {type(e).__name__}: {str(e)}", LogLevel.DEBUG)
             if current_time - self.last_error_time > (self.update_interval / 1000):
                 self.log(f"Unexpected error updating temperatures: {str(e)}", LogLevel.ERROR)
@@ -325,53 +472,79 @@ class ProcessMonitorSubsystem:
             if self.monitor:
                 self.after_id = self.parent.after(self.update_interval, self.update_temperatures)
 
-    def _unit_required_for_pmon_status(self, unit):
-        spare_units = getattr(self.monitor, "SPARE_ZERO_READING_UNITS", set())
-        return unit not in spare_units
+    def _unit_affects_environment_pass(self, unit):
+        name = next((sensor for sensor, sensor_unit in self.thermometer_map.items() if sensor_unit == unit), None)
+        return name not in self.disabled_sensors
+
+    def _set_environment_pass(self, environment_pass):
+        self.environment_pass = bool(environment_pass)
+
+    def get_environment_pass(self):
+        return bool(self.environment_pass)
 
     def get_machine_status_inputs(self):
-        return {"pmon_communicating": bool(self.pmon_communicating)}
-
-    def _has_pmon_communication(self, temps):
-        if not temps or not self.monitor:
-            return False
-        for unit, value in temps.items():
-            if not self._unit_required_for_pmon_status(unit):
-                continue
-            if value in (self.monitor.DISCONNECTED, self.monitor.SENSOR_ERROR):
-                continue
-            try:
-                value = float(value)
-            except (TypeError, ValueError):
-                continue
-            if self.MIN_VALID_TEMP <= value <= self.MAX_VALID_TEMP:
-                return True
-        return False
+        return {"environment_pass": self.get_environment_pass()}
 
     def _apply_temperature_snapshot(self, temps):
+        self._latest_temperatures = dict(temps)
+        environment_pass = True
+
         for name, unit in self.thermometer_map.items():
             temp = temps.get(unit)
+            affects_environment_pass = self._unit_affects_environment_pass(unit)
+
+            if name in self.disabled_sensors:
+                self.temp_bars[name].update_value(name, TemperatureBar.DISABLED)
+                continue
 
             if temp is None:
                 self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                if affects_environment_pass:
+                    environment_pass = False
             elif temp == self.monitor.SENSOR_ERROR:
                 self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
+                if affects_environment_pass:
+                    environment_pass = False
             elif temp == self.monitor.DISCONNECTED:
                 self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                if affects_environment_pass:
+                    environment_pass = False
             elif isinstance(temp, (int, float)):
                 try:
                     temp_value = float(temp)
-                    if self.MIN_VALID_TEMP <= temp_value <= self.MAX_VALID_TEMP:
-                        self.temp_bars[name].update_value(name, temp_value)
+                    if not math.isfinite(temp_value):
+                        raise ValueError("non-finite temperature")
+                    self.temp_bars[name].update_value(name, temp_value)
+                    limits = self.config["sensors"][name]
+                    if temp_value < limits["warning_min_c"] or temp_value > limits["warning_max_c"]:
+                        environment_pass = False
+                        self._log_temperature_warning(name, temp_value, limits)
                     else:
-                        self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
-                        self.log(f"Temperature out of range - {name}: {temp_value}", LogLevel.WARNING)
+                        self._last_warning_log_times.pop(name, None)
                 except (ValueError, TypeError):
                     self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                     self.log(f"Invalid temperature value - {name}: {temp}", LogLevel.WARNING)
+                    if affects_environment_pass:
+                        environment_pass = False
             else:
                 self.temp_bars[name].update_value(name, TemperatureBar.SENSOR_ERROR)
                 self.log(f"Invalid temperature type - {name}: {type(temp)}", LogLevel.WARNING)
+                if affects_environment_pass:
+                    environment_pass = False
+
+        self._set_environment_pass(environment_pass)
+
+    def _log_temperature_warning(self, name, temperature, limits):
+        now = time.monotonic()
+        last_log = self._last_warning_log_times.get(name)
+        if last_log is not None and now - last_log < self.WARNING_LOG_INTERVAL_SECONDS:
+            return
+        self._last_warning_log_times[name] = now
+        self.log(
+            f"Temperature warning - {name}: {temperature:.1f} C is outside "
+            f"configured bounds [{limits['warning_min_c']:g}, {limits['warning_max_c']:g}] C",
+            LogLevel.WARNING,
+        )
 
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
@@ -389,13 +562,15 @@ class ProcessMonitorSubsystem:
         """Set all temperature bars to error state"""
         if hasattr(self, 'temp_bars'):
             for name in self.temp_bars:
-                self.temp_bars[name].update_value(name, -1)
+                value = TemperatureBar.DISABLED if name in self.disabled_sensors else TemperatureBar.SENSOR_ERROR
+                self.temp_bars[name].update_value(name, value)
 
     def _set_all_temps_disconnected(self):
         """Set all temperature bars to disconnected state"""
         if hasattr(self, 'temp_bars'):
             for name in self.temp_bars:
-                self.temp_bars[name].update_value(name, TemperatureBar.DISCONNECTED)
+                value = TemperatureBar.DISABLED if name in self.disabled_sensors else TemperatureBar.DISCONNECTED
+                self.temp_bars[name].update_value(name, value)
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
