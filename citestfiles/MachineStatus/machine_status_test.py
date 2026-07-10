@@ -41,11 +41,11 @@ class FakeInterlocks:
 
 
 class FakeProcessMonitor:
-    def __init__(self, communicating=True):
-        self.communicating = communicating
+    def __init__(self, environment_pass=True):
+        self.environment_pass = environment_pass
 
     def get_machine_status_inputs(self):
-        return {"pmon_communicating": self.communicating}
+        return {"environment_pass": self.environment_pass}
 
 
 class FakeVTRX:
@@ -211,7 +211,7 @@ def beam_energy_inputs(
 def base_subsystems(
     *,
     pressure=5e-7,
-    pmon_communicating=True,
+    environment_pass=True,
     hvolt_on=True,
     g9_output=True,
     beam_energy=None,
@@ -220,7 +220,7 @@ def base_subsystems(
 ):
     return {
         "Vacuum System": FakeVTRX(pressure=pressure),
-        "Process Monitor [C]": FakeProcessMonitor(pmon_communicating),
+        "Process Monitor [C]": FakeProcessMonitor(environment_pass),
         "Interlocks": FakeInterlocks(
             {
                 "All Interlocks": True,
@@ -302,6 +302,22 @@ class MachineStatusTest(unittest.TestCase):
         display = calculate_display_states(conditions)
         for key in STATUS_KEYS:
             self.assertEqual(display[key], STATE_GREEN, key)
+
+    def test_pmon_status_uses_environment_pass_only(self):
+        conditions = evaluate_machine_status_conditions(
+            base_subsystems(environment_pass=False),
+            FakeMainControl(),
+        )
+        self.assertFalse(conditions[STATUS_TEMPS].ready)
+
+        class LegacyProcessMonitor:
+            def get_machine_status_inputs(self):
+                return {"pmon_communicating": True}
+
+        subsystems = base_subsystems()
+        subsystems["Process Monitor [C]"] = LegacyProcessMonitor()
+        conditions = evaluate_machine_status_conditions(subsystems, FakeMainControl())
+        self.assertFalse(conditions[STATUS_TEMPS].ready)
 
     def test_pressure_thresholds_use_1e_keys_and_strict_below(self):
         conditions = evaluate_machine_status_conditions(

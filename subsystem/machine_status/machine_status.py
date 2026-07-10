@@ -351,7 +351,7 @@ def evaluate_machine_status_conditions(subsystems, main_control=None):
 
     conditions = OrderedDict((key, StatusConditions()) for key in STATUS_KEYS)
     conditions[STATUS_TEMPS] = StatusConditions(
-        ready=bool(process_monitor_inputs.get("pmon_communicating")),
+        ready=bool(process_monitor_inputs.get("environment_pass")),
     )
     conditions[STATUS_PRESSURE_1E_4] = StatusConditions(
         ready=_pressure_below(vtrx_inputs, PRESSURE_1E_4_MBAR),

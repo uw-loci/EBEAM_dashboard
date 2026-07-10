@@ -2,7 +2,7 @@
 
 ## Overview
 
-Machine Status is a series of non blocking indicators meant to inform and direct the user through the Dashboard checks of the Melt Metal Experiemnt. 
+Machine Status is a series of non blocking indicators meant to inform and direct the user through the Dashboard checks of the Melt Metal Experiemnt.
 
 Machine Status does not control hardware directly. It reads live state from the
 other dashboard subsystems, evaluates each stage, and turns the status segments
@@ -67,7 +67,7 @@ UI update back onto the Tk thread with `after()`.
 
 The Machine Status bar reads from:
 
-- Process Monitor: PMON communication and valid temperature telemetry.
+- Process Monitor: PMON Environment Pass state.
 - VTRX / Vacuum System: latest valid pressure and whether that pressure reading
   is fresh.
 - Interlocks: boolean state of the displayed safety interlocks, including
@@ -93,15 +93,13 @@ states until evaluation recovers.
 
 Turns green when:
 
-- Process Monitor has at least one required, non-spare temperature channel
-  reporting a valid in-range value.
+- Process Monitor reports Environment Pass.
 
 Stays gray or becomes behind-red when:
 
 - Process Monitor is disconnected.
-- No required PMON channel has valid data.
-- Temperature readings are disconnected, invalid, or outside the accepted
-  telemetry range.
+- Environment Pass is false because an enabled PMON channel is disconnected,
+  invalid, or outside its configured warning range.
 
 ### 2. Pressure Below 1e-4 mbar
 
