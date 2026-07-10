@@ -211,7 +211,8 @@ Stays gray or becomes behind-red when:
 Forced red when:
 
 - The sum of enabled channels' predicted emission currents is at or above the
-  configured emission-current limit if enabled.
+  configured emission-current limit. This status warning remains active when
+  the emission-current setting is disabled.
 
 Turns green when:
 
