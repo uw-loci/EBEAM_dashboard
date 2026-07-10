@@ -468,6 +468,27 @@ class MachineStatusTest(unittest.TestCase):
             STATE_RED,
         )
 
+    def test_beams_ready_force_red_when_enabled_current_sum_meets_limit_disabled(self):
+        cathode = FakeCathodeHeating()
+        cathode.inputs["predicted_emission_currents_ma"] = [3.0, 3.0, 1.0]
+        beam_pulse = FakeBeamPulse(
+            enabled_channels=[True, True, False],
+            activate_enabled_beams_guard_clear=True,
+        )
+        main_control = FakeMainControl()
+        main_control.total_max_emission_current_limit_enabled = False
+
+        conditions = evaluate_machine_status_conditions(
+            base_subsystems(beam_pulse=beam_pulse, cathode=cathode),
+            main_control,
+        )
+
+        self.assertTrue(conditions[STATUS_BEAMS_READY].force_red)
+        self.assertEqual(
+            calculate_display_states(conditions)[STATUS_BEAMS_READY],
+            STATE_RED,
+        )
+
     def test_beams_on_uses_any_beam_active(self):
         conditions = evaluate_machine_status_conditions(
             base_subsystems(beam_pulse=FakeBeamPulse(any_beam_active=False)),

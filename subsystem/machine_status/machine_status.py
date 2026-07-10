@@ -288,6 +288,40 @@ def _cathode_single_emission_tripped(cathode_inputs, total_limit_ma):
     return False
 
 
+def _enabled_emission_total_tripped(
+    beam_pulse_inputs,
+    cathode_inputs,
+    total_limit_ma,
+):
+    """Return whether enabled beam channels meet or exceed the emission limit.
+
+    This is a dashboard-status check and deliberately does not consult the
+    emission-limit enable setting.  Disabling that setting permits Beam Pulse
+    output commands, but does not disable the Beams Ready status check.
+    """
+    total_limit_ma = _number(total_limit_ma)
+    if total_limit_ma is None:
+        return False
+
+    enabled_channels = list(beam_pulse_inputs.get("channel_enable_status", []))[:3]
+    currents = list(cathode_inputs.get("predicted_emission_currents_ma", []))[:3]
+    enabled_indices = [
+        index for index, enabled in enumerate(enabled_channels) if bool(enabled)
+    ]
+    if not enabled_indices:
+        return False
+
+    total_current_ma = 0.0
+    for index in enabled_indices:
+        if index >= len(currents):
+            return False
+        current = _number(currents[index])
+        if current is None:
+            return False
+        total_current_ma += current
+    return total_current_ma >= total_limit_ma
+
+
 def _lower_statuses_green_candidate(conditions):
     for key in STATUS_KEYS[:STATUS_KEYS.index(STATUS_BEAMS_READY)]:
         status = conditions.get(key, StatusConditions())
@@ -355,8 +389,13 @@ def evaluate_machine_status_conditions(subsystems, main_control=None):
         ready=any(cathode_inputs.get("output_states", [])[:3]),
     )
     conditions[STATUS_BEAMS_READY] = StatusConditions(
-        force_red=not bool(
-            beam_pulse_inputs.get("activate_enabled_beams_guard_clear", True)
+        force_red=(
+            not bool(beam_pulse_inputs.get("activate_enabled_beams_guard_clear", True))
+            or _enabled_emission_total_tripped(
+                beam_pulse_inputs,
+                cathode_inputs,
+                total_limit_ma,
+            )
         ),
         ready=(
             _lower_statuses_green_candidate(conditions)
