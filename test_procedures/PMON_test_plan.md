@@ -1,5 +1,23 @@
 # PMON Subsystem Test Plan
 
+## Test Plan Information
+
+| Field | Value |
+| --- | --- |
+| Name of tester(s): | |
+| Date/Time of Test Plan Start: | |
+| Dashboard Version/Branch: | |
+| Dashboard Commit Hash: | |
+| Notes: | |
+
+## Test Results
+
+| Field | Value |
+| --- | --- |
+| Date/Time of Test Plan End: | |
+| Summary of Results: | |
+| Test Plan Edits or Comments: | |
+
 ## Purpose
 
 Verify that the dashboard's PMON subsystem safely and accurately presents six
