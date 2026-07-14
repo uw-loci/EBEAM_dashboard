@@ -818,7 +818,9 @@ class BeamPulseSubsystem:
         for ch in range(3):
             if ch >= len(self.channel_vars):
                 continue
-            if not enable_states[ch] if ch < len(enable_states) else False:
+            # Provider data is a safety input. A missing state is disabled,
+            # never permission to start the corresponding channel.
+            if ch >= len(enable_states) or not bool(enable_states[ch]):
                 self._log_event(f"Activate Enabled Beams: {self._channel_name(ch)} skipped (software interlock disabled)", LogLevel.DEBUG)
                 continue
             config = self._validate_and_get_config(ch)

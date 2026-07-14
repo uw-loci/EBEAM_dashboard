@@ -222,6 +222,8 @@ non-OFF output when VTRX pressure is above Main Control's pressure limit or
 projected emission current is at or above the configured limit, then calls
 `bcon_driver.sync_start(configs)`. The driver stages pulse parameters and
 requested modes, then commits them together with the firmware apply command.
+The interlock provider is fail-closed: an absent or false entry for a channel
+means that channel is skipped rather than started.
 
 `PVX Enable Toggle` writes `1` once to the per-channel command register:
 R13 for Beam A, R23 for Beam B, or R33 for Beam C. The firmware self-clears the

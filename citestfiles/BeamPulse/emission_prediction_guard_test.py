@@ -22,6 +22,18 @@ class DummyBCONDriver:
         return self.toggle_result
 
 
+class DummyActivationBCONDriver:
+    def __init__(self):
+        self.sync_start_calls = []
+
+    def is_connected(self):
+        return True
+
+    def sync_start(self, configs):
+        self.sync_start_calls.append(configs)
+        return True
+
+
 class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
     def make_subsystem(self, currents, limit=5.0, limit_enabled=True):
         subsystem = object.__new__(BeamPulseSubsystem)
@@ -67,6 +79,34 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
         subsystem = self.make_subsystem([0.0, None, None], limit=5.0)
 
         self.assert_allows(subsystem, [{"ch": 1, "mode": "DC"}])
+
+    def test_activate_enabled_beams_fails_closed_for_missing_interlock_state(self):
+        subsystem = self.make_subsystem([0.0, 0.0, 0.0], limit=5.0)
+        driver = DummyActivationBCONDriver()
+        feedback = []
+        subsystem.bcon_driver = driver
+        subsystem.channel_vars = [{}, {}, {}]
+        subsystem._activation_interlock_provider = lambda: [True, True]
+        subsystem._bcon_is_connected = lambda: True
+        subsystem._validate_and_get_config = lambda ch: {
+            "mode": "DC", "duration_ms": 100, "count": 1
+        }
+        subsystem._queue_firmware_ack = lambda _context: None
+        subsystem._notify_action_feedback = lambda *args: feedback.append(args)
+
+        subsystem.activate_enabled_beams()
+
+        self.assertEqual(len(driver.sync_start_calls), 1)
+        self.assertEqual(
+            [config["ch"] for config in driver.sync_start_calls[0]],
+            [1, 2],
+        )
+        self.assertTrue(
+            any(
+                "Channel C skipped (software interlock disabled)" in message
+                for message, _level in subsystem.log_entries
+            )
+        )
 
     def test_unknown_projected_prediction_blocks_output(self):
         subsystem = self.make_subsystem([None, 1.0, 1.0], limit=5.0)
