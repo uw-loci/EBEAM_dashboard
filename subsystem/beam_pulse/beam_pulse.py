@@ -145,6 +145,7 @@ class BeamPulseSubsystem:
         self._emission_limit_provider = None
         self._predicted_currents_provider = None
         self._emission_limit_enabled_provider = None
+        self._activation_interlock_provider = None
         self._vtrx_pressure_guard_enabled_provider = None
         self._vtrx_pressure_provider = None
         self._vtrx_pressure_limit_provider = None
@@ -397,12 +398,20 @@ class BeamPulseSubsystem:
             pulses_lbl = ttk.Label(r3, text="Remaining: 0", font=("Arial", 8))
             pulses_lbl.pack(side=tk.LEFT)
 
+            pvx_enable_toggle_btn = ttk.Button(
+                frame,
+                text="PVX Enable Toggle",
+                command=lambda index=ch: self.request_pvx_enable_toggle(index),
+            )
+            pvx_enable_toggle_btn.pack(fill=tk.X, pady=(4, 0))
+
             self.channel_vars.append({
                 'duration': dur_entry,
                 'count': cnt_entry,
                 'mode': mode_cb,
                 'status': status_lbl,
                 'pulses': pulses_lbl,
+                'pvx_enable_toggle': pvx_enable_toggle_btn,
             })
 
     # ----------------------------- Tab 2: CSV Sequence ----------------------------- #
@@ -772,10 +781,7 @@ class BeamPulseSubsystem:
         return False, self._emission_block_message(action)
 
     def activate_enabled_beams(self):
-        """Synchronous start of enabled channels using Manual Control tab configuration.
-
-        Only channels that are currently hardware-enabled are included.
-        """
+        """Start dashboard-software-enabled channels using Manual Control settings."""
         if not self._require_armed():
             self._notify_action_feedback(
                 "status",
@@ -800,14 +806,26 @@ class BeamPulseSubsystem:
             )
             return
 
-        enable_states = list(getattr(self, "channel_enable_status", [True, True, True]))
+        activation_interlock_provider = getattr(self, "_activation_interlock_provider", None)
+        if callable(activation_interlock_provider):
+            try:
+                enable_states = list(activation_interlock_provider())
+            except Exception as e:
+                message = f"Failed to activate enabled beams, software interlock state unavailable: {e}"
+                self._log_event(message, LogLevel.ERROR)
+                self._notify_action_feedback("status", message, "failure")
+                return
+        else:
+            # Standalone Beam Pulse has no Main Control interlocks; do not use
+            # R114/R124/R134 because current firmware defines them as busy flags.
+            enable_states = [True, True, True]
 
         configs = []
         for ch in range(3):
             if ch >= len(self.channel_vars):
                 continue
             if not enable_states[ch] if ch < len(enable_states) else False:
-                self._log_event(f"Activate Enabled Beams: {self._channel_name(ch)} skipped (not enabled)", LogLevel.DEBUG)
+                self._log_event(f"Activate Enabled Beams: {self._channel_name(ch)} skipped (software interlock disabled)", LogLevel.DEBUG)
                 continue
             config = self._validate_and_get_config(ch)
             if config is None:
@@ -863,7 +881,7 @@ class BeamPulseSubsystem:
             message = "Disable All Beams failed: BCON driver not available"
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
-            return
+            return False
         self._clear_firmware_acks()
         ack = self._queue_firmware_ack("Disable All Beams")
         if not self.bcon_driver.stop_all():
@@ -871,7 +889,7 @@ class BeamPulseSubsystem:
             message = "Disable All Beams failed: BCON all-off was not confirmed"
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
-            return
+            return False
         self._clear_output_state()
         self._notify_action_feedback(
             "all_off",
@@ -879,6 +897,7 @@ class BeamPulseSubsystem:
             "neutral",
         )
         self._log_event("Disable All Beams: confirmed all channels -> OFF")
+        return True
 
     # ================================================================== #
     #                      CSV Sequence Tab Actions                      #
@@ -1667,6 +1686,10 @@ class BeamPulseSubsystem:
             enabled_provider if callable(enabled_provider) else None
         )
 
+    def set_activation_interlock_provider(self, provider):
+        """Register a provider for Main Control's dashboard-only beam interlocks."""
+        self._activation_interlock_provider = provider if callable(provider) else None
+
     def set_vtrx_pressure_guard_providers(
         self,
         enabled_provider,
@@ -1868,50 +1891,29 @@ class BeamPulseSubsystem:
             return self.bcon_driver.get_status()
         return {'system': {'state': 'UNKNOWN'}, 'channels': []}
 
-    def toggle_channel_enable(self, ch_index: int):
-        """Toggle one channel enable latch. Returns (ok, enabled, message)."""
+    def request_pvx_enable_toggle(self, ch_index: int) -> bool:
+        """Request one hardware PVX enable-toggle pulse for a channel."""
         if not 0 <= ch_index < len(CHANNEL_LABELS):
-            self._log_event(f"Failed to toggle channel enable: invalid channel {ch_index}", LogLevel.ERROR)
-            return False, False, "invalid channel"
-        if not self._require_armed():
-            return False, self.channel_enable_status[ch_index], "beams are not armed"
+            self._log_event(f"PVX enable toggle failed: invalid channel {ch_index}", LogLevel.ERROR)
+            return False
         if not self.bcon_driver:
-            self._log_event("Failed to toggle channel enable: BCON driver not available", LogLevel.ERROR)
-            return False, self.channel_enable_status[ch_index], "BCON driver not available"
+            self._log_event("PVX enable toggle failed: BCON driver not available", LogLevel.ERROR)
+            return False
         if not self._bcon_is_connected():
-            self._log_event("Failed to toggle channel enable: BCON device not connected", LogLevel.ERROR)
-            return False, self.channel_enable_status[ch_index], "BCON device not connected"
+            self._log_event("PVX enable toggle failed: BCON device not connected", LogLevel.ERROR)
+            return False
 
-        current = bool(self.bcon_driver.is_channel_enabled(ch_index + 1))
-        new_enabled = not current
-        if new_enabled:
-            allowed, error_message = self._vtrx_pressure_allows_output(
-                f"enable {self._channel_name(ch_index)}"
-            )
-            if not allowed:
-                return False, current, error_message
+        if not self.bcon_driver.trigger_channel_enable_toggle(ch_index + 1):
+            self._log_event(f"PVX enable toggle failed for {self._channel_name(ch_index)}", LogLevel.ERROR)
+            return False
 
-        if not self.bcon_driver.set_channel_enable(ch_index + 1, new_enabled):
-            self._log_event(f"Failed to set {self._channel_name(ch_index)} enable", LogLevel.ERROR)
-            return (
-                False,
-                current,
-                f"Failed to set {self._channel_name(ch_index)} enable",
-            )
+        self._log_event(f"PVX enable toggle requested for {self._channel_name(ch_index)}")
+        return True
 
-        self.channel_enable_status[ch_index] = new_enabled
-        if callable(getattr(self, "_channel_enable_status_callback", None)):
-            try:
-                self._channel_enable_status_callback(ch_index, new_enabled)
-            except Exception as e:
-                self._log_once(f"Channel enable status callback failed for {self._channel_name(ch_index)}: {e}", LogLevel.ERROR)
-
-        if current:
-            self.send_channel_off(ch_index)
-
-        state = "enabled" if new_enabled else "disabled"
-        self._log_event(f"{self._channel_name(ch_index)} successfully {state}")
-        return True, new_enabled, f"{self._channel_name(ch_index)} successfully {state}"
+    def toggle_channel_enable(self, ch_index: int):
+        """Legacy wrapper for the toggle-only BCON firmware command."""
+        ok = self.request_pvx_enable_toggle(ch_index)
+        return ok, None, "PVX enable toggle requested" if ok else "PVX enable toggle failed"
 
     def stop_all_channels(self, firmware_ack: str = "All OFF") -> bool:
         if self.bcon_driver:

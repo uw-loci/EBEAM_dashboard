@@ -7,7 +7,7 @@ for three independent pulser channels with safety interlocks.
 
 Register map mirrors the firmware Modbus slave implementation:
   Control registers   0-2   : watchdog, telemetry, command
-  Channel 1 params   10-13  : mode, pulse_ms, count, enable_state
+  Channel 1 params   10-13  : mode, pulse_ms, count, enable-toggle command
   Channel 2 params   20-23  : (same layout)
   Channel 3 params   30-33  : (same layout)
   System status     100-109 : state, reason, reserved fault slot, interlock, watchdog, error, supervisor, cmd status
@@ -62,8 +62,10 @@ CH_BASE = [10, 20, 30]    # base address for CH1, CH2, CH3
 CH_MODE_OFF          = 0   # offset: requested mode
 CH_PULSE_MS_OFF      = 1   # offset: pulse duration (ms)
 CH_COUNT_OFF         = 2   # offset: pulse count
-CH_ENABLE_SET_OFF    = 3   # offset: explicit enable state (0=disabled, 1=enabled)
-CH_ENABLE_TOGGLE_OFF = CH_ENABLE_SET_OFF  # backwards-compatible alias
+CH_ENABLE_TOGGLE_OFF = 3   # offset: 1 requests one PVX enable-toggle pulse; 0 is a no-op
+# Compatibility alias for callers importing the former name.  This register is
+# a command, not an enable-state latch, in current BCON firmware.
+CH_ENABLE_SET_OFF    = CH_ENABLE_TOGGLE_OFF
 
 # --- System status registers (read-only from master view) ---
 REG_SYS_STATE      = 100
@@ -1160,23 +1162,34 @@ class BCONDriver:
             self.enqueue_write(base + CH_COUNT_OFF, count)
         return True
 
-    def set_channel_enable(self, channel: int, enabled: bool) -> bool:
-        """Set the channel enable state explicitly (0=disabled, 1=enabled)."""
+    def trigger_channel_enable_toggle(self, channel: int) -> bool:
+        """Request one PVX enable-toggle pulse for a channel (1-3).
+
+        The updated BCON firmware self-clears this command register.  A
+        successful return confirms only the FC06 write, not an enable state;
+        a toggle rejected while busy is reported separately by firmware
+        diagnostics.
+        """
         if not self._validate_channel(channel):
             return False
-
         base = CH_BASE[channel - 1]
-        desired = 1 if enabled else 0
-        ok = self.write_register_immediate(base + CH_ENABLE_SET_OFF, desired)
-        if ok:
-            self._set_cached_channel_enabled(channel, enabled)
-        return ok
+        return self.write_register_immediate(base + CH_ENABLE_TOGGLE_OFF, 1)
+
+    def set_channel_enable(self, channel: int, enabled: bool) -> bool:
+        """Legacy API retained for compatibility with toggle-only firmware.
+
+        Current firmware cannot set an absolute enable state.  A true value
+        issues one toggle request; false is rejected because writing zero is a
+        no-op.
+        """
+        if not enabled:
+            self._log("BCON firmware supports enable toggles only; cannot set disabled", "WARNING")
+            return False
+        return self.trigger_channel_enable_toggle(channel)
 
     def toggle_channel_enable(self, channel: int) -> bool:
-        """Compatibility wrapper that flips the current firmware-backed enable state."""
-        if not self._validate_channel(channel):
-            return False
-        return self.set_channel_enable(channel, not self.is_channel_enabled(channel))
+        """Compatibility wrapper for one PVX enable-toggle request."""
+        return self.trigger_channel_enable_toggle(channel)
 
     def stop_all(self) -> bool:
         """Force all three channels OFF using a confirmed firmware command."""

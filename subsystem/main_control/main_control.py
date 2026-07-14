@@ -196,6 +196,12 @@ class MainControlPanel:
             )
         else:
             self._log_error("Beam Pulse emission limit providers were not wired: API not available")
+        if hasattr(beam_pulse, "set_activation_interlock_provider"):
+            beam_pulse.set_activation_interlock_provider(
+                lambda: list(getattr(self, "_beam_software_interlock_states", []))
+            )
+        else:
+            self._log_error("Beam Pulse activation interlock provider was not wired: API not available")
         if hasattr(beam_pulse, "set_vtrx_pressure_guard_providers"):
             beam_pulse.set_vtrx_pressure_guard_providers(
                 lambda: self.disable_beams_on_vtrx_pressure_exceeded,
@@ -1627,9 +1633,6 @@ class MainControlPanel:
         activate_enabled_beams()
 
     def handle_disable_all_beams(self):
-        # This is a dashboard safety action: clear only local interlocks before
-        # requesting BCON COMMAND=1 to stop any active output.
-        self._reset_beam_software_interlocks()
         beam_pulse = self._get_beam_pulse_or_fail("disable all beams")
         if beam_pulse is None:
             return
@@ -1637,7 +1640,11 @@ class MainControlPanel:
         if not callable(disable_all_beams):
             self._set_beam_action_status("Failed to disable all beams, Beam Pulse API not available", "failure")
             return
-        disable_all_beams()
+        if disable_all_beams():
+            # Clear only local interlocks after BCON has confirmed all outputs
+            # are OFF, so a failed all-off command leaves individual OFF buttons
+            # available to the operator.
+            self._reset_beam_software_interlocks()
 
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
