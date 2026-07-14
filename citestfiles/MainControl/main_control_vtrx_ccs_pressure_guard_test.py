@@ -146,15 +146,15 @@ def make_main_control(now=100.0, cathode=None, beam_pulse=None):
 def make_main_control_for_beams_off(beam_pulse, cathode=None):
     main_control = make_main_control(cathode=cathode, beam_pulse=beam_pulse)
     main_control.beam_toggle_updates = []
-    main_control.enable_toggle_updates = []
+    main_control.software_interlock_control_updates = []
     main_control.activate_control_updates = []
     main_control.armed_ui_updates = []
     main_control.clear_output_calls = 0
-    main_control.update_beam_toggle_states = (
+    main_control._update_beam_output_button_states = (
         lambda **kwargs: main_control.beam_toggle_updates.append(kwargs)
     )
-    main_control._update_enable_toggle_states = (
-        lambda **kwargs: main_control.enable_toggle_updates.append(kwargs)
+    main_control._update_software_interlock_control_states = (
+        lambda **kwargs: main_control.software_interlock_control_updates.append(kwargs)
     )
     main_control._update_activate_enabled_beams_control_state = (
         lambda **kwargs: main_control.activate_control_updates.append(kwargs)

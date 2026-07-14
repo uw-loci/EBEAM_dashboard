@@ -30,7 +30,7 @@ Main Control is a two-tab subpanel.
 
 - Setup script dropdown.
 - Beam A/B/C ON/OFF buttons.
-- Beam A/B/C Disabled/Enabled buttons, which are dashboard-only software
+- Beam A/B/C Interlock Disabled/Enabled buttons, which are dashboard-only software
   interlocks. They do not read or write BCON enable-toggle registers.
 - Activate Enabled Beams and Disable All Beams buttons.
 - ARM BEAMS / BEAMS ARMED toggle.

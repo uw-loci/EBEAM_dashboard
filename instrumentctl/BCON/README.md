@@ -103,7 +103,8 @@ CH1 mode=DC pulse_ms=0 toggle_busy=0 pwr_st=1 oc_st=0 gated_st=0
 Fields:
 - `mode`: OFF, DC, PULSE
 - `pulse_ms`: Configured pulse duration (0 if not pulsing)
-- `toggle_busy`: `1` only while the firmware is emitting the 100 ms PVX enable-toggle pulse; it is not PVX enabled state
+- `toggle_busy`: `1` only while firmware is emitting the 100 ms PVX
+  enable-toggle pulse; otherwise `0`
 - `pwr_st`: Power status input (0/1)
 - `oc_st`: Over-current status input (0/1)
 - `gated_st`: Gated status input (0/1)
@@ -161,8 +162,7 @@ firmware accepted the toggle. A request during that channel's active pulse is
 rejected locally when the latest R114/R124/R134 value is busy. Firmware still
 rejects a race through `LAST_ERROR=11`.
 
-Current firmware has no readable persistent PVX enabled state. R114/R124/R134
-are `ENABLE_TOGGLE_BUSY` flags: `1` only during the associated 100 ms pulse.
+R114/R124/R134 are `ENABLE_TOGGLE_BUSY` flags: `1` only during the associated 100 ms pulse.
 
 `stop_channel_confirmed(channel)` is the independent output-stop path. It
 writes the selected channel's requested mode as OFF, confirms
@@ -170,7 +170,6 @@ writes the selected channel's requested mode as OFF, confirms
 output level. It returns success only when both report OFF/low; it does not
 issue a PVX enable-toggle command or stop other active channels. Pending queued
 writes are invalidated before this confirmed stop transaction.
-They must not be interpreted as enabled state.
 
 #### `set_channel_off(channel: int) -> bool`
 Turn off specified channel (1-3). Only works in READY state.

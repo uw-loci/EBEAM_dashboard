@@ -1208,7 +1208,8 @@ class BCONDriver:
         """Request one PVX enable-toggle pulse for a channel (1-3).
 
         The updated BCON firmware self-clears this command register. A
-        successful return confirms only the FC06 write, not an enable state.
+        A successful return confirms only the FC06 write, not that firmware
+        emitted the 100ms PVX enable/disable pulse.
         The driver rejects a request if the latest R114/R124/R134 status is
         busy; firmware still rejects a race through its diagnostics.
         """
@@ -1555,7 +1556,7 @@ class BCONDriver:
         )
         return bool(self.get_register(addr))
 
-    # --- Legacy-compatible telemetry dict ---
+    # --- Telemetry dict ---
 
     def get_status(self) -> Dict:
         """Get full system status in a structured dictionary."""
@@ -1621,7 +1622,7 @@ class BCONDriver:
         return {'system': system, 'channels': channels}
 
     def get_latest_telemetry(self) -> Dict:
-        """Alias for get_status() — backwards compatibility."""
+        """Return the current structured status snapshot."""
         return self.get_status()
 
     # --- Convenience: ping-like check ---

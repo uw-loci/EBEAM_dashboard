@@ -803,7 +803,7 @@ class BeamPulseSubsystem:
         activation_interlock_provider = getattr(self, "_activation_interlock_provider", None)
         if callable(activation_interlock_provider):
             try:
-                enable_states = list(activation_interlock_provider())
+                beam_software_interlock_states = list(activation_interlock_provider())
             except Exception as e:
                 message = f"Failed to activate enabled beams, software interlock state unavailable: {e}"
                 self._log_event(message, LogLevel.ERROR)
@@ -812,7 +812,7 @@ class BeamPulseSubsystem:
         else:
             # Standalone Beam Pulse has no Main Control interlocks; do not use
             # R114/R124/R134 because current firmware defines them as busy flags.
-            enable_states = [True, True, True]
+            beam_software_interlock_states = [True, True, True]
 
         configs = []
         for ch in range(3):
@@ -820,7 +820,7 @@ class BeamPulseSubsystem:
                 continue
             # Provider data is a safety input. A missing state is disabled,
             # never permission to start the corresponding channel.
-            if ch >= len(enable_states) or not bool(enable_states[ch]):
+            if ch >= len(beam_software_interlock_states) or not bool(beam_software_interlock_states[ch]):
                 self._log_event(f"Activate Enabled Beams: {self._channel_name(ch)} skipped (software interlock disabled)", LogLevel.DEBUG)
                 continue
             config = self._validate_and_get_config(ch)

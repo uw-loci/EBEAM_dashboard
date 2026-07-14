@@ -25,12 +25,12 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
     def make_panel(self, beam_pulse):
         panel = object.__new__(MainControlPanel)
         panel._beam_software_interlock_states = [True, False, False]
-        panel.enable_toggle_buttons = []
+        panel.software_interlock_buttons = []
         panel.update_calls = []
         panel.status_updates = []
         panel.errors = []
         panel._get_beam_pulse_or_fail = lambda _action: beam_pulse
-        panel.update_beam_toggle_states = lambda **kwargs: panel.update_calls.append(kwargs)
+        panel._update_beam_output_button_states = lambda **kwargs: panel.update_calls.append(kwargs)
         panel._set_beam_action_status = lambda *args: panel.status_updates.append(args)
         panel._log_error = panel.errors.append
         return panel

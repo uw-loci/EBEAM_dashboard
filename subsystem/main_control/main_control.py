@@ -330,16 +330,16 @@ class MainControlPanel:
             self.beam_toggle_buttons.append(btn)
 
         # Dashboard-only per-beam software interlocks.
-        enable_toggle_frame = tk.Frame(manual_panel)
-        enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
+        software_interlock_frame = tk.Frame(manual_panel)
+        software_interlock_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
-            enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
-        self.enable_toggle_buttons = []
+            software_interlock_frame.grid_columnconfigure(i, weight=1, uniform="button")
+        self.software_interlock_buttons = []
         self._beam_software_interlock_states = [False, False, False]
         for i in range(3):
             btn = tk.Button(
-                enable_toggle_frame,
-                text=f"Beam {channel_label(i)} Disabled",
+                software_interlock_frame,
+                text=f"Beam {channel_label(i)} Interlock Disabled",
                 bg="#888888",
                 fg="white",
                 font=("Helvetica", 9),
@@ -347,7 +347,7 @@ class MainControlPanel:
                 command=lambda idx=i: self._toggle_beam_software_interlock(idx)
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
-            self.enable_toggle_buttons.append(btn)
+            self.software_interlock_buttons.append(btn)
 
         beam_action_control_frame = tk.Frame(manual_panel)
         beam_action_control_frame.pack(side="top", fill="x", pady=(4, 0))
@@ -1619,8 +1619,8 @@ class MainControlPanel:
                     text="BEAMS ARMED" if armed else "ARM BEAMS",
                     bg="navy" if armed else "sky blue",
                 )
-        self.update_beam_toggle_states(enabled=armed, reset=reset)
-        self._update_software_interlock_control_states(enabled=armed)
+        self._update_beam_output_button_states(armed=armed, reset=reset)
+        self._update_software_interlock_control_states(armed=armed)
         self._update_activate_enabled_beams_control_state(armed=armed)
         if reset:
             self._clear_all_beam_output_displays()
@@ -1747,8 +1747,8 @@ class MainControlPanel:
                                 RuntimeError("Beam Pulse disarm was not confirmed"),
                             )
                     if all_off_confirmed:
-                        self.update_beam_toggle_states(enabled=False, reset=True)
-                        self._update_software_interlock_control_states(enabled=False)
+                        self._update_beam_output_button_states(armed=False, reset=True)
+                        self._update_software_interlock_control_states(armed=False)
                         self._update_activate_enabled_beams_control_state(armed=False)
                 if all_off_confirmed:
                     self._clear_all_beam_output_displays()
@@ -1786,9 +1786,9 @@ class MainControlPanel:
         if not states or not 0 <= beam_index < len(states):
             return
 
-        currently_enabled = bool(states[beam_index])
+        software_interlock_currently_enabled = bool(states[beam_index])
         label = channel_label(beam_index)
-        if currently_enabled:
+        if software_interlock_currently_enabled:
             beam_pulse = self._get_beam_pulse_or_fail(
                 f"disable Beam {label} software interlock"
             )
@@ -1817,18 +1817,18 @@ class MainControlPanel:
                     )
                     return
 
-        enabled = not currently_enabled
-        states[beam_index] = enabled
-        if beam_index < len(getattr(self, "enable_toggle_buttons", [])):
+        beam_software_interlock_enabled = not software_interlock_currently_enabled
+        states[beam_index] = beam_software_interlock_enabled
+        if beam_index < len(getattr(self, "software_interlock_buttons", [])):
             _safe_widget_config(
-                self.enable_toggle_buttons[beam_index],
-                bg="#2e7d32" if enabled else "#888888",
-                text=f"Beam {label} {'Enabled' if enabled else 'Disabled'}",
+                self.software_interlock_buttons[beam_index],
+                bg="#2e7d32" if beam_software_interlock_enabled else "#888888",
+                text=f"Beam {label} Interlock {'Enabled' if beam_software_interlock_enabled else 'Disabled'}",
             )
 
-        self.update_beam_toggle_states(enabled=True)
+        self._update_beam_output_button_states(armed=True)
         self._set_beam_action_status(
-            f"Beam {label} software interlock {'enabled' if enabled else 'disabled'}",
+            f"Beam {label} software interlock {'enabled' if beam_software_interlock_enabled else 'disabled'}",
             "success",
         )
 
@@ -1934,14 +1934,14 @@ class MainControlPanel:
         except Exception:
             pass
 
-    def update_beam_toggle_states(self, enabled=True, reset=False):
-        """Update the state of beam toggle buttons."""
+    def _update_beam_output_button_states(self, armed=True, reset=False):
+        """Update Beam A/B/C output-button availability from arming and interlocks."""
         try:
             if not hasattr(self, 'beam_toggle_buttons'):
                 return
 
             for i, btn in enumerate(self.beam_toggle_buttons):
-                if enabled:
+                if armed:
                     interlock_enabled = (
                         hasattr(self, '_beam_software_interlock_states')
                         and i < len(self._beam_software_interlock_states)
@@ -1957,15 +1957,15 @@ class MainControlPanel:
                         self._clear_beam_output_display(i)
 
         except Exception as e:
-            self._log_error(f"Error updating beam toggle states: {str(e)}")
+            self._log_error(f"Error updating beam output button states: {str(e)}")
 
-    def _update_software_interlock_control_states(self, enabled=True):
+    def _update_software_interlock_control_states(self, armed=True):
         """Enable dashboard-only interlock controls when the beams are armed."""
         try:
-            if not hasattr(self, 'enable_toggle_buttons'):
+            if not hasattr(self, 'software_interlock_buttons'):
                 return
-            for i, btn in enumerate(self.enable_toggle_buttons):
-                if enabled:
+            for i, btn in enumerate(self.software_interlock_buttons):
+                if armed:
                     _safe_widget_config(btn, state="normal")
                 else:
                     # Disarmed: reset all software interlocks.
@@ -1991,13 +1991,13 @@ class MainControlPanel:
 
         for i in range(len(states)):
             states[i] = False
-            if i < len(getattr(self, "enable_toggle_buttons", [])):
+            if i < len(getattr(self, "software_interlock_buttons", [])):
                 _safe_widget_config(
-                    self.enable_toggle_buttons[i],
+                    self.software_interlock_buttons[i],
                     bg="#888888",
-                    text=f"Beam {channel_label(i)} Disabled",
+                    text=f"Beam {channel_label(i)} Interlock Disabled",
                 )
-        self.update_beam_toggle_states(enabled=True)
+        self._update_beam_output_button_states(armed=True)
 
     def create_com_port_frame(self, parent_frame):
         """
