@@ -185,6 +185,9 @@ Dashboard callbacks.
 - Disable All Beams sends BCON `COMMAND=1` to stop output modes/gates. It does
   not issue a PVX enable-toggle command. Main Control clears its dashboard
   interlocks only after BCON confirms the all-off command.
+- Disabling an enabled Beam A/B/C software interlock while that beam output is
+  active first requests the confirmed BCON all-off path. The selected interlock
+  stays enabled if confirmation fails.
 - Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
   before BCON output commands when the VTRX pressure guard is enabled and the
   latest valid VTRX pressure is greater than 1e-5 mbar.

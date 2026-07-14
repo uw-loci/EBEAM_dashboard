@@ -10,25 +10,16 @@ from utils import LogLevel
 
 
 class DummyBCONDriver:
-    def __init__(self, enabled=False):
-        self.enabled = bool(enabled)
-        self.enable_calls = []
-        self.off_calls = []
+    def __init__(self, toggle_result=True):
+        self.toggle_result = bool(toggle_result)
+        self.toggle_calls = []
 
     def is_connected(self):
         return True
 
-    def is_channel_enabled(self, channel):
-        return self.enabled
-
-    def set_channel_enable(self, channel, enabled):
-        self.enable_calls.append((channel, enabled))
-        self.enabled = bool(enabled)
-        return True
-
-    def set_channel_off(self, channel):
-        self.off_calls.append(channel)
-        return True
+    def trigger_channel_enable_toggle(self, channel):
+        self.toggle_calls.append(channel)
+        return self.toggle_result
 
 
 class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
@@ -36,7 +27,6 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
         subsystem = object.__new__(BeamPulseSubsystem)
         subsystem.beams_armed_status = True
         subsystem.beam_on_status = [False, False, False]
-        subsystem.channel_enable_status = [False, False, False]
         subsystem._active_channels = set()
         subsystem._emission_limit_provider = lambda: limit
         subsystem._predicted_currents_provider = lambda: currents
@@ -45,7 +35,6 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
         subsystem._vtrx_pressure_provider = None
         subsystem._vtrx_pressure_limit_provider = None
         subsystem._vtrx_pressure_fresh_provider = None
-        subsystem._channel_enable_status_callback = None
         subsystem.log_entries = []
         subsystem._log_event = lambda message, level=LogLevel.INFO: subsystem.log_entries.append(
             (message, level)
@@ -141,34 +130,27 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
 
         self.assert_allows(subsystem, [{"ch": 1, "mode": "DC"}])
 
-    def test_channel_enable_is_blocked_by_vtrx_pressure_guard(self):
+    def test_pvx_enable_toggle_is_not_blocked_by_vtrx_pressure_guard(self):
         subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
         self.set_unsafe_vtrx_pressure(subsystem)
-        driver = DummyBCONDriver(enabled=False)
+        driver = DummyBCONDriver()
         subsystem.bcon_driver = driver
 
-        ok, enabled, message = subsystem.toggle_channel_enable(0)
-
-        self.assertFalse(ok)
-        self.assertFalse(enabled)
-        self.assertIn("VTRX pressure", message)
-        self.assertEqual([], driver.enable_calls)
-
-    def test_channel_disable_is_not_blocked_by_vtrx_pressure_guard(self):
-        subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
-        self.set_unsafe_vtrx_pressure(subsystem)
-        subsystem.channel_enable_status = [True, False, False]
-        subsystem.beam_on_status = [True, False, False]
-        driver = DummyBCONDriver(enabled=True)
-        subsystem.bcon_driver = driver
-
-        ok, enabled, message = subsystem.toggle_channel_enable(0)
+        ok = subsystem.request_pvx_enable_toggle(0)
 
         self.assertTrue(ok)
-        self.assertFalse(enabled)
-        self.assertIn("successfully disabled", message)
-        self.assertEqual([(1, False)], driver.enable_calls)
-        self.assertEqual([1], driver.off_calls)
+        self.assertEqual([1], driver.toggle_calls)
+
+    def test_pvx_enable_toggle_surfaces_driver_failure(self):
+        subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
+        self.set_unsafe_vtrx_pressure(subsystem)
+        driver = DummyBCONDriver(toggle_result=False)
+        subsystem.bcon_driver = driver
+
+        ok = subsystem.request_pvx_enable_toggle(0)
+
+        self.assertFalse(ok)
+        self.assertEqual([1], driver.toggle_calls)
 
 
 if __name__ == "__main__":

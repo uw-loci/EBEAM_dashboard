@@ -63,9 +63,7 @@ CH_MODE_OFF          = 0   # offset: requested mode
 CH_PULSE_MS_OFF      = 1   # offset: pulse duration (ms)
 CH_COUNT_OFF         = 2   # offset: pulse count
 CH_ENABLE_TOGGLE_OFF = 3   # offset: 1 requests one PVX enable-toggle pulse; 0 is a no-op
-# Compatibility alias for callers importing the former name.  This register is
-# a command, not an enable-state latch, in current BCON firmware.
-CH_ENABLE_SET_OFF    = CH_ENABLE_TOGGLE_OFF
+CH_ENABLE_TOGGLE_BUSY_OFF = 4  # status offset: 1 only during the 100 ms toggle pulse
 
 # --- System status registers (read-only from master view) ---
 REG_SYS_STATE      = 100
@@ -377,22 +375,6 @@ class BCONDriver:
                 break
         if cleared:
             self._log(f"Cleared {cleared} queued BCON command(s)", "DEBUG")
-
-    def _set_cached_channel_enabled(self, channel: int, enabled: bool) -> None:
-        """Update cached enable-related registers for one channel."""
-        if not (1 <= channel <= 3):
-            return
-        base = CH_BASE[channel - 1]
-        status_base = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
-        value = 1 if enabled else 0
-        with self._regs_lock:
-            self._regs[base + CH_ENABLE_SET_OFF] = value
-            self._regs[status_base + 4] = value
-
-    def reset_channel_enable_cache(self, enabled: bool = False):
-        """Reset cached enable state used by the dashboard UI."""
-        for channel in range(1, 4):
-            self._set_cached_channel_enabled(channel, enabled)
 
     @staticmethod
     def _command_label(cmd_code: int) -> str:
@@ -1165,31 +1147,18 @@ class BCONDriver:
     def trigger_channel_enable_toggle(self, channel: int) -> bool:
         """Request one PVX enable-toggle pulse for a channel (1-3).
 
-        The updated BCON firmware self-clears this command register.  A
-        successful return confirms only the FC06 write, not an enable state;
-        a toggle rejected while busy is reported separately by firmware
-        diagnostics.
+        The updated BCON firmware self-clears this command register. A
+        successful return confirms only the FC06 write, not an enable state.
+        The driver rejects a request if the latest R114/R124/R134 status is
+        busy; firmware still rejects a race through its diagnostics.
         """
         if not self._validate_channel(channel):
             return False
+        if self.is_channel_enable_toggle_busy(channel):
+            self._log(f"PVX enable toggle rejected: channel {channel} is busy", "WARNING")
+            return False
         base = CH_BASE[channel - 1]
         return self.write_register_immediate(base + CH_ENABLE_TOGGLE_OFF, 1)
-
-    def set_channel_enable(self, channel: int, enabled: bool) -> bool:
-        """Legacy API retained for compatibility with toggle-only firmware.
-
-        Current firmware cannot set an absolute enable state.  A true value
-        issues one toggle request; false is rejected because writing zero is a
-        no-op.
-        """
-        if not enabled:
-            self._log("BCON firmware supports enable toggles only; cannot set disabled", "WARNING")
-            return False
-        return self.trigger_channel_enable_toggle(channel)
-
-    def toggle_channel_enable(self, channel: int) -> bool:
-        """Compatibility wrapper for one PVX enable-toggle request."""
-        return self.trigger_channel_enable_toggle(channel)
 
     def stop_all(self) -> bool:
         """Force all three channels OFF using a confirmed firmware command."""
@@ -1515,11 +1484,15 @@ class BCONDriver:
         addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 6
         return bool(self.get_register(addr))
 
-    def is_channel_enabled(self, channel: int) -> bool:
-        """Return the firmware-backed cached enable state for a channel."""
+    def is_channel_enable_toggle_busy(self, channel: int) -> bool:
+        """Return whether a channel's 100 ms PVX toggle pulse is active."""
         if not self._validate_channel(channel):
             return False
-        addr = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE + 4
+        addr = (
+            REG_CH_STATUS_BASE
+            + (channel - 1) * REG_CH_STATUS_STRIDE
+            + CH_ENABLE_TOGGLE_BUSY_OFF
+        )
         return bool(self.get_register(addr))
 
     # --- Legacy-compatible telemetry dict ---

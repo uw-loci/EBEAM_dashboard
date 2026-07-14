@@ -21,7 +21,6 @@ from instrumentctl.BCON import (
     CH_MODE_OFF,
     CH_PULSE_MS_OFF,
     CH_COUNT_OFF,
-    CH_ENABLE_SET_OFF,
     REG_WATCHDOG_MS,
     REG_TELEMETRY_MS,
     REG_COMMAND,
@@ -109,7 +108,6 @@ class BeamPulseSubsystem:
         self._bcon_disconnect_callback_armed = False
         self.beams_armed_status = False
         self.beam_on_status = [False, False, False]
-        self.channel_enable_status = [False, False, False]
         self._active_channels: set = set()  # channels currently executing (from registers)
 
         # Dashboard integration callbacks
@@ -136,10 +134,6 @@ class BeamPulseSubsystem:
         # cb(ch, mode_code, remaining, config) called from register polling.
         # config includes mode, duration_ms, count, remaining, and output_level.
         self._channel_status_callback = None
-
-        # Channel enable status callback — set_channel_enable_status_callback(cb)
-        # registers a function cb(ch, enabled) called from register polling.
-        self._channel_enable_status_callback = None
 
         # Dashboard-provided raw data sources for Beam Pulse-owned emission checks.
         self._emission_limit_provider = None
@@ -1211,9 +1205,7 @@ class BeamPulseSubsystem:
                 self.beams_armed_status = False
                 self._notify_armed_status(False)
                 self._clear_output_state()
-                self.channel_enable_status = [False, False, False]
                 self._update_armed_button_states(False)
-                self._notify_all_channel_enables(False)
                 callback = getattr(self, "_disconnect_callback", None)
                 if callback_armed and callable(callback):
                     try:
@@ -1296,7 +1288,6 @@ class BeamPulseSubsystem:
 
             mode_code = regs[status_base + 0]
             remaining = regs[status_base + 3]
-            enabled_state = bool(regs[status_base + 4])
             output_level = regs[status_base + 8]
             # Duration/count feed Dashboard status text.
             base = CH_BASE[ch]
@@ -1315,7 +1306,6 @@ class BeamPulseSubsystem:
                 remaining > 0 or mode_code == self.MODE_DC
             )
             self.beam_on_status[ch] = is_running
-            self.channel_enable_status[ch] = enabled_state
             if is_running:
                 self._active_channels.add(ch)
             else:
@@ -1338,12 +1328,6 @@ class BeamPulseSubsystem:
                     )
                 except Exception as e:
                     self._log_once(f"Channel status callback failed for {self._channel_name(ch)}: {e}", LogLevel.ERROR)
-
-            if callable(getattr(self, '_channel_enable_status_callback', None)):
-                try:
-                    self._channel_enable_status_callback(ch, enabled_state)
-                except Exception as e:
-                    self._log_once(f"Channel enable status callback failed for {self._channel_name(ch)}: {e}", LogLevel.ERROR)
 
             # NOTE: do NOT push hardware mode back into the mode combobox — that
             # would overwrite the user's intended configuration.  The status label
@@ -1484,20 +1468,10 @@ class BeamPulseSubsystem:
             )
 
     def update_pulser_status_display(self, pulser_index: int):
-        """Update enabled + overcurrent indicators for a pulser."""
+        """Update the overcurrent indicator for a pulser."""
         if not (0 <= pulser_index < 3):
             return
         try:
-            # Enabled
-            is_enabled = False
-            if self.bcon_driver and self.bcon_connection_status:
-                is_enabled = self.bcon_driver.is_channel_enabled(pulser_index + 1)
-            if pulser_index < len(self.pulser_enabled_canvases):
-                ec = self.pulser_enabled_canvases[pulser_index]
-                ec.delete("indicator")
-                ec.create_oval(2, 2, 13, 13,
-                               fill="green" if is_enabled else "gray",
-                               outline="black", tags="indicator")
             # Overcurrent
             has_oc = self.get_pulser_overcurrent_status(pulser_index)
             if pulser_index < len(self.pulser_status_canvases):
@@ -1705,10 +1679,6 @@ class BeamPulseSubsystem:
         self._vtrx_pressure_limit_provider = limit_provider if callable(limit_provider) else None
         self._vtrx_pressure_fresh_provider = fresh_provider if callable(fresh_provider) else None
 
-    def set_channel_enable_status_callback(self, callback):
-        """Register callback(ch, enabled) invoked on every register poll."""
-        self._channel_enable_status_callback = callback
-
     def set_action_feedback_callback(self, callback):
         """Register optional callback for action status events."""
         self._action_feedback_callback = callback
@@ -1823,19 +1793,6 @@ class BeamPulseSubsystem:
             self._active_channels = set()
         self._notify_beam_activity(False)
 
-    def _notify_all_channel_enables(self, enabled: bool) -> None:
-        """Mirror a known all-channel enable state to dashboard controls."""
-        self.channel_enable_status = [bool(enabled), bool(enabled), bool(enabled)]
-        if self.bcon_driver:
-            self.bcon_driver.reset_channel_enable_cache(enabled)
-        if not callable(getattr(self, '_channel_enable_status_callback', None)):
-            return
-        for ch in range(3):
-            try:
-                self._channel_enable_status_callback(ch, enabled)
-            except Exception as e:
-                self._log_once(f"Channel enable status callback failed for {self._channel_name(ch)}: {e}",LogLevel.ERROR)
-
     def get_integration_status(self) -> dict:
         return {
             'has_channel_status_callback': self._channel_status_callback is not None,
@@ -1866,9 +1823,7 @@ class BeamPulseSubsystem:
         self.beams_armed_status = False
         self._notify_armed_status(False)
         self._clear_output_state()
-        self.channel_enable_status = [False, False, False]
         self._update_armed_button_states(False)
-        self._notify_all_channel_enables(False)
         if self.bcon_driver:
             self.bcon_driver.disconnect()
 
@@ -1910,11 +1865,6 @@ class BeamPulseSubsystem:
         self._log_event(f"PVX enable toggle requested for {self._channel_name(ch_index)}")
         return True
 
-    def toggle_channel_enable(self, ch_index: int):
-        """Legacy wrapper for the toggle-only BCON firmware command."""
-        ok = self.request_pvx_enable_toggle(ch_index)
-        return ok, None, "PVX enable toggle requested" if ok else "PVX enable toggle failed"
-
     def stop_all_channels(self, firmware_ack: str = "All OFF") -> bool:
         if self.bcon_driver:
             self._clear_firmware_acks()
@@ -1925,7 +1875,6 @@ class BeamPulseSubsystem:
                 self._log_event("BCON Driver failed to stop all BCON channels", LogLevel.CRITICAL)
                 return False
             self._clear_output_state()
-            self._notify_all_channel_enables(False)
             return bool(ok)
         self._log_event("Failed to stop all BCON channels: driver not available", LogLevel.ERROR)
         return False
@@ -1962,7 +1911,6 @@ class BeamPulseSubsystem:
 
         self.beams_armed_status = False
         self._clear_output_state()
-        self._notify_all_channel_enables(False)
         self._notify_armed_status(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)

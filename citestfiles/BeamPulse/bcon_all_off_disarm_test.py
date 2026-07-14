@@ -12,6 +12,8 @@ from instrumentctl.BCON.bcon_driver import (  # noqa: E402
     COMMAND_ALL_OFF,
     REG_CMD_QUEUE_DEPTH,
     REG_COMMAND,
+    REG_CH_STATUS_BASE,
+    REG_CH_STATUS_STRIDE,
     REG_LAST_CMD_CODE,
     REG_LAST_CMD_RESULT,
     REG_LAST_CMD_SEQ,
@@ -67,6 +69,24 @@ def seed_cached_command_snapshot(driver, snapshot):
 
 
 class BCONAllOffDriverTest(unittest.TestCase):
+    def test_pvx_toggle_is_rejected_when_channel_is_busy(self):
+        driver = make_driver()
+        driver._regs[REG_CH_STATUS_BASE + 4] = 1
+        writes = []
+        driver.write_register_immediate = lambda reg, value: writes.append((reg, value)) or True
+
+        self.assertFalse(driver.trigger_channel_enable_toggle(1))
+        self.assertEqual(writes, [])
+        self.assertIn(("PVX enable toggle rejected: channel 1 is busy", "WARNING"), driver.logs)
+
+    def test_pvx_toggle_writes_one_when_channel_is_not_busy(self):
+        driver = make_driver()
+        writes = []
+        driver.write_register_immediate = lambda reg, value: writes.append((reg, value)) or True
+
+        self.assertTrue(driver.trigger_channel_enable_toggle(3))
+        self.assertEqual(writes, [(33, 1)])
+
     def test_forced_immediate_write_uses_cached_baseline_when_connected_flag_is_false(self):
         driver = make_driver()
         writes = []
@@ -205,14 +225,10 @@ class FakeStopAllBCONDriver:
     def __init__(self, stop_all_result):
         self.stop_all_result = stop_all_result
         self.stop_all_calls = 0
-        self.reset_enable_cache_calls = []
 
     def stop_all(self):
         self.stop_all_calls += 1
         return self.stop_all_result
-
-    def reset_channel_enable_cache(self, enabled=False):
-        self.reset_enable_cache_calls.append(bool(enabled))
 
 
 class FakeArmBCONDriver:
@@ -289,7 +305,6 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem.bcon_driver = FakeStopAllBCONDriver(stop_all_result)
         subsystem.beams_armed_status = True
         subsystem.beam_on_status = [True, True, False]
-        subsystem.channel_enable_status = [True, False, True]
         subsystem._active_channels = {0, 1}
         subsystem._seq_stop = threading.Event()
         subsystem._seq_thread = None
@@ -297,7 +312,6 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem.armed_button_updates = []
         subsystem._armed_status_callback = subsystem.armed_status_updates.append
         subsystem._update_armed_button_states = subsystem.armed_button_updates.append
-        subsystem._channel_enable_status_callback = None
         subsystem._beam_activity_callback = None
         subsystem._last_beam_activity_sent = True
         subsystem.log_events = []
@@ -308,7 +322,7 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem._log = lambda message, level=None: subsystem.logs.append((message, level))
         return subsystem
 
-    def test_disarm_preserves_output_and_enable_state_when_all_off_unconfirmed(self):
+    def test_disarm_preserves_output_state_when_all_off_unconfirmed(self):
         subsystem = self.make_subsystem(stop_all_result=False)
 
         ok = subsystem.disarm_beams()
@@ -316,14 +330,12 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [True, True, False])
-        self.assertEqual(subsystem.channel_enable_status, [True, False, True])
         self.assertEqual(subsystem._active_channels, {0, 1})
         self.assertEqual(subsystem.bcon_driver.stop_all_calls, 1)
-        self.assertEqual(subsystem.bcon_driver.reset_enable_cache_calls, [])
         self.assertEqual(subsystem.armed_status_updates, [])
         self.assertEqual(subsystem.armed_button_updates, [])
 
-    def test_disarm_clears_output_and_enable_state_after_confirmed_all_off(self):
+    def test_disarm_clears_output_state_after_confirmed_all_off(self):
         subsystem = self.make_subsystem(stop_all_result=True)
 
         ok = subsystem.disarm_beams()
@@ -331,10 +343,8 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertFalse(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [False, False, False])
-        self.assertEqual(subsystem.channel_enable_status, [False, False, False])
         self.assertEqual(subsystem._active_channels, set())
         self.assertEqual(subsystem.bcon_driver.stop_all_calls, 1)
-        self.assertEqual(subsystem.bcon_driver.reset_enable_cache_calls, [False])
         self.assertEqual(subsystem.armed_status_updates, [False])
         self.assertEqual(subsystem.armed_button_updates, [False])
 
@@ -347,7 +357,6 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [True, True, False])
-        self.assertEqual(subsystem.channel_enable_status, [True, False, True])
         self.assertEqual(subsystem.armed_status_updates, [])
         self.assertEqual(subsystem.armed_button_updates, [])
 

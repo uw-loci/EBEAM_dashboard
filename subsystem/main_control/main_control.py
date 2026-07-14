@@ -1774,14 +1774,44 @@ class MainControlPanel:
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
     def _toggle_beam_software_interlock(self, beam_index: int):
-        """Toggle a dashboard-only interlock without issuing a BCON command."""
+        """Toggle one dashboard interlock, safely stopping active output first."""
         states = getattr(self, "_beam_software_interlock_states", None)
         if not states or not 0 <= beam_index < len(states):
             return
 
-        enabled = not states[beam_index]
-        states[beam_index] = enabled
+        currently_enabled = bool(states[beam_index])
         label = channel_label(beam_index)
+        if currently_enabled:
+            beam_pulse = self._get_beam_pulse_or_fail(
+                f"disable Beam {label} software interlock"
+            )
+            if beam_pulse is None:
+                return
+
+            get_beam_status = getattr(beam_pulse, "get_beam_status", None)
+            try:
+                output_is_on = bool(get_beam_status(beam_index)) if callable(get_beam_status) else False
+            except Exception as e:
+                self._log_error(f"Unable to verify Beam {label} output status: {e}")
+                self._set_beam_action_status(
+                    f"Failed to disable Beam {label} software interlock: output status unavailable",
+                    "failure",
+                )
+                return
+
+            if output_is_on:
+                # COMMAND=1 is the available confirmed stop path. Do not mark
+                # the local interlock Disabled until BCON reports all outputs OFF.
+                disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
+                if not callable(disable_all_beams) or not disable_all_beams():
+                    self._set_beam_action_status(
+                        f"Failed to stop output before disabling Beam {label} software interlock",
+                        "failure",
+                    )
+                    return
+
+        enabled = not currently_enabled
+        states[beam_index] = enabled
         if beam_index < len(getattr(self, "enable_toggle_buttons", [])):
             _safe_widget_config(
                 self.enable_toggle_buttons[beam_index],

@@ -228,8 +228,9 @@ R13 for Beam A, R23 for Beam B, or R33 for Beam C. The firmware self-clears the
 register, treats `0` as a no-op, and produces one 100 ms PVX pulse when it
 accepts the request. This is not a persistent enable-state control. R114/R124/R134
 report only whether the corresponding pulse is currently busy. A second request
-while busy receives the normal FC06 acknowledgement but is rejected by firmware
-with `LAST_ERROR=11`.
+while the latest busy status is `1` is rejected by the dashboard before FC06 is
+sent. Firmware still protects a race by acknowledging FC06 and recording
+`LAST_ERROR=11`.
 
 `disable_all_beams()` calls confirmed `bcon_driver.stop_all()` and clears local
 output state only after the BCON all-off command is confirmed. The driver
