@@ -238,6 +238,11 @@ invalidates pre-existing queued writes during this all-off path, so a Beam
 ON/apply write that was queued or already dequeued before the stop request
 cannot run after the confirmed `ALL_OFF`.
 
+`disable_beam_output(ch)` stops one channel without using `COMMAND=1`. It
+confirms the apply-staged-modes command, then directly verifies that the
+selected channel reports `mode=OFF` and `output_level=0` before clearing the
+dashboard output state.
+
 ## CSV Sequences
 
 CSV controls are hosted inside the Beam Pulse `CSV Sequence` tab above the

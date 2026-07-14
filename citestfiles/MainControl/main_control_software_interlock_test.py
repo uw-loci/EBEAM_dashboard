@@ -8,17 +8,17 @@ from subsystem.main_control.main_control import MainControlPanel
 
 
 class FakeBeamPulse:
-    def __init__(self, output_on=False, all_off_result=True):
+    def __init__(self, output_on=False, channel_off_result=True):
         self.output_on = output_on
-        self.all_off_result = all_off_result
-        self.all_off_calls = 0
+        self.channel_off_result = channel_off_result
+        self.channel_off_calls = []
 
     def get_beam_status(self, _channel):
         return self.output_on
 
-    def disable_all_beams(self):
-        self.all_off_calls += 1
-        return self.all_off_result
+    def disable_beam_output(self, channel):
+        self.channel_off_calls.append(channel)
+        return self.channel_off_result
 
 
 class MainControlSoftwareInterlockTest(unittest.TestCase):
@@ -35,22 +35,22 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         panel._log_error = panel.errors.append
         return panel
 
-    def test_disabling_active_beam_waits_for_confirmed_all_off(self):
-        beam_pulse = FakeBeamPulse(output_on=True, all_off_result=True)
+    def test_disabling_active_beam_waits_for_confirmed_channel_off(self):
+        beam_pulse = FakeBeamPulse(output_on=True, channel_off_result=True)
         panel = self.make_panel(beam_pulse)
 
         panel._toggle_beam_software_interlock(0)
 
-        self.assertEqual(beam_pulse.all_off_calls, 1)
+        self.assertEqual(beam_pulse.channel_off_calls, [0])
         self.assertEqual(panel._beam_software_interlock_states, [False, False, False])
 
-    def test_failed_all_off_keeps_active_beam_interlock_enabled(self):
-        beam_pulse = FakeBeamPulse(output_on=True, all_off_result=False)
+    def test_failed_channel_off_keeps_active_beam_interlock_enabled(self):
+        beam_pulse = FakeBeamPulse(output_on=True, channel_off_result=False)
         panel = self.make_panel(beam_pulse)
 
         panel._toggle_beam_software_interlock(0)
 
-        self.assertEqual(beam_pulse.all_off_calls, 1)
+        self.assertEqual(beam_pulse.channel_off_calls, [0])
         self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
         self.assertIn("Failed to stop output", panel.status_updates[-1][0])
 
@@ -60,7 +60,7 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
 
         panel._toggle_beam_software_interlock(0)
 
-        self.assertEqual(beam_pulse.all_off_calls, 0)
+        self.assertEqual(beam_pulse.channel_off_calls, [])
         self.assertEqual(panel._beam_software_interlock_states, [False, False, False])
 
 

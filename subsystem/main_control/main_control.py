@@ -797,6 +797,13 @@ class MainControlPanel:
                 self._set_beam_output_display(beam_index, config, is_on=True)
             if not message:
                 message = self._format_activate_enabled_beams_message(configs)
+        elif event_type == "beam_off":
+            for config in configs or []:
+                try:
+                    beam_index = int(config.get("ch")) - 1
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                self._set_beam_output_display(beam_index, config, is_on=False)
         elif event_type == "all_off":
             self._clear_all_beam_output_displays()
         elif event_type == "firmware_ack":
@@ -1800,10 +1807,10 @@ class MainControlPanel:
                 return
 
             if output_is_on:
-                # COMMAND=1 is the available confirmed stop path. Do not mark
-                # the local interlock Disabled until BCON reports all outputs OFF.
-                disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
-                if not callable(disable_all_beams) or not disable_all_beams():
+                # Do not mark the local interlock Disabled until BCON confirms
+                # the selected channel's mode and output level are both OFF.
+                disable_beam_output = getattr(beam_pulse, "disable_beam_output", None)
+                if not callable(disable_beam_output) or not disable_beam_output(beam_index):
                     self._set_beam_action_status(
                         f"Failed to stop output before disabling Beam {label} software interlock",
                         "failure",

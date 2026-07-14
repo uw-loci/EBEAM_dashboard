@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from instrumentctl.BCON.bcon_driver import (  # noqa: E402
     BCONCommandResult,
     BCONDriver,
+    COMMAND_APPLY_STAGED_MODES,
     COMMAND_ALL_OFF,
     REG_CMD_QUEUE_DEPTH,
     REG_COMMAND,
@@ -156,6 +157,45 @@ class BCONAllOffDriverTest(unittest.TestCase):
         self.assertEqual(calls, [(REG_COMMAND, COMMAND_ALL_OFF, False)])
         self.assertTrue(driver._cmd_queue.empty())
         self.assertEqual(driver._write_epoch, 1)
+
+    def test_stop_channel_confirmed_verifies_only_requested_channel_is_off(self):
+        driver = make_driver()
+        driver._connected = True
+        baseline = command_snapshot(7)
+        seed_cached_command_snapshot(driver, baseline)
+        writes = []
+        confirms = []
+        driver._write_register_raw = lambda reg, value: writes.append((reg, value))
+
+        def confirm(cmd_code, baseline=None, require_connected=True):
+            confirms.append((cmd_code, baseline, require_connected))
+            return {"accepted": True}
+
+        driver._confirm_command_write = confirm
+        driver._read_holding_registers_raw = lambda start, count: [0] * count
+        driver._cmd_queue.put(("write", 10, 1, 0))
+
+        self.assertTrue(driver.stop_channel_confirmed(2))
+        self.assertEqual(writes, [(20, 0), (REG_COMMAND, COMMAND_APPLY_STAGED_MODES)])
+        self.assertEqual(
+            confirms,
+            [(COMMAND_APPLY_STAGED_MODES, baseline, True)],
+        )
+        self.assertTrue(driver._cmd_queue.empty())
+        self.assertEqual(driver._write_epoch, 1)
+
+    def test_stop_channel_confirmed_rejects_nonzero_output_status(self):
+        driver = make_driver()
+        driver._connected = True
+        driver._write_register_raw = lambda *_args: None
+        driver._confirm_command_write = lambda *_args, **_kwargs: {"accepted": True}
+        driver._read_holding_registers_raw = lambda _start, count: [0] * (count - 1) + [1]
+
+        self.assertFalse(driver.stop_channel_confirmed(1))
+        self.assertIn(
+            ("Channel 1 OFF was not confirmed (mode=0, output=1)", "ERROR"),
+            driver.logs,
+        )
 
     def test_stale_epoch_write_is_dropped_before_serial_transaction(self):
         driver = make_driver()
