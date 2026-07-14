@@ -159,8 +159,9 @@ R13, R23, or R33. The firmware immediately self-clears the holding register;
 writing `0` is a no-op and values greater than `1` are rejected with
 `LAST_ERROR=3`. The FC06 response acknowledges the write but does not prove the
 firmware accepted the toggle. A request during that channel's active pulse is
-rejected locally when the latest R114/R124/R134 value is busy. Firmware still
-rejects a race through `LAST_ERROR=11`.
+rejected locally when another toggle request for that channel was sent within
+the prior 150 ms. Firmware still rejects a request during an active pulse
+through `LAST_ERROR=11`.
 
 R114/R124/R134 are `ENABLE_TOGGLE_BUSY` flags: `1` only during the associated 100 ms pulse.
 

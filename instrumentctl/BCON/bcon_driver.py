@@ -281,6 +281,7 @@ class BCONDriver:
     WATCHDOG_HEARTBEAT_S = 0.5   # refresh at least once per poll cycle
     COMMAND_CONFIRM_RETRIES = 4
     COMMAND_CONFIRM_DELAY_S = 0.02
+    PVX_TOGGLE_COOLDOWN_S = 0.15
 
     def __init__(self, port: str, baudrate: int = DEFAULT_BAUD,
                  unit: int = DEFAULT_UNIT, timeout: float = DEFAULT_TIMEOUT):
@@ -327,6 +328,9 @@ class BCONDriver:
         self._user_requested_disconnect = False
         self._watchdog_timeout_ms = self.DEFAULT_WATCHDOG_MS
         self._last_heartbeat_time: float = 0.0  # tracks last watchdog write
+        # Each PVX channel is independently spaced so a button double-click
+        # cannot issue another request during its approximately 100 ms pulse.
+        self._last_pvx_toggle_write_times: List[Optional[float]] = [None] * 3
 
     def set_ui_queue(self, q: queue.Queue):
         """Set an optional queue to receive UI notification messages."""
@@ -1159,17 +1163,31 @@ class BCONDriver:
         """Request one PVX enable-toggle pulse for a channel (1-3).
 
         The updated BCON firmware self-clears this command register. A
-        A successful return confirms only the FC06 write, not that firmware
-        emitted the 100ms PVX enable/disable pulse.
-        The driver rejects a request if the latest R114/R124/R134 status is
-        busy; firmware still rejects a race through its diagnostics.
+        successful return confirms only the FC06 write, not that firmware
+        emitted the approximately 100 ms PVX enable/disable pulse. Toggle
+        attempts are rate-limited to one per channel every 150 ms; the
+        timestamp is recorded immediately before the synchronous FC06 write.
         """
         if not self._validate_channel(channel):
             return False
-        if self.is_channel_enable_toggle_busy(channel):
-            self._log(f"PVX enable toggle rejected: channel {channel} is busy", "WARNING")
-            return False
-        base = CH_BASE[channel - 1]
+        channel_index = channel - 1
+        base = CH_BASE[channel_index]
+        if not hasattr(self, "_last_pvx_toggle_write_times"):
+            self._last_pvx_toggle_write_times = [None] * 3
+        now = time.monotonic()
+        previous = self._last_pvx_toggle_write_times[channel_index]
+        if previous is not None:
+            elapsed = now - previous
+            if elapsed <= self.PVX_TOGGLE_COOLDOWN_S:
+                remaining_ms = max(0, round((self.PVX_TOGGLE_COOLDOWN_S - elapsed) * 1000))
+                self._log(
+                    f"PVX enable toggle rejected: 150 ms cooldown active "
+                    f"({remaining_ms} ms remaining)",
+                    "ERROR",
+                )
+                return False
+
+        self._last_pvx_toggle_write_times[channel_index] = now
         return self.write_register_immediate(base + CH_ENABLE_TOGGLE_OFF, 1)
 
     def stop_all(self) -> bool:

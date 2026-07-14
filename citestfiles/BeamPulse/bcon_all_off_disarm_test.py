@@ -3,6 +3,7 @@ import queue
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -95,15 +96,27 @@ class BCONAllOffDriverTest(unittest.TestCase):
 
         self.assertFalse(driver._poll_thread)
 
-    def test_pvx_toggle_is_rejected_when_channel_is_busy(self):
+    def test_pvx_toggle_is_rate_limited_per_channel_for_150_ms(self):
         driver = make_driver()
-        driver._regs[REG_CH_STATUS_BASE + 4] = 1
         writes = []
         driver.write_register_immediate = lambda reg, value: writes.append((reg, value)) or True
 
-        self.assertFalse(driver.trigger_channel_enable_toggle(1))
-        self.assertEqual(writes, [])
-        self.assertIn(("PVX enable toggle rejected: channel 1 is busy", "WARNING"), driver.logs)
+        with patch(
+            "instrumentctl.BCON.bcon_driver.time.monotonic",
+            side_effect=[10.0, 10.001, 10.149, 10.151],
+        ):
+            self.assertTrue(driver.trigger_channel_enable_toggle(1))
+            self.assertTrue(driver.trigger_channel_enable_toggle(2))
+            self.assertFalse(driver.trigger_channel_enable_toggle(1))
+            self.assertTrue(driver.trigger_channel_enable_toggle(1))
+
+        self.assertEqual(writes, [(13, 1), (23, 1), (13, 1)])
+        self.assertTrue(
+            any(
+                level == "ERROR" and "150 ms cooldown active" in message
+                for message, level in driver.logs
+            )
+        )
 
     def test_pvx_toggle_writes_one_when_channel_is_not_busy(self):
         driver = make_driver()
