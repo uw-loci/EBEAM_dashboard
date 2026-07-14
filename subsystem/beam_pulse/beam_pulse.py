@@ -394,10 +394,10 @@ class BeamPulseSubsystem:
 
             pvx_enable_toggle_btn = ttk.Button(
                 frame,
-                text="PVX Enable Toggle",
+                text=f"Toggle PVX {CHANNEL_LABELS[ch]} Enable",
                 command=lambda index=ch: self.request_pvx_enable_toggle(index),
             )
-            pvx_enable_toggle_btn.pack(fill=tk.X, pady=(4, 0))
+            pvx_enable_toggle_btn.pack(anchor=tk.W, pady=(4, 0))
 
             self.channel_vars.append({
                 'duration': dur_entry,
@@ -1864,7 +1864,10 @@ class BeamPulseSubsystem:
             self._log_event(f"PVX enable toggle failed for {self._channel_name(ch_index)}", LogLevel.ERROR)
             return False
 
-        self._log_event(f"PVX enable toggle requested for {self._channel_name(ch_index)}")
+        self._log_event(
+            f"PVX enable toggle request sent for {self._channel_name(ch_index)}",
+            LogLevel.INFO,
+        )
         return True
 
     def stop_all_channels(self, firmware_ack: str = "All OFF") -> bool:

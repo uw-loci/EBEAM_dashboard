@@ -32,7 +32,7 @@ PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_WARNING_INTERVAL_S = 10.0
-SOFTWARE_INTERLOCK_STOP_TIMEOUT_MS = 2000
+SOFTWARE_INTERLOCK_STOP_TIMEOUT_MS = 1000
 
 
 def channel_label(index: int) -> str:
@@ -341,7 +341,7 @@ class MainControlPanel:
         for i in range(3):
             btn = tk.Button(
                 software_interlock_frame,
-                text=f"Beam {channel_label(i)} Interlock Disabled",
+                text=f"Beam {channel_label(i)} Disabled",
                 bg="#888888",
                 fg="white",
                 font=("Helvetica", 9),
@@ -1846,13 +1846,17 @@ class MainControlPanel:
             _safe_widget_config(
                 self.software_interlock_buttons[beam_index],
                 bg="#2e7d32" if beam_software_interlock_enabled else "#888888",
-                text=f"Beam {label} Interlock {'Enabled' if beam_software_interlock_enabled else 'Disabled'}",
+                text=f"Beam {label} {'Enabled' if beam_software_interlock_enabled else 'Disabled'}",
             )
 
         self._update_beam_output_button_states(armed=True)
         self._set_beam_action_status(
             f"Beam {label} software interlock {'enabled' if beam_software_interlock_enabled else 'disabled'}",
             "success",
+        )
+        self._log_info(
+            f"Beam {label} software interlock "
+            f"{'enabled' if beam_software_interlock_enabled else 'disabled'}"
         )
 
     def toggle_individual_beam_with_status(self, beam_index):
@@ -2030,7 +2034,7 @@ class MainControlPanel:
                 _safe_widget_config(
                     self.software_interlock_buttons[i],
                     bg="#888888",
-                    text=f"Beam {channel_label(i)} Interlock Disabled",
+                    text=f"Beam {channel_label(i)} Disabled",
                 )
         self._update_beam_output_button_states(armed=True)
 
@@ -2055,13 +2059,14 @@ class MainControlPanel:
                 self.software_interlock_buttons[beam_index],
                 state="normal",
                 bg="#888888",
-                text=f"Beam {label} Interlock Disabled",
+                text=f"Beam {label} Disabled",
             )
         self._update_beam_output_button_states(armed=True)
         self._set_beam_action_status(
             f"Beam {label} output confirmed OFF; software interlock disabled",
             "success",
         )
+        self._log_info(f"Beam {label} software interlock disabled after output confirmed OFF")
 
     def _expire_software_interlock_stop(self, beam_index: int, started_at: float):
         if (
@@ -2076,7 +2081,7 @@ class MainControlPanel:
                 self.software_interlock_buttons[beam_index],
                 state="normal",
                 bg="#2e7d32",
-                text=f"Beam {label} Interlock Enabled",
+                text=f"Beam {label} Enabled",
             )
         self._update_beam_output_button_states(armed=True)
         self._set_beam_action_status(

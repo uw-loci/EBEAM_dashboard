@@ -180,6 +180,12 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual([1], driver.toggle_calls)
+        self.assertTrue(
+            any(
+                "PVX enable toggle request sent" in message and level == LogLevel.INFO
+                for message, level in subsystem.log_entries
+            )
+        )
 
     def test_pvx_enable_toggle_surfaces_driver_failure(self):
         subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
@@ -191,6 +197,12 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertEqual([1], driver.toggle_calls)
+        self.assertTrue(
+            any(
+                "PVX enable toggle failed" in message and level == LogLevel.ERROR
+                for message, level in subsystem.log_entries
+            )
+        )
 
 
 if __name__ == "__main__":

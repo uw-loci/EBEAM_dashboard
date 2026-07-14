@@ -30,10 +30,12 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         panel.update_calls = []
         panel.status_updates = []
         panel.errors = []
+        panel.infos = []
         panel._get_beam_pulse_or_fail = lambda _action: beam_pulse
         panel._update_beam_output_button_states = lambda **kwargs: panel.update_calls.append(kwargs)
         panel._set_beam_action_status = lambda *args: panel.status_updates.append(args)
         panel._log_error = panel.errors.append
+        panel._log_info = panel.infos.append
         return panel
 
     def test_disabling_active_beam_waits_for_polled_channel_off(self):
@@ -50,6 +52,10 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
 
         self.assertEqual(panel._beam_software_interlock_states, [False, False, False])
         self.assertFalse(panel._software_interlock_stop_is_pending(0))
+        self.assertIn(
+            "Beam A software interlock disabled after output confirmed OFF",
+            panel.infos,
+        )
 
     def test_failed_channel_off_keeps_active_beam_interlock_enabled(self):
         beam_pulse = FakeBeamPulse(output_on=True, channel_off_result=False)
@@ -91,6 +97,16 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
 
         self.assertEqual(beam_pulse.channel_off_calls, [])
         self.assertEqual(panel._beam_software_interlock_states, [False, False, False])
+        self.assertIn("Beam A software interlock disabled", panel.infos)
+
+    def test_enabling_beam_logs_software_interlock_transition(self):
+        beam_pulse = FakeBeamPulse(output_on=False)
+        panel = self.make_panel(beam_pulse)
+
+        panel._toggle_beam_software_interlock(1)
+
+        self.assertEqual(panel._beam_software_interlock_states, [True, True, False])
+        self.assertIn("Beam B software interlock enabled", panel.infos)
 
 
 if __name__ == "__main__":
