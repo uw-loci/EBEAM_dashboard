@@ -32,6 +32,7 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 | `SET CH OFF` | `set_channel_off(channel)` | Turn off specific channel |
 | `SET CH DC` | `set_channel_dc(channel)` | Set channel to DC mode |
 | `SET CH PULSE` | `set_channel_pulse(channel, duration_ms)` | Pulse channel for duration |
+| `PVX ENABLE TOGGLE` | `trigger_channel_enable_toggle(channel)` | Write one toggle request to R13/R23/R33 |
 
 ## Usage Example
 
@@ -149,6 +150,19 @@ Configure communication watchdog timeout (50-60000 ms). If no command received w
 Configure periodic telemetry transmission interval. Set to 0 to disable automatic telemetry.
 
 ### Channel Control
+
+#### `trigger_channel_enable_toggle(channel: int) -> bool`
+
+Request one 100 ms PVX enable-toggle pulse for channel 1-3 by writing `1` to
+R13, R23, or R33. The firmware immediately self-clears the holding register;
+writing `0` is a no-op and values greater than `1` are rejected with
+`LAST_ERROR=3`. The FC06 response acknowledges the write but does not prove the
+firmware accepted the toggle. A request during that channel's active pulse is
+rejected through `LAST_ERROR=11`.
+
+Current firmware has no readable persistent PVX enabled state. R114/R124/R134
+are `ENABLE_TOGGLE_BUSY` flags: `1` only during the associated 100 ms pulse.
+They must not be interpreted as enabled state.
 
 #### `set_channel_off(channel: int) -> bool`
 Turn off specified channel (1-3). Only works in READY state.

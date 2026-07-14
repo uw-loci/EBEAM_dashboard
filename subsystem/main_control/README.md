@@ -13,7 +13,7 @@ state back into a compact operator panel.
 At runtime it is responsible for:
 
 - Building the Main Control `Main` and `Config` tabs.
-- Providing ARM BEAMS, BEAMS E-STOP, Beam A/B/C, CH A/B/C enable,
+- Providing ARM BEAMS, BEAMS E-STOP, Beam A/B/C, Beam A/B/C software interlock,
   Activate Enabled Beams, and Disable All Beams controls.
 - Displaying Beam A/B/C output status and the result of the latest beam action.
 - Saving dashboard layout and updating COM-port assignments through Dashboard
@@ -30,11 +30,12 @@ Main Control is a two-tab subpanel.
 
 - Setup script dropdown.
 - Beam A/B/C ON/OFF buttons.
-- CH A/B/C enable buttons, which mirror BCON channel enable state.
+- Beam A/B/C Disabled/Enabled buttons, which are dashboard-only software
+  interlocks. They do not read or write BCON enable-toggle registers.
 - Activate Enabled Beams and Disable All Beams buttons.
 - ARM BEAMS / BEAMS ARMED toggle.
 - Four-line beam status/action display:
-  - Lines 1-3 show Beam A/B/C enabled/output state.
+  - Lines 1-3 show Beam A/B/C output state only.
   - Line 4 shows the latest action result or failure reason.
 - BEAMS E-STOP button.
 
@@ -60,8 +61,9 @@ Main Control is a two-tab subpanel.
 - `create_beam_output_status_panel()` builds the Beam A/B/C output lines and
   latest-action line.
 - `wire_beam_pulse()` registers Main Control as the callback target for Beam
-  Pulse status updates, gives Beam Pulse the emission-limit and VTRX pressure
-  guard providers, and wires BCON disconnect notifications into Cathode Heating.
+  Pulse output/action status updates, gives Beam Pulse the emission-limit, VTRX
+  pressure, and dashboard-software-interlock providers, and wires BCON
+  disconnect notifications into Cathode Heating.
 - `wire_beam_energy()` registers the Beam Energy +20 kV current E-stop callback.
 - `wire_vtrx()` registers the VTRX pressure callback used by the high-pressure
   beam-disable guard.
@@ -84,11 +86,10 @@ Main Control is a two-tab subpanel.
 | `handle_arm_beams()` | Toggles Beam Pulse software arming and updates Main Control button state. |
 | `handle_beams_off()` | Requests confirmed BCON all-off, turns off cathode heating outputs, disarms Beam Pulse, and only resets beam controls/posts all-disabled status after all-off confirmation. |
 | `toggle_individual_beam_with_status()` | Turns one Beam A/B/C output on or off using the current Beam Pulse manual channel configuration. |
-| `_toggle_channel_enable()` | Toggles a BCON channel enable state through Beam Pulse. |
-| `handle_activate_enabled_beams()` | Starts all enabled/manual-configured Beam Pulse channels together. |
-| `handle_disable_all_beams()` | Stops all Beam Pulse output. |
+| `_toggle_beam_software_interlock()` | Toggles one dashboard-only Beam A/B/C interlock without a BCON operation. |
+| `handle_activate_enabled_beams()` | Starts locally software-enabled/manual-configured Beam Pulse channels together. |
+| `handle_disable_all_beams()` | Requests confirmed BCON all-off, then clears the dashboard software interlocks. |
 | `_on_channel_status_update()` | Mirrors live BCON channel output state into Beam A/B/C buttons and status lines. |
-| `_on_channel_enable_status_update()` | Mirrors live BCON channel enable state into CH A/B/C buttons and beam-button availability. |
 | `_handle_action_feedback()` | Converts Beam Pulse action callbacks into the latest-action status line. |
 | `_handle_bcon_disconnected()` | Disables CCS output through Cathode Heating when BCON disconnects and the guard is enabled. |
 | `_handle_vtrx_pressure_update()` | Handles each valid VTRX pressure reading, including Beam Pulse high-pressure disable and CCS grace-period shutdown checks. |
@@ -106,7 +107,6 @@ Main Control calls Beam Pulse for operator actions:
 - `get_beams_armed_status()`
 - `send_channel_config(channel_index)`
 - `send_channel_off(channel_index)`
-- `toggle_channel_enable(channel_index)`
 - `activate_enabled_beams()`
 - `disable_all_beams()`
 - `stop_all_channels()`
@@ -114,7 +114,6 @@ Main Control calls Beam Pulse for operator actions:
 Beam Pulse calls back into Main Control with:
 
 - Live channel output status.
-- Live channel enable status.
 - Software armed status.
 - Action feedback and firmware acknowledgement text.
 - Manual-disconnect confirmation requests.
@@ -178,9 +177,14 @@ Dashboard callbacks.
 - Beam A/B/C ON reads the current mode, duration, and count from the Beam Pulse
   Manual Control tab.
 - Beam A/B/C buttons are only enabled when Beam Pulse is armed and the matching
-  BCON channel is enabled.
-- Activate Enabled Beams is delegated to Beam Pulse, which filters disabled channels and
-  performs output checks before sending the synchronized start to BCON.
+  dashboard software interlock is enabled. These interlocks have no BCON
+  firmware readback or write path.
+- Activate Enabled Beams is delegated to Beam Pulse, which filters by those
+  dashboard software interlocks and performs output checks before sending the
+  synchronized start to BCON.
+- Disable All Beams sends BCON `COMMAND=1` to stop output modes/gates. It does
+  not issue a PVX enable-toggle command. Main Control clears its dashboard
+  interlocks only after BCON confirms the all-off command.
 - Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
   before BCON output commands when the VTRX pressure guard is enabled and the
   latest valid VTRX pressure is greater than 1e-5 mbar.
