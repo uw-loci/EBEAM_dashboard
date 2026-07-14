@@ -186,8 +186,6 @@ class MainControlPanel:
             beam_pulse.set_channel_status_callback(self._on_channel_status_update)
         if hasattr(beam_pulse, "set_action_feedback_callback"):
             beam_pulse.set_action_feedback_callback(self._handle_action_feedback)
-        if hasattr(beam_pulse, "set_channel_enable_status_callback"):
-            beam_pulse.set_channel_enable_status_callback(self._on_channel_enable_status_update)
         if hasattr(beam_pulse, "set_armed_status_callback"):
             beam_pulse.set_armed_status_callback(self._on_armed_status_update)
         if hasattr(beam_pulse, "set_emission_limit_providers"):
@@ -319,28 +317,28 @@ class MainControlPanel:
                 bg="gray",
                 fg="white",
                 font=("Helvetica", 10, "bold"),
-                state="disabled",  # disabled until armed AND channel enabled
+                state="disabled",  # disabled until armed and locally enabled
                 command=lambda idx=i: self.toggle_individual_beam_with_status(idx)
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
 
-        # CH Enable/Disable row
+        # Dashboard-only per-beam software interlocks.
         enable_toggle_frame = tk.Frame(manual_panel)
         enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
             enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
         self.enable_toggle_buttons = []
-        self._ch_enable_states = [False, False, False]  # dashboard mirror of firmware enable state
+        self._beam_software_interlock_states = [False, False, False]
         for i in range(3):
             btn = tk.Button(
                 enable_toggle_frame,
-                text=f"CH {channel_label(i)}: Disabled",
+                text=f"Beam {channel_label(i)} Disabled",
                 bg="#888888",
                 fg="white",
                 font=("Helvetica", 9),
                 state="disabled",  # Initially disabled until armed
-                command=lambda idx=i: self._toggle_channel_enable(idx)
+                command=lambda idx=i: self._toggle_beam_software_interlock(idx)
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.enable_toggle_buttons.append(btn)
@@ -659,22 +657,9 @@ class MainControlPanel:
             return BEAM_OUTPUT_LOW_COLOR
         return BEAM_OUTPUT_ON_COLOR
 
-    def _is_beam_channel_enabled(self, beam_index):
-        states = getattr(self, "_ch_enable_states", None)
-        return bool(states and 0 <= beam_index < len(states) and states[beam_index])
-
     def _format_beam_output_off_status(self, beam_index):
         label = channel_label(beam_index)
-        enable_text = "ENABLED" if self._is_beam_channel_enabled(beam_index) else "DISABLED"
-        return f"Beam {label} {enable_text}, Output OFF"
-
-    def _beam_output_display_is_on(self, beam_index):
-        if not 0 <= beam_index < len(getattr(self, "_beam_output_status_colors", [])):
-            return False
-        return self._beam_output_status_colors[beam_index] in (
-            BEAM_OUTPUT_ON_COLOR,
-            BEAM_OUTPUT_LOW_COLOR,
-        )
+        return f"Beam {label} Output: OFF"
 
     def _format_beam_output_status(self, beam_index, config=None):
         """Format one Beam A/B/C output line from a normalized sent config."""
@@ -1622,7 +1607,7 @@ class MainControlPanel:
                     bg="navy" if armed else "sky blue",
                 )
         self.update_beam_toggle_states(enabled=armed, reset=reset)
-        self._update_enable_toggle_states(enabled=armed)
+        self._update_software_interlock_control_states(enabled=armed)
         self._update_activate_enabled_beams_control_state(armed=armed)
         if reset:
             self._clear_all_beam_output_displays()
@@ -1642,6 +1627,9 @@ class MainControlPanel:
         activate_enabled_beams()
 
     def handle_disable_all_beams(self):
+        # This is a dashboard safety action: clear only local interlocks before
+        # requesting BCON COMMAND=1 to stop any active output.
+        self._reset_beam_software_interlocks()
         beam_pulse = self._get_beam_pulse_or_fail("disable all beams")
         if beam_pulse is None:
             return
@@ -1746,7 +1734,7 @@ class MainControlPanel:
                             )
                     if all_off_confirmed:
                         self.update_beam_toggle_states(enabled=False, reset=True)
-                        self._update_enable_toggle_states(enabled=False)
+                        self._update_software_interlock_control_states(enabled=False)
                         self._update_activate_enabled_beams_control_state(armed=False)
                 if all_off_confirmed:
                     self._clear_all_beam_output_displays()
@@ -1778,51 +1766,27 @@ class MainControlPanel:
             self._log_critical(f"Error in handle_beams_off: {str(e)}")
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
-    def _toggle_channel_enable(self, ch_index: int):
-        """Toggle one BCON channel enable and mirror the returned state."""
-        try:
-            beam_pulse = self._get_beam_pulse_or_fail("toggle channel enable")
-            if beam_pulse is None:
-                return
-            toggler = getattr(beam_pulse, "toggle_channel_enable", None)
-            if not callable(toggler):
-                self._set_beam_action_status(
-                    "Failed to toggle channel enable, Beam Pulse API not available",
-                    "failure",
-                )
-                return
+    def _toggle_beam_software_interlock(self, beam_index: int):
+        """Toggle a dashboard-only interlock without issuing a BCON command."""
+        states = getattr(self, "_beam_software_interlock_states", None)
+        if not states or not 0 <= beam_index < len(states):
+            return
 
-            ok, enabled, detail = toggler(ch_index)
-            if not ok:
-                detail_text = str(detail)
-                error_failure = (
-                    "bcon driver not available" in detail_text.lower()
-                    or "bcon device not connected" in detail_text.lower()
-                    or "failed to set" in detail_text.lower()
-                )
-                if error_failure:
-                    self._log_error(detail_text)
-                else:
-                    self._log_warning(detail_text)
-                self._set_beam_action_status(
-                    f"Failed to toggle Channel {channel_label(ch_index)} enable: {detail_text}",
-                    "failure",
-                )
-                return
-
-            self._on_channel_enable_status_update(ch_index, enabled)
-            self._log_info(f"{channel_name(ch_index)} enable -> {'Enabled' if enabled else 'Disabled'}")
-            self._set_beam_action_status(
-                f"Channel {channel_label(ch_index)} successfully {'enabled' if enabled else 'disabled'}",
-                "success",
+        enabled = not states[beam_index]
+        states[beam_index] = enabled
+        label = channel_label(beam_index)
+        if beam_index < len(getattr(self, "enable_toggle_buttons", [])):
+            _safe_widget_config(
+                self.enable_toggle_buttons[beam_index],
+                bg="#2e7d32" if enabled else "#888888",
+                text=f"Beam {label} {'Enabled' if enabled else 'Disabled'}",
             )
-            if not enabled and ch_index < len(self.beam_toggle_buttons):
-                _safe_widget_config(
-                    self.beam_toggle_buttons[ch_index],
-                    bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
-        except Exception as e:
-            self._log_error(f"Error toggling {channel_name(ch_index)} enable: {e}")
-            self._set_beam_action_status(f"Failed to toggle Channel {channel_label(ch_index)} enable: {e}", "failure")
+
+        self.update_beam_toggle_states(enabled=True)
+        self._set_beam_action_status(
+            f"Beam {label} software interlock {'enabled' if enabled else 'disabled'}",
+            "success",
+        )
 
     def toggle_individual_beam_with_status(self, beam_index):
         """Toggle individual beam on/off.
@@ -1926,40 +1890,6 @@ class MainControlPanel:
         except Exception:
             pass
 
-    def _on_channel_enable_status_update(self, ch: int, enabled: bool):
-        """Mirror firmware-backed channel enable state onto dashboard controls."""
-        try:
-            if hasattr(self, '_ch_enable_states') and ch < len(self._ch_enable_states):
-                self._ch_enable_states[ch] = bool(enabled)
-
-            if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                _safe_widget_config(
-                    self.enable_toggle_buttons[ch],
-                    bg="#2e7d32" if enabled else "#888888",
-                    text=f"CH {channel_label(ch)}: {'Enabled' if enabled else 'Disabled'}",
-                )
-
-            if not enabled or not self._beam_output_display_is_on(ch):
-                self._clear_beam_output_display(ch)
-
-            beam_pulse = self.subsystems.get('Beam Pulse')
-            armed = bool(
-                beam_pulse
-                and hasattr(beam_pulse, 'get_beams_armed_status')
-                and beam_pulse.get_beams_armed_status()
-            )
-
-            if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                _safe_widget_config(
-                    self.enable_toggle_buttons[ch],
-                    state="normal" if armed else "disabled",
-                )
-
-            self.update_beam_toggle_states(enabled=armed)
-            self._update_activate_enabled_beams_control_state(armed=armed)
-        except Exception as e:
-            self._log_error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
-
     def update_beam_toggle_states(self, enabled=True, reset=False):
         """Update the state of beam toggle buttons."""
         try:
@@ -1968,13 +1898,12 @@ class MainControlPanel:
 
             for i, btn in enumerate(self.beam_toggle_buttons):
                 if enabled:
-                    # Only allow beam ON/OFF when the channel hardware enable is also ON
-                    ch_enabled = (
-                        hasattr(self, '_ch_enable_states')
-                        and i < len(self._ch_enable_states)
-                        and self._ch_enable_states[i]
+                    interlock_enabled = (
+                        hasattr(self, '_beam_software_interlock_states')
+                        and i < len(self._beam_software_interlock_states)
+                        and self._beam_software_interlock_states[i]
                     )
-                    _safe_widget_config(btn, state="normal" if ch_enabled else "disabled")
+                    _safe_widget_config(btn, state="normal" if interlock_enabled else "disabled")
                     if reset:
                         _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(i)} OFF")
                         self._clear_beam_output_display(i)
@@ -1986,11 +1915,8 @@ class MainControlPanel:
         except Exception as e:
             self._log_error(f"Error updating beam toggle states: {str(e)}")
 
-    def _update_enable_toggle_states(self, enabled=True):
-        """Enable or disable the CH Enable toggle buttons based on armed status.
-        When disabling, mirror the firmware safety contract: all channel
-        enable latches are cleared by STOP/disconnect paths.
-        """
+    def _update_software_interlock_control_states(self, enabled=True):
+        """Enable dashboard-only interlock controls when the beams are armed."""
         try:
             if not hasattr(self, 'enable_toggle_buttons'):
                 return
@@ -1998,12 +1924,36 @@ class MainControlPanel:
                 if enabled:
                     _safe_widget_config(btn, state="normal")
                 else:
-                    # Disarmed — force all to Disabled appearance and reset tracking
-                    if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
-                        self._ch_enable_states[i] = False
-                    _safe_widget_config(btn,state="disabled",bg="#888888",text=f"CH {channel_label(i)}: Disabled",)
+                    # Disarmed: reset all software interlocks.
+                    if (
+                        hasattr(self, '_beam_software_interlock_states')
+                        and i < len(self._beam_software_interlock_states)
+                    ):
+                        self._beam_software_interlock_states[i] = False
+                    _safe_widget_config(
+                        btn,
+                        state="disabled",
+                        bg="#888888",
+                        text=f"Beam {channel_label(i)} Disabled",
+                    )
         except Exception as e:
-            self._log_error(f"Error updating enable toggle states: {str(e)}")
+            self._log_error(f"Error updating software interlock control states: {str(e)}")
+
+    def _reset_beam_software_interlocks(self):
+        """Return every dashboard-only beam interlock to Disabled."""
+        states = getattr(self, "_beam_software_interlock_states", None)
+        if states is None:
+            return
+
+        for i in range(len(states)):
+            states[i] = False
+            if i < len(getattr(self, "enable_toggle_buttons", [])):
+                _safe_widget_config(
+                    self.enable_toggle_buttons[i],
+                    bg="#888888",
+                    text=f"Beam {channel_label(i)} Disabled",
+                )
+        self.update_beam_toggle_states(enabled=True)
 
     def create_com_port_frame(self, parent_frame):
         """
