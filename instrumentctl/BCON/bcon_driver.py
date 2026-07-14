@@ -308,6 +308,9 @@ class BCONDriver:
 
         # Write command queue (thread-safe)
         self._cmd_queue: queue.Queue = queue.Queue()
+        # Wakes the poll worker when queued work arrives, avoiding an
+        # unnecessary wait for the next idle poll interval.
+        self._queue_wake = threading.Event()
 
         # Latest register snapshot
         self._regs: List[int] = [0] * TOTAL_REGS
@@ -779,6 +782,7 @@ class BCONDriver:
         with self._serial_lock:
             epoch = self._write_epoch
         self._cmd_queue.put(("write", reg, value, epoch))
+        self._queue_wake.set()
 
     def write_register_immediate(self, reg: int, value: int,
                                  require_connected: bool = True) -> bool:
@@ -947,7 +951,13 @@ class BCONDriver:
                     if self._poll_errors >= self.MAX_POLL_ERRORS:
                         self._auto_disconnect()
 
-            time.sleep(self.POLL_INTERVAL)
+            # Wait for either the next regular poll deadline or newly queued
+            # work. Clear before checking the queue so a producer cannot lose
+            # a wake-up during the check/wait handoff.
+            self._queue_wake.clear()
+            if not self._cmd_queue.empty():
+                continue
+            self._queue_wake.wait(self.POLL_INTERVAL)
 
     def _auto_disconnect(self):
         """Called from poll thread when too many consecutive errors."""
@@ -976,6 +986,7 @@ class BCONDriver:
     def _stop_poll_thread(self):
         """Stop the background polling thread."""
         self._poll_running = False
+        self._queue_wake.set()
         if self._poll_thread:
             self._poll_thread.join(timeout=3.0)
             self._poll_thread = None
@@ -1062,66 +1073,6 @@ class BCONDriver:
         if self._stage_channel_mode(channel, BCONMode.OFF):
             return self.apply_staged_modes()
         return False
-
-    def stop_channel_confirmed(self, channel: int) -> bool:
-        """Stop one channel and verify its live mode and output are OFF.
-
-        Unlike :meth:`set_channel_off`, this path does not queue the staged
-        write. It serializes the channel OFF write, the apply command, and a
-        direct status read so callers can safely act on a successful return.
-        Other active output channels are not changed.
-        """
-        if not self._validate_channel(channel):
-            return False
-        if not self.is_connected():
-            self._log(
-                f"Confirmed channel stop skipped while disconnected: channel {channel}",
-                "WARNING",
-            )
-            return False
-
-        control_base = CH_BASE[channel - 1]
-        status_base = REG_CH_STATUS_BASE + (channel - 1) * REG_CH_STATUS_STRIDE
-        with self._serial_lock:
-            try:
-                # A locally queued start can otherwise run after this confirmed
-                # stop. Invalidate pending writes before issuing the direct
-                # transaction; this does not change already-running channels.
-                self._write_epoch += 1
-                self._clear_cmd_queue()
-                # Hold the serial lock so the poll thread cannot interleave
-                # another Modbus transaction with the stop/confirm sequence.
-                self._write_register_raw(control_base + CH_MODE_OFF, int(BCONMode.OFF))
-                baseline = self._get_cached_command_snapshot()
-                self._write_register_raw(REG_COMMAND, COMMAND_APPLY_STAGED_MODES)
-                result = self._confirm_command_write(
-                    COMMAND_APPLY_STAGED_MODES,
-                    baseline=baseline,
-                )
-                if not result or not result.get("accepted"):
-                    self._log(
-                        f"Channel {channel} OFF apply command was not confirmed",
-                        "ERROR",
-                    )
-                    return False
-
-                status = self._read_holding_registers_raw(status_base, 9)
-                with self._regs_lock:
-                    self._regs[status_base:status_base + 9] = status
-
-                actual_mode = int(status[0])
-                output_level = int(status[8])
-                if actual_mode != int(BCONMode.OFF) or output_level != 0:
-                    self._log(
-                        f"Channel {channel} OFF was not confirmed "
-                        f"(mode={actual_mode}, output={output_level})",
-                        "ERROR",
-                    )
-                    return False
-                return True
-            except Exception as e:
-                self._log(f"Confirmed channel {channel} OFF failed: {e}", "ERROR")
-                return False
 
     def set_channel_dc(self, channel: int) -> bool:
         """Stage DC for one channel and apply it immediately."""

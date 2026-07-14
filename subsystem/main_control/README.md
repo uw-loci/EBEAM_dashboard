@@ -86,7 +86,7 @@ Main Control is a two-tab subpanel.
 | `handle_arm_beams()` | Toggles Beam Pulse software arming and updates Main Control button state. |
 | `handle_beams_off()` | Requests confirmed BCON all-off, turns off cathode heating outputs, disarms Beam Pulse, and only resets beam controls/posts all-disabled status after all-off confirmation. |
 | `toggle_individual_beam_with_status()` | Turns one Beam A/B/C output on or off using the current Beam Pulse manual channel configuration. |
-| `_toggle_beam_software_interlock()` | Toggles one dashboard-only Beam A/B/C interlock. If its output is active, it first confirms that BCON stopped that channel only. |
+| `_toggle_beam_software_interlock()` | Toggles one dashboard-only Beam A/B/C interlock. If its output is active, it queues that channel OFF and waits for the next BCON status poll to confirm it. |
 | `handle_activate_enabled_beams()` | Starts locally software-enabled/manual-configured Beam Pulse channels together. |
 | `handle_disable_all_beams()` | Requests confirmed BCON all-off, then clears the dashboard software interlocks. |
 | `_on_channel_status_update()` | Mirrors live BCON channel output state into Beam A/B/C buttons and status lines. |
@@ -186,9 +186,9 @@ Dashboard callbacks.
   not issue a PVX enable-toggle command. Main Control clears its dashboard
   interlocks only after BCON confirms the all-off command.
 - Disabling an enabled Beam A/B/C software interlock while that beam output is
-  active first requests a confirmed BCON stop for that channel only. The
-  selected interlock stays enabled if the apply command, OFF mode, or output-low
-  verification fails.
+  active queues that channel OFF and shows `Stopping...`. The selected interlock
+  changes to Disabled only after the wake-triggered BCON status poll reports
+  mode OFF and output low; rejection or timeout leaves it enabled.
 - Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
   before BCON output commands when the VTRX pressure guard is enabled and the
   latest valid VTRX pressure is greater than 1e-5 mbar.

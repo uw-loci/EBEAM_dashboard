@@ -32,6 +32,7 @@ PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_WARNING_INTERVAL_S = 10.0
+SOFTWARE_INTERLOCK_STOP_TIMEOUT_MS = 2000
 
 
 def channel_label(index: int) -> str:
@@ -336,6 +337,7 @@ class MainControlPanel:
             software_interlock_frame.grid_columnconfigure(i, weight=1, uniform="button")
         self.software_interlock_buttons = []
         self._beam_software_interlock_states = [False, False, False]
+        self._pending_software_interlock_stops = [None, None, None]
         for i in range(3):
             btn = tk.Button(
                 software_interlock_frame,
@@ -1605,6 +1607,8 @@ class MainControlPanel:
         self._handle_vtrx_bcon_pressure_update(pressure, self.pressure_reading_is_fresh, self.vtrx_firmware_error)
 
     def _set_armed_ui(self, armed, reset=False):
+        if not armed:
+            self._clear_pending_software_interlock_stops()
         if hasattr(self, "beams_ready_button"):
             toggle_on_image = getattr(self, "toggle_on_image", None)
             toggle_off_image = getattr(self, "toggle_off_image", None)
@@ -1782,6 +1786,8 @@ class MainControlPanel:
 
     def _toggle_beam_software_interlock(self, beam_index: int):
         """Toggle one dashboard interlock, safely stopping active output first."""
+        if self._software_interlock_stop_is_pending(beam_index):
+            return
         states = getattr(self, "_beam_software_interlock_states", None)
         if not states or not 0 <= beam_index < len(states):
             return
@@ -1807,15 +1813,32 @@ class MainControlPanel:
                 return
 
             if output_is_on:
-                # Do not mark the local interlock Disabled until BCON confirms
-                # the selected channel's mode and output level are both OFF.
-                disable_beam_output = getattr(beam_pulse, "disable_beam_output", None)
-                if not callable(disable_beam_output) or not disable_beam_output(beam_index):
+                if not beam_pulse.send_channel_off(beam_index):
                     self._set_beam_action_status(
-                        f"Failed to stop output before disabling Beam {label} software interlock",
+                        f"Failed to request Beam {label} output stop",
                         "failure",
                     )
                     return
+                started_at = time.monotonic()
+                self._pending_software_interlock_stops[beam_index] = started_at
+                if beam_index < len(getattr(self, "software_interlock_buttons", [])):
+                    _safe_widget_config(
+                        self.software_interlock_buttons[beam_index],
+                        state="disabled",
+                        text=f"Beam {label} Stopping...",
+                    )
+                self._update_beam_output_button_states(armed=True)
+                self._set_beam_action_status(
+                    f"Beam {label} output stop requested; waiting for BCON confirmation",
+                    "neutral",
+                )
+                root_after = getattr(getattr(self, "root", None), "after", None)
+                if callable(root_after):
+                    root_after(
+                        SOFTWARE_INTERLOCK_STOP_TIMEOUT_MS,
+                        lambda ch=beam_index, started=started_at: self._expire_software_interlock_stop(ch, started),
+                    )
+                return
 
         beam_software_interlock_enabled = not software_interlock_currently_enabled
         states[beam_index] = beam_software_interlock_enabled
@@ -1911,6 +1934,16 @@ class MainControlPanel:
         Called on every register-poll cycle by BeamPulseSubsystem.
         mode_code=0 means OFF; remaining=0 means all pulses delivered.
         """
+        output_level = None
+        if isinstance(status_config, dict):
+            output_level = status_config.get("output_level")
+        if (
+            self._software_interlock_stop_is_pending(ch)
+            and mode_code == 0
+            and output_level == 0
+        ):
+            self._complete_software_interlock_stop(ch)
+
         if not hasattr(self, 'beam_toggle_buttons'):
             self._log_error("Invalid channel status update: beam toggle buttons are not initialized")
             return
@@ -1946,6 +1979,7 @@ class MainControlPanel:
                         hasattr(self, '_beam_software_interlock_states')
                         and i < len(self._beam_software_interlock_states)
                         and self._beam_software_interlock_states[i]
+                        and not self._software_interlock_stop_is_pending(i)
                     )
                     _safe_widget_config(btn, state="normal" if interlock_enabled else "disabled")
                     if reset:
@@ -1985,6 +2019,7 @@ class MainControlPanel:
 
     def _reset_beam_software_interlocks(self):
         """Return every dashboard-only beam interlock to Disabled."""
+        self._clear_pending_software_interlock_stops()
         states = getattr(self, "_beam_software_interlock_states", None)
         if states is None:
             return
@@ -1998,6 +2033,56 @@ class MainControlPanel:
                     text=f"Beam {channel_label(i)} Interlock Disabled",
                 )
         self._update_beam_output_button_states(armed=True)
+
+    def _software_interlock_stop_is_pending(self, beam_index: int) -> bool:
+        pending = getattr(self, "_pending_software_interlock_stops", [])
+        return 0 <= beam_index < len(pending) and pending[beam_index] is not None
+
+    def _clear_pending_software_interlock_stops(self):
+        pending = getattr(self, "_pending_software_interlock_stops", None)
+        if isinstance(pending, list):
+            for index in range(len(pending)):
+                pending[index] = None
+
+    def _complete_software_interlock_stop(self, beam_index: int):
+        if not self._software_interlock_stop_is_pending(beam_index):
+            return
+        self._pending_software_interlock_stops[beam_index] = None
+        self._beam_software_interlock_states[beam_index] = False
+        label = channel_label(beam_index)
+        if beam_index < len(getattr(self, "software_interlock_buttons", [])):
+            _safe_widget_config(
+                self.software_interlock_buttons[beam_index],
+                state="normal",
+                bg="#888888",
+                text=f"Beam {label} Interlock Disabled",
+            )
+        self._update_beam_output_button_states(armed=True)
+        self._set_beam_action_status(
+            f"Beam {label} output confirmed OFF; software interlock disabled",
+            "success",
+        )
+
+    def _expire_software_interlock_stop(self, beam_index: int, started_at: float):
+        if (
+            not self._software_interlock_stop_is_pending(beam_index)
+            or self._pending_software_interlock_stops[beam_index] != started_at
+        ):
+            return
+        self._pending_software_interlock_stops[beam_index] = None
+        label = channel_label(beam_index)
+        if beam_index < len(getattr(self, "software_interlock_buttons", [])):
+            _safe_widget_config(
+                self.software_interlock_buttons[beam_index],
+                state="normal",
+                bg="#2e7d32",
+                text=f"Beam {label} Interlock Enabled",
+            )
+        self._update_beam_output_button_states(armed=True)
+        self._set_beam_action_status(
+            f"Beam {label} output stop was not confirmed; software interlock remains enabled",
+            "failure",
+        )
 
     def create_com_port_frame(self, parent_frame):
         """

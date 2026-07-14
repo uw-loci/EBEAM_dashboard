@@ -16,7 +16,7 @@ class FakeBeamPulse:
     def get_beam_status(self, _channel):
         return self.output_on
 
-    def disable_beam_output(self, channel):
+    def send_channel_off(self, channel):
         self.channel_off_calls.append(channel)
         return self.channel_off_result
 
@@ -25,6 +25,7 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
     def make_panel(self, beam_pulse):
         panel = object.__new__(MainControlPanel)
         panel._beam_software_interlock_states = [True, False, False]
+        panel._pending_software_interlock_stops = [None, None, None]
         panel.software_interlock_buttons = []
         panel.update_calls = []
         panel.status_updates = []
@@ -35,14 +36,20 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         panel._log_error = panel.errors.append
         return panel
 
-    def test_disabling_active_beam_waits_for_confirmed_channel_off(self):
+    def test_disabling_active_beam_waits_for_polled_channel_off(self):
         beam_pulse = FakeBeamPulse(output_on=True, channel_off_result=True)
         panel = self.make_panel(beam_pulse)
 
         panel._toggle_beam_software_interlock(0)
 
         self.assertEqual(beam_pulse.channel_off_calls, [0])
+        self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
+        self.assertTrue(panel._software_interlock_stop_is_pending(0))
+
+        panel._on_channel_status_update(0, 0, 0, {"output_level": 0})
+
         self.assertEqual(panel._beam_software_interlock_states, [False, False, False])
+        self.assertFalse(panel._software_interlock_stop_is_pending(0))
 
     def test_failed_channel_off_keeps_active_beam_interlock_enabled(self):
         beam_pulse = FakeBeamPulse(output_on=True, channel_off_result=False)
@@ -52,7 +59,29 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
 
         self.assertEqual(beam_pulse.channel_off_calls, [0])
         self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
-        self.assertIn("Failed to stop output", panel.status_updates[-1][0])
+        self.assertIn("Failed to request", panel.status_updates[-1][0])
+
+    def test_nonzero_output_does_not_complete_pending_stop(self):
+        beam_pulse = FakeBeamPulse(output_on=True)
+        panel = self.make_panel(beam_pulse)
+
+        panel._toggle_beam_software_interlock(0)
+        panel._on_channel_status_update(0, 0, 0, {"output_level": 1})
+
+        self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
+        self.assertTrue(panel._software_interlock_stop_is_pending(0))
+
+    def test_stop_timeout_keeps_interlock_enabled(self):
+        beam_pulse = FakeBeamPulse(output_on=True)
+        panel = self.make_panel(beam_pulse)
+
+        panel._toggle_beam_software_interlock(0)
+        started_at = panel._pending_software_interlock_stops[0]
+        panel._expire_software_interlock_stop(0, started_at)
+
+        self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
+        self.assertFalse(panel._software_interlock_stop_is_pending(0))
+        self.assertIn("not confirmed", panel.status_updates[-1][0])
 
     def test_disabling_inactive_beam_does_not_send_all_off(self):
         beam_pulse = FakeBeamPulse(output_on=False)

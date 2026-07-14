@@ -164,13 +164,6 @@ rejects a race through `LAST_ERROR=11`.
 
 R114/R124/R134 are `ENABLE_TOGGLE_BUSY` flags: `1` only during the associated 100 ms pulse.
 
-`stop_channel_confirmed(channel)` is the independent output-stop path. It
-writes the selected channel's requested mode as OFF, confirms
-`COMMAND_APPLY_STAGED_MODES`, and directly reads that channel's actual mode and
-output level. It returns success only when both report OFF/low; it does not
-issue a PVX enable-toggle command or stop other active channels. Pending queued
-writes are invalidated before this confirmed stop transaction.
-
 #### `set_channel_off(channel: int) -> bool`
 Turn off specified channel (1-3). Only works in READY state.
 

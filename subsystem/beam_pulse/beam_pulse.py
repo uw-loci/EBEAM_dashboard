@@ -895,44 +895,6 @@ class BeamPulseSubsystem:
         self._log_event("Disable All Beams: confirmed all channels -> OFF")
         return True
 
-    def disable_beam_output(self, ch: int) -> bool:
-        """Confirm that one channel output is OFF without affecting others."""
-        if not 0 <= ch < 3:
-            self._log_event(f"Disable Beam failed: invalid channel {ch}", LogLevel.ERROR)
-            return False
-        if not self.bcon_driver:
-            self._log_event(
-                f"Disable {self._channel_name(ch)} failed: BCON driver not available",
-                LogLevel.ERROR,
-            )
-            return False
-        if not self._bcon_is_connected():
-            self._log_event(
-                f"Disable {self._channel_name(ch)} failed: BCON device not connected",
-                LogLevel.ERROR,
-            )
-            return False
-        if not self.bcon_driver.stop_channel_confirmed(ch + 1):
-            self._log_event(
-                f"Disable {self._channel_name(ch)} failed: BCON output-off was not confirmed",
-                LogLevel.ERROR,
-            )
-            return False
-
-        self.beam_on_status[ch] = False
-        active_channels = getattr(self, "_active_channels", set())
-        if hasattr(active_channels, "discard"):
-            active_channels.discard(ch)
-        self._notify_beam_activity(bool(active_channels))
-        self._notify_action_feedback(
-            "beam_off",
-            f"{self._channel_name(ch)}: confirmed output -> OFF",
-            "neutral",
-            [{"ch": ch + 1, "mode": "OFF", "duration_ms": 0, "count": 0}],
-        )
-        self._log_event(f"{self._channel_name(ch)}: confirmed output -> OFF")
-        return True
-
     # ================================================================== #
     #                      CSV Sequence Tab Actions                      #
     # ================================================================== #
