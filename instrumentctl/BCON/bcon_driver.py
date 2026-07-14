@@ -85,7 +85,7 @@ REG_CH_STATUS_STRIDE = 10
 #   +1  pulse_ms (actual)
 #   +2  count (actual)
 #   +3  remaining pulses
-#   +4  en_st
+#   +4  toggle_busy
 #   +5  pwr_st
 #   +6  oc_st
 #   +7  gated_st
@@ -1497,8 +1497,8 @@ class BCONDriver:
                 'pulse_ms': 0,
                 'count': 0,
                 'remaining': 0,
-                'en_st': False,
-                'en_st_raw': 0,
+                'toggle_busy': False,
+                'toggle_busy_raw': 0,
                 'pwr_st': 0,
                 'oc_st': 0,
                 'gated_st': 0,
@@ -1517,14 +1517,14 @@ class BCONDriver:
             r = self._regs
             run_state_code = r[sup_base + 0]
             stop_reason_code = r[sup_base + 1]
-            enabled = bool(r[base + 4])
+            toggle_busy = bool(r[base + 4])
             return {
                 'mode': MODE_CODE_TO_LABEL.get(r[base + 0], "UNKNOWN"),
                 'pulse_ms': r[base + 1],
                 'count': r[base + 2],
                 'remaining': r[base + 3],
-                'en_st': enabled,
-                'en_st_raw': r[base + 4],
+                'toggle_busy': toggle_busy,
+                'toggle_busy_raw': r[base + 4],
                 'pwr_st': r[base + 5],
                 'oc_st': r[base + 6],
                 'gated_st': r[base + 7],
@@ -1602,8 +1602,8 @@ class BCONDriver:
                     'pulse_ms': r[base + 1],
                     'count': r[base + 2],
                     'remaining': r[base + 3],
-                    'en_st': bool(r[base + 4]),
-                    'en_st_raw': r[base + 4],
+                    'toggle_busy': bool(r[base + 4]),
+                    'toggle_busy_raw': r[base + 4],
                     'pwr_st': r[base + 5],
                     'oc_st': r[base + 6],
                     'gated_st': r[base + 7],

@@ -18,7 +18,7 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 - **State Tracking:** Real-time monitoring of system state (READY, SAFE_INTERLOCK, SAFE_WATCHDOG)
 - **Channel Control:** Independent control of 3 pulser channels (OFF, DC, PULSE modes)
 - **Safety Features:** Watchdog configuration, dashboard software arming, and external interlock monitoring
-- **Status Monitoring:** Per-channel status inputs (enable, power, overcurrent, gated)
+- **Status Monitoring:** Per-channel status inputs (toggle busy, power, overcurrent, gated)
 
 ## Supported Commands
 
@@ -97,13 +97,13 @@ Fields:
 
 ### Channel Telemetry (`CHn` line)
 ```
-CH1 mode=DC pulse_ms=0 en_st=1 pwr_st=1 oc_st=0 gated_st=0
+CH1 mode=DC pulse_ms=0 toggle_busy=0 pwr_st=1 oc_st=0 gated_st=0
 ```
 
 Fields:
 - `mode`: OFF, DC, PULSE
 - `pulse_ms`: Configured pulse duration (0 if not pulsing)
-- `en_st`: Enable status input (0/1)
+- `toggle_busy`: `1` only while the firmware is emitting the 100 ms PVX enable-toggle pulse; it is not PVX enabled state
 - `pwr_st`: Power status input (0/1)
 - `oc_st`: Over-current status input (0/1)
 - `gated_st`: Gated status input (0/1)
@@ -200,7 +200,7 @@ Return current system state: READY, SAFE_INTERLOCK, or SAFE_WATCHDOG.
 Return current mode for channel (1-3): OFF, DC, or PULSE.
 
 #### `get_channel_status(channel: int) -> dict`
-Return status inputs for channel (1-3): en_st, pwr_st, oc_st, gated_st.
+Return status inputs for channel (1-3): toggle_busy, pwr_st, oc_st, gated_st.
 
 ## Error Handling
 
