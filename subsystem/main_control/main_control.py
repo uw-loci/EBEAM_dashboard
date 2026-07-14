@@ -1689,6 +1689,7 @@ class MainControlPanel:
         turn off cathode heating, and disarm beams."""
         try:
             first_error = None
+            all_off_confirmed = False
 
             def record_error(message, error):
                 nonlocal first_error
@@ -1703,12 +1704,23 @@ class MainControlPanel:
                     stop_all_channels = getattr(beam_pulse, 'stop_all_channels', None)
                     if callable(stop_all_channels):
                         self._log_info("Beams E-STOP requesting all BCON channels stop")
-                        if not stop_all_channels():
-                            self._log_critical("Beams E-STOP failed to stop all BCON channels")
+                        if stop_all_channels():
+                            all_off_confirmed = True
+                        else:
+                            record_error(
+                                "Beams E-STOP failed to stop all BCON channels",
+                                RuntimeError("BCON all-off was not confirmed"),
+                            )
                     else:
-                        self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse stop_all_channels API is unavailable")
+                        record_error(
+                            "Beams E-STOP cannot stop BCON channels",
+                            RuntimeError("Beam Pulse stop_all_channels API is unavailable"),
+                        )
                 else:
-                    self._log_critical("Beams E-STOP cannot stop BCON channels: Beam Pulse subsystem is unavailable")
+                    record_error(
+                        "Beams E-STOP cannot stop BCON channels",
+                        RuntimeError("Beam Pulse subsystem is unavailable"),
+                    )
             except Exception as e:
                 record_error("Beams E-STOP BCON channel stop failed", e)
 
@@ -1723,15 +1735,21 @@ class MainControlPanel:
                         self._log_critical("Beams E-STOP cannot verify armed state: Beam Pulse get_beams_armed_status API is unavailable")
                     if beams_armed:
                         disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
-                        if callable(disarm_beams) and disarm_beams():
+                        if callable(disarm_beams) and disarm_beams(preserve_pending_acks=True):
+                            all_off_confirmed = True
                             self._set_armed_ui(False)
                             self._log_info("Beams disarmed via Beams E-stop button")
                         else:
-                            self._log_critical("Failed to disarm beams via Beams E-stop")
-                    self.update_beam_toggle_states(enabled=False, reset=True)
-                    self._update_enable_toggle_states(enabled=False)
-                    self._update_activate_enabled_beams_control_state(armed=False)
-                self._clear_all_beam_output_displays()
+                            record_error(
+                                "Failed to disarm beams via Beams E-stop",
+                                RuntimeError("Beam Pulse disarm was not confirmed"),
+                            )
+                    if all_off_confirmed:
+                        self.update_beam_toggle_states(enabled=False, reset=True)
+                        self._update_enable_toggle_states(enabled=False)
+                        self._update_activate_enabled_beams_control_state(armed=False)
+                if all_off_confirmed:
+                    self._clear_all_beam_output_displays()
             except Exception as e:
                 record_error("Beams E-STOP disarm/UI update failed", e)
 

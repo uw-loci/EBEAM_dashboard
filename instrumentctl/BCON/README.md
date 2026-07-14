@@ -26,7 +26,7 @@ The BCON driver provides programmatic control of the Beam Controller Arduino fir
 |---------|--------|-------------|
 | `PING` | `ping()` | Check communication and refresh watchdog |
 | `STATUS` | `get_status()` | Get full system and channel status |
-| `STOP ALL` | `stop_all()` | Force all channels to OFF mode |
+| `STOP ALL` | `stop_all()` | Force all channels to OFF mode and confirm firmware execution |
 | `SET WATCHDOG` | `set_watchdog(ms)` | Configure watchdog timeout (50-60000 ms) |
 | `SET TELEMETRY` | `set_telemetry(ms)` | Configure telemetry interval (0=disabled) |
 | `SET CH OFF` | `set_channel_off(channel)` | Turn off specific channel |
@@ -71,8 +71,9 @@ if bcon.connect():
     telemetry = bcon.get_latest_telemetry()
     print(f"Channel 1 mode: {telemetry['channels'][0]['mode']}")
 
-    # Stop all channels
-    bcon.stop_all()
+    # Stop all channels and verify firmware confirmation
+    if not bcon.stop_all():
+        print("STOP ALL was not confirmed")
     
     # Disconnect
     bcon.disconnect()
@@ -128,7 +129,16 @@ Send PING command and wait for PONG response. Also refreshes communication watch
 Request and parse full system status. Returns dictionary with `system` and `channels` keys.
 
 #### `stop_all() -> bool`
-Force all channels to OFF mode immediately.
+Force all channels to OFF mode immediately. Returns `True` only when firmware
+diagnostics confirm the `ALL_OFF` command executed; disconnected, rejected, or
+inconclusive results return `False`.
+
+Before sending `ALL_OFF`, the driver advances an internal write epoch while
+holding the serial lock and clears the pending write queue. Queued writes carry
+the epoch captured when they were enqueued, so any poll-thread write that was
+already dequeued before `ALL_OFF` but reaches the serial port afterward is
+dropped as stale. This prevents earlier output-producing writes from running
+after a confirmed all-off shutdown.
 
 ### Configuration
 
@@ -184,7 +194,11 @@ if not bcon.set_channel_dc(1):
 
 ## Thread Safety
 
-The driver uses a threading lock (`_serial_lock`) to ensure thread-safe access to the serial port. Multiple threads can safely call driver methods concurrently.
+The driver uses a threading lock (`_serial_lock`) to ensure thread-safe access
+to the serial port. Multiple threads can safely call driver methods
+concurrently. Queued writes are also tagged with an internal write epoch;
+`stop_all()` advances that epoch to invalidate queued or already-dequeued writes
+from before the all-off request.
 
 ## Dependencies
 

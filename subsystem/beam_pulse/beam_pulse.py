@@ -864,20 +864,21 @@ class BeamPulseSubsystem:
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
             return
+        self._clear_firmware_acks()
         ack = self._queue_firmware_ack("Disable All Beams")
         if not self.bcon_driver.stop_all():
             self._cancel_firmware_ack(ack)
-            message = "Disable All Beams failed: BCON did not queue command"
+            message = "Disable All Beams failed: BCON all-off was not confirmed"
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
             return
         self._clear_output_state()
         self._notify_action_feedback(
             "all_off",
-            "Disable All Beams: all channels -> OFF",
+            "Disable All Beams: confirmed all channels -> OFF",
             "neutral",
         )
-        self._log_event("Disable All Beams: all channels -> OFF")
+        self._log_event("Disable All Beams: confirmed all channels -> OFF")
 
     # ================================================================== #
     #                      CSV Sequence Tab Actions                      #
@@ -1906,7 +1907,7 @@ class BeamPulseSubsystem:
                 self._log_once(f"Channel enable status callback failed for {self._channel_name(ch_index)}: {e}", LogLevel.ERROR)
 
         if current:
-            self.send_channel_off(ch_index, firmware_ack=False)
+            self.send_channel_off(ch_index)
 
         state = "enabled" if new_enabled else "disabled"
         self._log_event(f"{self._channel_name(ch_index)} successfully {state}")
@@ -1914,11 +1915,13 @@ class BeamPulseSubsystem:
 
     def stop_all_channels(self, firmware_ack: str = "All OFF") -> bool:
         if self.bcon_driver:
+            self._clear_firmware_acks()
             ack = self._queue_firmware_ack(firmware_ack)
             ok = self.bcon_driver.stop_all()
             if not ok:
                 self._cancel_firmware_ack(ack)
                 self._log_event("BCON Driver failed to stop all BCON channels", LogLevel.CRITICAL)
+                return False
             self._clear_output_state()
             self._notify_all_channel_enables(False)
             return bool(ok)
@@ -1928,23 +1931,37 @@ class BeamPulseSubsystem:
     # --- Safety ---
 
     def arm_beams(self) -> bool:
+        if not self.bcon_driver or getattr(self.bcon_driver, "_serial", None) is None:
+            self._log_event("Failed to arm beams: BCON serial port is not open", LogLevel.ERROR)
+            return False
+        if not self.bcon_driver.is_connected():
+            self._log_event("Failed to arm beams: BCON device not connected", LogLevel.ERROR)
+            return False
+
         self.beams_armed_status = True
         self._notify_armed_status(True)
         self._log("Beams ARMED (software-only)", LogLevel.INFO)
         self._update_armed_button_states(True)
         return True
 
-    def disarm_beams(self) -> bool:
-        self.beams_armed_status = False
-        self._notify_armed_status(False)
+    def disarm_beams(self, preserve_pending_acks: bool = False) -> bool:
         self._stop_sequence_worker()
+        if not self.bcon_driver:
+            self._log_event("Failed to stop all BCON channels during disarm: driver not available", LogLevel.ERROR)
+            return False
+
+        if not preserve_pending_acks:
+            self._clear_firmware_acks()
+        ack = self._queue_firmware_ack("Disarm all OFF")
+        if not self.bcon_driver.stop_all():
+            self._cancel_firmware_ack(ack)
+            self._log_event("Failed to stop all BCON channels during disarm", LogLevel.ERROR)
+            return False
+
+        self.beams_armed_status = False
         self._clear_output_state()
-        if self.bcon_driver:
-            ack = self._queue_firmware_ack("Disarm all OFF")
-            if not self.bcon_driver.stop_all():
-                self._cancel_firmware_ack(ack)
-                self._log_event("Failed to stop all BCON channels during disarm", LogLevel.ERROR)
         self._notify_all_channel_enables(False)
+        self._notify_armed_status(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
         return True
