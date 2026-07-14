@@ -2806,18 +2806,23 @@ class CathodeHeatingSubsystem:
             - Disables output on all available power supply handles
             - Updates toggle button states and images
             - Logs actions and any errors
+        Returns:
+            True when every required output-off command is acknowledged; False otherwise.
         """
         if not self.power_supplies:
             self.log("Power supply list is empty; cannot turn off heaters.", LogLevel.ERROR)
-            return
+            return False
 
         if not self.power_supplies_initialized:
             self.log("Power supplies are not marked initialized; attempting OFF for any available handles.", LogLevel.WARNING)
 
+        all_off = True
         for i, ps in enumerate(self.power_supplies):
             cathode_label = ['A', 'B', 'C'][i]
             if not ps:
                 self.log(f"Power supply handle for Cathode {cathode_label} is unavailable; cannot turn off heater.", LogLevel.WARNING)
+                if i < len(self.toggle_states) and self.toggle_states[i]:
+                    all_off = False
                 continue
 
             try:
@@ -2835,9 +2840,12 @@ class CathodeHeatingSubsystem:
                     self.toggle_states[i] = False
                     self.toggle_buttons[i].config(image=self.toggle_off_image)
                 else:
+                    all_off = False
                     self.log(f"Failed to turn off heater for Cathode {cathode_label}", LogLevel.ERROR)
             except Exception as e:
+                all_off = False
                 self.log(f"Error turning off heater for Cathode {cathode_label}: {str(e)}", LogLevel.ERROR)
+        return all_off
 
     def reset_related_variables(self, index):
         """
