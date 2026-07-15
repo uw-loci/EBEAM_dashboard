@@ -456,6 +456,7 @@ class BeamPulseSubsystem:
 
         Call this at the top of every action that sends commands to BCON.
         Stop / disarm / off actions should NOT call this — they must always work.
+        PVX channel enable toggles also do not require this.
         """
         if not self.beams_armed_status:
             self._log_event("Action blocked: beams are not armed", LogLevel.WARNING)
