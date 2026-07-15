@@ -2,8 +2,9 @@
 
 `BeamPulseSubsystem` is the dashboard-facing control layer for the BCON beam
 pulser. It owns the Beam Pulse subpanel UI, BCON driver connection, channel
-configuration validation, dashboard-software-interlock activation, CSV sequence playback, and the
-software checks that run before output-producing BCON commands.
+configuration validation, CSV sequence playback, Main Control software-interlock
+filtering for bulk activation, and the software checks that run before
+output-producing BCON commands.
 
 Main Control is the operator control surface for most beam actions. Beam Pulse
 keeps the hardware-facing state and reports live status back to Main Control.
@@ -18,11 +19,13 @@ flowchart TD
     Dashboard -->|"creates and wires"| MainControl["MainControlPanel<br/>subsystem/main_control"]
     Dashboard --> BeamEnergy["Beam Energy"]
     Dashboard --> Cathode["Cathode Heating"]
+    Dashboard --> VTRX["VTRX"]
 
-    MainControl -->|"Arm/Disarm, Beam A/B/C,<br/>Activate Enabled Beams / Disable All Beams, Beams E-stop"| BeamPulse
+    MainControl -->|"Arm/Disarm, Beam A/B/C,<br/>Activate Enabled Beams / Disable All Beams,<br/>E-STOP: BEAMS & CCS"| BeamPulse
     BeamPulse -->|"channel output status,<br/>armed state, action feedback"| MainControl
-    MainControl -->|"emission limit and software-interlock providers"| BeamPulse
+    MainControl -->|"emission-limit, VTRX-pressure,<br/>and software-interlock providers"| BeamPulse
     Cathode -->|"predicted emission currents"| MainControl
+    VTRX -->|"pressure, freshness, firmware error"| MainControl
     BeamPulse -->|"manual disconnect check,<br/>disconnect notification"| MainControl
     MainControl -->|"BCON-connected provider,<br/>guard setting, turn_off_all_beams()"| Cathode
 
@@ -31,7 +34,7 @@ flowchart TD
 
     BeamPulse -->|"high-level channel activation/stop calls"| Driver["BCONDriver<br/>instrumentctl/BCON"]
     Driver <-->|"raw pyserial Modbus RTU<br/>FC03 reads, FC06 writes"| Firmware["BCON firmware"]
-    Driver -->|"connected / regs / wrote / error / command_result"| Queue["Beam Pulse UI queue"]
+    Driver -->|"connected / regs / wrote / error /<br/>command_sent / command_result /<br/>operation_failed / operation_cancelled"| Queue["Beam Pulse UI queue"]
     Queue -->|"Tk after(), 200 ms"| BeamPulse
 ```
 
@@ -47,11 +50,11 @@ Beam Pulse itself has a compact status bar and two tabs.
   Stop, and a preview of parsed steps.
 
 Main Control is a separate subpanel, but it is the normal place operators start
-beam actions. It hosts ARM BEAMS, BEAMS E-STOP, Beam A/B/C ON/OFF buttons,
+beam actions. It hosts the BEAMS ARMED toggle, `E-STOP: BEAMS & CCS`, Beam A/B/C ON/OFF buttons,
 dashboard-only Beam A/B/C software interlocks, Activate Enabled Beams / Disable
-All Beams, and the four-line beam status/action display. Each Beam Pulse Manual
-channel card also has a `PVX Enable Toggle` button for the hardware one-shot
-toggle command.
+All Beams, and the four-line beam status/action display. The Beam Pulse Manual
+cards provide `Toggle PVX A Enable`, `Toggle PVX B Enable`, and
+`Toggle PVX C Enable` buttons for the hardware one-shot commands.
 
 ## Code Structure
 
@@ -86,11 +89,54 @@ as `("regs", regs, generation, completed_at)` messages. The subsystem consumes
 the queue on the Tk main thread every 200 ms, updates widgets, and forwards live
 state to Main Control callbacks.
 
-For operator actions, Beam Pulse forwards an operation token with terminal
-command sent/result/failure events. Main Control waits for the matching result
-and then a complete register snapshot that finished after the command was sent
-before it changes hardware-output presentation. This keeps command confirmation
-separate from the poll-derived Beam A/B/C state.
+### Operation-token bridge
+
+Main Control creates one opaque token such as `bcon-7` for each coordinated
+dashboard action. Beam Pulse does not allocate or parse the token. It passes
+the same `operation_token` through its action API into the BCON driver:
+
+| Beam Pulse API | Driver API |
+| --- | --- |
+| `send_channel_config()` | `set_channel_mode()` |
+| `send_channel_off()` | `set_channel_off()` |
+| `activate_enabled_beams()` | `sync_start()` |
+| `disable_all_beams()` | `stop_all()` |
+| `stop_all_channels()` | `stop_all()` |
+| `disarm_beams()` | `stop_all()` |
+
+The driver posts tokenized queue messages. Beam Pulse translates them for the
+Main Control action-feedback callback without treating them as live output
+state:
+
+| Driver queue message | Beam Pulse callback event | Token field |
+| --- | --- | --- |
+| `command_sent` | `operation_sent` | `token` |
+| `command_result` | `operation_result` | `operation_token` |
+| `operation_failed` | `operation_failed` | `token` |
+| `operation_cancelled` | `operation_cancelled` | `token` |
+
+`command_sent` also carries the monotonic `sent_at` time. A complete `regs`
+message carries a poll `generation` and `completed_at`, but intentionally has no
+operation token. Beam Pulse first updates all live channel UI/callback state
+from that snapshot, then emits `operation_poll`. Main Control may use that poll
+to finish only its currently pending operation, and only when `completed_at` is
+later than `sent_at` and the expected channel state is present. Late command
+events with an older token are ignored.
+
+This separates three different facts:
+
+1. A request was written to the terminal BCON command register.
+2. Firmware diagnostics reported the command `EXECUTED` or `REJECTED`.
+3. A later complete poll showed the resulting hardware state.
+
+Main Control uses all three phases for coordinated beam actions and deferred
+software-state changes. CSV sequence steps and PVX enable-toggle requests use
+the un-tokenized path. Direct untokenized Beam Pulse mode actions can use the
+legacy firmware-ack context queue for operator logging.
+
+The driver-side queue metadata (`batch`, `stage`, `terminal`, and write epoch),
+failure recovery, and exact event payloads are documented in
+`instrumentctl/BCON/README.md`.
 
 Driver warning/error logs are also routed through the same UI queue, so BCON
 worker-thread diagnostics are displayed through the dashboard logging path
@@ -126,13 +172,16 @@ for pulse duration and count.
 There are four layers of safety/status behavior to keep distinct:
 
 - Beam Pulse software arming: `arm_beams()` allows output-producing actions;
-  `disarm_beams()` stops CSV playback, commands BCON all-off, and only after
-  confirmed all-off clears local output state and disables armed-gated controls.
+  `disarm_beams()` stops CSV playback and commands confirmed BCON all-off. The
+  Main Control path passes `defer_ui=True`, so `complete_disarm()` clears the
+  armed/local output state only after the eligible post-command poll. A direct
+  untokenized call without `defer_ui` commits that state after command
+  confirmation.
 - BCON firmware safety: hardware interlock and watchdog state remain enforced by
   BCON firmware and are reported through registers.
 - Emission-current limit: when enabled, Beam Pulse blocks non-OFF Beam ON,
   Activate Enabled Beams, and CSV step commands when any projected cathode
-  prediction is unknown/invalid, or when the projected predicted emission
+  prediction is unknown/invalid, or when the projected emission
   current is at or above the Main Control limit. When disabled, Beam Pulse skips
   both prediction validation and the threshold comparison.
 - BCON/CCS disconnect guard: Beam Pulse reports BCON disconnects to Main Control. Main Control then
@@ -154,11 +203,13 @@ When BCON is connected and beams are armed, the operator can:
   software-interlock provider.
 - Run a loaded CSV sequence, when BCON is connected.
 
-Press the same button again while beams are armed to disarm Beam Pulse. Disarm
-stops any running CSV sequence, commands all BCON beam channels off when a BCON
-driver is available, disables armed-gated controls, and resets Dashboard beam
-buttons to OFF. It does not turn off cathode heater power-supply outputs; use
-`BEAMS E-STOP` when cathode heater outputs must also be shut off.
+Press the same button again while beams are armed to disarm Beam Pulse. A
+successful Main Control disarm stops any running CSV sequence, confirms BCON
+all-off, then disables armed-gated controls and resets Dashboard beam buttons
+after the eligible full poll. If the driver is unavailable or all-off is not
+confirmed, the disarm fails and the armed state is not committed. Disarm does
+not turn off cathode heater power-supply outputs; use `E-STOP: BEAMS & CCS`
+when cathode heater outputs must also be shut off.
 
 ### BCON Disconnect Integration
 
@@ -183,13 +234,13 @@ Main Control calls these Beam Pulse methods:
 | Main Control action | Beam Pulse API |
 | --- | --- |
 | Arm/disarm | `arm_beams()`, `disarm_beams()`, `get_beams_armed_status()` |
-| Beams E-stop | `stop_all_channels()`, then `disarm_beams()` |
+| E-STOP: BEAMS & CCS | `stop_all_channels()`, then `disarm_beams()` |
 | Beam A/B/C ON | `send_channel_config(channel_index)` |
 | Beam A/B/C OFF | `send_channel_off(channel_index)` |
 | Activate Enabled Beams / Disable All Beams | `activate_enabled_beams()`, `disable_all_beams()` |
 
 The Beam Pulse Manual tab invokes `request_pvx_enable_toggle(channel_index)`
-directly from each channel's `PVX Enable Toggle` button.
+directly from the matching `Toggle PVX <channel> Enable` button.
 
 Main Control registers these callbacks/providers on Beam Pulse:
 
@@ -198,7 +249,7 @@ Main Control registers these callbacks/providers on Beam Pulse:
 | `set_channel_status_callback(callback)` | `callback(ch, mode_code, remaining, config)` | live Beam A/B/C output display |
 | `set_activation_interlock_provider(provider)` | `provider() -> iterable[bool]` | Main Control's dashboard-only A/B/C interlocks used by `activate_enabled_beams()` |
 | `set_armed_status_callback(callback)` | `callback(armed)` | mirror software armed state |
-| `set_action_feedback_callback(callback)` | `callback(event_type, message, outcome, configs)` | action line and firmware acknowledgement display |
+| `set_action_feedback_callback(callback)` | `callback(event_type, payload_or_message, outcome, configs)` | action line, operation events, and firmware acknowledgement display; tokenized events use a dictionary payload |
 | `set_emission_limit_providers(limit, currents)` | callables | emission-limit guard data; `currents()` returns A/B/C values as non-negative finite mA floats or `None` for unknown |
 | `set_vtrx_pressure_guard_providers(enabled, pressure, limit, fresh)` | callables | VTRX high-pressure/freshness guard data |
 | `set_manual_disconnect_callback(callback)` | `callback() -> bool` | ask Main Control whether a user-requested BCON disconnect may continue |
@@ -230,14 +281,15 @@ still high when the poll is rendered.
 
 `Activate Enabled Beams` reads all three Manual Control configurations, filters out
 channels whose Main Control dashboard software interlock is disabled, blocks
-non-OFF output when VTRX pressure is above Main Control's pressure limit or
-projected emission current is at or above the configured limit, then calls
+non-OFF output when VTRX pressure is stale, unavailable, or above Main Control's
+pressure limit, or projected emission current is unavailable/invalid or at or
+above the configured limit, then calls
 `bcon_driver.sync_start(configs)`. The driver stages pulse parameters and
 requested modes, then commits them together with the firmware apply command.
 The interlock provider is fail-closed: an absent or false entry for a channel
 means that channel is skipped rather than started.
 
-`PVX Enable Toggle` writes `1` once to the per-channel command register:
+`Toggle PVX <channel> Enable` writes `1` once to the per-channel command register:
 R13 for Beam A, R23 for Beam B, or R33 for Beam C. The firmware self-clears the
 register, treats `0` as a no-op, and produces one 100 ms PVX pulse when it
 accepts the request. R114/R124/R134 report whether the corresponding pulse is
@@ -293,9 +345,15 @@ Running a sequence requires:
 - No currently running sequence worker.
 
 The sequence runner uses a background thread. Each step calls
-the Beam Pulse emission-limit check before `bcon_driver.sync_start(configs)`,
+the shared VTRX-pressure and emission-current checks before
+`bcon_driver.sync_start(configs)`,
 then sleeps for the step dwell while checking the stop event. Stop, disarm,
 disconnect, and host shutdown all request the worker to stop.
+
+Sequence steps are not Main Control operations and do not carry operation
+tokens. Their BCON apply commands still receive firmware diagnostic
+confirmation through the untokenized acknowledgement/logging path, while live
+output state remains poll-derived.
 
 ## Threading And Lifecycle
 
@@ -318,8 +376,8 @@ Cleanup paths:
 
 ## Dependencies
 
-- Python standard library: `tkinter`, `threading`, `queue`, `time`, `pathlib`,
-  `datetime`, `os`, `sys`.
+- Python standard library: `collections`, `csv`, `json`, `math`, `os`,
+  `pathlib`, `queue`, `sys`, `threading`, `time`, `tkinter`, and `typing`.
 - Project modules: `instrumentctl.BCON`, `utils.LogLevel`.
 - Serial dependency: `pyserial`.
 - Hardware: BCON firmware exposing the Modbus RTU register map expected by

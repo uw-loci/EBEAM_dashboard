@@ -13,8 +13,9 @@ state back into a compact operator panel.
 At runtime it is responsible for:
 
 - Building the Main Control `Main` and `Config` tabs.
-- Providing ARM BEAMS, BEAMS E-STOP, Beam A/B/C, Beam A/B/C software interlock,
-  Activate Enabled Beams, and Disable All Beams controls.
+- Providing the BEAMS ARMED toggle, `E-STOP: BEAMS & CCS`, Beam A/B/C,
+  Beam A/B/C software-interlock, Activate Enabled Beams, and Disable All Beams
+  controls.
 - Displaying Beam A/B/C output status and the result of the latest beam action.
 - Saving dashboard layout and updating COM-port assignments through Dashboard
   callbacks.
@@ -30,14 +31,14 @@ Main Control is a two-tab subpanel.
 
 - Setup script dropdown.
 - Beam A/B/C ON/OFF buttons.
-- Beam A/B/C Interlock Disabled/Enabled buttons, which are dashboard-only software
+- Beam A/B/C Disabled/Enabled buttons, which are dashboard-only software
   interlocks. They do not read or write BCON enable-toggle registers.
 - Activate Enabled Beams and Disable All Beams buttons.
 - ARM BEAMS / BEAMS ARMED toggle.
 - Four-line beam status/action display:
   - Lines 1-3 show Beam A/B/C output state only.
   - Line 4 shows the latest action result or failure reason.
-- BEAMS E-STOP button.
+- `E-STOP: BEAMS & CCS` button.
 
 ### `Config` Tab
 
@@ -127,10 +128,10 @@ Main Control uses Cathode Heating in three ways:
   can block output commands, when the emission-current limit is enabled, if
   projected cathode emission predictions are unknown/invalid or would exceed the
   configured total predicted emission-current limit.
-- It exposes the VTRX pressure guard setting, threshold, and latest valid VTRX
-  pressure to Beam Pulse so output commands are blocked while pressure is above
-  1e-5 mbar.
-- During BEAMS E-STOP, Main Control calls `turn_off_all_beams()` to turn off the
+- It exposes the VTRX pressure guard setting, threshold, latest pressure, and
+  freshness to Beam Pulse so output commands are blocked when pressure is stale,
+  unavailable, or above 1e-5 mbar.
+- During `E-STOP: BEAMS & CCS`, Main Control calls `turn_off_all_beams()` to turn off the
   cathode heating power-supply outputs.
 - When the BCON-disconnect guard is enabled, Main Control also calls
   `turn_off_all_beams()` if BCON disconnects while any cathode output is active.
@@ -148,16 +149,16 @@ the 20kV Bertan Current Limit for E-Stop Trigger setting: it validates and
 persists the entry, sends the numeric value to Beam Energy, and registers a
 callback with Beam Energy through `set_beams_estop_callback()`. Beam Energy uses
 the Main Control-provided value during each Knob Box poll; when +20 kV current
-reaches that value, it calls Main Control's BEAMS E-STOP path.
+reaches that value, it calls Main Control's `E-STOP: BEAMS & CCS` path.
 
 ### VTRX
 
 VTRX reports pressure updates to Main Control. When the high-pressure
 beam-disable guard is enabled, Main Control uses the tokenized Disable All Beams
-flow on the first unsafe or stale reading. It clears dashboard software
-interlocks only after the post-command BCON poll confirms every channel OFF,
-then waits for pressure to recover to 1e-5 mbar or below before it can trigger
-again.
+flow on the first high, stale, unavailable, or firmware-error reading. It
+clears dashboard software interlocks only after the post-command BCON poll
+confirms every channel OFF, then waits for pressure to recover to 1e-5 mbar or
+below before it can trigger again.
 
 Main Control also uses VTRX pressure to protect CCS output. Stale pressure or
 pressure above 1e-5 mbar starts the configured CCS grace-period timer only when
@@ -181,15 +182,25 @@ Dashboard callbacks.
 - Beam A/B/C buttons are only enabled when Beam Pulse is armed and the matching
   dashboard software interlock is enabled. These interlocks have no BCON
   firmware readback or write path.
-- Dashboard beam actions carry a token through the BCON queue. Only one normal
-  action waits at a time; additional clicks remain possible but log a pending
-  warning. Sending has a 1.5 s deadline; once the terminal command is sent,
-  firmware acknowledgement plus the first full BCON poll completed after the
-  command was sent have a 1 s deadline.
-  A normal-action timeout releases the normal-action lock, logs the token,
+- Main Control owns one `_pending_bcon_operation`. Its host-only token has the
+  form `bcon-N` and accompanies the action name, zero-based channels, expected
+  poll state (`poll`, `off`, or `all_off`), operation kind, lifecycle state,
+  timestamps, optional safety cause, and timeout handles. The token is only a
+  correlation ID; it is not sent to BCON firmware.
+- A normal action is rejected while another operation is pending. Disarm and
+  safety actions can invalidate/preempt an earlier operator action; a repeated
+  E-stop reuses the pending E-stop token. Sending has a 1.5 s deadline. Once
+  the terminal command is sent, firmware acknowledgement and an eligible full
+  BCON poll share a 1 s deadline.
+- Driver `command_sent`, result, failure, and cancellation events are accepted
+  only when their token matches the pending operation. A full poll is
+  intentionally un-tokenized: it is eligible only when it completed after the
+  matching command's `sent_at` time and satisfies the operation's expected
+  channel state. Late events from an older token are ignored.
+- A normal-action timeout releases the pending-operation slot, logs the token,
   action, channels, elapsed time, and unknown firmware outcome, and leaves
-  hardware presentation to the next poll. Safety-action failures/timeouts are
-  logged as CRITICAL.
+  hardware presentation to later polls. Disable-all and E-stop failures/timeouts
+  are logged as CRITICAL.
 - An E-STOP confirmation timeout leaves the Beam Pulse arming state unchanged
   and BCON output state unknown. It is logged as CRITICAL, but Main Control
   keeps BCON controls available for an operator recovery attempt.
@@ -214,8 +225,8 @@ Dashboard callbacks.
   and output low; rejection or timeout leaves it enabled.
 - Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
   before BCON output commands when the VTRX pressure guard is enabled and the
-  latest valid VTRX pressure is greater than 1e-5 mbar.
-- BEAMS E-STOP always sends two redundant BCON all-off attempts, begins Cathode
+  reading is stale/unavailable or greater than 1e-5 mbar.
+- `E-STOP: BEAMS & CCS` always sends two redundant BCON all-off attempts, begins Cathode
   Heating shutdown immediately, and commits the beam/disarmed UI only after a
   post-ack poll confirms all channels OFF. Any failed attempt remains a CRITICAL
   E-stop failure even if the later attempt and poll turn every channel off.
