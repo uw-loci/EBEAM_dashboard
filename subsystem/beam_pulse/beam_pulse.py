@@ -775,7 +775,7 @@ class BeamPulseSubsystem:
             )
         return False, self._emission_block_message(action)
 
-    def activate_enabled_beams(self):
+    def activate_enabled_beams(self, operation_token: Optional[str] = None):
         """Start dashboard-software-enabled channels using Manual Control settings."""
         if not self._require_armed():
             self._notify_action_feedback(
@@ -783,7 +783,7 @@ class BeamPulseSubsystem:
                 "Failed to activate enabled beams, beams are not armed",
                 "failure",
             )
-            return
+            return False
         if not self.bcon_driver:
             self._log_event("Failed to activate enabled beams, BCON driver not available", LogLevel.ERROR)
             self._notify_action_feedback(
@@ -791,7 +791,7 @@ class BeamPulseSubsystem:
                 "Failed to activate enabled beams, BCON driver not available",
                 "failure",
             )
-            return
+            return False
         if not self._bcon_is_connected():
             self._log_event("Failed to activate enabled beams, BCON device not connected", LogLevel.ERROR)
             self._notify_action_feedback(
@@ -799,7 +799,7 @@ class BeamPulseSubsystem:
                 "Failed to activate enabled beams, BCON device not connected",
                 "failure",
             )
-            return
+            return False
 
         activation_interlock_provider = getattr(self, "_activation_interlock_provider", None)
         if callable(activation_interlock_provider):
@@ -809,7 +809,7 @@ class BeamPulseSubsystem:
                 message = f"Failed to activate enabled beams, software interlock state unavailable: {e}"
                 self._log_event(message, LogLevel.ERROR)
                 self._notify_action_feedback("status", message, "failure")
-                return
+                return False
         else:
             # Standalone Beam Pulse has no Main Control interlocks; do not use
             # R114/R124/R134 because current firmware defines them as busy flags.
@@ -832,7 +832,7 @@ class BeamPulseSubsystem:
                     f"Failed to activate enabled beams: {message}",
                     "failure",
                 )
-                return
+                return False
             configs.append({
                 'ch': ch + 1,
                 'mode': config['mode'],
@@ -849,20 +849,24 @@ class BeamPulseSubsystem:
                 else:
                     message = "Failed to activate enabled beams, total emission current limit exceeded"
                 self._notify_action_feedback("status", message, "failure")
-                return
+                return False
 
-            ack = self._queue_firmware_ack("Activate Enabled Beams")
-            if not self.bcon_driver.sync_start(configs):
-                self._cancel_firmware_ack(ack)
+            ack = "" if operation_token else self._queue_firmware_ack("Activate Enabled Beams")
+            sync_kwargs = {"operation_token": operation_token} if operation_token else {}
+            if not self.bcon_driver.sync_start(configs, **sync_kwargs):
+                if ack:
+                    self._cancel_firmware_ack(ack)
                 self._notify_action_feedback(
                     "status",
                     "Failed to activate enabled beams, BCON did not queue command",
                     "failure",
                 )
                 self._log_event("Activate Enabled Beams failed: BCON did not queue command", LogLevel.ERROR)
-                return
-            self._notify_action_feedback("beams_sent", "", "success", configs)
-            self._log_event("Activate Enabled Beams sent to BCON")
+                return False
+            self._notify_action_feedback(
+                "status", "Activate Enabled Beams queued; awaiting firmware response", "neutral")
+            self._log_event("Activate Enabled Beams queued for BCON")
+            return True
         else:
             # No channels were eligible, so line 4 gets status but lines 1-3 stay unchanged.
             self._notify_action_feedback(
@@ -871,29 +875,49 @@ class BeamPulseSubsystem:
                 "neutral",
             )
             self._log_event("Activate Enabled Beams skipped: no enabled channels", LogLevel.WARNING)
+            return False
 
-    def disable_all_beams(self):
+    def disable_all_beams(self, operation_token: Optional[str] = None,
+                          defer_ui: bool = False):
         """Stop all channels immediately."""
         if not self.bcon_driver:
             message = "Disable All Beams failed: BCON driver not available"
+            if operation_token:
+                self._notify_action_feedback("operation_failed", {
+                    "token": operation_token, "reason": message, "critical": True,
+                })
+                return False
+            if defer_ui:
+                return False
             self._notify_action_feedback("status", message, "failure")
             self._log_event(message, LogLevel.ERROR)
             return False
-        self._clear_firmware_acks()
-        ack = self._queue_firmware_ack("Disable All Beams")
-        if not self.bcon_driver.stop_all():
-            self._cancel_firmware_ack(ack)
+        if not operation_token:
+            self._clear_firmware_acks()
+        ack = "" if operation_token else self._queue_firmware_ack("Disable All Beams")
+        stop_kwargs = {"operation_token": operation_token} if operation_token else {}
+        if defer_ui:
+            stop_kwargs["log_failure"] = False
+        if not self.bcon_driver.stop_all(**stop_kwargs):
+            if ack:
+                self._cancel_firmware_ack(ack)
             message = "Disable All Beams failed: BCON all-off was not confirmed"
+            if operation_token:
+                return False
+            if defer_ui:
+                return False
             self._notify_action_feedback("status", message, "failure")
-            self._log_event(message, LogLevel.ERROR)
+            self._log_event(message, LogLevel.CRITICAL)
             return False
-        self._clear_output_state()
-        self._notify_action_feedback(
-            "all_off",
-            "Disable All Beams: confirmed all channels -> OFF",
-            "neutral",
-        )
-        self._log_event("Disable All Beams: confirmed all channels -> OFF")
+        if not defer_ui:
+            self._clear_output_state()
+            self._notify_action_feedback(
+                "all_off",
+                "Disable All Beams: confirmed all channels -> OFF",
+                "neutral",
+            )
+        self._log_event("Disable All Beams confirmed; awaiting poll" if defer_ui else
+                        "Disable All Beams: confirmed all channels -> OFF")
         return True
 
     # ================================================================== #
@@ -1220,6 +1244,10 @@ class BeamPulseSubsystem:
         elif typ == "regs":
             regs = msg[1]
             self._update_ui_from_registers(regs)
+            self._notify_action_feedback("operation_poll", {
+                "generation": msg[2] if len(msg) > 2 else None,
+                "completed_at": msg[3] if len(msg) > 3 else time.monotonic(),
+            })
         elif typ == "log":
             # BCON driver queued this from a worker thread; _log handles main-thread UI logging.
             text = str(msg[1])
@@ -1233,11 +1261,15 @@ class BeamPulseSubsystem:
             self._log_event(f"Wrote R{reg}={val}", LogLevel.DEBUG)
         elif typ == "command_result":
             info = msg[1]
+            token = info.get("operation_token")
+            if token:
+                self._notify_action_feedback("operation_result", info)
+                return
             requested = info.get("requested_label", f"CMD_{info.get('requested_code', '?')}")
             actual = info.get("last_command_label", requested)
             cmd_text = requested if actual == requested else f"{requested}->{actual}"
             seq = info.get("last_cmd_seq", 0)
-            ack_context = self._pop_firmware_ack()
+            ack_context = "" if token else self._pop_firmware_ack()
             if info.get("rejected"):
                 reason = info.get("last_reject_reason", "UNKNOWN")
                 message = f"BCON command {cmd_text} rejected: {reason}"
@@ -1254,6 +1286,19 @@ class BeamPulseSubsystem:
                     if seq:
                         ack_message = f"{ack_message} seq={seq}"
                     self._notify_action_feedback("firmware_ack", ack_message, "success")
+        elif typ == "command_sent":
+            self._notify_action_feedback("operation_sent", msg[1])
+        elif typ in ("operation_failed", "operation_cancelled"):
+            info = msg[1]
+            if info.get("token"):
+                self._notify_action_feedback(typ, info)
+                return
+            level = LogLevel.CRITICAL if info.get("critical") else LogLevel.ERROR
+            self._log_event(
+                f"BCON operation {info.get('token', '?')} failed: {info.get('reason', 'cancelled')}",
+                level,
+            )
+            self._notify_action_feedback(typ, info)
         elif typ == "error":
             text = str(msg[1])
             level = LogLevel.ERROR if text.startswith((
@@ -1871,18 +1916,32 @@ class BeamPulseSubsystem:
         )
         return True
 
-    def stop_all_channels(self, firmware_ack: str = "All OFF") -> bool:
+    def stop_all_channels(self, firmware_ack: str = "All OFF",
+                          operation_token: Optional[str] = None,
+                          defer_ui: bool = False) -> bool:
         if self.bcon_driver:
-            self._clear_firmware_acks()
-            ack = self._queue_firmware_ack(firmware_ack)
-            ok = self.bcon_driver.stop_all()
+            if not operation_token:
+                self._clear_firmware_acks()
+            ack = "" if operation_token else self._queue_firmware_ack(firmware_ack)
+            kwargs = {"operation_token": operation_token} if operation_token else {}
+            ok = self.bcon_driver.stop_all(**kwargs)
             if not ok:
-                self._cancel_firmware_ack(ack)
+                if ack:
+                    self._cancel_firmware_ack(ack)
+                if operation_token:
+                    return False
                 self._log_event("BCON Driver failed to stop all BCON channels", LogLevel.CRITICAL)
                 return False
-            self._clear_output_state()
+            if not defer_ui:
+                self._clear_output_state()
             return bool(ok)
-        self._log_event("Failed to stop all BCON channels: driver not available", LogLevel.ERROR)
+        message = "Failed to stop all BCON channels: driver not available"
+        if operation_token:
+            self._notify_action_feedback("operation_failed", {
+                "token": operation_token, "reason": message, "critical": True,
+            })
+            return False
+        self._log_event(message, LogLevel.ERROR)
         return False
 
     # --- Safety ---
@@ -1901,26 +1960,44 @@ class BeamPulseSubsystem:
         self._update_armed_button_states(True)
         return True
 
-    def disarm_beams(self, preserve_pending_acks: bool = False) -> bool:
+    def disarm_beams(self, preserve_pending_acks: bool = False,
+                     operation_token: Optional[str] = None,
+                     defer_ui: bool = False) -> bool:
         self._stop_sequence_worker()
         if not self.bcon_driver:
-            self._log_event("Failed to stop all BCON channels during disarm: driver not available", LogLevel.ERROR)
+            message = "Failed to stop all BCON channels during disarm: driver not available"
+            if operation_token:
+                self._notify_action_feedback("operation_failed", {
+                    "token": operation_token, "reason": message, "critical": False,
+                })
+                return False
+            self._log_event(message, LogLevel.ERROR)
             return False
 
-        if not preserve_pending_acks:
+        if not preserve_pending_acks and not operation_token:
             self._clear_firmware_acks()
-        ack = self._queue_firmware_ack("Disarm all OFF")
-        if not self.bcon_driver.stop_all():
-            self._cancel_firmware_ack(ack)
+        ack = "" if operation_token else self._queue_firmware_ack("Disarm all OFF")
+        kwargs = {"operation_token": operation_token} if operation_token else {}
+        if not self.bcon_driver.stop_all(**kwargs):
+            if ack:
+                self._cancel_firmware_ack(ack)
+            if operation_token:
+                return False
             self._log_event("Failed to stop all BCON channels during disarm", LogLevel.ERROR)
             return False
 
+        if defer_ui:
+            return True
+        self.complete_disarm()
+        return True
+
+    def complete_disarm(self) -> None:
+        """Commit software disarm state after the confirming BCON poll."""
         self.beams_armed_status = False
         self._clear_output_state()
         self._notify_armed_status(False)
         self._log("Beams DISARMED", LogLevel.INFO)
         self._update_armed_button_states(False)
-        return True
 
     def get_beams_armed_status(self) -> bool:
         return self.beams_armed_status
@@ -1980,7 +2057,7 @@ class BeamPulseSubsystem:
             cv['count'].get(),
         )
 
-    def send_channel_config(self, ch: int) -> bool:
+    def send_channel_config(self, ch: int, operation_token: Optional[str] = None) -> bool:
         """Validate GUI params for channel *ch* (0-based) and write them to BCON.
 
         Shows an 'Invalid Configuration' popup and returns False on bad input.
@@ -2024,43 +2101,40 @@ class BeamPulseSubsystem:
                 )
                 return False
 
-        ack = self._queue_firmware_ack(
-            f"Beam {self._channel_label(ch)} {'ON' if mode_label != 'OFF' else 'OFF'}"
-        )
-        if not self.bcon_driver.set_channel_mode(ch + 1, mode_label, duration_ms=duration, count=count):
-            self._cancel_firmware_ack(ack)
+        ack = "" if operation_token else self._queue_firmware_ack(
+            f"Beam {self._channel_label(ch)} {'ON' if mode_label != 'OFF' else 'OFF'}")
+        mode_kwargs = {"operation_token": operation_token} if operation_token else {}
+        if not self.bcon_driver.set_channel_mode(
+                ch + 1, mode_label, duration_ms=duration, count=count, **mode_kwargs):
+            if ack:
+                self._cancel_firmware_ack(ack)
             self._set_last_send_failure(
                 f"BCON did not queue {self._channel_name(ch)} {mode_label} command"
             )
             self._log_event(f"Failed to send {self._channel_name(ch)} {mode_label}: BCON did not queue command", LogLevel.ERROR)
             return False
 
-        is_on = mode_label != 'OFF'
-        self.beam_on_status[ch] = is_on
-        self._log_event(f"Sent {self._channel_name(ch)}: mode={mode_label} dur={duration}ms count={count}")
+        self._log_event(
+            f"Queued {self._channel_name(ch)}: mode={mode_label} dur={duration}ms count={count}")
         return True
 
-    def send_channel_off(self, ch: int, firmware_ack: bool = True) -> bool:
+    def send_channel_off(self, ch: int, firmware_ack: bool = True,
+                         operation_token: Optional[str] = None) -> bool:
         """Send OFF mode to a single channel (0-based index)."""
         if not self.bcon_driver:
             self._log("No BCON driver", LogLevel.ERROR)
             return False
-        ack = (
+        ack = "" if operation_token else (
             self._queue_firmware_ack(f"Beam {self._channel_label(ch)} OFF")
             if firmware_ack else ""
         )
-        if not self.bcon_driver.set_channel_off(ch + 1):
-            self._cancel_firmware_ack(ack)
+        off_kwargs = {"operation_token": operation_token} if operation_token else {}
+        if not self.bcon_driver.set_channel_off(ch + 1, **off_kwargs):
+            if ack:
+                self._cancel_firmware_ack(ack)
             self._log_event(f"{self._channel_name(ch)} OFF failed", LogLevel.ERROR)
             return False
-        self.beam_on_status[ch] = False
-        self._log_event(f"{self._channel_name(ch)} -> OFF")
-        return True
-
-    def safe_shutdown(self, reason: Optional[str] = None) -> bool:
-        self._log(f"Safe shutdown: {reason or 'No reason'}", LogLevel.WARNING)
-        self.disarm_beams()
-        self._log("Safe shutdown complete", LogLevel.INFO)
+        self._log_event(f"Queued {self._channel_name(ch)} -> OFF")
         return True
 
     def cancel_updates(self) -> None:

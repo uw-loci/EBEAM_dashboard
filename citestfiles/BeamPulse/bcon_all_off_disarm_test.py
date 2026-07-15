@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from instrumentctl.BCON.bcon_driver import (  # noqa: E402
     BCONCommandResult,
     BCONDriver,
+    COMMAND_APPLY_STAGED_MODES,
     COMMAND_ALL_OFF,
     REG_CMD_QUEUE_DEPTH,
     REG_COMMAND,
@@ -28,6 +29,20 @@ from utils import LogLevel  # noqa: E402
 
 class FakeOpenSerial:
     is_open = True
+
+
+class StopAfterWait:
+    def __init__(self, driver):
+        self.driver = driver
+
+    def clear(self):
+        pass
+
+    def set(self):
+        pass
+
+    def wait(self, _timeout):
+        self.driver._poll_running = False
 
 
 def make_driver():
@@ -258,6 +273,97 @@ class BCONAllOffDriverTest(unittest.TestCase):
                 for msg in driver.ui_messages
             )
         )
+
+    def test_partial_staging_failure_skips_apply_and_forces_all_off(self):
+        driver = make_driver()
+        driver._connected = True
+        driver._poll_running = True
+        driver._last_heartbeat_time = float("inf")
+        driver._watchdog_timeout_ms = 1500
+        driver._poll_errors = 0
+        driver._failed_batches = set()
+        driver._completed_stage_batches = set()
+        writes = []
+        all_off_calls = []
+
+        def write(reg, value, epoch=None):
+            writes.append((reg, value))
+            if len(writes) == 2:
+                raise RuntimeError("serial write failed")
+            return True
+
+        driver._write_register_raw = write
+        driver.stop_all = lambda: all_off_calls.append(True) or True
+        driver._read_holding_registers_raw = lambda _start, count: (
+            setattr(driver, "_poll_running", False) or [0] * count
+        )
+        driver.set_channel_pulse(1, 100, operation_token="stage-failure")
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        self.assertEqual(len(writes), 2)
+        self.assertNotIn((REG_COMMAND, COMMAND_APPLY_STAGED_MODES), writes)
+        self.assertEqual(all_off_calls, [True])
+        self.assertTrue(any(
+            msg[0] == "operation_failed"
+            and msg[1]["token"] == "stage-failure"
+            and msg[1]["critical"]
+            for msg in driver.ui_messages
+        ))
+        self.assertTrue(any(level == "CRITICAL" for _message, level in driver.logs))
+
+    def test_first_staging_failure_skips_apply_without_all_off(self):
+        driver = make_driver()
+        driver._connected = True
+        driver._poll_running = True
+        driver._last_heartbeat_time = float("inf")
+        driver._watchdog_timeout_ms = 1500
+        driver._poll_errors = 0
+        driver._failed_batches = set()
+        driver._completed_stage_batches = set()
+        writes = []
+        all_off_calls = []
+
+        def write(reg, value, epoch=None):
+            writes.append((reg, value))
+            raise RuntimeError("serial write failed")
+
+        driver._write_register_raw = write
+        driver.stop_all = lambda: all_off_calls.append(True) or True
+        driver._read_holding_registers_raw = lambda _start, count: (
+            setattr(driver, "_poll_running", False) or [0] * count
+        )
+        driver.set_channel_pulse(1, 100, operation_token="first-stage-failure")
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        self.assertEqual(len(writes), 1)
+        self.assertNotIn((REG_COMMAND, COMMAND_APPLY_STAGED_MODES), writes)
+        self.assertEqual(all_off_calls, [])
+        self.assertTrue(any(
+            msg[0] == "operation_failed"
+            and msg[1]["token"] == "first-stage-failure"
+            and not msg[1]["critical"]
+            for msg in driver.ui_messages
+        ))
+
+    def test_disconnected_worker_cancels_a_token_once(self):
+        driver = make_driver()
+        driver._poll_running = True
+        driver._queue_wake = StopAfterWait(driver)
+        for reg in (10, 11, 12):
+            driver.enqueue_write(reg, 1, operation_token="cancel-once", stage_write=True)
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        cancellations = [
+            msg for msg in driver.ui_messages
+            if msg[0] == "operation_cancelled" and msg[1]["token"] == "cancel-once"
+        ]
+        self.assertEqual(len(cancellations), 1)
 
 
 class FakeStopAllBCONDriver:

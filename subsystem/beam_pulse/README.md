@@ -86,6 +86,12 @@ as `("regs", regs)` messages. The subsystem consumes the queue on the Tk main
 thread every 200 ms, updates widgets, and forwards live state to Main Control
 callbacks.
 
+For operator actions, Beam Pulse forwards an operation token with terminal
+command sent/result/failure events. Main Control waits for the matching result
+and then a later complete register snapshot before it changes hardware-output
+presentation. This keeps command confirmation separate from the poll-derived
+Beam A/B/C state.
+
 Driver warning/error logs are also routed through the same UI queue, so BCON
 worker-thread diagnostics are displayed through the dashboard logging path
 instead of being printed directly from the worker.
@@ -212,7 +218,13 @@ treated as running even though it has no remaining pulse countdown.
 2. Validates mode, duration, and count.
 3. Runs the VTRX pressure and emission-current checks for non-OFF output.
 4. Calls `bcon_driver.set_channel_mode(ch + 1, mode, duration_ms, count)`.
-5. Updates local output state; register polling remains the hardware truth.
+5. Queues the BCON staging writes and terminal command. It does not update local
+   output state; complete BCON register polling remains the hardware truth.
+
+For a short pulse, firmware can report that the command executed while the first
+post-ack poll already shows the output OFF because the pulse completed. The
+command acknowledgement therefore confirms execution, not that the output is
+still high when the poll is rendered.
 
 `send_channel_off(ch)` sends OFF command to BCON and does not require arming.
 
@@ -234,11 +246,12 @@ while the latest busy status is `1` is rejected by the dashboard before FC06 is
 sent. Firmware still protects a race by acknowledging FC06 and recording
 `LAST_ERROR=11`.
 
-`disable_all_beams()` calls confirmed `bcon_driver.stop_all()` and clears local
-output state only after the BCON all-off command is confirmed. The driver
-invalidates pre-existing queued writes during this all-off path, so a Beam
-ON/apply write that was queued or already dequeued before the stop request
-cannot run after the confirmed `ALL_OFF`.
+`disable_all_beams()` calls confirmed `bcon_driver.stop_all()`. Main Control
+passes `defer_ui=True` for safety actions, so local output state remains
+poll-derived until the post-ack full poll. The driver invalidates pre-existing
+queued writes during this all-off path, so a Beam ON/apply write that was queued
+or already dequeued before the stop request cannot run after the confirmed
+`ALL_OFF`.
 
 ## CSV Sequences
 
@@ -303,7 +316,6 @@ Cleanup paths:
   disconnects the driver.
 - `close_com_ports()` is the Dashboard cleanup hook.
 - `cancel_updates()` cancels Beam Pulse `after()` callbacks.
-- `safe_shutdown(reason)` disarms, turns all beams off, and logs the shutdown.
 
 ## Dependencies
 

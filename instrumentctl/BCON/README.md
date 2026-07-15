@@ -142,6 +142,17 @@ already dequeued before `ALL_OFF` but reaches the serial port afterward is
 dropped as stale. This prevents earlier output-producing writes from running
 after a confirmed all-off shutdown.
 
+### Dashboard operation tokens
+
+Dashboard-originated mode and all-off requests may include an `operation_token`.
+The queued terminal command emits tokenized `command_sent`, firmware-result,
+failure, and cancellation messages so the dashboard can ignore stale results.
+Full register snapshots are not tokenized: Main Control associates the next
+complete poll with its currently pending operation after a terminal result. A
+tokenized staged batch suppresses `COMMAND=4` after any write failure. If a
+stage has already written, the driver logs CRITICAL and forces `ALL_OFF`; a
+failure on the first stage is reported normally without that recovery action.
+
 ### Configuration
 
 #### `set_watchdog(timeout_ms: int) -> bool`

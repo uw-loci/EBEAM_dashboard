@@ -70,8 +70,10 @@ class FakeBeamPulse:
         self.disable_all_calls = 0
         self.connected = connected
 
-    def disable_all_beams(self):
+    def disable_all_beams(self, defer_ui=False):
         self.disable_all_calls += 1
+        self.defer_ui_values = getattr(self, "defer_ui_values", []) + [defer_ui]
+        return True
 
     def is_connected(self):
         return self.connected
@@ -94,14 +96,14 @@ class FakeBeamPulseEstop:
         self.disarm_calls = 0
         self.disarm_preserve_pending_acks_values = []
 
-    def stop_all_channels(self):
+    def stop_all_channels(self, operation_token=None, defer_ui=False):
         self.stop_all_calls += 1
         return self.stop_all_result
 
     def get_beams_armed_status(self):
         return self.armed
 
-    def disarm_beams(self, preserve_pending_acks=False):
+    def disarm_beams(self, preserve_pending_acks=False, operation_token=None, defer_ui=False):
         self.disarm_calls += 1
         self.disarm_preserve_pending_acks_values.append(preserve_pending_acks)
         if self.disarm_result:
@@ -284,15 +286,24 @@ class MainControlBeamsOffTest(unittest.TestCase):
         self.assertEqual(cathode.turn_off_calls, 1)
         self.assertEqual(
             main_control._beam_action_status_text,
-            "Failed to stop beams: Beam Pulse disarm was not confirmed",
+            "Failed to stop beams: BCON all-off was not confirmed",
         )
         self.assertEqual(main_control._beam_action_status_outcome, "failure")
         self.assertTrue(
             any(
-                "Failed to disarm beams via Beams E-stop" in message
+                "Failed to send redundant BCON all-off via Beams E-stop" in message
                 for message in main_control.logger.messages("CRITICAL")
             )
         )
+
+    def test_estop_sends_both_redundant_all_off_commands_while_unarmed(self):
+        beam_pulse = FakeBeamPulseEstop(armed=False)
+        main_control = make_main_control_for_beams_off(beam_pulse=beam_pulse)
+
+        main_control.handle_beams_off()
+
+        self.assertEqual(beam_pulse.stop_all_calls, 1)
+        self.assertEqual(beam_pulse.disarm_calls, 1)
 
 
 class MainControlVtrxCcsGracePeriodUiTest(unittest.TestCase):
@@ -571,6 +582,7 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
         main_control._handle_vtrx_pressure_update(5e-6, pressure_reading_is_fresh=False)
 
         self.assertEqual(beam_pulse.disable_all_calls, 1)
+        self.assertEqual(beam_pulse.defer_ui_values, [True])
         self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
         self.assertTrue(
             any(

@@ -84,14 +84,14 @@ Main Control is a two-tab subpanel.
 | Method | Purpose |
 | --- | --- |
 | `handle_arm_beams()` | Toggles Beam Pulse software arming and updates Main Control button state. |
-| `handle_beams_off()` | Requests confirmed BCON all-off, turns off cathode heating outputs, disarms Beam Pulse, and only resets beam controls/posts all-disabled status after all-off confirmation. |
+| `handle_beams_off()` | Makes two redundant BCON all-off attempts, turns off cathode heating outputs, and defers beam/disarmed UI changes until the post-ack BCON poll. |
 | `toggle_individual_beam_with_status()` | Turns one Beam A/B/C output on or off using the current Beam Pulse manual channel configuration. |
 | `_toggle_beam_software_interlock()` | Toggles one dashboard-only Beam A/B/C interlock. If its output is active, it queues that channel OFF and waits for the next BCON status poll to confirm it. |
 | `handle_activate_enabled_beams()` | Starts locally software-enabled/manual-configured Beam Pulse channels together. |
-| `handle_disable_all_beams()` | Requests confirmed BCON all-off, then clears the dashboard software interlocks. |
+| `handle_disable_all_beams()` | Requests BCON all-off, then clears dashboard software interlocks only after the post-ack poll confirms all channels OFF. |
 | `_on_channel_status_update()` | Mirrors live BCON channel output state into Beam A/B/C buttons and status lines. |
 | `_handle_action_feedback()` | Converts Beam Pulse action callbacks into the latest-action status line. |
-| `_handle_bcon_disconnected()` | Disables CCS output through Cathode Heating when BCON disconnects and the guard is enabled. |
+| `_handle_bcon_disconnected()` | Terminates any pending BCON operation as indeterminate, then disables CCS output through Cathode Heating when the guard is enabled. |
 | `_handle_vtrx_pressure_update()` | Handles each valid VTRX pressure reading, including Beam Pulse high-pressure disable and CCS grace-period shutdown checks. |
 
 ## Subsystem Relationships
@@ -179,22 +179,37 @@ Dashboard callbacks.
 - Beam A/B/C buttons are only enabled when Beam Pulse is armed and the matching
   dashboard software interlock is enabled. These interlocks have no BCON
   firmware readback or write path.
+- Dashboard beam actions carry a token through the BCON queue. Only one normal
+  action waits at a time; additional clicks remain possible but log a pending
+  warning. Sending has a 1.5 s deadline; once the terminal command is sent,
+  firmware acknowledgement plus the next full BCON poll have a 1 s deadline.
+  A normal-action timeout releases the normal-action lock, logs the token,
+  action, channels, elapsed time, and unknown firmware outcome, and leaves
+  hardware presentation to the next poll. Safety-action failures/timeouts are
+  logged as CRITICAL.
+- A BCON disconnect immediately terminates a pending operation as indeterminate,
+  logs its token/action/channels, and ignores any later result for that operation.
+- Beam A/B/C ON/OFF text, color, and output status lines change only from a
+  complete BCON register poll, never directly from a command result.
 - Activate Enabled Beams is delegated to Beam Pulse, which filters by those
   dashboard software interlocks and performs output checks before sending the
   synchronized start to BCON.
 - Disable All Beams sends BCON `COMMAND=1` to stop output modes/gates. It does
-  not issue a PVX enable-toggle command. Main Control clears its dashboard
-  interlocks only after BCON confirms the all-off command.
+  not issue a PVX enable-toggle command and does not disarm BEAMS ARMED. Main
+  Control clears all dashboard interlocks only after the post-ack poll confirms
+  all channels OFF.
 - Disabling an enabled Beam A/B/C software interlock while that beam output is
-  active queues that channel OFF and shows `Stopping...`. The selected interlock
-  changes to Disabled only after the wake-triggered BCON status poll reports
-  mode OFF and output low; rejection or timeout leaves it enabled.
+  active queues that channel OFF but leaves the interlock visible and clickable
+  as Enabled while the normal operation is pending. The selected interlock
+  changes to Disabled only after the post-ack BCON status poll reports mode OFF
+  and output low; rejection or timeout leaves it enabled.
 - Beam A/B/C ON, Activate Enabled Beams, and CSV sequence steps are blocked
   before BCON output commands when the VTRX pressure guard is enabled and the
   latest valid VTRX pressure is greater than 1e-5 mbar.
-- BEAMS E-STOP is the Main Control path that combines confirmed BCON all-off,
-  Cathode Heating output shutdown, Beam Pulse disarm, and confirmation-gated
-  Main Control UI reset.
+- BEAMS E-STOP always sends two redundant BCON all-off attempts, begins Cathode
+  Heating shutdown immediately, and commits the beam/disarmed UI only after a
+  post-ack poll confirms all channels OFF. Any failed attempt remains a CRITICAL
+  E-stop failure even if the later attempt and poll turn every channel off.
 - Disable CCS Output on BCON Disconnect is a runtime Main Control setting. When
   enabled, an unexpected BCON disconnect turns off active CCS outputs, and a
   manual BCON disconnect asks for confirmation before it shuts those outputs
@@ -202,8 +217,10 @@ Dashboard callbacks.
   block cathode output enable requests.
 - Disable Beams if pressure exceeds 10^-5 mbar is a runtime Main Control
   setting. When enabled, a valid VTRX pressure reading greater than 1e-5 mbar
-  logs a critical message and disables Beam Pulse output once until pressure
-  recovers to 1e-5 mbar or below.
+  invalidates any pending operator action, logs a critical message, requests
+  BCON all-off without locally changing output state, and waits for polling to
+  present the resulting hardware state. It triggers once until pressure recovers
+  to 1e-5 mbar or below.
 - Disable CCS Output after the configured grace period above 10^-5 mbar applies
   when CCS output is active. The grace-period duration is persisted in Main
   Control config, defaults to 30 seconds, blocks new CCS output enables while

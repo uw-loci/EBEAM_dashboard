@@ -312,6 +312,10 @@ class BCONDriver:
         # Wakes the poll worker when queued work arrives, avoiding an
         # unnecessary wait for the next idle poll interval.
         self._queue_wake = threading.Event()
+        # Token metadata is attached only to dashboard operations.
+        self._failed_batches = set()
+        self._completed_stage_batches = set()
+        self._poll_generation = 0
 
         # Latest register snapshot
         self._regs: List[int] = [0] * TOTAL_REGS
@@ -371,17 +375,25 @@ class BCONDriver:
         self._watchdog_timeout_ms = self.DEFAULT_WATCHDOG_MS
         self._last_heartbeat_time = 0.0
 
-    def _clear_cmd_queue(self) -> None:
-        """Drop any queued writes so reconnects never replay stale commands."""
+    def _clear_cmd_queue(self, reason: str = "queue cleared") -> None:
+        """Drop queued writes and notify any tokenized dashboard operation."""
         cleared = 0
+        cancelled_tokens = set()
+        failed_batches = getattr(self, "_failed_batches", set())
         while True:
             try:
-                self._cmd_queue.get_nowait()
+                cmd = self._cmd_queue.get_nowait()
                 cleared += 1
+                metadata = cmd[4] if len(cmd) > 4 and isinstance(cmd[4], dict) else {}
+                token = metadata.get("token")
+                if token and metadata.get("batch") not in failed_batches:
+                    cancelled_tokens.add(token)
             except queue.Empty:
                 break
         if cleared:
             self._log(f"Cleared {cleared} queued BCON command(s)", "DEBUG")
+        for token in cancelled_tokens:
+            self._ui_put("operation_cancelled", {"token": token, "reason": reason})
 
     @staticmethod
     def _command_label(cmd_code: int) -> str:
@@ -425,12 +437,13 @@ class BCONDriver:
         requested_code: int,
         snapshot: Dict[str, int],
         baseline: Optional[Dict[str, int]] = None,
+        operation_token: Optional[str] = None,
     ) -> Dict[str, object]:
         """Translate raw command diagnostics into a UI-friendly payload."""
         result_code = snapshot['last_command_result_code']
         reject_code = snapshot['last_reject_reason_code']
         actual_code = snapshot['last_command_code']
-        return {
+        payload = {
             'requested_code': int(requested_code),
             'requested_label': self._command_label(requested_code),
             'last_command_code': actual_code,
@@ -450,12 +463,16 @@ class BCONDriver:
             'rejected': result_code == int(BCONCommandResult.REJECTED),
             'fresh_snapshot': baseline is None or snapshot != baseline,
         }
+        if operation_token:
+            payload['operation_token'] = operation_token
+        return payload
 
     def _confirm_command_write(
         self,
         cmd_code: int,
         baseline: Optional[Dict[str, int]] = None,
         require_connected: bool = True,
+        operation_token: Optional[str] = None,
     ) -> Optional[Dict[str, object]]:
         """Confirm a nonzero COMMAND write from LAST_CMD diagnostics."""
         cmd_code = int(cmd_code)
@@ -490,7 +507,8 @@ class BCONDriver:
                         int(BCONCommandResult.EXECUTED),
                     )
                 ):
-                    payload = self._build_command_result_payload(cmd_code, snapshot, baseline)
+                    payload = self._build_command_result_payload(
+                        cmd_code, snapshot, baseline, operation_token=operation_token)
                     self._ui_put("command_result", payload)
                     return payload
             except Exception as exc:
@@ -519,7 +537,14 @@ class BCONDriver:
                 f"but diagnostics were unavailable"
             )
 
-        self._ui_put("error", message)
+        if operation_token:
+            self._ui_put("operation_failed", {
+                "token": operation_token,
+                "reason": message,
+                "critical": False,
+            })
+        else:
+            self._ui_put("error", message)
         return None
 
     # ================================================================== #
@@ -772,7 +797,9 @@ class BCONDriver:
     #                        Write Queue                                   #
     # ================================================================== #
 
-    def enqueue_write(self, reg: int, value: int):
+    def enqueue_write(self, reg: int, value: int, *, operation_token: Optional[str] = None,
+                      batch_id: Optional[str] = None, stage_write: bool = False,
+                      terminal_command: bool = False):
         """
         Enqueue a register write to be executed by the poll thread.
 
@@ -785,11 +812,20 @@ class BCONDriver:
         """
         with self._serial_lock:
             epoch = self._write_epoch
-        self._cmd_queue.put(("write", reg, value, epoch))
+        if operation_token:
+            self._cmd_queue.put(("write", reg, value, epoch, {
+                "token": operation_token,
+                "batch": batch_id or operation_token,
+                "stage": bool(stage_write),
+                "terminal": bool(terminal_command),
+            }))
+        else:
+            self._cmd_queue.put(("write", reg, value, epoch))
         self._queue_wake.set()
 
     def write_register_immediate(self, reg: int, value: int,
-                                 require_connected: bool = True) -> bool:
+                                 require_connected: bool = True,
+                                 operation_token: Optional[str] = None) -> bool:
         """
         Write a register synchronously (blocks until complete).
 
@@ -804,10 +840,22 @@ class BCONDriver:
             the firmware reported EXECUTED and False means rejected or inconclusive.
         """
         if require_connected and not self.is_connected():
-            self._log(f"Immediate write skipped while disconnected: R{reg}={value}", "WARNING")
+            message = f"Immediate write skipped while disconnected: R{reg}={value}"
+            if operation_token:
+                self._ui_put("operation_failed", {
+                    "token": operation_token, "reason": message, "critical": False,
+                })
+            else:
+                self._log(message, "WARNING")
             return False
         if not require_connected and not self._serial_is_open():
-            self._log(f"Immediate write skipped because serial port is not open: R{reg}={value}", "WARNING")
+            message = f"Immediate write skipped because serial port is not open: R{reg}={value}"
+            if operation_token:
+                self._ui_put("operation_failed", {
+                    "token": operation_token, "reason": message, "critical": False,
+                })
+            else:
+                self._log(message, "WARNING")
             return False
 
         reg = int(reg)
@@ -820,15 +868,31 @@ class BCONDriver:
         try:
             self._write_register_raw(reg, value)
             if command_write:
-                result = self._confirm_command_write(
-                    value,
-                    baseline=baseline,
-                    require_connected=require_connected,
-                )
+                if operation_token:
+                    self._ui_put("command_sent", {
+                        "token": operation_token,
+                        "command": value,
+                        "sent_at": time.monotonic(),
+                    })
+                confirm_kwargs = {
+                    "baseline": baseline,
+                    "require_connected": require_connected,
+                }
+                if operation_token:
+                    confirm_kwargs["operation_token"] = operation_token
+                result = self._confirm_command_write(value, **confirm_kwargs)
                 return bool(result and result.get('accepted'))
             return True
         except Exception as e:
-            self._log(f"Immediate write reg {reg}: {e}", "ERROR")
+            message = f"Immediate write reg {reg}: {e}"
+            if operation_token:
+                self._ui_put("operation_failed", {
+                    "token": operation_token,
+                    "reason": message,
+                    "critical": False,
+                })
+            else:
+                self._log(message, "ERROR")
             return False
 
     # ================================================================== #
@@ -862,12 +926,24 @@ class BCONDriver:
 
             # --- Process queued writes ---
             try:
+                cancelled_tokens = set()
                 while not self._cmd_queue.empty():
                     cmd = self._cmd_queue.get_nowait()
                     if cmd[0] == "write":
-                        _, reg, val, epoch = cmd
+                        _, reg, val, epoch, *extra = cmd
+                        metadata = extra[0] if extra and isinstance(extra[0], dict) else {}
+                        token = metadata.get("token")
+                        batch_id = metadata.get("batch")
+                        if batch_id in getattr(self, "_failed_batches", set()):
+                            continue
                         if not (self._serial and self._connected):
                             self._log(f"Dropped queued write while disconnected: R{reg}={val}", "DEBUG")
+                            if token and token not in cancelled_tokens:
+                                cancelled_tokens.add(token)
+                                self._ui_put("operation_cancelled", {
+                                    "token": token,
+                                    "reason": "BCON disconnected before write",
+                                })
                             continue
                         reg = int(reg)
                         val = int(val)
@@ -877,12 +953,52 @@ class BCONDriver:
                         try:
                             wrote = self._write_register_raw(reg, val, epoch=epoch)
                             if not wrote:
-                                continue
+                                raise RuntimeError("write was superseded before transmission")
                             self._ui_put("wrote", reg, val)
+                            if metadata.get("stage"):
+                                self._completed_stage_batches = getattr(
+                                    self, "_completed_stage_batches", set())
+                                self._completed_stage_batches.add(batch_id)
+                                if len(self._completed_stage_batches) > 100:
+                                    self._completed_stage_batches.pop()
                             if baseline is not None:
-                                self._confirm_command_write(val, baseline=baseline)
+                                if token:
+                                    self._ui_put("command_sent", {
+                                        "token": token,
+                                        "command": val,
+                                        "sent_at": time.monotonic(),
+                                    })
+                                confirm_kwargs = {"baseline": baseline}
+                                if token:
+                                    confirm_kwargs["operation_token"] = token
+                                self._confirm_command_write(val, **confirm_kwargs)
                         except Exception as e:
-                            self._ui_put("error", f"Write reg {reg}: {e}")
+                            message = f"Write reg {reg}: {e}"
+                            if token:
+                                self._failed_batches = getattr(self, "_failed_batches", set())
+                                self._completed_stage_batches = getattr(
+                                    self, "_completed_stage_batches", set())
+                                self._failed_batches.add(batch_id)
+                                if len(self._failed_batches) > 100:
+                                    self._failed_batches.pop()
+                                staged = batch_id in self._completed_stage_batches
+                                # A failed APPLY after staging is also unsafe: firmware may
+                                # retain staged values even though this operation failed.
+                                critical = bool(staged)
+                                self._ui_put("operation_failed", {
+                                    "token": token,
+                                    "reason": message,
+                                    "critical": critical,
+                                    "logged": critical,
+                                })
+                                if critical:
+                                    self._log(
+                                        f"CRITICAL: staged BCON batch {token} partially wrote; forcing ALL_OFF",
+                                        "CRITICAL",
+                                    )
+                                    self.stop_all()
+                            else:
+                                self._ui_put("error", message)
             except queue.Empty:
                 pass
 
@@ -944,7 +1060,8 @@ class BCONDriver:
                             f"supervisor={regs[REG_SUP_STATE]}",
                             "VERBOSE",
                         )
-                        self._ui_put("regs", regs)
+                        self._poll_generation = getattr(self, "_poll_generation", 0) + 1
+                        self._ui_put("regs", regs, self._poll_generation, time.monotonic())
 
                 except Exception as e:
                     self._poll_errors += 1
@@ -1023,8 +1140,9 @@ class BCONDriver:
         return False
 
     def _stage_channel_mode(self, channel: int, mode_code: int,
-                            duration_ms: Optional[int] = None,
-                            count: Optional[int] = None) -> bool:
+                             duration_ms: Optional[int] = None,
+                            count: Optional[int] = None,
+                            operation_token: Optional[str] = None) -> bool:
         """Stage parameters plus requested mode without committing them yet."""
         if not self._validate_channel(channel):
             return False
@@ -1037,10 +1155,13 @@ class BCONDriver:
             if params is None:
                 return False
             duration_ms, count = params
-            self.enqueue_write(base + CH_PULSE_MS_OFF, int(duration_ms))
-            self.enqueue_write(base + CH_COUNT_OFF, int(count))
+            self.enqueue_write(base + CH_PULSE_MS_OFF, int(duration_ms),
+                               operation_token=operation_token, stage_write=True)
+            self.enqueue_write(base + CH_COUNT_OFF, int(count),
+                               operation_token=operation_token, stage_write=True)
 
-        self.enqueue_write(base + CH_MODE_OFF, mode_code)
+        self.enqueue_write(base + CH_MODE_OFF, mode_code,
+                           operation_token=operation_token, stage_write=True)
         return True
 
     # Keep local parameter validation near the staged-write path so invalid pulse
@@ -1068,23 +1189,24 @@ class BCONDriver:
 
         return duration_ms, count
 
-    def apply_staged_modes(self) -> bool:
+    def apply_staged_modes(self, operation_token: Optional[str] = None) -> bool:
         """Commit any staged channel mode writes in the firmware."""
-        return self.send_command(COMMAND_APPLY_STAGED_MODES)
+        return self.send_command(COMMAND_APPLY_STAGED_MODES, operation_token=operation_token)
 
-    def set_channel_off(self, channel: int) -> bool:
+    def set_channel_off(self, channel: int, operation_token: Optional[str] = None) -> bool:
         """Stage OFF for one channel and apply it immediately."""
-        if self._stage_channel_mode(channel, BCONMode.OFF):
-            return self.apply_staged_modes()
+        if self._stage_channel_mode(channel, BCONMode.OFF, operation_token=operation_token):
+            return self.apply_staged_modes(operation_token=operation_token)
         return False
 
-    def set_channel_dc(self, channel: int) -> bool:
+    def set_channel_dc(self, channel: int, operation_token: Optional[str] = None) -> bool:
         """Stage DC for one channel and apply it immediately."""
-        if self._stage_channel_mode(channel, BCONMode.DC):
-            return self.apply_staged_modes()
+        if self._stage_channel_mode(channel, BCONMode.DC, operation_token=operation_token):
+            return self.apply_staged_modes(operation_token=operation_token)
         return False
 
-    def set_channel_pulse(self, channel: int, duration_ms: int, count: int = 1) -> bool:
+    def set_channel_pulse(self, channel: int, duration_ms: int, count: int = 1,
+                          operation_token: Optional[str] = None) -> bool:
         """Stage a single pulse request and apply it immediately."""
         try:
             count = int(count)
@@ -1102,11 +1224,13 @@ class BCONDriver:
                 "WARNING",
             )
 
-        if self._stage_channel_mode(channel, effective_mode, duration_ms=duration_ms, count=count):
-            return self.apply_staged_modes()
+        if self._stage_channel_mode(channel, effective_mode, duration_ms=duration_ms,
+                                    count=count, operation_token=operation_token):
+            return self.apply_staged_modes(operation_token=operation_token)
         return False
 
-    def set_channel_pulse_train(self, channel: int, duration_ms: int, count: int) -> bool:
+    def set_channel_pulse_train(self, channel: int, duration_ms: int, count: int,
+                                operation_token: Optional[str] = None) -> bool:
         """Stage a pulse-train request and apply it immediately."""
         try:
             count = int(count)
@@ -1116,22 +1240,25 @@ class BCONDriver:
         if count < 2:
             self._log(f"PULSE_TRAIN requires count >= 2, got {count}", "WARNING")
             return False
-        if self._stage_channel_mode(channel, BCONMode.PULSE_TRAIN, duration_ms=duration_ms, count=count):
-            return self.apply_staged_modes()
+        if self._stage_channel_mode(channel, BCONMode.PULSE_TRAIN, duration_ms=duration_ms,
+                                    count=count, operation_token=operation_token):
+            return self.apply_staged_modes(operation_token=operation_token)
         return False
 
     def set_channel_mode(self, channel: int, mode: str,
-                         duration_ms: int = 100, count: int = 1) -> bool:
+                         duration_ms: int = 100, count: int = 1,
+                         operation_token: Optional[str] = None) -> bool:
         """Generic immediate mode setter built on the firmware stage/apply flow."""
         mode_upper = mode.strip().upper()
         if mode_upper == "OFF":
-            return self.set_channel_off(channel)
+            return self.set_channel_off(channel, operation_token=operation_token)
         elif mode_upper == "DC":
-            return self.set_channel_dc(channel)
+            return self.set_channel_dc(channel, operation_token=operation_token)
         elif mode_upper == "PULSE":
-            return self.set_channel_pulse(channel, duration_ms, count)
+            return self.set_channel_pulse(channel, duration_ms, count, operation_token=operation_token)
         elif mode_upper == "PULSE_TRAIN":
-            return self.set_channel_pulse_train(channel, duration_ms, count)
+            return self.set_channel_pulse_train(channel, duration_ms, count,
+                                                operation_token=operation_token)
         else:
             self._log(f"Unknown mode '{mode}'", "ERROR")
             return False
@@ -1190,19 +1317,18 @@ class BCONDriver:
         self._last_pvx_toggle_write_times[channel_index] = now
         return self.write_register_immediate(base + CH_ENABLE_TOGGLE_OFF, 1)
 
-    def stop_all(self) -> bool:
+    def stop_all(self, operation_token: Optional[str] = None, *, log_failure: bool = True) -> bool:
         """Force all three channels OFF using a confirmed firmware command."""
         with self._serial_lock:
             self._write_epoch += 1
             self._clear_cmd_queue()
             try:
-                ok = self.write_register_immediate(
-                    REG_COMMAND,
-                    COMMAND_ALL_OFF,
-                    require_connected=False,
-                )
-                if not ok:
-                    self._log("ALL_OFF command was not confirmed", "ERROR")
+                kwargs = {"require_connected": False}
+                if operation_token:
+                    kwargs["operation_token"] = operation_token
+                ok = self.write_register_immediate(REG_COMMAND, COMMAND_ALL_OFF, **kwargs)
+                if not ok and not operation_token and log_failure:
+                    self._log("ALL_OFF command was not confirmed", "CRITICAL")
                 return ok
             finally:
                 self._clear_cmd_queue()
@@ -1211,7 +1337,7 @@ class BCONDriver:
     #              Synchronous Multi-Channel Start/Stop                    #
     # ================================================================== #
 
-    def sync_start(self, configs: List[Dict]) -> bool:
+    def sync_start(self, configs: List[Dict], operation_token: Optional[str] = None) -> bool:
         """
         Stage multiple channel updates, then commit them together with COMMAND=4.
 
@@ -1274,13 +1400,16 @@ class BCONDriver:
             if cfg['mode_code'] in (int(BCONMode.OFF), int(BCONMode.DC)):
                 continue
             base = CH_BASE[cfg['ch'] - 1]
-            self.enqueue_write(base + CH_PULSE_MS_OFF, cfg['duration_ms'])
-            self.enqueue_write(base + CH_COUNT_OFF, cfg['count'])
+            self.enqueue_write(base + CH_PULSE_MS_OFF, cfg['duration_ms'],
+                               operation_token=operation_token, stage_write=True)
+            self.enqueue_write(base + CH_COUNT_OFF, cfg['count'],
+                               operation_token=operation_token, stage_write=True)
 
         for cfg in normalized:
-            self.enqueue_write(CH_BASE[cfg['ch'] - 1] + CH_MODE_OFF, cfg['mode_code'])
+            self.enqueue_write(CH_BASE[cfg['ch'] - 1] + CH_MODE_OFF, cfg['mode_code'],
+                               operation_token=operation_token, stage_write=True)
 
-        return self.apply_staged_modes()
+        return self.apply_staged_modes(operation_token=operation_token)
 
     # ================================================================== #
     #                      System Configuration                            #
@@ -1318,7 +1447,7 @@ class BCONDriver:
         self._log(f"Telemetry interval queued: {interval_ms} ms", "DEBUG")
         self.enqueue_write(REG_TELEMETRY_MS, interval_ms)
 
-    def send_command(self, cmd_code: int) -> bool:
+    def send_command(self, cmd_code: int, operation_token: Optional[str] = None) -> bool:
         """
         Queue a write to the special COMMAND register.
 
@@ -1326,7 +1455,8 @@ class BCONDriver:
         write completes; queue-depth and COMMAND echo timing are not used as
         completion handshakes.
         """
-        self.enqueue_write(REG_COMMAND, int(cmd_code))
+        self.enqueue_write(REG_COMMAND, int(cmd_code), operation_token=operation_token,
+                           terminal_command=bool(operation_token and cmd_code != COMMAND_NOP))
         return True
 
     # ================================================================== #
