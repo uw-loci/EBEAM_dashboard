@@ -21,6 +21,15 @@ class FakeBeamPulse:
         return self.channel_off_result
 
 
+class BeamPulseWithoutStatus:
+    def __init__(self):
+        self.channel_off_calls = []
+
+    def send_channel_off(self, channel):
+        self.channel_off_calls.append(channel)
+        return True
+
+
 class MainControlSoftwareInterlockTest(unittest.TestCase):
     def make_panel(self, beam_pulse):
         panel = object.__new__(MainControlPanel)
@@ -67,6 +76,17 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
         self.assertIn("Failed to request", panel.status_updates[-1][0])
 
+    def test_missing_beam_status_fails_closed(self):
+        beam_pulse = BeamPulseWithoutStatus()
+        panel = self.make_panel(beam_pulse)
+
+        panel._toggle_beam_software_interlock(0)
+
+        self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
+        self.assertEqual(beam_pulse.channel_off_calls, [])
+        self.assertIn("output status unavailable", panel.status_updates[-1][0])
+        self.assertIn("Beam Pulse status API is unavailable", panel.errors[-1])
+
     def test_nonzero_output_does_not_complete_pending_stop(self):
         beam_pulse = FakeBeamPulse(output_on=True)
         panel = self.make_panel(beam_pulse)
@@ -88,6 +108,10 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
         self.assertFalse(panel._software_interlock_stop_is_pending(0))
         self.assertIn("not confirmed", panel.status_updates[-1][0])
+        self.assertIn(
+            "Beam A output stop timed out; software interlock remains enabled",
+            panel.errors,
+        )
 
     def test_disabling_inactive_beam_does_not_send_all_off(self):
         beam_pulse = FakeBeamPulse(output_on=False)

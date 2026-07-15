@@ -1802,8 +1802,17 @@ class MainControlPanel:
                 return
 
             get_beam_status = getattr(beam_pulse, "get_beam_status", None)
+            if not callable(get_beam_status):
+                self._log_error(
+                    f"Unable to verify Beam {label} output status: Beam Pulse status API is unavailable"
+                )
+                self._set_beam_action_status(
+                    f"Failed to disable Beam {label} software interlock: output status unavailable",
+                    "failure",
+                )
+                return
             try:
-                output_is_on = bool(get_beam_status(beam_index)) if callable(get_beam_status) else False
+                output_is_on = bool(get_beam_status(beam_index))
             except Exception as e:
                 self._log_error(f"Unable to verify Beam {label} output status: {e}")
                 self._set_beam_action_status(
@@ -2087,6 +2096,9 @@ class MainControlPanel:
         self._set_beam_action_status(
             f"Beam {label} output stop was not confirmed; software interlock remains enabled",
             "failure",
+        )
+        self._log_error(
+            f"Beam {label} output stop timed out; software interlock remains enabled"
         )
 
     def create_com_port_frame(self, parent_frame):
