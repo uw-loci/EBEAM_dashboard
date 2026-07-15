@@ -247,6 +247,20 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         self.assertEqual(panel._pending_bcon_operation["kind"], "disarm")
         self.assertEqual(beam_pulse.complete_disarm_calls, 0)
 
+    def test_disarm_with_cached_outputs_off_still_uses_all_off_path(self):
+        beam_pulse = FakePendingOnBeamPulse()
+        panel = self.make_panel(beam_pulse)
+        panel.subsystems = {"Beam Pulse": beam_pulse}
+
+        panel.handle_arm_beams()
+
+        self.assertEqual(len(beam_pulse.disarm_calls), 1)
+        disarm_token, defer_ui = beam_pulse.disarm_calls[0]
+        self.assertTrue(defer_ui)
+        self.assertEqual(panel._pending_bcon_operation["token"], disarm_token)
+        self.assertEqual(panel._pending_bcon_operation["kind"], "disarm")
+        self.assertEqual(beam_pulse.complete_disarm_calls, 0)
+
     def test_disconnect_terminates_pending_operation_immediately(self):
         panel = self.make_panel(FakeBeamPulse())
         panel.disable_ccs_output_on_bcon_disconnect = False

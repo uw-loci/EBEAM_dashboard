@@ -770,13 +770,6 @@ class MainControlPanel:
         except Exception:
             pass
 
-    def _beam_success_message(self, beam_index, config):
-        """Build line 4 success text for a beam ON command."""
-        return (
-            f"Beam {channel_label(beam_index)} successfully set to ON, "
-            f"{self._beam_on_description(config, include_remaining=False)}"
-        )
-
     def _format_activate_enabled_beams_message(self, configs):
         parts = []
         for config in configs or []:
@@ -1929,27 +1922,19 @@ class MainControlPanel:
 
             if is_armed:
                 disarm_beams = getattr(beam_pulse, "disarm_beams", None)
-                get_status = getattr(beam_pulse, "get_beam_status", None)
-                if not callable(get_status):
-                    self._log_error("Failed to disarm beams: Beam Pulse status API is unavailable")
-                    self._set_beam_action_status("Failed to disarm beams: output status unavailable", "failure")
+                if not callable(disarm_beams):
+                    self._log_error("Failed to disarm beams: Beam Pulse disarm API is unavailable")
+                    self._set_beam_action_status(
+                        "Failed to disarm beams: Beam Pulse disarm API is unavailable",
+                        "failure",
+                    )
                     return
-                any_output_on = any(bool(get_status(index)) for index in range(3))
-                pending = getattr(self, "_pending_bcon_operation", None)
-                if not any_output_on and not pending:
-                    complete_disarm = getattr(beam_pulse, "complete_disarm", None)
-                    if callable(complete_disarm):
-                        complete_disarm()
-                    self._set_beam_action_status("Beams disarmed", "neutral")
-                    self._log_info("Beams disarmed while outputs were already OFF")
-                else:
-                    token = self._start_bcon_operation(
-                        "Disarm Beams", range(3), expected="all_off", kind="disarm")
-                    if not token:
-                        return
-                    if not callable(disarm_beams) or not disarm_beams(
-                            operation_token=token, defer_ui=True):
-                        return
+                token = self._start_bcon_operation(
+                    "Disarm Beams", range(3), expected="all_off", kind="disarm")
+                if not token:
+                    return
+                if not disarm_beams(operation_token=token, defer_ui=True):
+                    return
             else:
                 arm_beams = getattr(beam_pulse, "arm_beams", None)
                 if callable(arm_beams) and arm_beams():
@@ -2165,11 +2150,6 @@ class MainControlPanel:
                         self._set_beam_action_status(message, "failure")
             else:
                 # Currently OFF -> send channel config to BCON
-                config = (
-                    beam_pulse.get_channel_config(beam_index)
-                    if hasattr(beam_pulse, 'get_channel_config')
-                    else {'mode': 'PULSE'}
-                )
                 token = self._start_bcon_operation(
                     f"Beam {channel_label(beam_index)} ON", (beam_index,))
                 if not token:
@@ -2177,7 +2157,8 @@ class MainControlPanel:
                 ok = beam_pulse.send_channel_config(beam_index, operation_token=token)
                 if ok:
                     self._set_beam_action_status(
-                        f"Queued {self._beam_success_message(beam_index, config)}",
+                        f"Beam {channel_label(beam_index)} ON request queued; "
+                        "awaiting BCON confirmation",
                         "neutral",
                     )
                     self._log_info(f"Beam {channel_label(beam_index)} config queued for BCON")

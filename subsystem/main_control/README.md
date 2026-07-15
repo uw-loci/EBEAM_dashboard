@@ -204,8 +204,9 @@ Dashboard callbacks.
   not issue a PVX enable-toggle command and does not disarm BEAMS ARMED. Main
   Control clears all dashboard interlocks only after the post-ack poll confirms
   all channels OFF.
-- Disarming while an ON action is pending takes the safety path rather than the
-  locally-OFF shortcut: it invalidates the queued action and sends `ALL_OFF`.
+- Disarming always stops sequence playback and sends confirmed `ALL_OFF`, even
+  when the latest cached channel states are already OFF. Any pending Beam ON
+  action is invalidated before the all-off request.
 - Disabling an enabled Beam A/B/C software interlock while that beam output is
   active queues that channel OFF but leaves the interlock visible and clickable
   as Enabled while the normal operation is pending. The selected interlock

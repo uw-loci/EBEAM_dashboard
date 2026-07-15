@@ -445,7 +445,7 @@ class BCONDriver:
                 "logged": True,
             })
         self._log(
-            f"CRITICAL: staged BCON batch {token} failed or was unconfirmed "
+            f"Staged BCON batch {token} failed or was unconfirmed "
             f"({reason}); forcing ALL_OFF",
             "CRITICAL",
         )
