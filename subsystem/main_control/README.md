@@ -152,10 +152,12 @@ reaches that value, it calls Main Control's BEAMS E-STOP path.
 
 ### VTRX
 
-VTRX reports each valid pressure reading to Main Control. When the high-pressure
-beam-disable guard is enabled, Main Control calls Beam Pulse `disable_all_beams()`
-on the first pressure reading above 1e-5 mbar and waits for pressure to recover
-to 1e-5 mbar or below before it can trigger again.
+VTRX reports pressure updates to Main Control. When the high-pressure
+beam-disable guard is enabled, Main Control uses the tokenized Disable All Beams
+flow on the first unsafe or stale reading. It clears dashboard software
+interlocks only after the post-command BCON poll confirms every channel OFF,
+then waits for pressure to recover to 1e-5 mbar or below before it can trigger
+again.
 
 Main Control also uses VTRX pressure to protect CCS output. Stale pressure or
 pressure above 1e-5 mbar starts the configured CCS grace-period timer only when
@@ -222,11 +224,10 @@ Dashboard callbacks.
   down. When disabled, BCON disconnects no longer drive CCS output shutdown or
   block cathode output enable requests.
 - Disable Beams if pressure exceeds 10^-5 mbar is a runtime Main Control
-  setting. When enabled, a valid VTRX pressure reading greater than 1e-5 mbar
-  invalidates any pending operator action, logs a critical message, requests
-  BCON all-off without locally changing output state, and waits for polling to
-  present the resulting hardware state. It triggers once until pressure recovers
-  to 1e-5 mbar or below.
+  setting. When enabled, an unsafe or stale VTRX reading invalidates any pending
+  operator action, logs a critical message, requests tokenized BCON all-off, and
+  clears dashboard interlocks only after a post-command poll confirms all
+  channels OFF. It triggers once until pressure recovers to 1e-5 mbar or below.
 - Disable CCS Output after the configured grace period above 10^-5 mbar applies
   when CCS output is active. The grace-period duration is persisted in Main
   Control config, defaults to 30 seconds, blocks new CCS output enables while

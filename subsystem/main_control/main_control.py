@@ -981,6 +981,9 @@ class MainControlPanel:
         if op["kind"] == "estop" and op.get("cause"):
             self._set_beam_action_status(
                 f"{op['cause']} | BCON confirmed: E-STOP", "estop")
+        elif op.get("cause"):
+            self._set_beam_action_status(
+                f"{op['cause']} | BCON confirmed: {op['action']}", "success")
         else:
             self._set_beam_action_status(f"BCON confirmed: {op['action']}", "success")
 
@@ -1021,7 +1024,9 @@ class MainControlPanel:
         if event_type == "operation_result":
             if info.get("rejected") or not (info.get("accepted") or
                                              str(info.get("last_command_result", "")).lower() == "executed"):
+                prefix = f"{op['cause']} | " if op.get("cause") else ""
                 message = (
+                    f"{prefix}"
                     f"BCON command rejected ({self._bcon_operation_details(op)}): "
                     f"{info.get('last_reject_reason', 'UNKNOWN')}"
                 )
@@ -1039,12 +1044,15 @@ class MainControlPanel:
                 return
             op["state"] = "awaiting_poll"
             self._log_info(f"BCON firmware executed: {self._bcon_operation_details(op)}")
+            prefix = f"{op['cause']} | " if op.get("cause") else ""
             self._set_beam_action_status(
-                f"Firmware executed {op['action']}; awaiting BCON poll", "neutral")
+                f"{prefix}Firmware executed {op['action']}; awaiting BCON poll", "neutral")
             return
         cancelled = event_type == "operation_cancelled"
         reason = info.get("reason", "cancelled" if cancelled else "failed")
+        prefix = f"{op['cause']} | " if op.get("cause") else ""
         message = (
+            f"{prefix}"
             f"BCON operation {'cancelled' if cancelled else 'failed'} "
             f"({self._bcon_operation_details(op)}): {reason}"
         )
@@ -1808,27 +1816,23 @@ class MainControlPanel:
 
         self._vtrx_pressure_beam_disable_latched = True
         if firmware_error:
+            cause = "VTRX firmware error safety shutdown"
             self._log_critical("VTRX firmware error reported; disabling all beams.")
         elif pressure_reading_is_fresh:
+            cause = f"VTRX pressure safety shutdown ({pressure:g} mbar)"
             self._log_critical(
                 f"VTRX pressure exceeded {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar ({pressure:g} mbar); disabling all beams."
             )
         else:
+            cause = "VTRX pressure reading stale safety shutdown"
             self._log_critical("VTRX pressure reading is stale; disabling all beams.")
 
-        beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
-        disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
-        if callable(disable_all_beams):
-            try:
-                self._invalidate_pending_user_bcon_operation("VTRX pressure safety shutdown")
-                if not disable_all_beams(defer_ui=True):
-                    self._log_critical("VTRX pressure beam disable failed: BCON all-off was not confirmed")
-            except Exception as e:
-                self._log_critical(f"VTRX pressure beam disable failed: {e}")
-        else:
-            self._log_critical(
-                "VTRX pressure unsafe but Beam Pulse disable_all_beams API is unavailable"
-            )
+        try:
+            self._invalidate_pending_user_bcon_operation("VTRX pressure safety shutdown")
+            if not self._request_disable_all_beams(cause=cause):
+                self._log_critical("VTRX pressure beam disable failed: BCON all-off was not confirmed")
+        except Exception as e:
+            self._log_critical(f"VTRX pressure beam disable failed: {e}")
 
     def _handle_vtrx_pressure_update(self, pressure_mbar, pressure_reading_is_fresh=False, firmware_error=False):
         self.vtrx_firmware_error = bool(firmware_error)
@@ -1890,20 +1894,28 @@ class MainControlPanel:
         if not activate_enabled_beams(operation_token=token):
             self._finish_bcon_operation(token)
 
-    def handle_disable_all_beams(self):
+    def _request_disable_all_beams(self, cause=None):
+        """Request tokenized ALL_OFF without depending on the UI button handler."""
         beam_pulse = self._get_beam_pulse_or_fail("disable all beams")
         if beam_pulse is None:
-            return
+            return False
         disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
         if not callable(disable_all_beams):
             self._set_beam_action_status("Failed to disable all beams, Beam Pulse API not available", "failure")
-            return
+            return False
         token = self._start_bcon_operation(
-            "Disable All Beams", range(3), expected="all_off", kind="disable_all")
+            "Disable All Beams", range(3), expected="all_off", kind="disable_all", cause=cause)
         if not token:
-            return
+            return False
         if not disable_all_beams(operation_token=token, defer_ui=True):
-            return
+            return False
+        if cause:
+            self._set_beam_action_status(
+                f"{cause} | requesting BCON all-off", "neutral")
+        return True
+
+    def handle_disable_all_beams(self):
+        self._request_disable_all_beams()
 
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
