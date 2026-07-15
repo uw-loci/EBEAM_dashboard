@@ -82,15 +82,15 @@ constructed but cannot connect or send commands.
 | `110/120/130 + offsets` | Channel A/B/C actual mode, pulse ms, count, remaining, enable-toggle busy (`+4`), power, overcurrent, gated, output level |
 
 The driver sends register snapshots to `BeamPulseSubsystem` through `_ui_queue`
-as `("regs", regs)` messages. The subsystem consumes the queue on the Tk main
-thread every 200 ms, updates widgets, and forwards live state to Main Control
-callbacks.
+as `("regs", regs, generation, completed_at)` messages. The subsystem consumes
+the queue on the Tk main thread every 200 ms, updates widgets, and forwards live
+state to Main Control callbacks.
 
 For operator actions, Beam Pulse forwards an operation token with terminal
 command sent/result/failure events. Main Control waits for the matching result
-and then a later complete register snapshot before it changes hardware-output
-presentation. This keeps command confirmation separate from the poll-derived
-Beam A/B/C state.
+and then a complete register snapshot that finished after the command was sent
+before it changes hardware-output presentation. This keeps command confirmation
+separate from the poll-derived Beam A/B/C state.
 
 Driver warning/error logs are also routed through the same UI queue, so BCON
 worker-thread diagnostics are displayed through the dashboard logging path
@@ -240,11 +240,10 @@ means that channel is skipped rather than started.
 `PVX Enable Toggle` writes `1` once to the per-channel command register:
 R13 for Beam A, R23 for Beam B, or R33 for Beam C. The firmware self-clears the
 register, treats `0` as a no-op, and produces one 100 ms PVX pulse when it
-accepts the request. R114/R124/R134 report only whether the corresponding pulse
-is currently busy. A second request
-while the latest busy status is `1` is rejected by the dashboard before FC06 is
-sent. Firmware still protects a race by acknowledging FC06 and recording
-`LAST_ERROR=11`.
+accepts the request. R114/R124/R134 report whether the corresponding pulse is
+currently busy. The dashboard rate-limits each channel's requests to one write
+per 150 ms; firmware remains authoritative for rejecting a conflicting request
+and may record `LAST_ERROR=11`.
 
 `disable_all_beams()` calls confirmed `bcon_driver.stop_all()`. Main Control
 passes `defer_ui=True` for safety actions, so local output state remains

@@ -182,11 +182,15 @@ Dashboard callbacks.
 - Dashboard beam actions carry a token through the BCON queue. Only one normal
   action waits at a time; additional clicks remain possible but log a pending
   warning. Sending has a 1.5 s deadline; once the terminal command is sent,
-  firmware acknowledgement plus the next full BCON poll have a 1 s deadline.
+  firmware acknowledgement plus the first full BCON poll completed after the
+  command was sent have a 1 s deadline.
   A normal-action timeout releases the normal-action lock, logs the token,
   action, channels, elapsed time, and unknown firmware outcome, and leaves
   hardware presentation to the next poll. Safety-action failures/timeouts are
   logged as CRITICAL.
+- An E-STOP confirmation timeout leaves the Beam Pulse arming state unchanged
+  and BCON output state unknown. It is logged as CRITICAL, but Main Control
+  keeps BCON controls available for an operator recovery attempt.
 - A BCON disconnect immediately terminates a pending operation as indeterminate,
   logs its token/action/channels, and ignores any later result for that operation.
 - Beam A/B/C ON/OFF text, color, and output status lines change only from a
@@ -198,6 +202,8 @@ Dashboard callbacks.
   not issue a PVX enable-toggle command and does not disarm BEAMS ARMED. Main
   Control clears all dashboard interlocks only after the post-ack poll confirms
   all channels OFF.
+- Disarming while an ON action is pending takes the safety path rather than the
+  locally-OFF shortcut: it invalidates the queued action and sends `ALL_OFF`.
 - Disabling an enabled Beam A/B/C software interlock while that beam output is
   active queues that channel OFF but leaves the interlock visible and clickable
   as Enabled while the normal operation is pending. The selected interlock

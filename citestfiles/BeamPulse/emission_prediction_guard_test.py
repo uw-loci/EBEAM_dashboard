@@ -187,7 +187,7 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
             )
         )
 
-    def test_pvx_enable_toggle_surfaces_driver_failure(self):
+    def test_pvx_enable_toggle_does_not_duplicate_driver_failure_log(self):
         subsystem = self.make_subsystem([1.0, 0.0, 0.0], limit=5.0)
         self.set_unsafe_vtrx_pressure(subsystem)
         driver = DummyBCONDriver(toggle_result=False)
@@ -197,11 +197,8 @@ class BeamPulseEmissionPredictionGuardTest(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertEqual([1], driver.toggle_calls)
-        self.assertTrue(
-            any(
-                "PVX enable toggle failed" in message and level == LogLevel.ERROR
-                for message, level in subsystem.log_entries
-            )
+        self.assertFalse(
+            any("PVX enable toggle failed" in message for message, _level in subsystem.log_entries)
         )
 
 

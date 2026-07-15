@@ -1907,7 +1907,8 @@ class BeamPulseSubsystem:
             return False
 
         if not self.bcon_driver.trigger_channel_enable_toggle(ch_index + 1):
-            self._log_event(f"PVX enable toggle failed for {self._channel_name(ch_index)}", LogLevel.ERROR)
+            # The driver owns detailed FC06/cooldown diagnostics so one
+            # rejected request produces one operator log entry.
             return False
 
         self._log_event(

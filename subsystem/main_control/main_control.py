@@ -828,10 +828,23 @@ class MainControlPanel:
     def _is_critical_bcon_operation(op):
         return op["kind"] in ("disable_all", "estop")
 
-    def _start_bcon_operation(self, action, channels, expected="poll", kind="normal"):
+    def _start_bcon_operation(self, action, channels, expected="poll", kind="normal",
+                              cause=None):
         """Create the one dashboard operation allowed to await a BCON result."""
         self._initialize_main_control_beam_status_state()
         pending = self._pending_bcon_operation
+        if pending and pending["kind"] == "estop":
+            if kind == "estop":
+                return pending["token"]
+            if not pending.get("safety_failed"):
+                self._log_warning(
+                    f"Failed to send {action}, Dashboard is waiting for E-STOP confirmation.")
+                return None
+            self._finish_bcon_operation(pending["token"])
+            self._log_warning(
+                f"{action} is proceeding after failed E-STOP confirmation "
+                f"({self._bcon_operation_details(pending)}).")
+            pending = None
         if pending and kind == "normal":
             self._log_warning(
                 f"Failed to send {action}, Dashboard waiting for firmware response from the previous command.")
@@ -845,6 +858,7 @@ class MainControlPanel:
             "token": token, "action": action, "channels": tuple(channels),
             "expected": expected, "kind": kind, "state": "awaiting_send",
             "created_at": time.monotonic(), "sent_at": None,
+            "cause": str(cause or ""),
             "safety_failed": False, "safety_failure_logged": False,
             "send_after": None, "ack_after": None,
         }
@@ -922,11 +936,19 @@ class MainControlPanel:
         started_at = op["sent_at"] if phase == "ack" and op["sent_at"] else op["created_at"]
         elapsed_ms = round((time.monotonic() - started_at) * 1000)
         waiting_for = "command send" if phase == "send" else "firmware acknowledgment/post-command poll"
-        message = (
-            f"BCON operation timed out ({self._bcon_operation_details(op)}, "
-            f"elapsed={elapsed_ms}ms) while awaiting {waiting_for}; "
-            "firmware outcome is unknown or unconfirmed"
-        )
+        if op["kind"] == "estop":
+            message = (
+                f"E-STOP confirmation timed out ({self._bcon_operation_details(op)}, "
+                f"elapsed={elapsed_ms}ms) while awaiting {waiting_for}; "
+                "dashboard arming state is unchanged and BCON output state is unknown. "
+                "Operator BCON controls remain available for recovery."
+            )
+        else:
+            message = (
+                f"BCON operation timed out ({self._bcon_operation_details(op)}, "
+                f"elapsed={elapsed_ms}ms) while awaiting {waiting_for}; "
+                "firmware outcome is unknown or unconfirmed"
+            )
         self._finish_bcon_operation(token)
         log = self._log_critical if self._is_critical_bcon_operation(op) else self._log_error
         log(message)
@@ -951,18 +973,33 @@ class MainControlPanel:
             if callable(complete):
                 complete()
         if op["safety_failed"]:
+            prefix = f"{op['cause']} | " if op.get("cause") else ""
             self._set_beam_action_status(
-                f"E-STOP command failure; BCON poll reports all channels OFF", "failure")
+                f"{prefix}E-STOP command failure; BCON poll reports all channels OFF", "failure")
             return
         self._log_info(f"BCON operation confirmed by poll: {self._bcon_operation_details(op)}")
-        self._set_beam_action_status(f"BCON confirmed: {op['action']}", "success")
+        if op["kind"] == "estop" and op.get("cause"):
+            self._set_beam_action_status(
+                f"{op['cause']} | BCON confirmed: E-STOP", "estop")
+        else:
+            self._set_beam_action_status(f"BCON confirmed: {op['action']}", "success")
 
     def _handle_bcon_operation_event(self, event_type, info):
         info = info if isinstance(info, dict) else {}
         op = getattr(self, "_pending_bcon_operation", None)
         token = info.get("token") or info.get("operation_token")
         if event_type == "operation_poll":
-            if op and op["state"] == "awaiting_poll" and self._operation_poll_matches(op):
+            try:
+                completed_at = float(info["completed_at"])
+            except (KeyError, TypeError, ValueError):
+                return
+            if (
+                op
+                and op["state"] == "awaiting_poll"
+                and op.get("sent_at") is not None
+                and completed_at > float(op["sent_at"])
+                and self._operation_poll_matches(op)
+            ):
                 completed = self._finish_bcon_operation(op["token"])
                 if completed:
                     self._complete_bcon_operation_after_poll(completed)
@@ -1886,7 +1923,8 @@ class MainControlPanel:
                     self._set_beam_action_status("Failed to disarm beams: output status unavailable", "failure")
                     return
                 any_output_on = any(bool(get_status(index)) for index in range(3))
-                if not any_output_on:
+                pending = getattr(self, "_pending_bcon_operation", None)
+                if not any_output_on and not pending:
                     complete_disarm = getattr(beam_pulse, "complete_disarm", None)
                     if callable(complete_disarm):
                         complete_disarm()
@@ -1921,7 +1959,7 @@ class MainControlPanel:
             first_error = None
             all_off_confirmed = False
             safety_token = self._start_bcon_operation(
-                "E-STOP", range(3), expected="all_off", kind="estop")
+                "E-STOP", range(3), expected="all_off", kind="estop", cause=reason)
 
             def record_error(message, error):
                 nonlocal first_error
@@ -1999,7 +2037,10 @@ class MainControlPanel:
                     self._hold_estop_for_poll_after_failure(op)
                 self._set_beam_action_status(f"Failed to stop beams: {str(first_error)}", "failure")
             elif all_off_confirmed:
-                self._set_beam_action_status("Beams E-STOP confirmed; awaiting BCON poll", "estop")
+                message = "Beams E-STOP confirmed; awaiting BCON poll"
+                if reason:
+                    message = f"{reason} | {message}"
+                self._set_beam_action_status(message, "estop")
             elif reason:
                 self._set_beam_action_status(str(reason), "estop")
             else:

@@ -31,6 +31,25 @@ class BeamPulseWithoutStatus:
         return True
 
 
+class FakePendingOnBeamPulse:
+    def __init__(self):
+        self.disarm_calls = []
+        self.complete_disarm_calls = 0
+
+    def get_beams_armed_status(self):
+        return True
+
+    def get_beam_status(self, _channel):
+        return False
+
+    def disarm_beams(self, operation_token=None, defer_ui=False):
+        self.disarm_calls.append((operation_token, defer_ui))
+        return True
+
+    def complete_disarm(self):
+        self.complete_disarm_calls += 1
+
+
 class FakeButton:
     def __init__(self, **values):
         self.values = values
@@ -76,14 +95,18 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         return panel
 
     @staticmethod
-    def confirm_operation(panel):
+    def confirm_operation(panel, sent_at=100.0):
         token = panel._pending_bcon_operation["token"]
-        panel._handle_bcon_operation_event("operation_sent", {"token": token})
+        panel._handle_bcon_operation_event("operation_sent", {
+            "token": token,
+            "sent_at": sent_at,
+        })
         panel._handle_bcon_operation_event("operation_result", {
             "operation_token": token,
             "accepted": True,
             "last_command_result": "EXECUTED",
         })
+        return sent_at
 
     def test_disabling_active_beam_waits_for_polled_channel_off(self):
         beam_pulse = FakeBeamPulse(output_on=True, channel_off_result=True)
@@ -96,9 +119,9 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         self.assertEqual(panel.software_interlock_buttons[0].cget("state"), "normal")
         self.assertEqual(panel.software_interlock_buttons[0].cget("text"), "Beam A Enabled")
 
-        self.confirm_operation(panel)
+        sent_at = self.confirm_operation(panel)
         panel._on_channel_status_update(0, 0, 0, {"output_level": 0})
-        panel._handle_bcon_operation_event("operation_poll", {})
+        panel._handle_bcon_operation_event("operation_poll", {"completed_at": sent_at + 0.1})
 
         self.assertEqual(panel._beam_software_interlock_states, [False, False, False])
         self.assertEqual(panel.software_interlock_buttons[0].cget("state"), "normal")
@@ -134,9 +157,9 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
         panel = self.make_panel(beam_pulse)
 
         panel._toggle_beam_software_interlock(0)
-        self.confirm_operation(panel)
+        sent_at = self.confirm_operation(panel)
         panel._on_channel_status_update(0, 0, 0, {"output_level": 1})
-        panel._handle_bcon_operation_event("operation_poll", {})
+        panel._handle_bcon_operation_event("operation_poll", {"completed_at": sent_at + 0.1})
 
         self.assertEqual(panel._beam_software_interlock_states, [True, False, False])
         self.assertEqual(panel.software_interlock_buttons[0].cget("state"), "normal")
@@ -184,6 +207,45 @@ class MainControlSoftwareInterlockTest(unittest.TestCase):
             )
 
         self.assertEqual(panel.root.calls[-1][0], 750)
+
+    def test_pre_command_poll_cannot_confirm_an_operation(self):
+        panel = self.make_panel(FakeBeamPulse())
+        token = panel._start_bcon_operation("Beam A ON", (0,))
+        sent_at = self.confirm_operation(panel, sent_at=100.0)
+
+        panel._handle_bcon_operation_event("operation_poll", {
+            "completed_at": sent_at - 0.001,
+        })
+
+        self.assertEqual(panel._pending_bcon_operation["token"], token)
+
+        panel._handle_bcon_operation_event("operation_poll", {
+            "completed_at": sent_at,
+        })
+
+        self.assertEqual(panel._pending_bcon_operation["token"], token)
+
+        panel._handle_bcon_operation_event("operation_poll", {
+            "completed_at": sent_at + 0.001,
+        })
+
+        self.assertIsNone(panel._pending_bcon_operation)
+
+    def test_disarm_pending_on_uses_all_off_path_instead_of_local_off_shortcut(self):
+        beam_pulse = FakePendingOnBeamPulse()
+        panel = self.make_panel(beam_pulse)
+        panel.subsystems = {"Beam Pulse": beam_pulse}
+        pending_on_token = panel._start_bcon_operation("Beam A ON", (0,))
+
+        panel.handle_arm_beams()
+
+        self.assertEqual(len(beam_pulse.disarm_calls), 1)
+        disarm_token, defer_ui = beam_pulse.disarm_calls[0]
+        self.assertNotEqual(disarm_token, pending_on_token)
+        self.assertTrue(defer_ui)
+        self.assertEqual(panel._pending_bcon_operation["token"], disarm_token)
+        self.assertEqual(panel._pending_bcon_operation["kind"], "disarm")
+        self.assertEqual(beam_pulse.complete_disarm_calls, 0)
 
     def test_disconnect_terminates_pending_operation_immediately(self):
         panel = self.make_panel(FakeBeamPulse())

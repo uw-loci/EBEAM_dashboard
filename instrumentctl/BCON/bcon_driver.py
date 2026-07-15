@@ -379,6 +379,7 @@ class BCONDriver:
         """Drop queued writes and notify any tokenized dashboard operation."""
         cleared = 0
         cancelled_tokens = set()
+        cancelled_batches = set()
         failed_batches = getattr(self, "_failed_batches", set())
         while True:
             try:
@@ -386,6 +387,9 @@ class BCONDriver:
                 cleared += 1
                 metadata = cmd[4] if len(cmd) > 4 and isinstance(cmd[4], dict) else {}
                 token = metadata.get("token")
+                batch_id = metadata.get("batch")
+                if batch_id:
+                    cancelled_batches.add(batch_id)
                 if token and metadata.get("batch") not in failed_batches:
                     cancelled_tokens.add(token)
             except queue.Empty:
@@ -394,6 +398,61 @@ class BCONDriver:
             self._log(f"Cleared {cleared} queued BCON command(s)", "DEBUG")
         for token in cancelled_tokens:
             self._ui_put("operation_cancelled", {"token": token, "reason": reason})
+        for batch_id in cancelled_batches:
+            self._clear_batch_tracking(batch_id)
+
+    def _clear_batch_tracking(self, batch_id: Optional[str]) -> None:
+        """Forget one completed or recovered tokenized stage batch."""
+        if not batch_id:
+            return
+        for attr in ("_failed_batches", "_completed_stage_batches"):
+            batches = getattr(self, attr, None)
+            if hasattr(batches, "discard"):
+                batches.discard(batch_id)
+
+    def _clear_all_batch_tracking(self) -> None:
+        """Forget batch metadata after a global shutdown or disconnect."""
+        for attr in ("_failed_batches", "_completed_stage_batches"):
+            batches = getattr(self, attr, None)
+            if hasattr(batches, "clear"):
+                batches.clear()
+
+    def _recover_failed_staged_batch(
+        self,
+        token: str,
+        batch_id: Optional[str],
+        reason: str,
+        *,
+        notify: bool = True,
+    ) -> None:
+        """Fail closed after an uncertain tokenized staged-write operation.
+
+        A Modbus write can reach BCON even when its response is lost.  Never
+        leave a possibly staged mode available for a later APPLY command.
+        """
+        failed_batches = getattr(self, "_failed_batches", None)
+        if not isinstance(failed_batches, set):
+            failed_batches = set()
+            self._failed_batches = failed_batches
+        if batch_id:
+            failed_batches.add(batch_id)
+
+        if notify:
+            self._ui_put("operation_failed", {
+                "token": token,
+                "reason": reason,
+                "critical": True,
+                "logged": True,
+            })
+        self._log(
+            f"CRITICAL: staged BCON batch {token} failed or was unconfirmed "
+            f"({reason}); forcing ALL_OFF",
+            "CRITICAL",
+        )
+        try:
+            self.stop_all()
+        finally:
+            self._clear_batch_tracking(batch_id)
 
     @staticmethod
     def _command_label(cmd_code: int) -> str:
@@ -473,6 +532,7 @@ class BCONDriver:
         baseline: Optional[Dict[str, int]] = None,
         require_connected: bool = True,
         operation_token: Optional[str] = None,
+        notify_failure: bool = True,
     ) -> Optional[Dict[str, object]]:
         """Confirm a nonzero COMMAND write from LAST_CMD diagnostics."""
         cmd_code = int(cmd_code)
@@ -537,13 +597,13 @@ class BCONDriver:
                 f"but diagnostics were unavailable"
             )
 
-        if operation_token:
+        if operation_token and notify_failure:
             self._ui_put("operation_failed", {
                 "token": operation_token,
                 "reason": message,
                 "critical": False,
             })
-        else:
+        elif not operation_token:
             self._ui_put("error", message)
         return None
 
@@ -575,6 +635,7 @@ class BCONDriver:
         self._user_requested_disconnect = False
         self._stop_poll_thread()
         self._clear_cmd_queue()
+        self._clear_all_batch_tracking()
 
         if self._serial:
             try:
@@ -661,6 +722,7 @@ class BCONDriver:
         self._user_requested_disconnect = True
         self._stop_poll_thread()
         self._clear_cmd_queue()
+        self._clear_all_batch_tracking()
         if self._serial and self._connected:
             try:
                 if self.write_register_immediate(REG_COMMAND, COMMAND_ALL_OFF):
@@ -959,8 +1021,6 @@ class BCONDriver:
                                 self._completed_stage_batches = getattr(
                                     self, "_completed_stage_batches", set())
                                 self._completed_stage_batches.add(batch_id)
-                                if len(self._completed_stage_batches) > 100:
-                                    self._completed_stage_batches.pop()
                             if baseline is not None:
                                 if token:
                                     self._ui_put("command_sent", {
@@ -971,32 +1031,45 @@ class BCONDriver:
                                 confirm_kwargs = {"baseline": baseline}
                                 if token:
                                     confirm_kwargs["operation_token"] = token
-                                self._confirm_command_write(val, **confirm_kwargs)
+                                    # The poll worker performs fail-closed staged-batch
+                                    # recovery below, so it owns the failure event.
+                                    confirm_kwargs["notify_failure"] = False
+                                result = self._confirm_command_write(val, **confirm_kwargs)
+                                staged_batch = batch_id in getattr(
+                                    self, "_completed_stage_batches", set())
+                                if token and metadata.get("terminal") and staged_batch:
+                                    if result and result.get("accepted"):
+                                        self._clear_batch_tracking(batch_id)
+                                    else:
+                                        if result and result.get("rejected"):
+                                            reason = (
+                                                f"BCON {self._command_label(val)} rejected after staged writes: "
+                                                f"{result.get('last_reject_reason', 'UNKNOWN')}"
+                                            )
+                                            # command_result already tells Main Control about the rejection.
+                                            notify = False
+                                        else:
+                                            reason = (
+                                                f"BCON {self._command_label(val)} confirmation was "
+                                                "inconclusive after staged writes"
+                                            )
+                                            notify = True
+                                        self._recover_failed_staged_batch(
+                                            token, batch_id, reason, notify=notify)
                         except Exception as e:
                             message = f"Write reg {reg}: {e}"
                             if token:
-                                self._failed_batches = getattr(self, "_failed_batches", set())
-                                self._completed_stage_batches = getattr(
-                                    self, "_completed_stage_batches", set())
-                                self._failed_batches.add(batch_id)
-                                if len(self._failed_batches) > 100:
-                                    self._failed_batches.pop()
-                                staged = batch_id in self._completed_stage_batches
-                                # A failed APPLY after staging is also unsafe: firmware may
-                                # retain staged values even though this operation failed.
-                                critical = bool(staged)
-                                self._ui_put("operation_failed", {
-                                    "token": token,
-                                    "reason": message,
-                                    "critical": critical,
-                                    "logged": critical,
-                                })
-                                if critical:
-                                    self._log(
-                                        f"CRITICAL: staged BCON batch {token} partially wrote; forcing ALL_OFF",
-                                        "CRITICAL",
-                                    )
-                                    self.stop_all()
+                                # FC06 response failures are ambiguous: the firmware may
+                                # already have accepted even the first stage write.
+                                if metadata.get("stage") or batch_id in getattr(
+                                        self, "_completed_stage_batches", set()):
+                                    self._recover_failed_staged_batch(token, batch_id, message)
+                                else:
+                                    self._ui_put("operation_failed", {
+                                        "token": token,
+                                        "reason": message,
+                                        "critical": False,
+                                    })
                             else:
                                 self._ui_put("error", message)
             except queue.Empty:
@@ -1085,6 +1158,7 @@ class BCONDriver:
         self._connected = False
         self._poll_running = False   # tell the poll thread to exit cleanly
         self._clear_cmd_queue()
+        self._clear_all_batch_tracking()
         if self._serial:
             try:
                 self._serial.close()
@@ -1332,6 +1406,7 @@ class BCONDriver:
                 return ok
             finally:
                 self._clear_cmd_queue()
+                self._clear_all_batch_tracking()
 
     # ================================================================== #
     #              Synchronous Multi-Channel Start/Stop                    #
