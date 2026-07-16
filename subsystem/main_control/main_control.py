@@ -779,22 +779,22 @@ class MainControlPanel:
                 continue
             label = channel_label(index)
             parts.append(f"{label}({self._format_bcon_command_config(config)})")
-        return (
-            "Activate Enabled Beams command: " + ", ".join(parts)
-            if parts else "Activate Enabled Beams command"
-        )
+        return ", ".join(parts) if parts else "Activate Enabled Beams (no channels)"
 
     def _format_bcon_command_config(self, config):
         """Format only the parameters used by the attempted BCON mode command."""
         config = self._coerce_beam_config(config)
         mode = config["mode"]
-        text = f"mode={mode}"
-        if mode in ("PULSE", "PULSE_TRAIN"):
-            text = (
-                f"{text}, duration={config['duration_ms']}ms, "
-                f"count={config['count']}"
+        if mode == "PULSE_TRAIN":
+            return (
+                f"PULSE_TRAIN, {config['count']} pulses, "
+                f"{config['duration_ms']}ms each"
             )
-        return text
+        if mode == "PULSE":
+            return f"PULSE for {config['duration_ms']}ms"
+        if mode == "DC":
+            return "DC Mode"
+        return mode
 
     def _handle_action_feedback(self, event_type, message="", outcome="neutral", configs=None):
         """Handle Beam Pulse action feedback for Main Control status displays."""
@@ -2107,7 +2107,7 @@ class MainControlPanel:
 
             if output_is_on:
                 token = self._start_bcon_operation(
-                    f"Beam {label} command: mode=OFF; disable software interlock",
+                    f"{label}(OFF); disable software interlock",
                     (beam_index,), expected="off", kind="interlock_off")
                 if not token:
                     return
@@ -2156,7 +2156,7 @@ class MainControlPanel:
             if current_status:
                 # Currently ON -> turn OFF
                 token = self._start_bcon_operation(
-                    f"Beam {channel_label(beam_index)} command: mode=OFF",
+                    f"{channel_label(beam_index)}(OFF)",
                     (beam_index,), expected="off")
                 if not token:
                     return
@@ -2168,8 +2168,8 @@ class MainControlPanel:
                 # Currently OFF -> send channel config to BCON
                 config = beam_pulse.get_channel_config(beam_index)
                 token = self._start_bcon_operation(
-                    f"Beam {channel_label(beam_index)} command: "
-                    f"{self._format_bcon_command_config(config)}",
+                    f"{channel_label(beam_index)}"
+                    f"({self._format_bcon_command_config(config)})",
                     (beam_index,))
                 if not token:
                     return
