@@ -335,7 +335,7 @@ class MainControlBeamsOffTest(unittest.TestCase):
         self.assertEqual(
             main_control._beam_action_status_text,
             (
-                f"{cause} | E-STOP command: all channels mode=OFF | "
+                f"Command Success: {cause} | E-STOP command: all channels mode=OFF | "
                 "FW: OK | Status Poll: OK"
             ),
         )

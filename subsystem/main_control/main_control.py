@@ -983,6 +983,13 @@ class MainControlPanel:
                 f"{prefix}E-STOP command failure; BCON poll reports all channels OFF", "failure")
             return
         self._log_info(f"BCON operation confirmed by poll: {self._bcon_operation_details(op)}")
+        sent_prefix = "Command Sent: "
+        if op["status_message"].startswith(sent_prefix):
+            op["status_message"] = (
+                "Command Success: " + op["status_message"][len(sent_prefix):]
+            )
+        else:
+            op["status_message"] = "Command Success: " + op["status_message"]
         op["status_message"] += " | Status Poll: OK"
         self._set_beam_action_status(
             op["status_message"], "estop" if op["kind"] == "estop" else "success")
@@ -1014,6 +1021,12 @@ class MainControlPanel:
         if event_type == "operation_sent":
             op["state"] = "awaiting_ack"
             op["sent_at"] = info.get("sent_at", time.monotonic())
+            if not op["status_message"].startswith("Command Sent: "):
+                op["status_message"] = "Command Sent: " + op["status_message"]
+            self._set_beam_action_status(
+                op["status_message"],
+                "estop" if op["kind"] == "estop" else "neutral",
+            )
             elapsed_ms = round((time.monotonic() - op["sent_at"]) * 1000)
             self._schedule_bcon_timeout(
                 op,
