@@ -54,8 +54,19 @@ The following behavior is authoritative:
 - Stale VTRX pressure blocks new guarded output, immediately stops active BCON
   output when its Beam guard is enabled, and starts the configured CCS grace
   timer when its CCS guard is enabled.
+- Missing predictions represented by `None`/`--`, non-finite values, and
+  negative values are invalid for beam authorization and must block guarded
+  BCON output before a hardware write. A genuine finite `0.00 mA` prediction is
+  valid and contributes zero to the projected total.
 - `E-STOP: BEAMS & CCS` commands BCON and CCS only. It does not command a
-  high-voltage supply off.
+  high-voltage supply off. Its BCON path makes two redundant all-off attempts,
+  and any failed attempt remains visible even if another attempt proves gates
+  OFF.
+- Each physical PVX pulser enable LED is the sole source of truth for that
+  pulser's latched enable state. A successful A/B/C toggle changes exactly its
+  matching LED; a failed toggle changes none. PVX toggles require only a
+  connected BCON and a valid channel, independent of arm, interlocks, guards,
+  output modes, and every non-toggle shutdown/safety action.
 - The physical Knob Box Arm Beams switch is the sole permitted Knob Box action.
   It is exercised through the required Logic Arduino Override and must never
   assert a high-voltage enable.
@@ -68,17 +79,22 @@ durable log to agree. A queued command is not a confirmed hardware result.
 
 ## Safety Considerations
 
-- **Disconnect every pulser cable from BCON A, B, and C for the entire plan.**
-  Use only BCON LCD/register state and blue LEDs to observe gate output.
+- **Disconnect every BCON Output cable from every PVX pulser for the entire
+  plan. No BCON Output cable may be connected to a PVX pulser.** Keep the three
+  A/B/C DB15 cables that carry PVX enable-toggle commands connected. Keep the
+  PVX boxes independently powered and their three enable LEDs visible. Use the
+  BCON LCD/register state and blue BCON gate LEDs only to observe gate activity while
+  each BCON Output cable remains disconnected from its PVX pulser;
+  none is proof of PVX latched enable state.
 - **Use CCS dummy loads only.** Verify wiring, fusing, polarity, OVP/OCP, and
   immediate physical CCS power removal before enabling a 9104 output.
 - **No high-voltage supply may be energized.** Do not operate any Knob Box
   high-voltage enable, CCS Power, telemetry, comparator, reset, or COM control.
   Do not change Beam Energy limits or the +20 kV E-stop setting.
 - Install the Knob Box Logic Arduino Override specified in
-  `bcon_subsystem_test.md` before using physical Arm Beams. Confirm that it
+  `BCON_test_plan.md` before using physical Arm Beams. Confirm that it
   supplies only the active-high BCON interlock signal.
-- Use PMON dummy sensors only where permitted by `pmon_subsystem_test.md`. Use
+- Use PMON dummy sensors only where permitted by `PMON_test_plan.md`. Use
   the approved SIC fixture, E-stops, door fixture, HVolt-monitor fixture, and
   physical reset procedure. Keep G9SP output isolated from energized HV.
 - Install approved Laser Monitor firmware from the sibling firmware workspace.
@@ -86,9 +102,12 @@ durable log to agree. A queued command is not a confirmed hardware result.
   intentionally test or alter the radiation indicator.
 - Restore default source constants (`1e-5`, `1e-4`, and `1e-6 mbar`), files,
   protections, connections, and physical outputs after every profile/fault.
-- If physical CCS state disagrees with its dashboard toggle, a BCON LED remains
+- If physical CCS state disagrees with its dashboard toggle, a blue BCON gate LED remains
   high after all-off, or output is uncertain, stop the test case, remove appropriate
   physical power, verify zero output, and record the mismatch.
+- Before completing the plan, use deliberate connection-confirmed PVX toggles
+  to leave physical A/B/C enable LEDs Disabled. Disable All, disarm, E-stop,
+  disconnect, dashboard exit, and BCON power loss do not establish that state.
 
 ## Outline
 
@@ -96,7 +115,7 @@ durable log to agree. A queued command is not a confirmed hardware result.
 2. Main Control settings, E-stop, and BCON-to-CCS coordination
 3. VTRX fixed-pressure profiles and stale-data handling
 4. Cathode Heating, emission guard, and BCON coordination
-5. Beam Pulse manual controls and Arm Beams interlock
+5. Beam Pulse command lifecycle, PVX toggles, and Arm Beams interlock
 6. PMON actions and Machine Status source behavior
 7. SIC physical inputs and Machine Status source behavior
 8. Complete Machine Status evaluation
@@ -110,12 +129,13 @@ connected fresh VTRX at fixed 1200 mbar;
 BCON connected at confirmed 1500 ms watchdog;
 Knob Box Logic Arduino Override installed;
 physical Arm Beams ON;
-BCON disarmed with channels disabled/OFF;
-BCON LEDs dark; CCS outputs OFF;
+BCON disarmed with Main Control software interlocks Disabled and outputs OFF;
+BCON blue gate LEDs dark; all three physical PVX enable LEDs Disabled; CCS outputs OFF;
 PMON/SIC healthy; Laser Monitor connected;
 and high-voltage equipment de-energized.
-Keep Knob Box controls/telemetry untouched.
-Use verbose file logging with recording ON.
+Keep Knob Box controls/telemetry untouched. After every launch, explicitly
+disable both BCON and Knob Box HV-off log-suppression checkboxes, then use
+verbose file logging with recording ON.
 
 ## Suite 1 - Integrated baseline, permitted scope, and mapping
 
@@ -135,13 +155,14 @@ PMON, SIC, VTRX, and Laser Monitor fixture power is initially removed.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Trace BCON A/B/C and verify no pulser cable is attached. | Every BCON output is visibly unterminated; no pulser can receive a gate. | |
+| 1. Trace BCON A/B/C. Verify every BCON Output cable is disconnected from every PVX pulser and each A/B/C DB15 enable-toggle cable is connected. | All gate outputs are visibly isolated while the three low-voltage toggle paths map one-to-one. No PVX can receive a BCON gate output. | |
 | 2. Verify high-voltage sources are de-energized and isolated. | No high voltage can energize during this plan. | |
 | 3. With CCS power removed, verify dummy-load wiring, protections, and emergency physical power removal. | The approved dummy-load fixture is ready and outputs are zero. | |
 | 4. Install the Logic Arduino Override and turn physical Arm Beams ON. | BCON receives the active-high interlock signal only; no high-voltage enable is asserted. | |
-| 5. Restore allowed fixture power, connect VTRX at fixed 1200 mbar, and start Laser Monitor firmware. | BCON LEDs and CCS outputs remain OFF; Laser Monitor beams-on is OFF. | |
+| 5. With BCON power OFF, power the PVX boxes, record all three enable LEDs, then restore other allowed fixture power, connect VTRX at fixed 1200 mbar, and start Laser Monitor firmware. | PVX LEDs are independently visible/stable with BCON OFF. BCON blue gate LEDs and CCS outputs remain OFF; Laser Monitor beams-on is OFF. | |
 | 6. Start dashboard with approved COM mappings and wait for fresh snapshots. | Connected subsystems identify current data without startup traceback, duplicate worker, output command, or Knob Box manipulation. | |
-| 7. Set verbose file logging and recording ON. | Durable evidence is available for every in-scope subsystem. | |
+| 7. Disable both BCON and Knob Box HV-off log suppression, then set verbose file logging and recording ON. | Durable evidence is available for every in-scope subsystem even while the HV subpanel is OFF. | |
+| 8. Power/connect BCON and use spaced, acknowledged A/B/C toggles only as needed to establish physical PVX LEDs `[Disabled, Disabled, Disabled]`. | Exactly the selected physical LEDs change; startup/connection changes none. The recorded all-Disabled PVX state is the baseline for later cases. | |
 
 ### INTER-1.2 - Allowed and excluded operator-surface inventory
 
@@ -153,7 +174,7 @@ explicitly omitted.
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Inspect Main Control Main and Config tabs. | Allowed BCON/CCS/VTRX/emission controls and status lines are visible; do not alter +20 kV E-stop control. | |
-| 2. Inspect Beam Pulse connection and Manual Control tabs. | Connect/Disconnect, watchdog, manual A/B/C modes, ARM, channel controls, Activate, Disable All, and E-stop are visible. No CSV control is selected. | |
+| 2. Inspect Beam Pulse connection and Manual Control tabs. | Connect/Disconnect, watchdog, manual A/B/C modes, PVX A/B/C one-shot toggles, ARM, Main Control software interlocks/output controls, Activate, Disable All, and E-stop are visible. | |
 | 3. Inspect Cathode Heating, Vacuum, Process Monitor, Interlocks, Machine Status, and Messages. | Retained controls/displays are visible, mapped, and readable without a command. | |
 | 4. Observe Beam Energy only as a passive Machine Status source. | Existing telemetry may be observed, but no Knob Box switch, simulation, COM, limit, reset, or output control is changed. | |
 | 5. Switch tabs, resize panes, maximize/restore, and return to baseline. | Controls remain correctly associated; no command, duplicated callback, or Tk error occurs. | |
@@ -170,7 +191,7 @@ healthy.
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Stage distinct safe CCS Goal pairs for A, B, and C without output. | Each Goal and predicted-current provider changes only its matching cathode. | |
-| 2. Software-arm BCON, enable CH A/B/C one at a time, then disable all/disarm. | Main Control, Beam Pulse, BCON LCD/register state, and logs map A/B/C consistently; LEDs remain dark. | |
+| 2. Software-arm BCON, enable the Main Control Beam A/B/C software interlocks one at a time, then disable all/disarm. | Local software-interlock and output-button mapping stays one-to-one; BCON receives no output mode until an output action, blue gate LEDs remain dark, and physical PVX LEDs remain unchanged. | |
 | 3. Change one permitted PMON input and one SIC input in separate iterations. | Only matching PMON/SIC indicator and dependent Machine Status stage changes. | |
 | 4. Disconnect/reconnect VTRX without changing fixed 1200 mbar. | Vacuum freshness and dependent guards/status change source state without cross-routing another subsystem. | |
 
@@ -208,11 +229,13 @@ BCON A plus CCS A/B dummy-load states; VTRX `SAFE_1200`.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Press `E-STOP: BEAMS & CCS` while idle/disarmed. | BCON all-off and reachable CCS OFF paths run safely; no high-voltage or Knob Box command is issued. | |
-| 2. Start BCON A DC and CCS A/B output, then press E-stop. | BCON confirms all-off and active CCS outputs receive OFF; LEDs/dummy loads reach zero or remain explicitly uncertain. | |
-| 3. Press E-stop repeatedly. | Each press creates at most one bounded attempt; attempts do not overlap and no stale output appears. | |
-| 4. Make one 9104 Power Supply unavailable and press E-stop. | BCON and each CCS result remain separately attributable; failure is not summarized as confirmed combined safe state. | |
-| 5. Restore communication and obtain confirmed BCON/CCS OFF. | No pre-E-stop output, enable, or ramp replays. | |
+| 1. Record the physical PVX LED vector, then press `E-STOP: BEAMS & CCS` while idle/disarmed. | Under one safety-operation token, the handler makes two sequential redundant immediate BCON all-off attempts and invokes reachable CCS OFF paths. No high-voltage/Knob Box/PVX toggle command is issued and PVX LEDs are unchanged. | |
+| 2. Start BCON A DC and CCS A/B output, then press E-stop. | BCON gate output and active CCS outputs reach confirmed OFF only from their own acknowledgements/readbacks. BCON disarm/interlock clearing waits for a later eligible all-off poll; physical PVX LEDs remain unchanged. | |
+| 3. Press E-stop repeatedly, including once while the prior action is pending. | Each press still performs its two bounded BCON attempts while the safety-operation context is reused/serialized; CCS work does not admit a stale normal ON, overlap unsafely, or change a PVX LED. | |
+| 4. Use the approved serial fault fixture to fail one of the two BCON attempts while the other and a later poll succeed. | The gates may reconcile OFF/disarmed, but the failed attempt remains attributable and the overall E-stop result retains failure wording. One success never erases one failure. | |
+| 5. Make one 9104 Power Supply unavailable and press E-stop. | The chronology proves both BCON attempt paths ran; each CCS channel result remains separately attributable, and any failure is not summarized as confirmed combined safe state. | |
+| 6. Remove BCON communication before E-stop so both BCON attempts fail. | Gate state is unknown until watchdog/physical evidence; software arm is not falsely cleared by an unconfirmed action. CCS shutdown proceeds independently and no PVX LED changes. | |
+| 7. Restore communication and obtain a new confirmed BCON/CCS OFF. | The explicit recovery action succeeds from fresh evidence; earlier failures remain in the chronology and no pre-E-stop output, enable, ramp, or PVX request replays. | |
 
 ### INTER-2.3 - BCON manual disconnect with active CCS
 
@@ -225,9 +248,12 @@ BCON-disconnect guard enabled.
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Select BCON Disconnect and cancel confirmation. | BCON stays connected and CCS A remains at its physical state. | |
-| 2. Select Disconnect again and approve. | CCS A confirms OFF. | |
-| 3. Restore BCON and fresh CCS readbacks. | Recovery does not enable CCS or BCON output automatically. | |
-| 4. Disable the `CCS Output off on BCON Disconnect` setting in main Control Config, activate CCS A, and disconnect BCON. | CCS A remains physically active because guard is disabled; state is shown truthfully then manually shut down. | |
+| 2. Select Disconnect again and approve. | CCS A first confirms OFF. BCON then receives firmware `ALL_OFF` command execution and closes the port; because no later poll can follow close, physical blue-gate/watchdog evidence remains distinct from tokenized poll-confirmed all-off. PVX LEDs remain unchanged. | |
+| 3. Reconnect BCON, activate CCS A, remove the CCS communication path, and approve BCON Disconnect. | Because guarded CCS OFF cannot be confirmed, BCON disconnect is blocked. BCON remains connected and CCS is shown active/unknown; the dashboard does not abandon a guarded active supply or claim combined safety. | |
+| 4. Restore CCS communication, obtain current readback, explicitly turn CCS OFF, and retry Disconnect. | CCS zero is confirmed and BCON can then disconnect cleanly. Neither output replays on later reconnect. | |
+| 5. Reconnect BCON, disable `CCS Output off on BCON Disconnect`, activate CCS A, and disconnect BCON. | BCON disconnects while CCS A remains physically active because the guard is disabled; this intentional state is shown truthfully. PVX LEDs still do not change. | |
+| 6. While BCON remains disconnected, enable the BCON-disconnect guard. | Enabling the guard in an already-disconnected state immediately attempts CCS all-off. Success/failure is explicit and does not imply BCON/PVX state. | |
+| 7. Confirm CCS OFF, reconnect BCON, and restore the guard baseline. | Recovery does not enable CCS or BCON gate output automatically and no failed request replays. | |
 
 ### INTER-2.4 - Short BCON loss, watchdog, and stale-command truth
 
@@ -239,11 +265,11 @@ BCON-disconnect guard enabled; VTRX `SAFE_1200`.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Remove BCON serial cable and, before auto-disconnect, request Beam A OFF and Disable All in separate iterations. | No unreachable command is firmware-confirmed; physical state remains authoritative until watchdog/fresh readback proves it. | |
-| 2. Restore cable within 1 s, before watchdog expiry. | Fresh polling reconciles state without disconnect callback, CCS shutdown, duplicate worker, or replay. | |
-| 3. Repeat and restore after watchdog but before ten failed polls. | Firmware A OFF is distinct from host connection; any still-powered CCS A remains truthfully shown. | |
+| 1. Record the physical PVX LEDs. Remove the BCON-side RS-485 serial cable and, before auto-disconnect, request Beam A OFF and Disable All in separate iterations. | No unreachable command is firmware-confirmed; physical gate state remains authoritative until watchdog/fresh readback proves it. PVX LEDs do not change. | |
+| 2. Restore the BCON-side RS-485 serial cable within 1 s, before watchdog expiry. | Fresh polling reconciles state without disconnect callback, CCS shutdown, duplicate worker, or replay. | |
+| 3. Repeat and restore the BCON-side RS-485 serial cable after watchdog expiry but before ten failed polls. | Firmware A OFF is distinct from host connection; any still-powered CCS A remains truthfully shown. | |
 | 4. Leave cable absent through ten failed 500 ms polls. | Driver disconnects after roughly 5-7 s; BCON is unavailable and guard invokes one CCS all-off path. | |
-| 5. Reconnect, verify physical zero, and inspect chronology. | Watchdog, disconnect, CCS action, operator command, and recovery are separately logged. | |
+| 5. Reconnect, verify physical zero, and inspect chronology. | Watchdog, disconnect, CCS action, operator command, and recovery are separately logged. No BCON gate or PVX command replays and the recorded PVX LEDs are unchanged. | |
 
 ## Suite 3 - VTRX fixed-pressure profiles and stale-data handling
 
@@ -265,25 +291,30 @@ and `UNSAFE_1200`; VTRX remains connected at fresh 1200 mbar.
 |---|---|---|
 | 1. Launch with `SAFE_1200` and wait for fresh VTRX data. | Main Control permits eligible guarded commands; both pressure stages are green when other prerequisites permit. | |
 | 2. Launch with `EQUAL_1200` and inspect before output commands. | Main Control treats equality safe; pressure stages are not green because they require strictly below. | |
-| 3. Launch with `UNSAFE_1200` and inspect guards/status. | Main Control identifies fresh high pressure; pressure stages are not ready and no default/stale value is called safe. | |
+| 3. Launch with `UNSAFE_1200`, inspect guards/status, then attempt new guarded BCON and CCS output from an all-off baseline. | Main Control identifies fresh high pressure; pressure stages are not ready and no default/stale value is called safe. Both new output paths block before hardware writes. | |
 | 4. Compare labels/logs in all launches. | Main Control says exceeds/above and Machine Status behavior says below; reversed equality semantics are defects. | |
 | 5. Restore `SAFE_1200` before the next suite. | The approved temporary profile is applied and no dashboard instance remains open. | |
 
-### INTER-3.2 - High fixed pressure with active BCON and CCS
+### INTER-3.2 - Fresh-high shutdown failure, episode latch, and recovery
 
-**Description:** Verify `UNSAFE_1200` invokes immediate Beam protection and CCS
-grace behavior without pressure simulation.
+**Description:** Create an active-output-to-fresh-high transition using only
+permitted guard controls, then prove a failed one-shot BCON shutdown is not
+hidden or automatically replayed while the same unsafe episode persists.
 
-**Initial conditions:** Launch with `UNSAFE_1200`; BCON A DC active; CCS A/B
-active on dummy loads; VTRX Beam/CCS guards enabled; grace set to 5 s.
+**Initial conditions:** Launch `UNSAFE_1200` with VTRX fresh at 1200 mbar.
+Temporarily turn the VTRX Beam and CCS guards OFF; turning the Beam guard OFF
+clears its episode latch. With the BCON A Output cable disconnected from its PVX
+pulser, start BCON A DC and CCS A/B on dummy loads. Set CCS grace to 5 s and
+record physical PVX LEDs.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Allow first fresh 1200 mbar callback. | BCON all-off is requested once for unsafe episode; A LED goes dark and channel enables clear. | |
-| 2. Observe CCS for 5 s. | Existing outputs remain on only during grace; new CCS enable is blocked immediately. | |
-| 3. Observe first callback at or after expiry. | Active CCS channels receive OFF; dummy-load output reaches zero or remains explicitly uncertain. | |
-| 4. Hold same 1200 mbar for several callbacks. | BCON is not repeatedly re-commanded after confirmed all-off; unresolved CCS failure remains attributable. | |
-| 5. Relaunch with `SAFE_1200`. | Fresh safe data clears latch/timer; no BCON or CCS output resumes. | |
+| 1. Remove the BCON-side serial cable, then immediately turn both VTRX guards ON before the next fresh-pressure callback. | The next fresh 1200 mbar callback is high under `UNSAFE_1200` and begins one episode. Main Control attempts BCON all-off once, but the broken link makes it failed/unconfirmed; no gate safety/interlock clearing is claimed and no PVX LED changes. CCS starts its grace timer. | |
+| 2. Restore the BCON serial path before ten failed polls/auto-disconnect, but hold fresh high pressure for several callbacks. Observe CCS through 5 s. | The same high episode does not automatically repeat its latched BCON all-off request. BCON fresh polling reconciles actual gate state without relabeling the failed action or clearing A's software interlock. CCS blocks new output immediately and sends attributable OFF attempts at grace expiry. | |
+| 3. While pressure remains fresh/high, issue an explicit operator `Disable All Beams` on the healthy link. | The new command obtains firmware execution plus a later all-off poll and clears Main Control software interlocks. It is logged as recovery, not replay of the failed VTRX action. | |
+| 4. Turn the Beam pressure guard OFF, re-enable A's software interlock, start a fresh isolated A output, then turn the guard ON again while `UNSAFE_1200` remains fresh. | Disabling the guard clears the latch; re-enabling plus the next high callback begins a new episode and makes exactly one new automatic BCON all-off request. Holding high produces no duplicate requests. | |
+| 5. Confirm CCS OFF, close the dashboard, relaunch `SAFE_1200` with both guards ON, and wait for fresh data. | Fresh safe data clears latch/timer state and no BCON, CCS, or PVX output/request resumes. | |
+| 6. Restore all outputs OFF and compare physical PVX LEDs with the initial vector. | Recovery is source-specific and every PVX LED is unchanged. | |
 
 ### INTER-3.3 - Equality and new-command behavior at 1200 mbar
 
@@ -295,7 +326,7 @@ BCON/CCS idle and connected.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Stage below-limit cathode prediction, arm BCON, enable CH A, and request Beam A. | Main Control pressure guard permits fresh request; success still needs BCON acknowledgement. | |
+| 1. Stage below-limit cathode prediction, arm BCON, enable Beam A's software interlock, and request Beam A. | Main Control pressure guard permits the fresh request; success still requires firmware execution plus a complete poll with `completed_at > sent_at`. | |
 | 2. Enable CCS A at safe dummy-load Goal. | VTRX CCS guard permits output because 1200 equals, not exceeds, its limit. | |
 | 3. Inspect Machine Status pressure stages. | Both pressure stages are not green at equality under temporary strict-below constants. | |
 | 4. Disable BCON output and CCS A. | Confirmed physical zero returns before profile change. | |
@@ -311,7 +342,7 @@ guards enabled; grace 5 s.
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Disconnect VTRX and observe beyond 3 s freshness. | Vacuum shows stale/no-data; pressure stages are not ready; retained 1200 mbar is not presented fresh. | |
-| 2. Observe BCON after stale is reported. | Beam guard requests one all-off for stale episode; LED/readback distinguishes request from physical result. | |
+| 2. Observe BCON after stale is reported. | Beam guard requests one all-off for the stale episode; the blue gate LED/readback distinguishes request from physical result. Main Control software interlocks clear only after the later confirming all-off poll; PVX LEDs remain unchanged. | |
 | 3. Observe CCS through stale-data grace. | New CCS enable is blocked; active output receives OFF on expiry or remains explicitly uncertain. | |
 | 4. Reconnect VTRX without changing reading and wait for fresh 1200 mbar. | Fresh data clears stale/timer under `SAFE_1200`; no output or blocked request replays. | |
 | 5. Repeat disconnect while outputs are idle. | Stale status remains visible and new guarded Beam/CCS starts fail closed. | |
@@ -387,10 +418,10 @@ do not calculate substitute limits.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Set Main Control emission limit to `0.50 mA`; enable only CH A; request Beam A and Activate Enabled Beams in separate runs. | Each start is blocked before a BCON write: A's `0.5556 mA` prediction is at/above `0.50 mA`; the feedback/log names projected total and limit. | |
-| 2. Set Main Control emission limit to `1.00 mA`; enable CH A and CH B; select Activate Enabled Beams. | A and B are individually below `1.00 mA`, but their projected `1.1112 mA` total blocks the complete activation before a BCON write; neither channel partially starts. | |
-| 3. Set Main Control emission limit to `1.20 mA`; leave CH C disabled/OFF, enable CH A and CH B, and select Activate Enabled Beams. | A+B projected total `1.1112 mA` is permitted; C stays OFF and its `0.5556 mA` does not count even though all three configured predictions total `1.6668 mA`, above the limit. | |
-| 4. Turn A and B OFF; retain `1.00 mA` limit. Start CH A and confirm it is active, then enable CH B and request only Beam B. | B start is blocked before BCON write because active A plus requested B projects `1.1112 mA`, at/above `1.00 mA`; A remains truthfully active until explicitly stopped. | |
+| 1. Set Main Control emission limit to `0.50 mA`; enable only Beam A's software interlock; request Beam A and Activate Enabled Beams in separate runs. | Each start is blocked before a BCON write: A's `0.5556 mA` prediction is at/above `0.50 mA`; the feedback/log names projected total and limit. | |
+| 2. Set Main Control emission limit to `1.00 mA`; enable the Beam A and B software interlocks; select Activate Enabled Beams. | A and B are individually below `1.00 mA`, but their projected `1.1112 mA` total blocks the complete activation before a BCON write; neither channel partially starts. | |
+| 3. Set Main Control emission limit to `1.20 mA`; leave Beam C's software interlock disabled/OFF, enable A and B, and select Activate Enabled Beams. | A+B projected total `1.1112 mA` is permitted; C stays OFF and its `0.5556 mA` does not count even though all three configured predictions total `1.6668 mA`, above the limit. | |
+| 4. Turn A and B OFF; retain `1.00 mA` limit. Start A and confirm it is active, then enable Beam B's software interlock and request only Beam B. | B start is blocked before BCON write because active A plus requested B projects `1.1112 mA`, at/above `1.00 mA`; A remains truthfully active until explicitly stopped. | |
 | 5. Turn all BCON channels OFF, disable the emission guard, retain the `0.50 mA` limit, and repeat Beam A request. | Only the emission guard is bypassed; VTRX, BCON interlock, and connection checks remain active. | |
 | 6. Restore the emission guard, approved production LUTs/Goals, and confirmed all-off. | Baseline returns with no blocked/staged request replay. | |
 
@@ -457,36 +488,41 @@ BCON connected; BCON-disconnect guard enabled.
 | 4. Restore guard, BCON, CCS readbacks, and zero output. | Normal guarded state returns without automatic restart. | |
 
 
-### INTER-4.7 - Invalid lookup-table CSV and zero-prediction blocking
+### INTER-4.7 - Invalid lookup-table CSV blocking and real-zero acceptance
 
-**Description:** Verify malformed CCS lookup-table CSV data and a displayed
-zero predicted emission cannot authorize a BCON output start.
+**Description:** Verify invalid/unavailable CCS predictions block output while
+a genuine finite zero prediction remains valid and eligible.
 
 **Initial conditions:** Emission guard enabled; VTRX `SAFE_1200`; BCON connected,
-armed as needed, and all outputs OFF. Use copied CCS lookup-table fixtures only;
-this is not Beam Pulse CSV testing.
+armed as needed, all outputs OFF, and Main Control emission limit explicitly
+set to the known positive value `1.00 mA`. Use copied CCS lookup-table fixtures
+only; this is not Beam Pulse CSV testing.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. In separate reload/restart iterations, select/load a copied empty, malformed, unreadable, wrong-header, missing-column, nonnumeric, or nonfinite CCS lookup-table CSV for Cathode A. | The LUT is rejected or A prediction is explicitly unavailable; dashboard remains responsive and does not retain a stale valid A prediction under the invalid fixture. | |
-| 2. Stage CH A while its prediction is unavailable, then request Beam A and Activate Enabled Beams in separate iterations. | Channel enable may remain only a non-output staging state, but every non-OFF Beam request fails closed before a BCON write and names A prediction unavailable. | |
-| 3. Load an approved valid-shaped zero-output LUT fixture that displays A predicted emission exactly `0.00 mA`, then stage A and request Beam A/Activate in separate iterations. | A zero prediction is invalid for beam authorization in this plan and must be rejected before BCON write. If a zero value is accepted as a valid safe prediction, record a safety defect with the sent/acknowledged evidence. | |
-| 4. Select Beam A OFF and Disable All after each iteration. | OFF paths remain available regardless of LUT/prediction validity and obtain confirmed physical OFF. | |
-| 5. Restore the approved production LUT and below-limit Goal, then recalculate. | A valid prediction returns only from explicit restoration; no CCS or BCON output starts automatically. | |
+| 2. Enable Beam A's software interlock while its prediction is unavailable, then request Beam A and Activate Enabled Beams in separate iterations. | The local software interlock may remain selected, but every non-OFF Beam request fails closed before a BCON write and names A prediction unavailable. | |
+| 3. Load a valid-shaped numeric fixture that would produce a finite negative prediction for the targeted cathode. | The producer/provider rejects the negative value as unavailable/invalid, and both individual Beam and Activate paths block before BCON write. A finite negative is never normalized to zero or treated safe. | |
+| 4. Load approved valid-shaped exact-zero fixtures for A, B, and C in separate iterations. Confirm the targeted provider value is internally exactly `0.0` and the display is `0.00 mA`; enable only that target's software interlock, then request its individual Beam action and `Activate Enabled Beams` separately. | With the known positive `1.00 mA` limit, real zero is valid on every channel/path: it contributes `0.0 mA`, passes the emission check, reaches BCON staging/APPLY, and may reach `Command Success` after firmware execution plus the eligible poll. It is not confused with `None`/`--`. | |
+| 5. Select the targeted Beam OFF and Disable All after each iteration. | OFF paths remain available regardless of LUT/prediction validity and obtain confirmed physical gate OFF. | |
+| 6. Restore the approved production LUT, below-limit Goal, and approved positive limit, then recalculate. | A valid prediction returns only from explicit restoration; no CCS or BCON output starts automatically. | |
 
-## Suite 5 - Beam Pulse manual controls and Arm Beams interlock
+## Suite 5 - Beam Pulse command lifecycle, PVX toggles, and Arm Beams interlock
 
-**Description:** Exercise every retained Beam Pulse manual path, excluding the
-entire CSV tab, and prove hardware interlock behavior using Logic Override.
+**Description:** Exercise retained Beam Pulse/Main Control paths, merged
+operation-token semantics, physical PVX enable truth, and hardware interlock
+behavior using Logic Override.
 
 **Initial conditions:** `SAFE_1200`; Logic Override installed; physical Arm
-Beams ON; BCON LEDs dark; watchdog 1500 ms.
+Beams ON; BCON blue gate LEDs dark; physical PVX A/B/C LEDs Disabled; watchdog
+1500 ms.
 
 ### INTER-5.1 - Connection, watchdog, and manual A/B/C configuration
 
 **Description:** Verify BCON manual controls are bounded and correctly mapped.
 
-**Initial conditions:** BCON connected/disarmed; channels disabled.
+**Initial conditions:** BCON connected/disarmed; Main Control software
+interlocks Disabled and all channel outputs OFF.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
@@ -495,7 +531,7 @@ Beams ON; BCON LEDs dark; watchdog 1500 ms.
 | 3. Configure A/B/C for OFF, DC, PULSE, and PULSE TRAIN with valid duration/count partitions. | Each channel retains its configuration; invalid duration/count is rejected before output action. | |
 | 4. Configure visually distinct values for A/B/C and inspect cards/LCD/log. | Channel identity remains one-to-one and no output starts during configuration. | |
 
-### INTER-5.2 - ARM, channel enable, manual output, Activate, and all-off
+### INTER-5.2 - ARM, software interlocks, manual output, Activate, and all-off
 
 **Description:** Exercise retained Main Control and Beam Pulse manual output
 actions with isolated BCON outputs.
@@ -505,11 +541,14 @@ connected; physical Arm Beams ON.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Select ARM BEAMS, then enable/disable CH A/B/C in combinations. | Software arm/channel-enable state changes as designed; arming alone produces no gate output. | |
-| 2. Request each valid manual mode on A, B, and C in separate iterations. | Only selected channel LCD/card/LED/register changes after firmware acknowledgement. | |
-| 3. Enable selected A/C and use Activate Enabled Beams. | One guarded preflight evaluates enabled set; only eligible selected channels start. | |
-| 4. Select individual Beam OFF, Disable All Beams, and disarm in separate iterations. | OFF/all-off are physically confirmed; disarm clears permitted staging/enables and never commands CCS/HV. | |
-| 5. Press combined E-stop from disarmed state. | BCON and CCS stop idempotently; high-voltage requests and Knob Box state remain untouched. | |
+| 1. Record the physical PVX LED vector. Select ARM BEAMS, then enable/disable the Beam A/B/C software interlocks in combinations. | Software arm and local interlock state change as designed; arming/selection alone produces no BCON write, gate output, or PVX LED change. | |
+| 2. Request each valid manual mode on A, B, and C in separate iterations. | Only the selected channel changes. The operation progresses request -> `Command Sent` -> `FW: OK`, then reaches `Command Success: ... \| FW: OK \| Status Poll: OK` only after a complete poll with `completed_at > sent_at` confirms live mode/output. | |
+| 3. Enable the A/C software interlocks and use `Activate Enabled Beams`. | One guarded preflight evaluates the selected set; only eligible selected channels stage/start and final success again waits for the later eligible poll. | |
+| 4. Select an individual Beam OFF while its software interlock remains Enabled. | Mode/output becomes OFF only after confirmation, but the local software interlock remains Enabled. The Manual Control mode/config remains the operator's intended next configuration rather than being falsely cleared to represent live OFF. | |
+| 5. Start A, then select `Beam A Enabled` to disable its active software interlock. | A OFF is requested; the interlock remains visibly Enabled until firmware acknowledgement plus a later poll prove A mode OFF/output low, then only A becomes Disabled. | |
+| 6. Start B, remove the BCON-side serial cable, select `Beam B Enabled`, then restore the serial path after the OFF failure/timeout but before ten failed polls cause auto-disconnect. | OFF cannot be confirmed, so B's software interlock remains Enabled and the action fails/times out. Any watchdog gate shutoff is not retroactive command success. Fresh polling reconciles hardware; a new confirmed Disable All is required to clear interlocks. | |
+| 7. With a healthy link, select `Disable All Beams`, then re-enable/start C and request disarm. | Disable All clears software interlocks only after its post-command all-off poll but leaves software arm ON. Confirmed disarm later clears arm/interlocks after its own eligible poll. Neither action changes Manual Control configuration or a PVX LED. | |
+| 8. Press combined E-stop from disarmed state. | Two BCON all-off attempts and reachable CCS stops run idempotently; high-voltage requests, Knob Box state, and all physical PVX LEDs remain untouched. | |
 
 ### INTER-5.3 - Physical Arm Beams interlock with Logic Override
 
@@ -521,27 +560,28 @@ available; outputs OFF.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Turn physical Arm Beams OFF and wait for fresh BCON state. | LCD/dashboard show unsafe interlock; LEDs remain dark while transport can stay connected. | |
-| 2. Software-arm, configure A DC, attempt CH A enable and Activate. | Unsafe interlock rejects/clears enable/output; no blue A LED appears. | |
-| 3. Turn Arm Beams ON without new BCON output command. | Interlock returns healthy but no mode, enable, or output resumes automatically. | |
+| 1. Record all physical PVX LEDs, turn physical Arm Beams OFF, and wait for fresh BCON state. | LCD/dashboard show unsafe interlock; blue gate LEDs remain dark while transport can stay connected. PVX LEDs remain unchanged. | |
+| 2. Software-arm, configure A DC, enable Beam A's software interlock, and Activate. | The local selector may remain enabled, but the unsafe firmware interlock rejects output; no blue BCON A gate LED appears and the rejection is logged as ERROR. | |
+| 3. Turn Arm Beams ON without a new BCON output command. | Interlock returns healthy but no mode or output resumes automatically. | |
 | 4. Start A DC, then turn Arm Beams OFF while active. | Firmware forces A low; dashboard/Laser beams-on reconcile from live BCON state without calling it VTRX/CCS shutdown. | |
-| 5. Restore Arm ON, issue fresh A command, then Disable All and disarm. | Only fresh command starts A; final BCON state is confirmed OFF/disabled. | |
+| 5. Restore Arm ON, issue a fresh A command, then Disable All and disarm. | Only the fresh command starts A; final BCON gate output is confirmed OFF, software interlocks are Disabled, and the recorded PVX LED vector is unchanged. | |
 
 ### INTER-5.4 - BCON cable, power, and stale-state recovery
 
 **Description:** Test physical BCON loss without allowing stale manual state to
 become new output request.
 
-**Initial conditions:** BCON A DC active on disconnected output; watchdog 1500
-ms; Laser Monitor connected; CCS OFF.
+**Initial conditions:** BCON A DC active with every BCON Output cable
+disconnected from the PVX pulsers; watchdog 1500 ms; Laser Monitor connected;
+PVX boxes independently powered; CCS OFF.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Remove BCON serial cable and observe past watchdog expiry. | Firmware drives A low at watchdog expiry; dashboard does not present retained activity as fresh. | |
-| 2. Observe until ten failed polls cause auto-disconnect. | Beam Pulse clears arm/channel/output mirrors and does not replay old DC request. | |
-| 3. Restore cable without selecting Reconnect, then Reconnect and wait for fresh registers. | Reconnect requires explicit action where implemented; BCON returns all channels OFF/disabled. | |
-| 4. Repeat with BCON power loss and laptop USB adapter removal. | Failure cause is correctly classified; host/serial loss is not mislabeled interlock or confirmed all-off. | |
-| 5. Restore power/adapter, confirm 1500 ms watchdog, Disable All, and disarm. | Baseline returns with no retained mode, enable, output, or queue. | |
+| 1. Record the physical PVX LEDs, remove the BCON-side RS-485 serial cable, and observe past watchdog expiry. | Firmware drives blue gate A low at watchdog expiry; dashboard does not present retained activity as fresh and no PVX LED changes. | |
+| 2. Observe until ten failed polls cause auto-disconnect. | Beam Pulse clears software-arm/local-output state and does not replay the old DC request. | |
+| 3. Restore the BCON-side RS-485 serial cable without selecting Reconnect, then Reconnect and wait for fresh registers. | Reconnect requires explicit action where implemented; BCON returns all channel outputs OFF. | |
+| 4. Repeat with BCON power loss and laptop USB adapter removal while continuing to observe the independently powered PVX LEDs. | Failure cause is correctly classified; host/serial loss is not mislabeled interlock or confirmed all-off. PVX LEDs remain visible and unchanged through BCON power loss. | |
+| 5. Restore power/adapter, confirm 1500 ms watchdog, Disable All, and disarm. | Baseline returns with no retained gate mode, output, software interlock, or queue. No failed gate/PVX request replays and PVX LEDs still match step 1. | |
 
 ### INTER-5.5 - Manual action races and source-of-truth chronology
 
@@ -553,30 +593,36 @@ CCS A on dummy load in selected iterations.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Queue Beam A ON or Activate, then immediately select Disable All or E-stop. | Final confirmed all-off wins; older queued write does not reassert output. | |
-| 2. Request A output while physical Arm Beams is OFF. | Optimistic queued/sent line is superseded by firmware rejection; BCON LED/Laser beams indicator stay OFF. | |
-| 3. Disconnect BCON during manual request. | Connection failure supersedes optimistic state; no Main/Machine Status/Laser surface claims live Beam output. | |
-| 4. Compare request, queue, acknowledgement, register, LED, Laser, Machine Status, and log times. | Requested, accepted/rejected, live output, and shutdown remain chronologically distinct. | |
+| 1. Request Beam A ON and select Beam B ON before A's post-command poll. | Only one normal operation is pending. B is rejected/busy, cannot steal A's token, and no late result is attached to the wrong channel. | |
+| 2. Run A normally and capture every action-line phase. | Request, `Command Sent`, firmware `FW: OK`, and the strictly later `Status Poll: OK` are distinct. Only their completed combination is `Command Success`; blue gate/Laser/Machine Status remain live-state consumers. | |
+| 3. Let an A request reach `FW: OK`, then remove BCON communication before its required post-send poll and wait past the operation deadline. | A ends timeout/unknown without `Status Poll: OK`. A later reconnect poll reconciles hardware but never retroactively completes the expired token. | |
+| 4. In separate iterations, interrupt the first/middle staged write and terminal APPLY for a multi-channel Activate. | Remaining batch/APPLY work is suppressed as appropriate, one attributable failure is retained, and fail-closed all-off is attempted. No partial A stage can start during a later unrelated B apply. | |
+| 5. Queue Beam A ON or Activate, then immediately select Disable All or E-stop. | The safety action preempts older normal work; final confirmed all-off wins and no queued write reasserts output. E-stop performs two BCON attempts rather than being collapsed to one. | |
+| 6. Request A output while physical Arm Beams is OFF. | Optimistic queued/sent line is superseded by firmware `UNSAFE_INTERLOCK` rejection; BCON blue gate LED/Laser beams-on stay OFF and the known rejection is ERROR, not CRITICAL. | |
+| 7. Compare request, token, send, firmware result, eligible poll, register, physical blue BCON gate LED, Laser, Machine Status, timeout/preemption, and log times. | Requested, accepted/rejected, live output, shutdown, and recovery remain chronologically and causally distinct; stale events cannot complete a newer action. | |
 
 
-### INTER-5.6 - Manual Beam Pulse and Main Control emission-guard parity
+### INTER-5.6 - PVX physical LED truth, guard independence, and failures
 
-**Description:** Verify direct Manual Control sends and Main Control Beam/Activate
-actions enforce the same emission decision before any BCON write.
+**Description:** Verify the three external PVX latch states through their own
+enable LEDs and prove the toggle path is independent of every cross-subsystem
+guard/action except BCON connection and valid A/B/C channel mapping.
 
-**Initial conditions:** Install and select the documented `CCS_test_alt.csv`
-fixture for A, B, and C. Set only each cathode Voltage Goal to `0.30 V`; each
-must display predicted Emission `0.56 mA` (internal value `0.5556 mA`). VTRX is
-`SAFE_1200`; emission guard enabled; BCON armed; and A/B/C DC configurations
-staged with all outputs OFF. Use the exact emission-limit values in the table;
-do not calculate substitute limits.
+**Initial conditions:** Every BCON Output cable is disconnected from every PVX
+pulser; A/B/C DB15 toggle cables are connected; BCON and the independently
+powered PVX boxes are connected; all physical PVX LEDs are Disabled.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Set Main Control emission limit to `0.50 mA`, enable CH A, then use Beam Pulse Manual Control Send/Apply for A and Main Control Beam A in separate runs. | Both output paths reject A before a BCON write because A projects `0.5556 mA`, at/above `0.50 mA`; no blue A LED or Laser beams-on transition occurs. | |
-| 2. Set Main Control emission limit to `1.00 mA`. Start A, confirm it is active, then use Manual Control Send/Apply for B and Main Control Beam B in separate runs. | Both B paths block because active A plus requested B projects `1.1112 mA`, at/above `1.00 mA`; A remains active until a separate OFF. | |
-| 3. Turn all channels OFF, set Main Control emission limit to `1.20 mA`, leave C disabled/OFF, and start A/B through Manual Control and Activate Enabled Beams in separate runs. | A+B projected total `1.1112 mA` is permitted because only A/B are projected; C stays OFF and its `0.5556 mA` is excluded even though all three configured predictions total `1.6668 mA`, above the limit. | |
-| 4. Select individual OFF, Disable All, and disarm after each iteration. | OFF actions bypass emission blocking and return BCON/Laser/Machine Status to confirmed idle. | |
+| 1. While software disarmed and all software interlocks Disabled, select `Toggle PVX A Enable`, wait more than 150 ms, and select it again while watching all three physical LEDs. | Exactly A changes Disabled -> Enabled -> Disabled. B/C never change. FC06/R13/R114, request text, the LCD, and blue gate LEDs are diagnostics only; the physical A enable LED is state truth. | |
+| 2. Repeat the two-direction test for B and C. | B maps only to its DB15/physical LED and R23/R124; C maps only to its DB15/physical LED and R33/R134. No gate, CCS, Laser, or Machine Status output state is implied. | |
+| 3. Double-select A inside 150 ms, then wait more than 150 ms and select it once more. | The first accepted click changes A once; the cooldown-rejected click changes no LED and logs one failure; the later accepted click changes A once and restores Disabled. | |
+| 4. In separate iterations, repeat an accepted toggle pair while software disarmed, software interlocks Disabled, physical Arm OFF, VTRX stale/high, emission prediction unavailable, emission prediction genuinely `0.00 mA`, prediction at/above limit, and CCS/PMON/SIC states not ready. | As long as BCON remains connected and the A/B/C control is valid, each accepted toggle changes exactly its matching physical PVX LED. Blocking contexts still block their own gate/output path; genuine finite zero remains a valid Beam prediction; neither decision gates PVX toggling. | |
+| 5. With guards restored safe enough to run isolated gates, start A DC and B long PULSE_TRAIN. Toggle C Enabled then Disabled with more than 150 ms between clicks while both gate modes are active. | Both C toggles succeed and only the physical C enable LED changes. A/B gate modes, Main Control token/status, Laser beams-on, and Machine Status live-gate state continue independently. | |
+| 6. Establish physical PVX vector `[Enabled, Disabled, Enabled]`. Without pressing any PVX control, exercise individual Beam OFF, active software-interlock disable, Disable All, confirmed disarm, E-stop, physical Arm trip/recovery, watchdog expiry, VTRX shutdown, BCON disconnect, and normal dashboard quit in separate recorded iterations. | None of these non-toggle actions changes any physical PVX LED. Gate/CCS states follow their own protections while PVX remains `[Enabled, Disabled, Enabled]`. | |
+| 7. While BCON is intentionally disconnected, attempt A/B/C toggles; then power BCON OFF while leaving PVX powered/visible. | Each disconnected attempt fails before an FC06 and changes no LED. PVX LEDs remain visible and stable with BCON unpowered; BCON boot/reconnect does not change them or replay a failed toggle. | |
+| 8. Break the BCON-side serial path during the stale-green window and attempt one toggle. | A definite failed immediate write changes no physical LED. If the reply is lost after a physical toggle, the action is explicitly indeterminate and the observed LED establishes state before any retry; no dashboard message overrides it. | |
+| 9. Reconnect and use healthy, spaced, channel-specific toggles to leave physical A/B/C LEDs Disabled. | Exactly the selected LED changes on each accepted request. Final PVX state is `[Disabled, Disabled, Disabled]`; BCON all-off/power-cycle is not accepted as restoration evidence. | |
 
 ## Suite 6 - PMON actions and Machine Status source behavior
 
@@ -720,7 +766,7 @@ whatever fixed current state the fixture presents.
 | 3. Verify All Safety Interlocks Pass and High Voltage Subpanel On. | Stages 3 and 4 reflect SIC aggregate/output/HVolt feedback, not dashboard intent. | |
 | 4. Inspect HV Power Supplies Nominal and Beam Controller Nominal. | Stages 6 and 7 reflect passive fixed Knob Box prerequisites plus BCON state; no Knob state is changed to make them pass. | |
 | 5. Enable safe CCS A, then arm BCON with physical Arm Beams ON. | Cathode Heating and Beams Ready reflect actual CCS/BCON/prerequisite state, including passive stage-6/7 conditions. | |
-| 6. Start and stop BCON A DC on disconnected output. | Beams On follows live BCON activity; Machine Status issues no output command and returns once A is confirmed OFF. | |
+| 6. Start and stop BCON A DC with its BCON Output cable disconnected from the PVX pulser. | Beams On follows live BCON gate activity; Machine Status issues no output command and returns once A is confirmed OFF. | |
 
 ### INTER-8.2 - Pressure-stage strictness and stale VTRX behavior
 
@@ -765,7 +811,7 @@ changing them; `SAFE_1200`; BCON connected/idle.
 |---|---|---|
 | 1. Inspect stages 6 and 7 before arming BCON. | Each matches current passive Knob Box and BCON inputs; unavailable/non-nominal data remains not ready and is not altered. | |
 | 2. Software-arm BCON with physical Arm ON but leave channels OFF. | Beams Ready changes only if every earlier prerequisite, including passive stage-6/7 conditions, is satisfied. | |
-| 3. Enable/activate A and compare stage 10 to BCON LED/register and Laser beams-on LED. | Beams On becomes green only from live BCON output; queued request/Laser state alone cannot make it green. | |
+| 3. Enable Beam A's software interlock, activate A, and compare stage 10 to the blue BCON gate LED/register and Laser beams-on LED. | Beams On becomes green only from live BCON gate output; queued request/Laser state alone cannot make it green. | |
 | 4. Turn physical Arm OFF during A DC, then restore it. | BCON forced-off clears Beams On; Beams Ready/output does not recover until fresh permitted command and prerequisites. | |
 | 5. Disarm and inspect stages. | Summary returns source-accurate idle state without any Knob Box manipulation. | |
 
@@ -788,14 +834,35 @@ and recovers from fresh data without stale all-green state.
 **Description:** Ensure status color is not mislabeled confirmed shutdown and
 protection action is not hidden by static status.
 
-**Initial conditions:** `UNSAFE_1200` run with BCON/CCS active in separate
-iterations; outputs isolated/dummy-loaded.
+**Initial conditions:** Launch `SAFE_1200`, wait for fresh safe VTRX data, then
+start BCON/CCS in separate iterations on isolated/dummy-loaded outputs. Use a
+VTRX disconnect to create the reachable unsafe transition.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Let fresh 1200 mbar invoke Main Control protection. | Status reports source readiness/warning while BCON/CCS lines separately identify requested, confirmed, or uncertain shutdown. | |
+| 1. Disconnect VTRX beyond freshness and let stale data invoke Main Control protection. | Status reports source readiness/warning while BCON/CCS lines separately identify requested, confirmed, or uncertain shutdown. Machine Status color is not hardware acknowledgement. | |
 | 2. Cause PMON or SIC fault without BCON/CCS action. | Machine Status changes, but no false beam/CCS shutdown confirmation appears solely from its color. | |
 | 3. Resolve source faults and relaunch `SAFE_1200`. | Recovery is source-specific; no prior BCON/CCS output or blocked command replays. | |
+
+### INTER-8.7 - Software-interlock emission sum and Beams Ready
+
+**Description:** Verify Machine Status derives emission readiness from selected
+Main Control software interlocks and current predictions, independently of the
+Main Control output-guard checkbox and PVX latch state.
+
+**Initial conditions:** `SAFE_1200`; all earlier Machine Status prerequisites
+made ready where the permitted fixture allows; BCON connected/armed and gate
+outputs OFF. Load the documented known-LUT fixture with A/B/C predictions
+`0.5556 mA` each.
+
+| Test steps | Expected results | Notes |
+|---|---|---|
+| 1. Disable the Main Control emission-guard checkbox, set limit `1.00 mA`, and enable A/B software interlocks. | Machine Status still sums selected A+B (`1.1112 mA`) and forces Beams Ready red/not-ready. Disabling command blocking does not disable status evaluation. | |
+| 2. Disable B's software interlock while A remains selected. | The selected sum becomes A only (`0.5556 mA`); the emission reason no longer forces Beams Ready red, subject to all other prerequisites. | |
+| 3. Set limit `1.20 mA`, select A/B, and leave C's software interlock Disabled despite its valid configured prediction. Then enable C. | With C Disabled, only A+B (`1.1112 mA`) counts and C is excluded. Enabling C raises the selected total to `1.6668 mA` and forces Beams Ready red. | |
+| 4. With only A selected and the command guard still disabled, load the approved exact-zero A fixture whose provider value is internally `0.0` and display is `0.00 mA`; inspect Beams Ready. Then re-enable the emission guard and request A output. | Machine Status treats zero as a valid contribution of zero and does not force red for an emission-invalid/over-limit reason, subject to other prerequisites. After re-enabling the guard, A output remains emission-eligible and may proceed to BCON confirmation. `0.0` is not confused with unavailable `None`. | |
+| 5. Toggle a physical PVX LED once, observe Machine Status, then toggle it back after more than 150 ms. | Only the physical PVX enable LED changes. PVX latched state is not an input to the selected-channel emission sum or Beams Ready calculation. | |
+| 6. Restore production LUT/Goals, guard enable, emission limit, software interlocks, and physical PVX LEDs Disabled. | Machine Status recomputes from restored current sources; no gate/PVX/CCS output starts during restoration. | |
 
 ## Suite 9 - Laser Monitor firmware, serial transport, and beams-on integration
 
@@ -835,7 +902,7 @@ radiation excluded.
 | 2. Start A DC then stop A; repeat for B and C separately. | Each live active channel causes beams-on ON after BCON register update; it returns OFF after no-active-channel state. | |
 | 3. Use long visible PULSE TRAIN, then let it finish. | Beams-on follows observed active period and clears after live BCON state clears; unobservable short pulse is not falsely claimed tested. | |
 | 4. Start A and B together, then stop one and both. | Beams-on stays ON while any channel is active and turns OFF only after last live channel is OFF. | |
-| 5. Compare BCON LED/LCD/register, Machine Status Beams On, Laser LED, and logs. | Sources report same live transition order; radiation remains ignored. | |
+| 5. Compare blue BCON gate LED/LCD/register, Machine Status Beams On, Laser LED, and logs. | Sources report the same live gate transition order; radiation and PVX enable state remain separate. | |
 
 ### INTER-9.3 - Interlock, all-off, and stale-beam indication
 
@@ -843,13 +910,14 @@ radiation excluded.
 and communication loss.
 
 **Initial conditions:** BCON A DC active; Laser Monitor healthy; watchdog 1500
-ms; no pulser cable attached.
+ms; every BCON Output cable disconnected from the PVX pulsers and DB15 toggle
+cables left attached.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Turn physical Arm Beams OFF while A active. | BCON forces A low; Laser beams-on clears after corresponding live BCON state transition; recovery does not relight it. | |
 | 2. Restart A with fresh command, then use Disable All and combined E-stop separately. | Confirmed BCON all-off drives beams-on OFF; E-stop scope is not mislabeled radiation/HV control. | |
-| 3. Restart A, remove BCON serial cable, and timestamp watchdog expiry, Laser LED, and auto-disconnect. | Beams-on must not remain asserted after output is known OFF. If it remains until host auto-disconnect clears stale BCON activity, record defect with duration. | |
+| 3. Restart A, remove the BCON-side RS-485 serial cable, and timestamp watchdog expiry, Laser LED, and auto-disconnect. | Beams-on must not remain asserted after output is known OFF. If it remains until host auto-disconnect clears stale BCON activity, record defect with duration. | |
 | 4. Reconnect BCON/Laser Monitor, obtain fresh all-off, and issue no new Beam command. | Beams-on remains OFF; old beam activity does not replay. | |
 
 ### INTER-9.4 - Firmware response, USB, and reconnect failures
@@ -865,7 +933,7 @@ provide missing, malformed, delayed, and unexpected responses.
 | 1. Return missing, malformed, unexpected, non-ASCII, and delayed responses separately. | Driver records protocol/transaction failure, marks connection unhealthy, and dashboard callbacks stay responsive. | |
 | 2. Restore normal OK response. | Driver reconnects with documented 0.5-5 s backoff, resumes polling, and resynchronizes beams-on without BCON state change. | |
 | 3. Unplug/reinsert Laser USB while dashboard runs. | Disconnect/reconnect is explicit; BCON/CCS/PMON/SIC/VTRX remain responsive and no port is cross-assigned. | |
-| 4. Hold serial fault over 4 s while BCON is active on isolated output. | Firmware/dashboard watchdog behavior reaches documented beams-on state; physical LED/driver state are recorded without radiation claim. | |
+| 4. Hold the Laser Monitor serial fault over 4 s while a BCON gate is active with its BCON Output cable disconnected from the PVX pulser. | Firmware/dashboard watchdog behavior reaches documented beams-on state; the physical blue gate LED/driver state are recorded without a radiation or PVX-state claim. | |
 | 5. Restore serial path and confirmed BCON all-off. | Laser beams-on ends OFF and one recovery worker/port remains. | |
 
 
@@ -934,7 +1002,7 @@ VTRX-stale, PMON, SIC, and Laser event are available.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Select allowed UI/file log levels, toggle recording OFF/ON, and perform one permitted action in each state. | UI/file recording is explicit; safety actions remain truthful when recording is off. | |
+| 1. Confirm both BCON and Knob Box HV-off suppression checkboxes are disabled. Select allowed UI/file log levels, toggle recording OFF/ON, and perform one permitted action in each state. | BCON/Knob evidence is present despite the HV panel being OFF; UI/file recording is explicit and safety actions remain truthful when recording is off. | |
 | 2. Clear Messages, then trigger permitted event and inspect durable log. | Clear affects view only; durable evidence preserves source/time/severity per recording state. | |
 | 3. Export Messages to copied writable path, cancel, then use unwritable path. | Valid export is complete; cancel inert; write failure explicit with no dashboard freeze. | |
 | 4. Save/restore layout, run approved inert setup-script fixtures, and launch post-processor success/failure fixtures. | UI remains usable; script/post-processor failure is contained and cannot manipulate hardware. | |
@@ -969,32 +1037,33 @@ available.
 **Description:** Ensure orderly shutdown handles manual BCON, CCS, VTRX, PMON,
 SIC, Machine Status, and Laser Monitor without high-voltage action.
 
-**Initial conditions:** In separate/combined runs: BCON manual output, CCS
+**Initial conditions:** In separate/combined runs: isolated BCON gate output, CCS
 Immediate/Ramp dummy-load output, VTRX stale grace timer, and Laser beams-on
-are active.
+are active. Record the physical PVX LED vector.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Confirm normal quit from each supported entry point. | Machine Status stops first; BCON all-off/CCS OFF attempt before close; PMON/SIC/VTRX/Laser workers/ports close safely. | |
 | 2. Measure quit confirmation to process exit. | Cleanup completes within 10 s or records exact blocked dependency; no callback accesses destroyed widgets. | |
-| 3. Inspect BCON LEDs, CCS dummy loads, and Laser beams-on after exit. | Reachable outputs are physically OFF; unknown CCS is not safe; no high-voltage/Knob action occurred. | |
-| 4. Relaunch with safe fixtures. | One clean worker/callback set starts with BCON disarmed, CCS OFF, and Laser beams-on OFF. | |
+| 3. Inspect BCON blue gate LEDs, physical PVX enable LEDs, CCS dummy loads, and Laser beams-on after exit. | Reachable gate/CCS outputs are physically OFF; unknown CCS is not safe; no high-voltage/Knob action occurred. Every independently powered PVX LED retains its pre-quit state. | |
+| 4. Relaunch with safe fixtures. | One clean worker/callback set starts with BCON disarmed, CCS OFF, and Laser beams-on OFF. No prior gate or PVX request replays and PVX LEDs remain unchanged. | |
 
 ### INTER-11.2 - Abnormal dashboard termination and physical fallback
 
 **Description:** Establish safety truth when normal dashboard cleanup does not
 run.
 
-**Initial conditions:** BCON A DC active on disconnected output; CCS A active
-on dummy load; watchdog 1500 ms; Laser Monitor connected.
+**Initial conditions:** BCON A DC active with its BCON Output cable disconnected
+from the PVX pulser; CCS A active on dummy load; watchdog 1500 ms; Laser
+Monitor connected; record the independently powered PVX LED vector.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Terminate dashboard through approved fault injection without quit cleanup. | No software BCON all-off/CCS OFF acknowledgement is assumed. | |
-| 2. Observe BCON for at least two watchdog periods. | Firmware watchdog forces BCON output low; time is measured from last valid heartbeat. | |
+| 2. Observe BCON and physical PVX LEDs for at least two watchdog periods. | Firmware watchdog forces the BCON gate output low; time is measured from last valid heartbeat. PVX LEDs remain unchanged because host loss/watchdog is not a toggle. | |
 | 3. Observe CCS and Laser through documented fallback intervals. | CCS may remain energized and is active/unknown; Laser beams-on follows firmware communication watchdog separately. | |
 | 4. Remove CCS physical power and verify zero output. | Physical mitigation establishes safe state and is not dashboard acknowledgement. | |
-| 5. Restore communications and relaunch. | Fresh state is reconciled before new output request; no stale state replays. | |
+| 5. Restore communications and relaunch. | Fresh gate/CCS state is reconciled before new output request; no stale gate/PVX/CCS state replays and PVX LEDs still match the initial vector. | |
 
 ### INTER-11.3 - Repeated lifecycle and cross-fault stress
 
@@ -1007,7 +1076,7 @@ progressively slow cleanup in retained scope.
 | Test steps | Expected results | Notes |
 |---|---|---|
 | 1. Launch, connect retained sources, exercise BCON and CCS ON/OFF, then quit for at least 10 iterations. | Each iteration begins/ends cleanly; no port busy and worker/callback/log counts do not grow. | |
-| 2. Repeat ARM/disarm, Activate/Disable, CCS ramp/stop, VTRX disconnect/reconnect, PMON/SIC fault/recovery, and Laser USB reconnect for at least 30 cycles. | State converges each cycle with no stale latch/queue, channel cross-route, duplicated Laser send, or slowdown. | |
+| 2. Repeat ARM/disarm, Activate/Disable, CCS ramp/stop, VTRX disconnect/reconnect, PMON/SIC fault/recovery, and Laser USB reconnect for at least 30 cycles. | State converges each cycle with no stale latch/queue, channel cross-route, duplicated Laser send, or slowdown. Physical PVX LEDs never change without an accepted PVX click. | |
 | 3. Review lifecycle logs and cleanup durations. | One intended poller/reconnect/timer family per subsystem remains; cleanup stays at or below twice median of first three clean cycles. | |
 
 ### INTER-11.4 - Final restoration and evidence review
@@ -1022,9 +1091,10 @@ fixture reason; dashboard closed.
 |---|---|---|
 | 1. Restore default VTRX/Machine Status source constants and inspect source diff. | Defaults are exact; no temporary threshold profile remains. | |
 | 2. Restore backed-up configs, LUT, pane state, copied script, and file permissions. | Production files/permissions are restored; unrelated user data is untouched. | |
-| 3. Restore COM mappings, PMON/SIC inputs, VTRX connection, BCON watchdog, Arm Beams, Laser firmware/USB, CCS protections, and output OFF state. | Bench is post-test: BCON LEDs dark, CCS dummy loads zero, Laser beams-on OFF, HV de-energized. | |
-| 4. Perform final nominal launch without enabling output. | Restored config/mappings load; no stale timer, fault, worker, profile, or test fixture alters state. | |
-| 5. Export final Messages and preserve logs, source diffs, fixture observations, and defects. | Evidence ties failed/deferred cases to revision, time, expected/actual result, and recovery. | |
+| 3. Restore COM mappings, PMON/SIC inputs, VTRX connection, BCON watchdog to `1500 ms`, physical Arm Beams, Laser firmware/USB, CCS protections, and gate/CCS output OFF state. Leave BCON connected but software-disarmed with all three Main Control software interlocks Disabled. Verify every BCON Output cable remains disconnected from every PVX pulser and all three DB15 toggle cables remain correctly attached. | The BCON connection is current, the confirmed watchdog is `1500 ms`, software arm is OFF, all three software interlocks are Disabled, BCON blue gate LEDs are dark, CCS dummy loads are zero, Laser beams-on is OFF, and HV is de-energized. Cable paths remain correctly isolated/mapped. | |
+| 4. Power/connect BCON and the independently powered PVX boxes, then use healthy spaced toggles as needed to leave physical PVX A/B/C LEDs Disabled. | Exactly each selected LED changes. Final PVX state is directly observed `[Disabled, Disabled, Disabled]`; BCON all-off, disarm, E-stop, disconnect, exit, or power cycle is not used as proof. | |
+| 5. Perform final nominal launch without enabling output. | Restored config/mappings load; no stale timer, fault, worker, profile, or test fixture alters gate, CCS, or PVX state. | |
+| 6. Export final Messages and preserve logs, source diffs, fixture observations, and defects. | Evidence ties failed/deferred cases to revision, time, expected/actual result, and recovery. | |
 
 ## Completion Criteria
 
@@ -1039,5 +1109,13 @@ fixture reason; dashboard closed.
   depending on passive Knob Box state are observed without manipulation.
 - Every claimed BCON/CCS shutdown has hardware/readback and physical evidence;
   unknown state never counts as pass.
-- Defaults, files, COM mappings, fixtures, source constants, BCON watchdog,
-  CCS protections, and physical outputs are restored and verified.
+- Every guarded Beam path rejects missing `None`/`--`, non-finite, and negative
+  predictions before a BCON write. A genuine finite `0.00 mA` prediction is
+  accepted and contributes zero to the selected/projected emission total.
+- Every successful PVX toggle changes exactly its matching physical enable LED;
+  every definite failed toggle changes none; every non-toggle action leaves all
+  three LEDs unchanged. Final physical PVX state is A/B/C Disabled.
+- Defaults, files, COM mappings, fixtures, source constants, CCS protections,
+  BCON Output/DB15 cable routing, and physical outputs are restored and verified.
+  BCON is connected with confirmed `1500 ms` watchdog, software arm OFF, all
+  three Main Control software interlocks Disabled, and all blue gate LEDs dark.
