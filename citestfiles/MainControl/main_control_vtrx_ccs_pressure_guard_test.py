@@ -334,7 +334,10 @@ class MainControlBeamsOffTest(unittest.TestCase):
 
         self.assertEqual(
             main_control._beam_action_status_text,
-            f"{cause} | BCON confirmed: E-STOP",
+            (
+                f"{cause} | E-STOP command: all channels mode=OFF | "
+                "FW: OK | Status Poll: OK"
+            ),
         )
         self.assertEqual(main_control._beam_action_status_outcome, "estop")
         self.assertEqual(main_control._beam_action_status_color, BEAM_ACTION_FAILURE_COLOR)

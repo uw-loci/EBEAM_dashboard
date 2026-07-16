@@ -17,6 +17,8 @@ At runtime it is responsible for:
   Beam A/B/C software-interlock, Activate Enabled Beams, and Disable All Beams
   controls.
 - Displaying Beam A/B/C output status and the result of the latest beam action.
+  The action line retains the attempted command and its mode parameters, then
+  appends `FW: OK` and `Status Poll: OK` as those confirmations arrive.
 - Saving dashboard layout and updating COM-port assignments through Dashboard
   callbacks.
 - Owning the configurable total predicted emission-current limit value that Beam
@@ -37,7 +39,8 @@ Main Control is a two-tab subpanel.
 - ARM BEAMS / BEAMS ARMED toggle.
 - Four-line beam status/action display:
   - Lines 1-3 show Beam A/B/C output state only.
-  - Line 4 shows the latest action result or failure reason.
+  - Line 4 shows the latest user action result or failure reason. Successful
+    BCON stages append to that action instead of replacing it.
 - `E-STOP: BEAMS & CCS` button.
 
 ### `Config` Tab
@@ -200,7 +203,8 @@ Dashboard callbacks.
 - A normal-action timeout releases the pending-operation slot, logs the token,
   action, channels, elapsed time, and unknown firmware outcome, and leaves
   hardware presentation to later polls. Disable-all and E-stop failures/timeouts
-  are logged as CRITICAL.
+  are logged as CRITICAL, except firmware rejection due to `UNSAFE_INTERLOCK`,
+  which is logged as ERROR.
 - An E-STOP confirmation timeout leaves the Beam Pulse arming state unchanged
   and BCON output state unknown. It is logged as CRITICAL, but Main Control
   keeps BCON controls available for an operator recovery attempt.

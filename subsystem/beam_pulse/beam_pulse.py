@@ -863,8 +863,9 @@ class BeamPulseSubsystem:
                 )
                 self._log_event("Activate Enabled Beams failed: BCON did not queue command", LogLevel.ERROR)
                 return False
-            self._notify_action_feedback(
-                "status", "Activate Enabled Beams queued; awaiting firmware response", "neutral")
+            if not operation_token:
+                self._notify_action_feedback(
+                    "status", "Activate Enabled Beams queued; awaiting firmware response", "neutral")
             self._log_event("Activate Enabled Beams queued for BCON")
             return True
         else:

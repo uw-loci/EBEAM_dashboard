@@ -180,7 +180,8 @@ hardware state.
 If any tokenized staged write fails or is unconfirmed, the batch's remaining
 writes are suppressed, the failure is logged as CRITICAL, and the driver forces
 `ALL_OFF`. A rejected or inconclusive terminal apply command after staging also
-forces `ALL_OFF`.
+forces `ALL_OFF`; a known `UNSAFE_INTERLOCK` rejection is logged as ERROR rather
+than CRITICAL.
 
 ### Configuration
 

@@ -437,17 +437,19 @@ class BCONDriver:
         if batch_id:
             failed_batches.add(batch_id)
 
+        hardware_interlock_rejection = "UNSAFE_INTERLOCK" in str(reason).upper()
         if notify:
             self._ui_put("operation_failed", {
                 "token": token,
                 "reason": reason,
-                "critical": True,
+                "critical": not hardware_interlock_rejection,
                 "logged": True,
             })
+        level = "ERROR" if hardware_interlock_rejection else "CRITICAL"
         self._log(
             f"Staged BCON batch {token} failed or was unconfirmed "
             f"({reason}); forcing ALL_OFF",
-            "CRITICAL",
+            level,
         )
         try:
             self.stop_all()
