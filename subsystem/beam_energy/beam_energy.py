@@ -7,7 +7,6 @@ from instrumentctl.knob_box.knob_box_modbus import KnobBoxModbus
 from utils import LogLevel
 import tkinter.messagebox as messagebox
 from usr.beam_energy_warning_config import (
-    BEAMS_ESTOP_CURRENT_FIELD,
     DEFAULT_WARNING_LIMITS,
     POS20KV_SUPPLY_KEY,
     load_beam_energy_warning_limits,
@@ -92,6 +91,8 @@ class BeamEnergySubsystem:
         self.knob_box_controller = None
         self.knob_box_connected = False
         self.knob_box_connected_at = None
+        self._knob_box_fallback_reason = None
+        self._knob_box_missing_port_logged = False
         
         # Main power supply configurations
         self.power_supplies = [
@@ -102,6 +103,7 @@ class BeamEnergySubsystem:
         ]
         self.supply_keys = [supply_key for supply_key, _ in self.supply_payload_map]
         self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
+        self.beams_estop_current_limit_ma = None
         # Last numeric readings let limit edits immediately refresh colors/trips without waiting for a new poll.
         self.latest_actual_voltage_values = [None for _ in self.power_supplies]
         self.latest_actual_current_values = [None for _ in self.power_supplies]
@@ -128,18 +130,21 @@ class BeamEnergySubsystem:
         self.glassman_interlock_var = tk.StringVar(value="UNARMED")
         self.arm_beams_var = tk.StringVar(value="UNARMED")
         self.ccs_power_var = tk.StringVar(value="OFF")
-        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, blue=Connected
+        self.logic_comms_color = tk.StringVar(value="red")  # red=Disconnected, green=Connected
         self.interlocks_color = tk.StringVar(value="red")   # red=Fault, green=All Good
-        # Beam Energy owns the +20kV threshold; Dashboard provides the actual stop handler.
-        self.beams_estop_current_entry_var = tk.StringVar(value="")
-        self.beams_estop_current_value_var = tk.StringVar(
-            value=self._format_beams_estop_current_limit_setting()
-        )
+        self.ccs_power_on = False
+        self.disable_logging_when_hvolt_off = False
+        self.hvolt_on_provider = None
+        # Main Control pushes the +20kV current threshold; Dashboard provides the stop handler.
         self.beams_estop_callback = None
+        self.beams_estop_current_limit_enabled = True
         # Dashboard wires this to LaserMonitorDriver.set_radiation_indicator().
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
         self.radiation_indicator_callback = None
+        # Last valid readback-derived state; missing/invalid readbacks preserve it.
+        self._radiation_indicator_last_valid_state = None
         self._radiation_indicator_sent = None
+        self._radiation_indicator_missing_callback_state = None
         self.warning_limit_entry_vars = [
             {field: tk.StringVar(value="") for field, _label, _unit in self.warning_limit_fields}
             for _ in self.power_supplies
@@ -334,9 +339,18 @@ class BeamEnergySubsystem:
                 foreground="gray"
             ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
 
-        if self._get_supply_key(index) == POS20KV_SUPPLY_KEY:
-            # +20kV has an escalation threshold above Max I that triggers the full Beams E-STOP.
-            self.create_beams_estop_limit_controls(frame)
+            if self._get_supply_key(index) == POS20KV_SUPPLY_KEY and field == "max_current_ma":
+                ttk.Label(
+                    frame,
+                    text=(
+                        "20kV Bertan Current Limit for Beams E-Stop trigger can "
+                        "be found in the Main Control Config menu"
+                    ),
+                    font=("Segoe UI", 8, "italic"),
+                    foreground="gray",
+                    wraplength=160,
+                    justify=tk.LEFT,
+                ).pack(anchor=tk.W, pady=(2, 0))
 
         if self._get_supply_key(index) == "neg1kv":
             ttk.Label(
@@ -346,39 +360,6 @@ class BeamEnergySubsystem:
                 foreground="gray"
             ).pack(anchor=tk.W, pady=(2, 0))
 
-    def create_beams_estop_limit_controls(self, frame):
-        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(4, 4))
-        ttk.Label(
-            frame,
-            text="Beams E-Stop Current Limit",
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor=tk.W, pady=(0, 2))
-
-        row = ttk.Frame(frame)
-        row.pack(fill=tk.X, pady=(2, 0))
-
-        ttk.Label(row, text="E-Stop Limit:", font=("Segoe UI", 8)).grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(row, textvariable=self.beams_estop_current_entry_var, width=7).grid(
-            row=0,
-            column=1,
-            sticky=tk.W,
-            padx=(2, 2),
-        )
-        ttk.Label(row, text="mA", font=("Segoe UI", 8)).grid(row=0, column=2, sticky=tk.W)
-        ttk.Button(
-            row,
-            text="Set",
-            width=4,
-            command=self.set_beams_estop_current_limit,
-        ).grid(row=0, column=3, sticky=tk.W, padx=(4, 0))
-
-        ttk.Label(
-            frame,
-            textvariable=self.beams_estop_current_value_var,
-            font=("Segoe UI", 8),
-            foreground="gray",
-        ).pack(anchor=tk.W, padx=(2, 0), pady=(0, 4))
-
     def _get_supply_key(self, index):
         return self.supply_keys[index]
 
@@ -386,7 +367,7 @@ class BeamEnergySubsystem:
         return self.supply_keys.index(POS20KV_SUPPLY_KEY)
 
     def _warning_limit_unit(self, field):
-        return "mA" if field in ("max_current_ma", BEAMS_ESTOP_CURRENT_FIELD) else "V"
+        return "mA" if field == "max_current_ma" else "V"
 
     def _format_warning_limit_setting(self, index, field):
         supply_key = self.supply_keys[index]
@@ -394,9 +375,17 @@ class BeamEnergySubsystem:
         sign = "-" if supply_key == "neg1kv" and field != "max_current_ma" else ""
         return f"Limit set to: {sign}{value:g}{self._warning_limit_unit(field)}"
 
-    def _format_beams_estop_current_limit_setting(self):
-        value = self.warning_limits[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
-        return f"Limit set to: {value:g}mA"
+    def set_beams_estop_current_limit_ma(self, value_ma):
+        """Receive the +20kV Beams E-STOP current limit from Main Control."""
+        self.beams_estop_current_limit_ma = value_ma
+        self.refresh_warning_indicators(self._get_pos20kv_index())
+        return True
+
+    def set_beams_estop_current_limit_enabled(self, enabled):
+        """Receive whether Main Control's +20kV Beams E-STOP guard is active."""
+        self.beams_estop_current_limit_enabled = bool(enabled)
+        self.refresh_warning_indicators(self._get_pos20kv_index())
+        return True
 
     def _get_supply_name(self, index):
         if index < len(self.power_supplies):
@@ -415,12 +404,9 @@ class BeamEnergySubsystem:
     def _warning_limit_context(self, index, field):
         return f"{self._get_supply_name(index)} {self._warning_limit_label(field)}"
 
-    def _beams_estop_current_limit_context(self):
-        return f"{self._get_supply_name(self._get_pos20kv_index())} Beams E-Stop Current Limit"
-
     def _max_allowed_warning_limit(self, supply_key, field):
         defaults = DEFAULT_WARNING_LIMITS[supply_key]
-        if field in ("max_current_ma", BEAMS_ESTOP_CURRENT_FIELD):
+        if field == "max_current_ma":
             return defaults[field]
         return defaults["max_voltage_v"]
 
@@ -432,12 +418,6 @@ class BeamEnergySubsystem:
         for limit_field in fields:
             self.warning_limit_value_vars[index][limit_field].set(
                 self._format_warning_limit_setting(index, limit_field)
-            )
-
-    def _refresh_beams_estop_current_display(self):
-        if hasattr(self, "beams_estop_current_value_var"):
-            self.beams_estop_current_value_var.set(
-                self._format_beams_estop_current_limit_setting()
             )
 
     def set_warning_limit(self, index, field):
@@ -492,19 +472,6 @@ class BeamEnergySubsystem:
         candidate = dict(self.warning_limits[supply_key])
         candidate[field] = new_value
 
-        # For +20kV, show the operator the Max I/E-STOP relationship before generic range errors.
-        if (
-            supply_key == POS20KV_SUPPLY_KEY
-            and candidate["max_current_ma"] > candidate[BEAMS_ESTOP_CURRENT_FIELD]
-        ):
-            self._show_warning_limit_error(
-                "Invalid Current Range",
-                f"{context}: must be at or below the Beams E-Stop Current "
-                f"Limit ({candidate[BEAMS_ESTOP_CURRENT_FIELD]:g}mA).",
-                show_dialogs,
-            )
-            return False
-
         max_allowed = self._max_allowed_warning_limit(supply_key, field)
         if new_value > max_allowed:
             self._show_warning_limit_error(
@@ -532,63 +499,16 @@ class BeamEnergySubsystem:
             self.log(message, LogLevel.WARNING)
             if show_dialogs:
                 messagebox.showwarning("Save Failed", message)
-
-        return True
-
-    def set_beams_estop_current_limit(self):
-        """UI callback for committing the +20kV Beams E-STOP current limit."""
-        raw_value = self.beams_estop_current_entry_var.get()
-        if self._set_beams_estop_current_limit_from_raw(raw_value):
-            self.beams_estop_current_entry_var.set("")
-
-    def _set_beams_estop_current_limit_from_raw(self, raw_value, show_dialogs=True, persist=True):
-        context = self._beams_estop_current_limit_context()
-        unit = self._warning_limit_unit(BEAMS_ESTOP_CURRENT_FIELD)
-        new_value = self._parse_warning_limit_value(
-            raw_value,
-            context,
-            unit,
-            show_dialogs=show_dialogs,
-        )
-        if new_value is None:
-            return False
-
-        max_allowed = DEFAULT_WARNING_LIMITS[POS20KV_SUPPLY_KEY][BEAMS_ESTOP_CURRENT_FIELD]
-        if new_value > max_allowed:
-            self._show_warning_limit_error(
-                "Invalid Input",
-                f"{context}: value must be between 0mA and {max_allowed:g}mA.",
-                show_dialogs,
+        else:
+            self.log(
+                f"{context}: setting successfully changed to {new_value:g}{unit}.",
+                LogLevel.INFO,
             )
-            return False
-
-        limits = self.warning_limits[POS20KV_SUPPLY_KEY]
-        # Keep the warning threshold at or below the Estop threshold.
-        if new_value < limits["max_current_ma"]:
-            self._show_warning_limit_error(
-                "Invalid Current Range",
-                f"{context}: must be greater than or equal to the Max I current "
-                f"limit ({limits['max_current_ma']:g}mA).",
-                show_dialogs,
-            )
-            return False
-
-        candidate = dict(limits)
-        candidate[BEAMS_ESTOP_CURRENT_FIELD] = new_value
-        self.warning_limits[POS20KV_SUPPLY_KEY] = candidate
-        self._refresh_beams_estop_current_display()
-        self.refresh_warning_indicators(self._get_pos20kv_index())
-
-        if persist and not save_beam_energy_warning_limits(self.warning_limits, logger=self.logger):
-            message = f"{context}: value was updated for this session but could not be saved."
-            self.log(message, LogLevel.WARNING)
-            if show_dialogs:
-                messagebox.showwarning("Save Failed", message)
 
         return True
 
     def _show_warning_limit_error(self, title, message, show_dialogs):
-        self.log(message, LogLevel.ERROR)
+        self.log(message, LogLevel.WARNING)
         if show_dialogs:
             messagebox.showerror(title, message)
 
@@ -617,13 +537,13 @@ class BeamEnergySubsystem:
 
         callback = getattr(self, "beams_estop_callback", None)
         if not callable(callback):
-            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.ERROR)
+            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.CRITICAL)
             return
 
         try:
             callback()
         except Exception as e:
-            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.ERROR)
+            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.CRITICAL)
 
     def set_beams_estop_callback(self, callback):
         """Register the dashboard's Beams E-STOP handler."""
@@ -647,24 +567,55 @@ class BeamEnergySubsystem:
             self.latest_actual_voltage_values[self._get_pos20kv_index()]
         )
 
+    def set_logging_suppression(self, disable_when_hvolt_off, hvolt_on_provider=None):
+        self.disable_logging_when_hvolt_off = bool(disable_when_hvolt_off)
+        self.hvolt_on_provider = hvolt_on_provider if callable(hvolt_on_provider) else None
+        self.apply_knob_box_driver_logging_suppression(self.knob_box_controller)
+
+    def apply_knob_box_driver_logging_suppression(self, controller):
+        if controller is None:
+            return
+        controller.disable_logging_when_hvolt_off = self.disable_logging_when_hvolt_off
+        controller.hvolt_on_provider = self.hvolt_on_provider
+
+    def _logging_suppressed(self):
+        if not self.disable_logging_when_hvolt_off or self.hvolt_on_provider is None:
+            return False
+        try:
+            return not bool(self.hvolt_on_provider())
+        except Exception:
+            return False
+
     def _update_radiation_indicator(self, voltage):
-        # Missing/invalid +20kV readback clears the indicator; valid readings
-        # at or above the threshold assert it.
         voltage = self._coerce_reading(voltage)
-        active = (
-            voltage is not None
-            and voltage >= self.RADIATION_INDICATOR_THRESHOLD_V
-        )
+        if voltage is None:
+            active = getattr(self, "_radiation_indicator_last_valid_state", None)
+            if active is None:
+                return
+        else:
+            active = voltage >= self.RADIATION_INDICATOR_THRESHOLD_V
+            self._radiation_indicator_last_valid_state = active
+
         if active == getattr(self, "_radiation_indicator_sent", None):
             return
 
         callback = getattr(self, "radiation_indicator_callback", None)
         if not callable(callback):
+            missing_state = getattr(self, "_radiation_indicator_missing_callback_state", None)
+            if active or missing_state is True:
+                if active != missing_state:
+                    state_text = "ON" if active else "OFF"
+                    self.log(
+                        f"Radiation indicator callback is not configured; cannot set indicator {state_text}.",
+                        LogLevel.ERROR,
+                    )
+                self._radiation_indicator_missing_callback_state = active
             return
 
         try:
             callback(active)
             self._radiation_indicator_sent = active
+            self._radiation_indicator_missing_callback_state = None
         except Exception as e:
             self.log(f"Radiation indicator callback failed: {e}", LogLevel.ERROR)
 
@@ -722,10 +673,13 @@ class BeamEnergySubsystem:
             current_value is not None
             and current_value >= limits["max_current_ma"]
         )
+        beams_estop_limit_ma = self.beams_estop_current_limit_ma
         current_estop = (
             supply_key == POS20KV_SUPPLY_KEY
             and current_value is not None
-            and current_value >= limits[BEAMS_ESTOP_CURRENT_FIELD]
+            and beams_estop_limit_ma is not None
+            and bool(getattr(self, "beams_estop_current_limit_enabled", True))
+            and current_value >= beams_estop_limit_ma
         )
 
         if voltage_warning:
@@ -734,7 +688,7 @@ class BeamEnergySubsystem:
         if current_estop:
             self._trigger_beams_estop_current(
                 current_value,
-                limits[BEAMS_ESTOP_CURRENT_FIELD],
+                beams_estop_limit_ma,
             )
         if current_warning and not current_estop:
             self._log_warning_breach(index, "current", current_value)
@@ -759,6 +713,14 @@ class BeamEnergySubsystem:
             self.latest_actual_voltage_values[index],
             self.latest_actual_current_values[index],
         )
+
+    def _log_knob_box_fallback(self, reason, message):
+        level = LogLevel.DEBUG if self._knob_box_fallback_reason == reason else LogLevel.WARNING
+        self._knob_box_fallback_reason = reason
+        self.log(message, level)
+
+    def _clear_knob_box_fallback(self):
+        self._knob_box_fallback_reason = None
 
     def create_power_supply_displays(self, frame, ps_config, index):
         """
@@ -925,7 +887,11 @@ class BeamEnergySubsystem:
         """
         port = self.com_ports.get('KnobBox', None)
         if not port:
+            if not self._knob_box_missing_port_logged:
+                self.log("KnobBox COM port is not configured.", LogLevel.WARNING)
+                self._knob_box_missing_port_logged = True
             return False
+        self._knob_box_missing_port_logged = False
 
         controller = self.knob_box_controller
         if controller and getattr(controller, "port", None) != port:
@@ -936,6 +902,7 @@ class BeamEnergySubsystem:
         if controller is None:
             controller = KnobBoxModbus(port=port, logger=self.logger)
             self.knob_box_controller = controller
+        self.apply_knob_box_driver_logging_suppression(controller)
 
         if time.time() < getattr(controller, "_next_connect_time", 0.0):
             return False
@@ -943,7 +910,7 @@ class BeamEnergySubsystem:
         try:
             self.log(f"Attempting to connect to KnobBox Modbus controller on port {port}...", LogLevel.DEBUG)
             if controller.connect():  # Initializes connection with RS-485 in KnobBoxModbus class
-                self.log(f"KnobBox Modbus controller CONNECTED on port {port}", LogLevel.DEBUG)
+                self.log(f"KnobBox Modbus serial port opened on {port}; waiting for unit responses.", LogLevel.DEBUG)
                 self.knob_box_connected = True
                 self.knob_box_connected_at = time.time()
                 self.start_polling_thread()  # Start background thread to poll data
@@ -994,7 +961,7 @@ class BeamEnergySubsystem:
         """Update connection status indicators."""
         if index < len(self.ui_elements):
             if connected:
-                self.connection_status_colors[index].set("blue")
+                self.connection_status_colors[index].set("green")
             else:
                 self.connection_status_colors[index].set("red")
 
@@ -1055,13 +1022,50 @@ class BeamEnergySubsystem:
         for interlock_log_var in self.interlock_log_vars:
             interlock_log_var.set("")
 
+    def get_machine_status_inputs(self):
+        """Return existing Beam Energy variables needed by MachineStatus."""
+        data_snapshot = {}
+        unit_connected = {}
+        knob_box = self.knob_box_controller
+        if self.knob_box_connected and knob_box:
+            data_snapshot = knob_box.get_data_snapshot()
+            unit_connected = {
+                unit_id: knob_box.get_unit_connection_status(unit_id)
+                for _supply_key, unit_id in self.supply_payload_map
+            }
+        global_data = (
+            data_snapshot.get(4)
+            if unit_connected.get(4)
+            else None
+        )
+
+        supplies = {}
+        for index, (supply_key, unit_id) in enumerate(self.supply_payload_map):
+            supplies[supply_key] = {
+                "unit_id": unit_id,
+                "actual_voltage_v": self.latest_actual_voltage_values[index],
+                "actual_current_ma": self.latest_actual_current_values[index],
+                "warning_limits": dict(self.warning_limits.get(supply_key, {})),
+            }
+
+        return {
+            "data": data_snapshot,
+            "unit_connected": unit_connected,
+            "supplies": supplies,
+            "interlock_flags": dict(self.supply_interlock_flag_map),
+            "nomop": bool(global_data and global_data.get("nomop_flag")),
+            "logic_comms": bool(global_data and global_data.get("logic_alive")),
+            "arm_beams_hardware": bool(global_data and global_data.get("arm_beams")),
+        }
+
     def update_indicators_panel(self, index, arm_beams, ccs_power, arm_80kv, logic_comms, interlocks):
         """Update system status indicators."""
+        self.ccs_power_on = bool(ccs_power)
         if index < len(self.ui_elements):
             self.arm_beams_var.set("ARMED" if arm_beams else "UNARMED")
             self.ccs_power_var.set("ON" if ccs_power else "OFF")
             self.glassman_interlock_var.set("ARMED" if arm_80kv else "UNARMED")
-            self.logic_comms_color.set("blue" if logic_comms else "red")
+            self.logic_comms_color.set("green" if logic_comms else "red")
             self.interlocks_color.set("red" if interlocks else "green")
 
     def start_polling_thread(self):
@@ -1242,12 +1246,13 @@ class BeamEnergySubsystem:
                     self._schedule_reconnect()
                     self._process_reconnect_request()
                     # Schedule next update and exit early
-                    self.log(
-                        "KnobBox controller unresponsive, using default values.",
-                        LogLevel.DEBUG
+                    self._log_knob_box_fallback(
+                        "unavailable",
+                        "KnobBox unavailable; setting Beam Energy values to '--'.",
                     )
                     self.after_id = self.parent_frame.after(500, self.update_readings)
                     return
+                self._clear_knob_box_fallback()
             else:
                 # KnobBox not connected, set all to default
                 for index, _ in enumerate(self.power_supplies):
@@ -1256,9 +1261,9 @@ class BeamEnergySubsystem:
                 self._schedule_reconnect()
                 self._process_reconnect_request()
                 # Schedule next update and exit early
-                self.log(
-                    f"KnobBox controller not connected, using default values.",
-                    LogLevel.DEBUG
+                self._log_knob_box_fallback(
+                    "unavailable",
+                    "KnobBox unavailable; setting Beam Energy values to '--'.",
                 )
                 self.after_id = self.parent_frame.after(500, self.update_readings)
                 return
@@ -1353,6 +1358,7 @@ class BeamEnergySubsystem:
         """Cancel scheduled updates when closing the application."""
         if hasattr(self, 'after_id'):
             self.parent_frame.after_cancel(self.after_id)
+            self.log("Canceled scheduled Beam Energy update.", LogLevel.DEBUG)
 
     def set_default_values(self, index):
         """Set display values to default '--'."""
@@ -1374,11 +1380,14 @@ class BeamEnergySubsystem:
         """Update COM port assignments and reinitialize power supplies."""
         new_port = new_com_ports.get('KnobBox', None)
         if not new_port:
+            self.log("Cannot update KnobBox COM port: no port configured.", LogLevel.WARNING)
             return False
         
-        if new_port == self.com_ports.get('KnobBox', None):
+        old_port = self.com_ports.get('KnobBox', None)
+        if new_port == old_port:
             return True  # No change
         
+        self.log(f"Updating KnobBox COM port from {old_port or 'None'} to {new_port}", LogLevel.INFO)
         self.com_ports = new_com_ports
 
         # Close existing connections
@@ -1403,6 +1412,8 @@ class BeamEnergySubsystem:
         self.stop_polling.set()
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=2)
+            if self.poll_thread.is_alive():
+                self.log("KnobBox polling thread did not stop before timeout.", LogLevel.WARNING)
         self.poll_thread = None
 
     def close(self):
@@ -1412,7 +1423,7 @@ class BeamEnergySubsystem:
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message with the specified level if a logger is configured."""
+        if self._logging_suppressed():
+            return
         if self.logger:
-            self.logger.log(message, level)
-        else:
-            print(f"{level.name}: {message}")
+            self.logger.log(message, level, tag="Knob Box")

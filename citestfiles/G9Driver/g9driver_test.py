@@ -46,6 +46,26 @@ class TestG9Driver(unittest.TestCase):
         checksum = self.driver._calculate_checksum(message_without_checksum, 194)
         return message_without_checksum + checksum + self.driver.FOOTER
 
+    def set_mock_read_bytes(self, payload, max_chunk=50, empty_reads=()):
+        """Configure mock serial reads to honor the requested read size."""
+        response = bytearray(payload)
+        empty_reads = set(empty_reads)
+        read_count = 0
+
+        def read(size):
+            nonlocal read_count
+            read_count += 1
+            if read_count in empty_reads:
+                return b''
+            if not response:
+                return b''
+            chunk_size = min(size, max_chunk, len(response))
+            chunk = bytes(response[:chunk_size])
+            del response[:chunk_size]
+            return chunk
+
+        self.mock_serial.read.side_effect = read
+
     def test_normal_response_processing(self):
         """Test processing of a normal response with all systems operational"""
         msg = bytearray(self.BASE_RESPONSE)
@@ -101,13 +121,19 @@ class TestG9Driver(unittest.TestCase):
     def test_read_response_success(self):
         """Test _read_response reads complete and valid response in chunks."""
         mock_response = json_data["expected"]
-        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        self.set_mock_read_bytes(mock_response)
+        self.assertEqual(self.driver._read_response(), mock_response)
+
+    def test_read_response_waits_through_empty_chunks(self):
+        """Test _read_response continues after per-call serial timeouts."""
+        mock_response = json_data["expected"]
+        self.set_mock_read_bytes(mock_response, empty_reads={1, 3})
         self.assertEqual(self.driver._read_response(), mock_response)
 
     def test_read_response_without_footer(self):
         """Test _read_response detects when no footer is available"""
         mock_response = json_data["noend"]
-        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        self.set_mock_read_bytes(mock_response)
         with self.assertRaises(ValueError):
             self.driver._read_response()
 
@@ -120,14 +146,14 @@ class TestG9Driver(unittest.TestCase):
     def test_read_response_too_long(self):
         """Test _read_response detects when no footer is available"""
         mock_response = json_data["long"]
-        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        self.set_mock_read_bytes(mock_response)
         with self.assertRaises(ValueError):
             self.driver._read_response()
             
     def test_read_response_too_short(self):
         """Test _read_response detects when no footer is available"""
         mock_response = json_data["short"]
-        self.mock_serial.read.side_effect = [mock_response[x:x+50] for x in range(0, 500, 50)]
+        self.set_mock_read_bytes(mock_response)
         with self.assertRaises(ValueError):
             self.driver._read_response()
 

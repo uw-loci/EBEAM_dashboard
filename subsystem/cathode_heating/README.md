@@ -39,6 +39,27 @@ Main Control may also provide a BCON connection checker and a runtime guard
 setting. When that guard is enabled, Cathode Heating treats a disconnected BCON
 as a reason to block new CCS output enables.
 
+## Subsystem State Reference
+
+Most per-cathode state is stored in three-element lists indexed as A, B, C.
+
+| State | Indicates | Changed by | Used by |
+| --- | --- | --- | --- |
+| `power_supplies[index]` | Driver handle exists for a BK 9104. This does not prove the hardware is responsive or command-ready. | Startup, COM-port reconfiguration, retry reconnect, shutdown. | Poller hardware I/O, setpoint commands, output toggles, ramping, shutdown. |
+| `power_supplies_initialized` | At least one power-supply driver handle exists. This is a handle-level state, not a ready/safe state. | `initialize_power_supplies()`, `_disconnect_existing_connections()`, retry reconnect, shutdown. | Early guards before power-supply operations and fallback shutdown behavior. |
+| `power_supply_readbacks[index]` | Latest cached poller snapshot: voltage, current, mode, connected flag, error, timestamp. | `Cathode9104Poller` through `_set_power_supply_readback()`. | `update_data()`, measured-value displays, CV/CC indicators, telemetry publishing, readback error logging. |
+| `power_supply_valid_connections[index]` | Main-thread connection-transition logging state: whether a valid 9104 readback has already been logged. | `_update_power_supply_connection_state_from_readback()` and runtime resets on the Tk thread. | Suppresses repeated "valid connection established" logs. |
+| `power_supply_configured[index]` | The supply has returned a valid readback and preset 3, OVP, and OCP have been confirmed. | `_configure_power_supply_after_readback()` sets true; config resets, readback failures, exceptions, and COM/runtime resets set false. | Command readiness, comms indicators, confirmed OVP/OCP display mirroring. |
+| `power_supply_status[index]` | Operator commands are allowed for this cathode. This is the main UI/command-ready state. | `_set_power_supply_command_ready()` after valid configured readbacks, unavailable readbacks, initialization, reset, and shutdown. | Set buttons, nudge buttons, output controls, OVP/OCP setters, target-current handling. |
+| `power_supply_reconfiguring` | COM-port update is replacing power-supply driver objects. | `update_com_ports()` sets and clears it. | Poller stands down while the shared `power_supplies` list is being replaced. |
+| `temp_controllers_connected` | E5CN temperature-controller driver was created and its polling loop started. | `initialize_temperature_controllers()`, COM-port reconfiguration, shutdown, controller cleanup failures. | Temperature read path and connection diagnostics. |
+| `temperature_valid_connections[index]` | A valid numeric temperature has been seen and logged for this cathode. | `read_temperature()` and `_log_valid_temperature_connection()` on valid/invalid temperature reads and resets. | Temperature comms indicators and transition logging. |
+| `toggle_states[index]` | Dashboard belief that the cathode heater output is on. This mirrors commanded output state, not a hardware output readback. | `toggle_output()`, `turn_off_all_beams()`, fault paths that disable output. | Output button image/state, BCON disconnect handling, manual setpoint behavior while output is active. |
+| `ramp_status[index]` | Ramp mode is enabled for this cathode. | Output-mode controls and `set_ramp_mode()`. | `toggle_output()`, manual current/voltage updates, button enable/disable rules. |
+| `ramp_control_mode[index]` | Which quantity is ramp-controlled: `current` or `voltage`. | Output-mode dropdown handling. | Ramp selection when enabling output or changing setpoints while output is on. |
+| `current_set[index]` / `voltage_set[index]` | A current or voltage goal has been accepted. | Manual set handlers, prediction/reset paths, successful output updates, empty entry clears. | Prediction refresh, output-enable validation, ramp setup. |
+| `user_set_currents[index]` / `user_set_voltages[index]` | Stored requested heater current/voltage values. | Manual set handlers, target-current model calculations, adjustment buttons, reset paths. | Output enable, immediate/ramped set commands, prediction refresh. |
+
 ## UI Structure Per Cathode
 
 Each cathode frame contains:
@@ -81,6 +102,7 @@ The `Config` tab includes:
 - Overcurrent protection (OCP).
 - Current slew rate.
 - Voltage slew rate.
+- Measured voltage/current difference warning thresholds.
 - `Log Power Settings` button and status readback.
 
 ## Output Modes
@@ -169,6 +191,25 @@ When the output toggle is switched on, `toggle_output()` also verifies:
 
 If any of those checks fail, output is not enabled.
 
+### Output Disable And Uncertain State
+
+Cathode Heating treats `PowerSupply9104.disable_output()` success as the point at
+which the dashboard may show a cathode output as off. `disable_output()` sends
+`SOUT0` without preset-voltage or OVP validation and returns true only when the
+9104 command response contains `OK`. It does not perform a separate `GOUT`
+readback.
+
+If `disable_output()` fails, the hardware output state is uncertain. This can
+happen if the serial lock cannot be acquired, the COM port is closed or
+disconnected, the 9104 does not respond, the response does not contain `OK`, or
+serial I/O raises an exception.
+
+When output disable cannot be confirmed, the dashboard logs a critical message
+and keeps the affected cathode output toggle showing ON. For ramp-start failures
+after `set_output("1")` has already succeeded, a failed cleanup disable also
+sets the toggle to ON, because the output may already be energized. The dashboard
+only changes the toggle to OFF after a successful disable acknowledgement.
+
 ## BCON Disconnect Guard
 
 Main Control gives Cathode Heating:
@@ -223,6 +264,47 @@ The UI tracks three different kinds of values:
 
 This separation is useful during ramps because the sent value can change step-by-step before the measured value settles.
 
+## Warning and Highlight Behavior
+
+The cathode UI has two warning/highlight paths:
+
+- Measured-output sent-vs-measured warnings for heater voltage and current.
+- Overtemperature warning state for clamp temperature.
+
+### Sent-vs-Measured Voltage and Current Warnings
+
+Each cathode has two configurable thresholds on the `Config` tab:
+
+- `Voltage Diff Warning (%)`
+- `Current Diff Warning (%)`
+
+The warning calculation is:
+
+```text
+abs(measured - sent) > abs(sent) * threshold_percent / 100
+```
+
+If that condition remains true for more `1.5`s the measured voltage or current box turns orange and a warning is logged once for that continuous breach. 
+
+Important nuances:
+
+- Voltage warnings are active only while output is enabled and the live 9104 mode is `CV Mode`.
+- Current warnings are active only while output is enabled and the live 9104 mode is `CC Mode`.
+- Warnings are cleared when output is off, readback is unavailable, the sent value is missing or invalid, the sent value is zero, the threshold changes, or the corresponding goal is cleared.
+- A `0%` threshold is allowed. With a nonzero sent value, any nonzero measured difference can warn after the delay.
+- A sent value of zero disables the percent-difference warning for that channel.
+- During a ramp, every successful sent update clears the warning timer for that channel.
+- COM-port reinitialization and reconnect paths reset live readbacks and command readiness, but the displayed sent values can represent the last successful command from before the reconnect until a new command updates them.
+
+### Overtemperature Warning
+
+When the measured temperature is above the configured limit:
+
+- The measured clamp-temperature box turns orange.
+- A critical log entry is emitted: `Cathode X OVERTEMP!`.
+
+When temperature returns below the limit, the measured temperature box returns to the normal measured-output background and status returns to `Normal`. If temperature is unavailable, status becomes `N/A` and the box is also returned to normal.
+
 ## Data Refresh Loop
 
 `update_data()` is the main GUI refresh loop. It runs every 500 ms and, for each cathode:
@@ -231,8 +313,9 @@ This separation is useful during ramps because the sent value can change step-by
 - Reads the latest 9104 voltage, current, and CV/CC mode snapshot.
 - Marks power-supply readbacks unavailable when the snapshot says the supply is disconnected or the read is invalid.
 - Publishes valid heater current and voltage readbacks to the logger.
+- Updates measured voltage/current warning highlights from sent-vs-measured comparisons.
 - Reads the latest clamp temperature data from the temperature-controller interface.
-- Updates overtemperature state and plot color.
+- Updates overtemperature status, temperature-box highlight, and plot color.
 - Appends plot data on the plot interval.
 - Schedules the next update with `self.parent.after(500, self.update_data)`.
 
@@ -282,7 +365,11 @@ Manual setpoint handlers now actively update predictions before applying output 
 
 Those handlers call either `update_predictions_from_current()` or `update_predictions_from_voltage()` after validation. LUT selector changes call `refresh_predictions()`, which recomputes predictions from the currently requested setpoint when one exists.
 
-The prediction path is still display-side guidance. Output behavior is still governed by validation, output state, and the selected immediate/ramp mode.
+Within the selected LUT, beam-current interpolation follows the binding heater constraint. Current-limited operation maps heater current directly to beam current. Voltage-limited operation retains the voltage-to-beam-current mapping and uses voltage to resolve heater current. This avoids converting a current-limited request through the potentially non-monotonic heater current-to-voltage relationship before predicting beam current. Above the applicable LUT domain, both modes continue to use the dataset-calibrated ES440 temperature and Richardson-Dushman fallback.
+
+The prediction path is still display-side guidance for Cathode Heating output behavior. Output behavior is still governed by validation, output state, and the selected immediate/ramp mode.
+
+Predicted emission current is also published to Beam Pulse for its output-start guard. Unknown or unavailable emission predictions are stored and returned as `None`, while a real predicted `0.0 mA` remains numeric. The UI displays unknown predictions as `--`, and Beam Pulse blocks projected beam-output starts when the emission-current limit is enabled and a projected cathode has an unknown or invalid emission prediction.
 
 ## Main Methods To Read First
 
@@ -499,16 +586,20 @@ flowchart TB
     CacheOK -- No --> ClearPS["Clear heater readback displays
     and publish None values"]
 
-    UpdatePS --> ReadTemp["Read cached E5CN temperature"]
-    ClearPS --> ReadTemp
+    UpdatePS --> WarnCheck["Update sent-vs-measured
+    voltage/current warnings"]
+    ClearPS --> WarnCheck
+    WarnCheck --> ReadTemp["Read cached E5CN temperature"]
     ReadTemp --> TempValid{"Temperature is a float?"}
     TempValid -- No --> TempUnavailable["Show -- C
     and update plot error state"]
     TempValid -- Yes --> CheckOT{"Temperature >
     overtemp limit?"}
     CheckOT -- Yes --> OTActions["Set OVERTEMP status
+    orange temp box
     and red plot state"]
     CheckOT -- No --> NormalTemp["Set Normal status
+    normal temp box
     and normal plot state"]
 
     OTActions --> PlotCheck{"5-second plot interval elapsed?"}

@@ -1,9 +1,9 @@
 ## Overview:
 The interlocks.py script primarily focuses on implementing the GUI for the Safety Interlock Controller to monitor all the interlock statuses which are safety checks to encourage safe use of the 3-D metal printer. This script utilizes the g9 driver to communicate with the G9SP Safety Interlock Controller, retrieving all the interlock statuses, and displaying them in real-time on the GUI.
 
+## Requirements
 
-## Requirements:
-### Dependencies: 
+### Dependencies
 
 Tkinter: For the GUI development
 
@@ -11,16 +11,18 @@ instrumentctl.g9_driver: Driver file for establishing communication with the Saf
 
 utils.LogLevel: For logging all the error responses.
 
-### Code Structure:
+### Code Structure
 
 The interlocks file consists of the InterlocksSubsystem class. It utilizes:
 
-A dictionary called “INPUTS” that maps all the bit positions to specific interlocks. Each of the keys in the dictionary represents the interlock bit positions, while the values of the keys describe their respective functions. 
+A dictionary called “INPUTS” that maps all the bit positions to specific interlocks. Each of the keys in the dictionary represents the interlock bit positions, while the values of the keys describe their respective functions.
 
-The “INDICATORS” dictionary contains the Tkinter indicator components for each of the interlocks. 
+The “INDICATORS” dictionary contains the Tkinter indicator components for each of the interlocks.
 
 ## Methods
-### __init__():
+
+### __init__()
+
     Initializes needed components for the interlocks subsystem to run:
     Sub Panel:
         - Creates a frame with a grid of all interlocks and labels (calls setup_gui())
@@ -28,24 +30,29 @@ The “INDICATORS” dictionary contains the Tkinter indicator components for ea
     G9Driver:
         - When called with a COM port creates a G9 Driver Object.
 
-### update_com_port(com_port):
+### update_com_port(com_port)
+
     Called from dashboard if the COM port for the G9 needs to be changed. When called will either define a new G9Driver object (if COM port arg is not None), or will set all indicators to red, meaning COM port arg is None
 
-### _adjust_update_interval(sucess):
+### _adjust_update_interval(sucess)
+
     Will change the interval scheudling to allow more time if the G9 slow to respond.
 
     Sucess is True - shortern interval if possible (min 500 ms)
 
     Sucess if False - Lengthen interval if possible (max 5000 ms)
 
-### setup_gui(), _create_main_frame(), _create_interlocks_frame(), _create_indicator_circle, _create_indicators():
+### setup_gui(), _create_main_frame(), _create_interlocks_frame(), _create_indicator_circle, _create_indicators()
+
     All of these are used to define the objects in the Tkinter frame
 
 ### update_interlock(color)
+
     Changes a interlock to the given color in the color arg
     
 
 ### update_data()
+
     Main method that interacts with the G9Driver. Calls the driver to pull data from G9, then parses the data and updates the interlocks to reflect the current status. Calls update_interlock(), with any changes that need to be made.
 
 ### Expected Data
@@ -55,6 +62,7 @@ sitdf_bits - First 11 bits repersent the interlocks, where 1 means good and 0 in
 g9_output - bit 4 of the output data that indicates whether the g9 enable buttom had been pressed previously
 
 ### FlowChart
+
 ```mermaid
 flowchart TD
     subgraph Interlocks Subsystem 
@@ -78,5 +86,3 @@ flowchart TD
         g --> d
     end
 ```
-
-
