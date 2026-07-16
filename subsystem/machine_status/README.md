@@ -76,8 +76,8 @@ The Machine Status bar reads from:
   limits, interlock flags, nominal-operation status, logic communication, and
   hardware arm state.
 - Beam Pulse: BCON connection, beam software armed state, active beam output,
-  channel enable state, and whether enabled beams are inside the configured
-  emission-current limit.
+  Main Control activation-interlock states, and whether software-enabled beams
+  are inside the configured emission-current limit.
 - Cathode Heating: cathode output states, latest clamp temperatures,
   overtemperature limits, and predicted emission currents.
 - Main Control: the configured total predicted emission-current limit.
@@ -210,9 +210,9 @@ Stays gray or becomes behind-red when:
 
 Forced red when:
 
-- The sum of enabled channels' predicted emission currents is at or above the
-  configured emission-current limit. This status warning remains active when
-  the emission-current setting is disabled.
+- The sum of channels selected by Main Control's software interlocks is at or
+  above the configured emission-current limit. This status warning remains
+  active when the emission-current setting is disabled.
 
 Turns green when:
 

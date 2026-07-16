@@ -303,7 +303,9 @@ def _enabled_emission_total_tripped(
     if total_limit_ma is None:
         return False
 
-    enabled_channels = list(beam_pulse_inputs.get("channel_enable_status", []))[:3]
+    enabled_channels = list(
+        beam_pulse_inputs.get("activation_interlock_states", [])
+    )[:3]
     currents = list(cathode_inputs.get("predicted_emission_currents_ma", []))[:3]
     enabled_indices = [
         index for index, enabled in enumerate(enabled_channels) if bool(enabled)

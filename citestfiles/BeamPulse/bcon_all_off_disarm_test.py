@@ -3,15 +3,19 @@ import queue
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from instrumentctl.BCON.bcon_driver import (  # noqa: E402
     BCONCommandResult,
     BCONDriver,
+    COMMAND_APPLY_STAGED_MODES,
     COMMAND_ALL_OFF,
     REG_CMD_QUEUE_DEPTH,
     REG_COMMAND,
+    REG_CH_STATUS_BASE,
+    REG_CH_STATUS_STRIDE,
     REG_LAST_CMD_CODE,
     REG_LAST_CMD_RESULT,
     REG_LAST_CMD_SEQ,
@@ -27,6 +31,20 @@ class FakeOpenSerial:
     is_open = True
 
 
+class StopAfterWait:
+    def __init__(self, driver):
+        self.driver = driver
+
+    def clear(self):
+        pass
+
+    def set(self):
+        pass
+
+    def wait(self, _timeout):
+        self.driver._poll_running = False
+
+
 def make_driver():
     driver = object.__new__(BCONDriver)
     driver.unit = 1
@@ -35,6 +53,7 @@ def make_driver():
     driver._serial_lock = threading.RLock()
     driver._write_epoch = 0
     driver._cmd_queue = queue.Queue()
+    driver._queue_wake = threading.Event()
     driver._regs = [0] * TOTAL_REGS
     driver._regs_lock = threading.Lock()
     driver.COMMAND_CONFIRM_RETRIES = 1
@@ -67,6 +86,61 @@ def seed_cached_command_snapshot(driver, snapshot):
 
 
 class BCONAllOffDriverTest(unittest.TestCase):
+    def test_enqueue_write_wakes_waiting_poll_worker(self):
+        driver = make_driver()
+
+        driver.enqueue_write(10, 1)
+
+        self.assertTrue(driver._queue_wake.is_set())
+        self.assertEqual(driver._cmd_queue.get_nowait(), ("write", 10, 1, 0))
+
+    def test_stop_poll_thread_wakes_waiting_worker(self):
+        driver = make_driver()
+        driver._poll_running = True
+        waiting = threading.Event()
+
+        def wait_for_wake():
+            waiting.set()
+            driver._queue_wake.wait(5)
+
+        driver._poll_thread = threading.Thread(target=wait_for_wake)
+        driver._poll_thread.start()
+        self.assertTrue(waiting.wait(1))
+
+        driver._stop_poll_thread()
+
+        self.assertFalse(driver._poll_thread)
+
+    def test_pvx_toggle_is_rate_limited_per_channel_for_150_ms(self):
+        driver = make_driver()
+        writes = []
+        driver.write_register_immediate = lambda reg, value: writes.append((reg, value)) or True
+
+        with patch(
+            "instrumentctl.BCON.bcon_driver.time.monotonic",
+            side_effect=[10.0, 10.001, 10.149, 10.151],
+        ):
+            self.assertTrue(driver.trigger_channel_enable_toggle(1))
+            self.assertTrue(driver.trigger_channel_enable_toggle(2))
+            self.assertFalse(driver.trigger_channel_enable_toggle(1))
+            self.assertTrue(driver.trigger_channel_enable_toggle(1))
+
+        self.assertEqual(writes, [(13, 1), (23, 1), (13, 1)])
+        self.assertTrue(
+            any(
+                level == "ERROR" and "150 ms cooldown active" in message
+                for message, level in driver.logs
+            )
+        )
+
+    def test_pvx_toggle_writes_one_when_channel_is_rate_limit_allows_it(self):
+        driver = make_driver()
+        writes = []
+        driver.write_register_immediate = lambda reg, value: writes.append((reg, value)) or True
+
+        self.assertTrue(driver.trigger_channel_enable_toggle(3))
+        self.assertEqual(writes, [(33, 1)])
+
     def test_forced_immediate_write_uses_cached_baseline_when_connected_flag_is_false(self):
         driver = make_driver()
         writes = []
@@ -137,6 +211,17 @@ class BCONAllOffDriverTest(unittest.TestCase):
         self.assertTrue(driver._cmd_queue.empty())
         self.assertEqual(driver._write_epoch, 1)
 
+    def test_stop_all_clears_batch_tracking(self):
+        driver = make_driver()
+        driver._failed_batches = {"failed-batch"}
+        driver._completed_stage_batches = {"staged-batch"}
+        driver.write_register_immediate = lambda *_args, **_kwargs: True
+
+        self.assertTrue(driver.stop_all())
+
+        self.assertEqual(driver._failed_batches, set())
+        self.assertEqual(driver._completed_stage_batches, set())
+
     def test_stale_epoch_write_is_dropped_before_serial_transaction(self):
         driver = make_driver()
         driver._write_epoch = 1
@@ -200,19 +285,152 @@ class BCONAllOffDriverTest(unittest.TestCase):
             )
         )
 
+    def test_partial_staging_failure_skips_apply_and_forces_all_off(self):
+        driver = make_driver()
+        driver._connected = True
+        driver._poll_running = True
+        driver._last_heartbeat_time = float("inf")
+        driver._watchdog_timeout_ms = 1500
+        driver._poll_errors = 0
+        driver._failed_batches = set()
+        driver._completed_stage_batches = set()
+        writes = []
+        all_off_calls = []
+
+        def write(reg, value, epoch=None):
+            writes.append((reg, value))
+            if len(writes) == 2:
+                raise RuntimeError("serial write failed")
+            return True
+
+        driver._write_register_raw = write
+        def stop_all():
+            all_off_calls.append(True)
+            driver._clear_cmd_queue()
+            return True
+
+        driver.stop_all = stop_all
+        driver._read_holding_registers_raw = lambda _start, count: (
+            setattr(driver, "_poll_running", False) or [0] * count
+        )
+        driver.set_channel_pulse(1, 100, operation_token="stage-failure")
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        self.assertEqual(len(writes), 2)
+        self.assertNotIn((REG_COMMAND, COMMAND_APPLY_STAGED_MODES), writes)
+        self.assertEqual(all_off_calls, [True])
+        self.assertTrue(any(
+            msg[0] == "operation_failed"
+            and msg[1]["token"] == "stage-failure"
+            and msg[1]["critical"]
+            for msg in driver.ui_messages
+        ))
+        self.assertTrue(any(level == "CRITICAL" for _message, level in driver.logs))
+
+    def test_first_staging_failure_skips_apply_and_forces_all_off(self):
+        driver = make_driver()
+        driver._connected = True
+        driver._poll_running = True
+        driver._last_heartbeat_time = float("inf")
+        driver._watchdog_timeout_ms = 1500
+        driver._poll_errors = 0
+        driver._failed_batches = set()
+        driver._completed_stage_batches = set()
+        writes = []
+        all_off_calls = []
+
+        def write(reg, value, epoch=None):
+            writes.append((reg, value))
+            raise RuntimeError("serial write failed")
+
+        driver._write_register_raw = write
+        def stop_all():
+            all_off_calls.append(True)
+            driver._clear_cmd_queue()
+            return True
+
+        driver.stop_all = stop_all
+        driver._read_holding_registers_raw = lambda _start, count: (
+            setattr(driver, "_poll_running", False) or [0] * count
+        )
+        driver.set_channel_pulse(1, 100, operation_token="first-stage-failure")
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        self.assertEqual(len(writes), 1)
+        self.assertNotIn((REG_COMMAND, COMMAND_APPLY_STAGED_MODES), writes)
+        self.assertEqual(all_off_calls, [True])
+        self.assertTrue(any(
+            msg[0] == "operation_failed"
+            and msg[1]["token"] == "first-stage-failure"
+            and msg[1]["critical"]
+            for msg in driver.ui_messages
+        ))
+        self.assertTrue(any(level == "CRITICAL" for _message, level in driver.logs))
+
+    def test_rejected_apply_after_staging_forces_all_off(self):
+        driver = make_driver()
+        driver._connected = True
+        driver._poll_running = True
+        driver._last_heartbeat_time = float("inf")
+        driver._watchdog_timeout_ms = 1500
+        driver._poll_errors = 0
+        driver._failed_batches = set()
+        driver._completed_stage_batches = set()
+        writes = []
+        all_off_calls = []
+
+        driver._write_register_raw = lambda reg, value, epoch=None: (
+            writes.append((reg, value)) or True
+        )
+        driver._confirm_command_write = lambda *_args, **_kwargs: {
+            "accepted": False,
+            "rejected": True,
+            "last_reject_reason": "NOT_READY",
+        }
+        driver.stop_all = lambda: all_off_calls.append(True) or True
+        driver._read_holding_registers_raw = lambda _start, count: (
+            setattr(driver, "_poll_running", False) or [0] * count
+        )
+        driver.set_channel_dc(1, operation_token="apply-rejected")
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        self.assertEqual(writes, [(10, 1), (REG_COMMAND, COMMAND_APPLY_STAGED_MODES)])
+        self.assertEqual(all_off_calls, [True])
+        self.assertEqual(driver._completed_stage_batches, set())
+        self.assertEqual(driver._failed_batches, set())
+        self.assertTrue(any(level == "CRITICAL" for _message, level in driver.logs))
+
+    def test_disconnected_worker_cancels_a_token_once(self):
+        driver = make_driver()
+        driver._poll_running = True
+        driver._queue_wake = StopAfterWait(driver)
+        for reg in (10, 11, 12):
+            driver.enqueue_write(reg, 1, operation_token="cancel-once", stage_write=True)
+
+        with patch("instrumentctl.BCON.bcon_driver.time.sleep", lambda _delay: None):
+            driver._poll_thread_func()
+
+        cancellations = [
+            msg for msg in driver.ui_messages
+            if msg[0] == "operation_cancelled" and msg[1]["token"] == "cancel-once"
+        ]
+        self.assertEqual(len(cancellations), 1)
+
 
 class FakeStopAllBCONDriver:
     def __init__(self, stop_all_result):
         self.stop_all_result = stop_all_result
         self.stop_all_calls = 0
-        self.reset_enable_cache_calls = []
 
     def stop_all(self):
         self.stop_all_calls += 1
         return self.stop_all_result
-
-    def reset_channel_enable_cache(self, enabled=False):
-        self.reset_enable_cache_calls.append(bool(enabled))
 
 
 class FakeArmBCONDriver:
@@ -289,7 +507,6 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem.bcon_driver = FakeStopAllBCONDriver(stop_all_result)
         subsystem.beams_armed_status = True
         subsystem.beam_on_status = [True, True, False]
-        subsystem.channel_enable_status = [True, False, True]
         subsystem._active_channels = {0, 1}
         subsystem._seq_stop = threading.Event()
         subsystem._seq_thread = None
@@ -297,7 +514,6 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem.armed_button_updates = []
         subsystem._armed_status_callback = subsystem.armed_status_updates.append
         subsystem._update_armed_button_states = subsystem.armed_button_updates.append
-        subsystem._channel_enable_status_callback = None
         subsystem._beam_activity_callback = None
         subsystem._last_beam_activity_sent = True
         subsystem.log_events = []
@@ -308,7 +524,7 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         subsystem._log = lambda message, level=None: subsystem.logs.append((message, level))
         return subsystem
 
-    def test_disarm_preserves_output_and_enable_state_when_all_off_unconfirmed(self):
+    def test_disarm_preserves_output_state_when_all_off_unconfirmed(self):
         subsystem = self.make_subsystem(stop_all_result=False)
 
         ok = subsystem.disarm_beams()
@@ -316,14 +532,12 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [True, True, False])
-        self.assertEqual(subsystem.channel_enable_status, [True, False, True])
         self.assertEqual(subsystem._active_channels, {0, 1})
         self.assertEqual(subsystem.bcon_driver.stop_all_calls, 1)
-        self.assertEqual(subsystem.bcon_driver.reset_enable_cache_calls, [])
         self.assertEqual(subsystem.armed_status_updates, [])
         self.assertEqual(subsystem.armed_button_updates, [])
 
-    def test_disarm_clears_output_and_enable_state_after_confirmed_all_off(self):
+    def test_disarm_clears_output_state_after_confirmed_all_off(self):
         subsystem = self.make_subsystem(stop_all_result=True)
 
         ok = subsystem.disarm_beams()
@@ -331,10 +545,8 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertFalse(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [False, False, False])
-        self.assertEqual(subsystem.channel_enable_status, [False, False, False])
         self.assertEqual(subsystem._active_channels, set())
         self.assertEqual(subsystem.bcon_driver.stop_all_calls, 1)
-        self.assertEqual(subsystem.bcon_driver.reset_enable_cache_calls, [False])
         self.assertEqual(subsystem.armed_status_updates, [False])
         self.assertEqual(subsystem.armed_button_updates, [False])
 
@@ -347,7 +559,6 @@ class BeamPulseDisarmBeamsTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(subsystem.beams_armed_status)
         self.assertEqual(subsystem.beam_on_status, [True, True, False])
-        self.assertEqual(subsystem.channel_enable_status, [True, False, True])
         self.assertEqual(subsystem.armed_status_updates, [])
         self.assertEqual(subsystem.armed_button_updates, [])
 

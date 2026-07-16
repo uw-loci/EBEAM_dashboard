@@ -32,6 +32,8 @@ PULSE_TRAIN_OUTPUT_ALIAS_MIN_DURATION_MS = 1000
 VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_WARNING_INTERVAL_S = 10.0
+BCON_SEND_TIMEOUT_MS = 1500
+BCON_ACK_POLL_TIMEOUT_MS = 1000
 
 
 def channel_label(index: int) -> str:
@@ -186,8 +188,6 @@ class MainControlPanel:
             beam_pulse.set_channel_status_callback(self._on_channel_status_update)
         if hasattr(beam_pulse, "set_action_feedback_callback"):
             beam_pulse.set_action_feedback_callback(self._handle_action_feedback)
-        if hasattr(beam_pulse, "set_channel_enable_status_callback"):
-            beam_pulse.set_channel_enable_status_callback(self._on_channel_enable_status_update)
         if hasattr(beam_pulse, "set_armed_status_callback"):
             beam_pulse.set_armed_status_callback(self._on_armed_status_update)
         if hasattr(beam_pulse, "set_emission_limit_providers"):
@@ -198,6 +198,12 @@ class MainControlPanel:
             )
         else:
             self._log_error("Beam Pulse emission limit providers were not wired: API not available")
+        if hasattr(beam_pulse, "set_activation_interlock_provider"):
+            beam_pulse.set_activation_interlock_provider(
+                lambda: list(getattr(self, "_beam_software_interlock_states", []))
+            )
+        else:
+            self._log_error("Beam Pulse activation interlock provider was not wired: API not available")
         if hasattr(beam_pulse, "set_vtrx_pressure_guard_providers"):
             beam_pulse.set_vtrx_pressure_guard_providers(
                 lambda: self.disable_beams_on_vtrx_pressure_exceeded,
@@ -319,31 +325,31 @@ class MainControlPanel:
                 bg="gray",
                 fg="white",
                 font=("Helvetica", 10, "bold"),
-                state="disabled",  # disabled until armed AND channel enabled
+                state="disabled",  # disabled until armed and locally enabled
                 command=lambda idx=i: self.toggle_individual_beam_with_status(idx)
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
             self.beam_toggle_buttons.append(btn)
 
-        # CH Enable/Disable row
-        enable_toggle_frame = tk.Frame(manual_panel)
-        enable_toggle_frame.pack(side="top", fill="x", pady=(4, 0))
+        # Dashboard-only per-beam software interlocks.
+        software_interlock_frame = tk.Frame(manual_panel)
+        software_interlock_frame.pack(side="top", fill="x", pady=(4, 0))
         for i in range(3):
-            enable_toggle_frame.grid_columnconfigure(i, weight=1, uniform="button")
-        self.enable_toggle_buttons = []
-        self._ch_enable_states = [False, False, False]  # dashboard mirror of firmware enable state
+            software_interlock_frame.grid_columnconfigure(i, weight=1, uniform="button")
+        self.software_interlock_buttons = []
+        self._beam_software_interlock_states = [False, False, False]
         for i in range(3):
             btn = tk.Button(
-                enable_toggle_frame,
-                text=f"CH {channel_label(i)}: Disabled",
+                software_interlock_frame,
+                text=f"Beam {channel_label(i)} Disabled",
                 bg="#888888",
                 fg="white",
                 font=("Helvetica", 9),
                 state="disabled",  # Initially disabled until armed
-                command=lambda idx=i: self._toggle_channel_enable(idx)
+                command=lambda idx=i: self._toggle_beam_software_interlock(idx)
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2)
-            self.enable_toggle_buttons.append(btn)
+            self.software_interlock_buttons.append(btn)
 
         beam_action_control_frame = tk.Frame(manual_panel)
         beam_action_control_frame.pack(side="top", fill="x", pady=(4, 0))
@@ -566,6 +572,14 @@ class MainControlPanel:
             self._beam_action_status_color = BEAM_ACTION_NEUTRAL_COLOR
         if not hasattr(self, "_beam_action_status_outcome"):
             self._beam_action_status_outcome = "neutral"
+        if not hasattr(self, "_pending_bcon_operation"):
+            self._pending_bcon_operation = None
+        if not hasattr(self, "_bcon_operation_counter"):
+            self._bcon_operation_counter = 0
+        if not hasattr(self, "_last_polled_beam_on"):
+            self._last_polled_beam_on = [False, False, False]
+        if not hasattr(self, "_last_polled_channel_off"):
+            self._last_polled_channel_off = [True, True, True]
 
     def _coerce_beam_config(self, config):
         """Normalize a BCON channel config dict for display/state storage."""
@@ -659,22 +673,9 @@ class MainControlPanel:
             return BEAM_OUTPUT_LOW_COLOR
         return BEAM_OUTPUT_ON_COLOR
 
-    def _is_beam_channel_enabled(self, beam_index):
-        states = getattr(self, "_ch_enable_states", None)
-        return bool(states and 0 <= beam_index < len(states) and states[beam_index])
-
     def _format_beam_output_off_status(self, beam_index):
         label = channel_label(beam_index)
-        enable_text = "ENABLED" if self._is_beam_channel_enabled(beam_index) else "DISABLED"
-        return f"Beam {label} {enable_text}, Output OFF"
-
-    def _beam_output_display_is_on(self, beam_index):
-        if not 0 <= beam_index < len(getattr(self, "_beam_output_status_colors", [])):
-            return False
-        return self._beam_output_status_colors[beam_index] in (
-            BEAM_OUTPUT_ON_COLOR,
-            BEAM_OUTPUT_LOW_COLOR,
-        )
+        return f"Beam {label} Output: OFF"
 
     def _format_beam_output_status(self, beam_index, config=None):
         """Format one Beam A/B/C output line from a normalized sent config."""
@@ -769,13 +770,6 @@ class MainControlPanel:
         except Exception:
             pass
 
-    def _beam_success_message(self, beam_index, config):
-        """Build line 4 success text for a beam ON command."""
-        return (
-            f"Beam {channel_label(beam_index)} successfully set to ON, "
-            f"{self._beam_on_description(config, include_remaining=False)}"
-        )
-
     def _format_activate_enabled_beams_message(self, configs):
         parts = []
         for config in configs or []:
@@ -784,31 +778,33 @@ class MainControlPanel:
             except (TypeError, ValueError, AttributeError):
                 continue
             label = channel_label(index)
-            mode = str(config.get("mode", "")).strip().upper()
-            if mode == "DC":
-                parts.append(f"{label}=DC")
-            elif mode == "PULSE":
-                parts.append(f"{label}=PULSE({config.get('duration_ms')}ms)")
-            else:
-                parts.append(
-                    f"{label}={mode}({config.get('duration_ms')}ms x{config.get('count')})"
-                )
-        return "Activate Enabled Beams: " + ", ".join(parts) if parts else "Activate Enabled Beams"
+            parts.append(f"{label}({self._format_bcon_command_config(config)})")
+        return ", ".join(parts) if parts else "Activate Enabled Beams (no channels)"
+
+    def _format_bcon_command_config(self, config):
+        """Format only the parameters used by the attempted BCON mode command."""
+        config = self._coerce_beam_config(config)
+        mode = config["mode"]
+        if mode == "PULSE_TRAIN":
+            return (
+                f"PULSE_TRAIN, {config['count']} pulses, "
+                f"{config['duration_ms']}ms each"
+            )
+        if mode == "PULSE":
+            return f"PULSE for {config['duration_ms']}ms"
+        if mode == "DC":
+            return "DC Mode"
+        return mode
 
     def _handle_action_feedback(self, event_type, message="", outcome="neutral", configs=None):
         """Handle Beam Pulse action feedback for Main Control status displays."""
-        if event_type == "beams_sent":
-            for config in configs or []:
-                try:
-                    beam_index = int(config.get("ch")) - 1
-                except (TypeError, ValueError, AttributeError):
-                    continue
-                self._set_beam_output_display(beam_index, config, is_on=True)
-            if not message:
-                message = self._format_activate_enabled_beams_message(configs)
-        elif event_type == "all_off":
-            self._clear_all_beam_output_displays()
-        elif event_type == "firmware_ack":
+        if event_type in {
+            "operation_sent", "operation_result", "operation_failed",
+            "operation_cancelled", "operation_poll",
+        }:
+            self._handle_bcon_operation_event(event_type, message)
+            return
+        if event_type == "firmware_ack":
             current = getattr(self, "_beam_action_status_text", "")
             current_outcome = getattr(self, "_beam_action_status_outcome", "neutral")
             if current and message:
@@ -822,6 +818,283 @@ class MainControlPanel:
 
         if message:
             self._set_beam_action_status(message, outcome)
+
+    @staticmethod
+    def _bcon_operation_details(op):
+        channels = ",".join(channel_label(ch) for ch in op["channels"]) or "none"
+        return f"token={op['token']}, action={op['action']}, channels={channels}"
+
+    @staticmethod
+    def _is_critical_bcon_operation(op):
+        return op["kind"] in ("disable_all", "estop")
+
+    def _start_bcon_operation(self, action, channels, expected="poll", kind="normal",
+                              cause=None):
+        """Create the one dashboard operation allowed to await a BCON result."""
+        self._initialize_main_control_beam_status_state()
+        pending = self._pending_bcon_operation
+        if pending and pending["kind"] == "estop":
+            if kind == "estop":
+                return pending["token"]
+            if not pending.get("safety_failed"):
+                self._log_warning(
+                    f"Failed to send {action}, Dashboard is waiting for E-STOP confirmation.")
+                return None
+            self._finish_bcon_operation(pending["token"])
+            self._log_warning(
+                f"{action} is proceeding after failed E-STOP confirmation "
+                f"({self._bcon_operation_details(pending)}).")
+            pending = None
+        if pending and kind == "normal":
+            self._log_warning(
+                f"Failed to send {action}, Dashboard waiting for firmware response from the previous command.")
+            return None
+        if pending:
+            self._finish_bcon_operation(pending["token"])
+            self._log_warning(f"{action} interrupted pending BCON operation {pending['token']}")
+        self._bcon_operation_counter += 1
+        token = f"bcon-{self._bcon_operation_counter}"
+        op = {
+            "token": token, "action": action, "channels": tuple(channels),
+            "expected": expected, "kind": kind, "state": "awaiting_send",
+            "created_at": time.monotonic(), "sent_at": None,
+            "cause": str(cause or ""),
+            "safety_failed": False, "safety_failure_logged": False,
+            "send_after": None, "ack_after": None,
+        }
+        op["status_message"] = (
+            f"{op['cause']} | {action}" if op["cause"] else str(action)
+        )
+        self._pending_bcon_operation = op
+        self._set_beam_action_status(
+            op["status_message"], "estop" if kind == "estop" else "neutral")
+        self._schedule_bcon_timeout(op, "send", BCON_SEND_TIMEOUT_MS)
+        return token
+
+    def _schedule_bcon_timeout(self, op, phase, delay_ms):
+        root_after = getattr(getattr(self, "root", None), "after", None)
+        if not callable(root_after):
+            return
+        key = f"{phase}_after"
+        cancel = getattr(getattr(self, "root", None), "after_cancel", None)
+        if op.get(key) and callable(cancel):
+            try:
+                cancel(op[key])
+            except Exception:
+                pass
+        op[key] = root_after(delay_ms, lambda token=op["token"], p=phase:
+                             self._expire_bcon_operation(token, p))
+
+    def _finish_bcon_operation(self, token):
+        op = getattr(self, "_pending_bcon_operation", None)
+        if not op or op["token"] != token:
+            return None
+        cancel = getattr(getattr(self, "root", None), "after_cancel", None)
+        if callable(cancel):
+            for key in ("send_after", "ack_after"):
+                if op.get(key):
+                    try:
+                        cancel(op[key])
+                    except Exception:
+                        pass
+        self._pending_bcon_operation = None
+        return op
+
+    def _invalidate_pending_user_bcon_operation(self, reason):
+        """Invalidate an operator action before an automatic safety ALL_OFF."""
+        op = getattr(self, "_pending_bcon_operation", None)
+        if not op or self._is_critical_bcon_operation(op) or op["kind"] == "disarm":
+            return
+        self._finish_bcon_operation(op["token"])
+        message = f"BCON operation invalidated by {reason}: {self._bcon_operation_details(op)}"
+        self._log_warning(message)
+        self._set_beam_action_status(message, "failure")
+
+    def _terminate_pending_bcon_operation(self, reason):
+        """End an operation whose firmware outcome can no longer be observed."""
+        op = getattr(self, "_pending_bcon_operation", None)
+        if not op:
+            return
+        self._finish_bcon_operation(op["token"])
+        message = (
+            f"BCON operation terminated by {reason} ({self._bcon_operation_details(op)}); "
+            "firmware outcome is unknown"
+        )
+        log = self._log_critical if self._is_critical_bcon_operation(op) else self._log_error
+        log(message)
+        self._set_beam_action_status(message, "failure")
+
+    def _hold_estop_for_poll_after_failure(self, op):
+        """Keep E-stop active so a later full poll still drives the UI state."""
+        op["safety_failed"] = True
+        op["state"] = "awaiting_poll"
+        self._schedule_bcon_timeout(op, "ack", BCON_ACK_POLL_TIMEOUT_MS)
+
+    def _expire_bcon_operation(self, token, phase):
+        op = getattr(self, "_pending_bcon_operation", None)
+        if not op or op["token"] != token:
+            return
+        if phase == "send" and op["state"] != "awaiting_send":
+            return
+        if phase == "ack" and op["state"] not in ("awaiting_ack", "awaiting_poll"):
+            return
+        started_at = op["sent_at"] if phase == "ack" and op["sent_at"] else op["created_at"]
+        elapsed_ms = round((time.monotonic() - started_at) * 1000)
+        waiting_for = "command send" if phase == "send" else "firmware acknowledgment/post-command poll"
+        if op["kind"] == "estop":
+            message = (
+                f"E-STOP confirmation timed out ({self._bcon_operation_details(op)}, "
+                f"elapsed={elapsed_ms}ms) while awaiting {waiting_for}; "
+                "dashboard arming state is unchanged and BCON output state is unknown. "
+                "Operator BCON controls remain available for recovery."
+            )
+        else:
+            message = (
+                f"BCON operation timed out ({self._bcon_operation_details(op)}, "
+                f"elapsed={elapsed_ms}ms) while awaiting {waiting_for}; "
+                "firmware outcome is unknown or unconfirmed"
+            )
+        self._finish_bcon_operation(token)
+        log = self._log_critical if self._is_critical_bcon_operation(op) else self._log_error
+        log(message)
+        self._set_beam_action_status(message, "failure")
+
+    def _operation_poll_matches(self, op):
+        if op["expected"] == "poll":
+            return True
+        channels = range(3) if op["expected"] == "all_off" else op["channels"]
+        states = getattr(self, "_last_polled_channel_off", [False, False, False])
+        return all(0 <= ch < len(states) and states[ch] for ch in channels)
+
+    def _complete_bcon_operation_after_poll(self, op):
+        kind = op["kind"]
+        if kind == "interlock_off":
+            self._complete_software_interlock_stop(op["channels"][0])
+        elif kind == "disable_all":
+            self._reset_beam_software_interlocks()
+        elif kind in ("disarm", "estop"):
+            beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
+            complete = getattr(beam_pulse, "complete_disarm", None)
+            if callable(complete):
+                complete()
+        if op["safety_failed"]:
+            prefix = f"{op['cause']} | " if op.get("cause") else ""
+            self._set_beam_action_status(
+                f"{prefix}E-STOP command failure; BCON poll reports all channels OFF", "failure")
+            return
+        self._log_info(f"BCON operation confirmed by poll: {self._bcon_operation_details(op)}")
+        sent_prefix = "Command Sent: "
+        if op["status_message"].startswith(sent_prefix):
+            op["status_message"] = (
+                "Command Success: " + op["status_message"][len(sent_prefix):]
+            )
+        else:
+            op["status_message"] = "Command Success: " + op["status_message"]
+        op["status_message"] += " | Status Poll: OK"
+        self._set_beam_action_status(
+            op["status_message"], "estop" if op["kind"] == "estop" else "success")
+
+    def _handle_bcon_operation_event(self, event_type, info):
+        info = info if isinstance(info, dict) else {}
+        op = getattr(self, "_pending_bcon_operation", None)
+        token = info.get("token") or info.get("operation_token")
+        if event_type == "operation_poll":
+            try:
+                completed_at = float(info["completed_at"])
+            except (KeyError, TypeError, ValueError):
+                return
+            if (
+                op
+                and op["state"] == "awaiting_poll"
+                and op.get("sent_at") is not None
+                and completed_at > float(op["sent_at"])
+                and self._operation_poll_matches(op)
+            ):
+                completed = self._finish_bcon_operation(op["token"])
+                if completed:
+                    self._complete_bcon_operation_after_poll(completed)
+            return
+        if not token or not op or op["token"] != token:
+            if token and event_type != "operation_cancelled":
+                self._log_warning(f"Ignored stale BCON operation event for {token}")
+            return
+        if event_type == "operation_sent":
+            op["state"] = "awaiting_ack"
+            op["sent_at"] = info.get("sent_at", time.monotonic())
+            if not op["status_message"].startswith("Command Sent: "):
+                op["status_message"] = "Command Sent: " + op["status_message"]
+            self._set_beam_action_status(
+                op["status_message"],
+                "estop" if op["kind"] == "estop" else "neutral",
+            )
+            elapsed_ms = round((time.monotonic() - op["sent_at"]) * 1000)
+            self._schedule_bcon_timeout(
+                op,
+                "ack",
+                max(0, BCON_ACK_POLL_TIMEOUT_MS - elapsed_ms),
+            )
+            return
+        if event_type == "operation_result":
+            if info.get("rejected") or not (info.get("accepted") or
+                                             str(info.get("last_command_result", "")).lower() == "executed"):
+                reject_reason = str(info.get("last_reject_reason", "UNKNOWN"))
+                hardware_interlock_rejection = reject_reason.upper() == "UNSAFE_INTERLOCK"
+                prefix = f"{op['cause']} | " if op.get("cause") else ""
+                message = (
+                    f"{prefix}"
+                    f"BCON command rejected ({self._bcon_operation_details(op)}): "
+                    f"{reject_reason}"
+                )
+                if op["kind"] == "estop":
+                    if not op["safety_failure_logged"]:
+                        log = (self._log_error if hardware_interlock_rejection
+                               else self._log_critical)
+                        log(message)
+                        op["safety_failure_logged"] = True
+                    self._hold_estop_for_poll_after_failure(op)
+                    self._set_beam_action_status(message, "failure")
+                    return
+                self._finish_bcon_operation(token)
+                log = (
+                    self._log_critical
+                    if self._is_critical_bcon_operation(op) and not hardware_interlock_rejection
+                    else self._log_error
+                )
+                log(message)
+                self._set_beam_action_status(message, "failure")
+                return
+            op["state"] = "awaiting_poll"
+            self._log_info(f"BCON firmware executed: {self._bcon_operation_details(op)}")
+            if "FW: OK" not in op["status_message"]:
+                op["status_message"] += " | FW: OK"
+            self._set_beam_action_status(
+                op["status_message"],
+                "estop" if op["kind"] == "estop" else "neutral",
+            )
+            return
+        cancelled = event_type == "operation_cancelled"
+        reason = info.get("reason", "cancelled" if cancelled else "failed")
+        prefix = f"{op['cause']} | " if op.get("cause") else ""
+        message = (
+            f"{prefix}"
+            f"BCON operation {'cancelled' if cancelled else 'failed'} "
+            f"({self._bcon_operation_details(op)}): {reason}"
+        )
+        if op["kind"] == "estop":
+            if not op["safety_failure_logged"] and not info.get("logged"):
+                self._log_critical(message)
+                op["safety_failure_logged"] = True
+            self._hold_estop_for_poll_after_failure(op)
+            self._set_beam_action_status(message, "failure")
+            return
+        self._finish_bcon_operation(token)
+        if cancelled:
+            log = self._log_warning
+        else:
+            log = self._log_critical if (info.get("critical") or self._is_critical_bcon_operation(op)) else self._log_error
+        if not info.get("logged"):
+            log(message)
+        self._set_beam_action_status(message, "failure")
 
     def create_script_dropdown(self, parent_frame):
         SetupScripts(parent_frame, logger=self.logger)
@@ -1428,9 +1701,11 @@ class MainControlPanel:
             elif ccs_output_active:
                 self._log_error("BCON manual disconnect blocked; Cathode Heating turn_off_all_beams API is unavailable")
                 return False
+        self._terminate_pending_bcon_operation("manual BCON disconnect")
         return True
 
     def _handle_bcon_disconnected(self):
+        self._terminate_pending_bcon_operation("BCON disconnect")
         if not self.disable_ccs_output_on_bcon_disconnect:
             return
         cathode = getattr(self, "subsystems", {}).get("Cathode Heating")
@@ -1565,25 +1840,23 @@ class MainControlPanel:
 
         self._vtrx_pressure_beam_disable_latched = True
         if firmware_error:
+            cause = "VTRX firmware error safety shutdown"
             self._log_critical("VTRX firmware error reported; disabling all beams.")
         elif pressure_reading_is_fresh:
+            cause = f"VTRX pressure safety shutdown ({pressure:g} mbar)"
             self._log_critical(
                 f"VTRX pressure exceeded {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar ({pressure:g} mbar); disabling all beams."
             )
         else:
+            cause = "VTRX pressure reading stale safety shutdown"
             self._log_critical("VTRX pressure reading is stale; disabling all beams.")
 
-        beam_pulse = getattr(self, "subsystems", {}).get("Beam Pulse")
-        disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
-        if callable(disable_all_beams):
-            try:
-                disable_all_beams()
-            except Exception as e:
-                self._log_critical(f"VTRX pressure beam disable failed: {e}")
-        else:
-            self._log_critical(
-                "VTRX pressure unsafe but Beam Pulse disable_all_beams API is unavailable"
-            )
+        try:
+            self._invalidate_pending_user_bcon_operation("VTRX pressure safety shutdown")
+            if not self._request_disable_all_beams(cause=cause):
+                self._log_critical("VTRX pressure beam disable failed: BCON all-off was not confirmed")
+        except Exception as e:
+            self._log_critical(f"VTRX pressure beam disable failed: {e}")
 
     def _handle_vtrx_pressure_update(self, pressure_mbar, pressure_reading_is_fresh=False, firmware_error=False):
         self.vtrx_firmware_error = bool(firmware_error)
@@ -1621,8 +1894,8 @@ class MainControlPanel:
                     text="BEAMS ARMED" if armed else "ARM BEAMS",
                     bg="navy" if armed else "sky blue",
                 )
-        self.update_beam_toggle_states(enabled=armed, reset=reset)
-        self._update_enable_toggle_states(enabled=armed)
+        self._update_beam_output_button_states(armed=armed, reset=reset)
+        self._update_software_interlock_control_states(armed=armed)
         self._update_activate_enabled_beams_control_state(armed=armed)
         if reset:
             self._clear_all_beam_output_displays()
@@ -1639,17 +1912,38 @@ class MainControlPanel:
         if not callable(activate_enabled_beams):
             self._set_beam_action_status("Failed to activate enabled beams, Beam Pulse API not available", "failure")
             return
-        activate_enabled_beams()
+        states = getattr(self, "_beam_software_interlock_states", [])
+        configs = [
+            {**beam_pulse.get_channel_config(beam_index), "ch": beam_index + 1}
+            for beam_index, enabled in enumerate(states[:3]) if enabled
+        ]
+        token = self._start_bcon_operation(
+            self._format_activate_enabled_beams_message(configs),
+            (config["ch"] - 1 for config in configs),
+        )
+        if not token:
+            return
+        if not activate_enabled_beams(operation_token=token):
+            self._finish_bcon_operation(token)
 
-    def handle_disable_all_beams(self):
+    def _request_disable_all_beams(self, cause=None):
+        """Request tokenized ALL_OFF without depending on the UI button handler."""
         beam_pulse = self._get_beam_pulse_or_fail("disable all beams")
         if beam_pulse is None:
-            return
+            return False
         disable_all_beams = getattr(beam_pulse, "disable_all_beams", None)
         if not callable(disable_all_beams):
             self._set_beam_action_status("Failed to disable all beams, Beam Pulse API not available", "failure")
-            return
-        disable_all_beams()
+            return False
+        token = self._start_bcon_operation(
+            "Disable All Beams command: mode=OFF", range(3), expected="all_off",
+            kind="disable_all", cause=cause)
+        if not token:
+            return False
+        return bool(disable_all_beams(operation_token=token, defer_ui=True))
+
+    def handle_disable_all_beams(self):
+        self._request_disable_all_beams()
 
     def handle_arm_beams(self):
         """Handle ARM BEAMS toggle press with state management."""
@@ -1663,13 +1957,20 @@ class MainControlPanel:
 
             if is_armed:
                 disarm_beams = getattr(beam_pulse, "disarm_beams", None)
-                if callable(disarm_beams) and disarm_beams():
-                    self._set_armed_ui(False, reset=True)
-                    self._set_beam_action_status("Beams disarmed", "neutral")
-                    self._log_info("Beams disarmed via dashboard button")
-                else:
-                    self._log_error("Failed to disarm beams")
-                    self._set_beam_action_status("Failed to disarm beams", "failure")
+                if not callable(disarm_beams):
+                    self._log_error("Failed to disarm beams: Beam Pulse disarm API is unavailable")
+                    self._set_beam_action_status(
+                        "Failed to disarm beams: Beam Pulse disarm API is unavailable",
+                        "failure",
+                    )
+                    return
+                token = self._start_bcon_operation(
+                    "Disarm Beams command: all channels mode=OFF", range(3),
+                    expected="all_off", kind="disarm")
+                if not token:
+                    return
+                if not disarm_beams(operation_token=token, defer_ui=True):
+                    return
             else:
                 arm_beams = getattr(beam_pulse, "arm_beams", None)
                 if callable(arm_beams) and arm_beams():
@@ -1690,12 +1991,20 @@ class MainControlPanel:
         try:
             first_error = None
             all_off_confirmed = False
+            safety_token = self._start_bcon_operation(
+                "E-STOP command: all channels mode=OFF", range(3),
+                expected="all_off", kind="estop", cause=reason)
 
             def record_error(message, error):
                 nonlocal first_error
                 if first_error is None:
                     first_error = error
-                self._log_critical(f"{message}: {str(error)}")
+                op = getattr(self, "_pending_bcon_operation", None)
+                if not op or op["token"] != safety_token:
+                    self._log_critical(f"{message}: {str(error)}")
+                elif not op["safety_failure_logged"]:
+                    self._log_critical(f"{message}: {str(error)}")
+                    op["safety_failure_logged"] = True
 
             # Force stop all BCON channels immediately
             beam_pulse = self.subsystems.get('Beam Pulse')
@@ -1704,7 +2013,7 @@ class MainControlPanel:
                     stop_all_channels = getattr(beam_pulse, 'stop_all_channels', None)
                     if callable(stop_all_channels):
                         self._log_info("Beams E-STOP requesting all BCON channels stop")
-                        if stop_all_channels():
+                        if stop_all_channels(operation_token=safety_token, defer_ui=True):
                             all_off_confirmed = True
                         else:
                             record_error(
@@ -1724,32 +2033,20 @@ class MainControlPanel:
             except Exception as e:
                 record_error("Beams E-STOP BCON channel stop failed", e)
 
-            # Disarm beams
+            # Send the second redundant ALL_OFF even when dashboard arming is off.
             try:
                 if beam_pulse is not None:
-                    get_beams_armed_status = getattr(beam_pulse, 'get_beams_armed_status', None)
-                    if callable(get_beams_armed_status):
-                        beams_armed = bool(get_beams_armed_status())
+                    disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
+                    if callable(disarm_beams) and disarm_beams(
+                            preserve_pending_acks=True, operation_token=safety_token,
+                            defer_ui=True):
+                        all_off_confirmed = True
+                        self._log_info("Beams E-STOP confirmed; awaiting post-ack poll")
                     else:
-                        beams_armed = False
-                        self._log_critical("Beams E-STOP cannot verify armed state: Beam Pulse get_beams_armed_status API is unavailable")
-                    if beams_armed:
-                        disarm_beams = getattr(beam_pulse, 'disarm_beams', None)
-                        if callable(disarm_beams) and disarm_beams(preserve_pending_acks=True):
-                            all_off_confirmed = True
-                            self._set_armed_ui(False)
-                            self._log_info("Beams disarmed via Beams E-stop button")
-                        else:
-                            record_error(
-                                "Failed to disarm beams via Beams E-stop",
-                                RuntimeError("Beam Pulse disarm was not confirmed"),
-                            )
-                    if all_off_confirmed:
-                        self.update_beam_toggle_states(enabled=False, reset=True)
-                        self._update_enable_toggle_states(enabled=False)
-                        self._update_activate_enabled_beams_control_state(armed=False)
-                if all_off_confirmed:
-                    self._clear_all_beam_output_displays()
+                        record_error(
+                            "Failed to send redundant BCON all-off via Beams E-stop",
+                            RuntimeError("BCON all-off was not confirmed"),
+                        )
             except Exception as e:
                 record_error("Beams E-STOP disarm/UI update failed", e)
 
@@ -1769,60 +2066,89 @@ class MainControlPanel:
                 record_error("Beams E-STOP cathode heating shutdown failed", e)
 
             if first_error is not None:
+                op = getattr(self, "_pending_bcon_operation", None)
+                if op and op["token"] == safety_token:
+                    self._hold_estop_for_poll_after_failure(op)
                 self._set_beam_action_status(f"Failed to stop beams: {str(first_error)}", "failure")
-            elif reason:
-                self._set_beam_action_status(str(reason), "estop")
-            else:
-                self._set_beam_action_status("Beams E-STOP pressed: All Beams Disabled", "estop")
+            elif not all_off_confirmed:
+                self._set_beam_action_status(
+                    str(reason) if reason else "Beams E-STOP pressed: All Beams Disabled",
+                    "estop",
+                )
         except Exception as e:
             self._log_critical(f"Error in handle_beams_off: {str(e)}")
             self._set_beam_action_status(f"Failed to stop beams: {str(e)}", "failure")
 
-    def _toggle_channel_enable(self, ch_index: int):
-        """Toggle one BCON channel enable and mirror the returned state."""
-        try:
-            beam_pulse = self._get_beam_pulse_or_fail("toggle channel enable")
+    def _toggle_beam_software_interlock(self, beam_index: int):
+        """Toggle one dashboard interlock, safely stopping active output first."""
+        if getattr(self, "_pending_bcon_operation", None):
+            self._start_bcon_operation(
+                f"toggle Beam {channel_label(beam_index)} software interlock", (), kind="normal")
+            return
+        states = getattr(self, "_beam_software_interlock_states", None)
+        if not states or not 0 <= beam_index < len(states):
+            return
+
+        software_interlock_currently_enabled = bool(states[beam_index])
+        label = channel_label(beam_index)
+        if software_interlock_currently_enabled:
+            beam_pulse = self._get_beam_pulse_or_fail(
+                f"disable Beam {label} software interlock"
+            )
             if beam_pulse is None:
                 return
-            toggler = getattr(beam_pulse, "toggle_channel_enable", None)
-            if not callable(toggler):
+
+            get_beam_status = getattr(beam_pulse, "get_beam_status", None)
+            if not callable(get_beam_status):
+                self._log_error(
+                    f"Unable to verify Beam {label} output status: Beam Pulse status API is unavailable"
+                )
                 self._set_beam_action_status(
-                    "Failed to toggle channel enable, Beam Pulse API not available",
+                    f"Failed to disable Beam {label} software interlock: output status unavailable",
+                    "failure",
+                )
+                return
+            try:
+                output_is_on = bool(get_beam_status(beam_index))
+            except Exception as e:
+                self._log_error(f"Unable to verify Beam {label} output status: {e}")
+                self._set_beam_action_status(
+                    f"Failed to disable Beam {label} software interlock: output status unavailable",
                     "failure",
                 )
                 return
 
-            ok, enabled, detail = toggler(ch_index)
-            if not ok:
-                detail_text = str(detail)
-                error_failure = (
-                    "bcon driver not available" in detail_text.lower()
-                    or "bcon device not connected" in detail_text.lower()
-                    or "failed to set" in detail_text.lower()
-                )
-                if error_failure:
-                    self._log_error(detail_text)
-                else:
-                    self._log_warning(detail_text)
-                self._set_beam_action_status(
-                    f"Failed to toggle Channel {channel_label(ch_index)} enable: {detail_text}",
-                    "failure",
-                )
+            if output_is_on:
+                token = self._start_bcon_operation(
+                    f"{label}(OFF); disable software interlock",
+                    (beam_index,), expected="off", kind="interlock_off")
+                if not token:
+                    return
+                if not beam_pulse.send_channel_off(beam_index, operation_token=token):
+                    if self._finish_bcon_operation(token):
+                        message = f"Failed to request Beam {label} output stop"
+                        self._set_beam_action_status(message, "failure")
+                    return
                 return
 
-            self._on_channel_enable_status_update(ch_index, enabled)
-            self._log_info(f"{channel_name(ch_index)} enable -> {'Enabled' if enabled else 'Disabled'}")
-            self._set_beam_action_status(
-                f"Channel {channel_label(ch_index)} successfully {'enabled' if enabled else 'disabled'}",
-                "success",
+        beam_software_interlock_enabled = not software_interlock_currently_enabled
+        states[beam_index] = beam_software_interlock_enabled
+        if beam_index < len(getattr(self, "software_interlock_buttons", [])):
+            _safe_widget_config(
+                self.software_interlock_buttons[beam_index],
+                bg="#2e7d32" if beam_software_interlock_enabled else "#888888",
+                text=f"Beam {label} {'Enabled' if beam_software_interlock_enabled else 'Disabled'}",
             )
-            if not enabled and ch_index < len(self.beam_toggle_buttons):
-                _safe_widget_config(
-                    self.beam_toggle_buttons[ch_index],
-                    bg="gray", text=f"Beam {channel_label(ch_index)} OFF")
-        except Exception as e:
-            self._log_error(f"Error toggling {channel_name(ch_index)} enable: {e}")
-            self._set_beam_action_status(f"Failed to toggle Channel {channel_label(ch_index)} enable: {e}", "failure")
+
+        self._update_beam_output_button_states(armed=True)
+        self._set_beam_action_status(
+            f"Beam {label} software interlock {'enabled' if beam_software_interlock_enabled else 'disabled'}",
+            "success",
+        )
+        self._log_info(
+            f"Beam {label} software interlock "
+            f"{'enabled' if beam_software_interlock_enabled else 'disabled'}"
+        )
 
     def toggle_individual_beam_with_status(self, beam_index):
         """Toggle individual beam on/off.
@@ -1831,46 +2157,40 @@ class MainControlPanel:
         OFF = send OFF command for the channel.
         """
         try:
+            if getattr(self, "_pending_bcon_operation", None):
+                self._start_bcon_operation(f"Beam {channel_label(beam_index)} toggle", (), kind="normal")
+                return
             beam_pulse = self._get_beam_pulse_or_fail("toggle beam")
             if beam_pulse is None:
                 return
 
             current_status = beam_pulse.get_beam_status(beam_index)
-            btn = self.beam_toggle_buttons[beam_index]
 
             if current_status:
                 # Currently ON -> turn OFF
-                if beam_pulse.send_channel_off(beam_index):
-                    _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(beam_index)} OFF")
-                    self._clear_beam_output_display(beam_index)
-                    self._set_beam_action_status(
-                        f"Beam {channel_label(beam_index)} successfully set to OFF",
-                        "success",
-                    )
-                    self._log_info(f"Beam {channel_label(beam_index)} turned OFF")
-                else:
-                    self._set_beam_action_status(
-                        f"Failed to set Beam {channel_label(beam_index)} OFF",
-                        "failure",
-                    )
-                    self._log_error(f"Failed to set Beam {channel_label(beam_index)} OFF")
+                token = self._start_bcon_operation(
+                    f"{channel_label(beam_index)}(OFF)",
+                    (beam_index,), expected="off")
+                if not token:
+                    return
+                if not beam_pulse.send_channel_off(beam_index, operation_token=token):
+                    if self._finish_bcon_operation(token):
+                        message = f"Failed to set Beam {channel_label(beam_index)} OFF"
+                        self._set_beam_action_status(message, "failure")
             else:
                 # Currently OFF -> send channel config to BCON
-                config = (
-                    beam_pulse.get_channel_config(beam_index)
-                    if hasattr(beam_pulse, 'get_channel_config')
-                    else {'mode': 'PULSE'}
-                )
-                ok = beam_pulse.send_channel_config(beam_index)
+                config = beam_pulse.get_channel_config(beam_index)
+                token = self._start_bcon_operation(
+                    f"{channel_label(beam_index)}"
+                    f"({self._format_bcon_command_config(config)})",
+                    (beam_index,))
+                if not token:
+                    return
+                ok = beam_pulse.send_channel_config(beam_index, operation_token=token)
                 if ok:
-                    self._set_beam_output_display(beam_index, config, is_on=True)
-                    self._set_beam_action_status(
-                        self._beam_success_message(beam_index, config),
-                        "success",
-                    )
-                    _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(beam_index)} ON")
-                    self._log_info(f"Beam {channel_label(beam_index)} config sent to BCON")
+                    self._log_info(f"Beam {channel_label(beam_index)} config queued for BCON")
                 else:
+                    finished = self._finish_bcon_operation(token)
                     # Prefer Beam Pulse's exact reason so line 4 explains why nothing was sent.
                     failure_message = ""
                     getter = getattr(beam_pulse, "get_last_send_failure_message", None)
@@ -1887,8 +2207,8 @@ class MainControlPanel:
                             )
                     else:
                         failure_message = f"Failed to send Beam {channel_label(beam_index)} config"
-                    self._set_beam_action_status(failure_message,"failure",)
-                    self._log_error(failure_message)
+                    if finished:
+                        self._set_beam_action_status(failure_message, "failure")
 
         except Exception as e:
             self._log_error(f"Error toggling beam {beam_index}: {str(e)}")
@@ -1903,6 +2223,17 @@ class MainControlPanel:
         Called on every register-poll cycle by BeamPulseSubsystem.
         mode_code=0 means OFF; remaining=0 means all pulses delivered.
         """
+        output_level = None
+        if isinstance(status_config, dict):
+            output_level = status_config.get("output_level")
+        # DC mode never counts down, so remaining is always 0 in hardware.
+        # Treat DC as running whenever mode != OFF to prevent button glitching.
+        MODE_DC = 1
+        is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
+        if isinstance(ch, int) and 0 <= ch < len(self._last_polled_beam_on):
+            self._last_polled_beam_on[ch] = is_running
+        if isinstance(ch, int) and 0 <= ch < len(self._last_polled_channel_off):
+            self._last_polled_channel_off[ch] = mode_code == 0 and output_level == 0
         if not hasattr(self, 'beam_toggle_buttons'):
             self._log_error("Invalid channel status update: beam toggle buttons are not initialized")
             return
@@ -1910,10 +2241,6 @@ class MainControlPanel:
             self._log_error(f"Invalid channel status update for channel {ch}")
             return
         btn = self.beam_toggle_buttons[ch]
-        # DC mode never counts down, so remaining is always 0 in hardware.
-        # Treat DC as running whenever mode != OFF to prevent button glitching.
-        MODE_DC = 1
-        is_running = (mode_code != 0) and (remaining > 0 or mode_code == MODE_DC)
         try:
             if is_running:
                 _safe_widget_config(btn, bg="green", text=f"Beam {channel_label(ch)} ON")
@@ -1926,55 +2253,20 @@ class MainControlPanel:
         except Exception:
             pass
 
-    def _on_channel_enable_status_update(self, ch: int, enabled: bool):
-        """Mirror firmware-backed channel enable state onto dashboard controls."""
-        try:
-            if hasattr(self, '_ch_enable_states') and ch < len(self._ch_enable_states):
-                self._ch_enable_states[ch] = bool(enabled)
-
-            if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                _safe_widget_config(
-                    self.enable_toggle_buttons[ch],
-                    bg="#2e7d32" if enabled else "#888888",
-                    text=f"CH {channel_label(ch)}: {'Enabled' if enabled else 'Disabled'}",
-                )
-
-            if not enabled or not self._beam_output_display_is_on(ch):
-                self._clear_beam_output_display(ch)
-
-            beam_pulse = self.subsystems.get('Beam Pulse')
-            armed = bool(
-                beam_pulse
-                and hasattr(beam_pulse, 'get_beams_armed_status')
-                and beam_pulse.get_beams_armed_status()
-            )
-
-            if hasattr(self, 'enable_toggle_buttons') and ch < len(self.enable_toggle_buttons):
-                _safe_widget_config(
-                    self.enable_toggle_buttons[ch],
-                    state="normal" if armed else "disabled",
-                )
-
-            self.update_beam_toggle_states(enabled=armed)
-            self._update_activate_enabled_beams_control_state(armed=armed)
-        except Exception as e:
-            self._log_error(f"Error updating {channel_name(ch)} enable status: {str(e)}")
-
-    def update_beam_toggle_states(self, enabled=True, reset=False):
-        """Update the state of beam toggle buttons."""
+    def _update_beam_output_button_states(self, armed=True, reset=False):
+        """Update Beam A/B/C output-button availability from arming and interlocks."""
         try:
             if not hasattr(self, 'beam_toggle_buttons'):
                 return
 
             for i, btn in enumerate(self.beam_toggle_buttons):
-                if enabled:
-                    # Only allow beam ON/OFF when the channel hardware enable is also ON
-                    ch_enabled = (
-                        hasattr(self, '_ch_enable_states')
-                        and i < len(self._ch_enable_states)
-                        and self._ch_enable_states[i]
+                if armed:
+                    interlock_enabled = (
+                        hasattr(self, '_beam_software_interlock_states')
+                        and i < len(self._beam_software_interlock_states)
+                        and self._beam_software_interlock_states[i]
                     )
-                    _safe_widget_config(btn, state="normal" if ch_enabled else "disabled")
+                    _safe_widget_config(btn, state="normal" if interlock_enabled else "disabled")
                     if reset:
                         _safe_widget_config(btn, bg="gray", text=f"Beam {channel_label(i)} OFF")
                         self._clear_beam_output_display(i)
@@ -1984,26 +2276,64 @@ class MainControlPanel:
                         self._clear_beam_output_display(i)
 
         except Exception as e:
-            self._log_error(f"Error updating beam toggle states: {str(e)}")
+            self._log_error(f"Error updating beam output button states: {str(e)}")
 
-    def _update_enable_toggle_states(self, enabled=True):
-        """Enable or disable the CH Enable toggle buttons based on armed status.
-        When disabling, mirror the firmware safety contract: all channel
-        enable latches are cleared by STOP/disconnect paths.
-        """
+    def _update_software_interlock_control_states(self, armed=True):
+        """Enable dashboard-only interlock controls when the beams are armed."""
         try:
-            if not hasattr(self, 'enable_toggle_buttons'):
+            if not hasattr(self, 'software_interlock_buttons'):
                 return
-            for i, btn in enumerate(self.enable_toggle_buttons):
-                if enabled:
+            for i, btn in enumerate(self.software_interlock_buttons):
+                if armed:
                     _safe_widget_config(btn, state="normal")
                 else:
-                    # Disarmed — force all to Disabled appearance and reset tracking
-                    if hasattr(self, '_ch_enable_states') and i < len(self._ch_enable_states):
-                        self._ch_enable_states[i] = False
-                    _safe_widget_config(btn,state="disabled",bg="#888888",text=f"CH {channel_label(i)}: Disabled",)
+                    # Disarmed: reset all software interlocks.
+                    if (
+                        hasattr(self, '_beam_software_interlock_states')
+                        and i < len(self._beam_software_interlock_states)
+                    ):
+                        self._beam_software_interlock_states[i] = False
+                    _safe_widget_config(
+                        btn,
+                        state="disabled",
+                        bg="#888888",
+                        text=f"Beam {channel_label(i)} Disabled",
+                    )
         except Exception as e:
-            self._log_error(f"Error updating enable toggle states: {str(e)}")
+            self._log_error(f"Error updating software interlock control states: {str(e)}")
+
+    def _reset_beam_software_interlocks(self):
+        """Return every dashboard-only beam interlock to Disabled."""
+        states = getattr(self, "_beam_software_interlock_states", None)
+        if states is None:
+            return
+
+        for i in range(len(states)):
+            states[i] = False
+            if i < len(getattr(self, "software_interlock_buttons", [])):
+                _safe_widget_config(
+                    self.software_interlock_buttons[i],
+                    bg="#888888",
+                    text=f"Beam {channel_label(i)} Disabled",
+                )
+        self._update_beam_output_button_states(armed=True)
+
+    def _complete_software_interlock_stop(self, beam_index: int):
+        states = getattr(self, "_beam_software_interlock_states", [])
+        if not 0 <= beam_index < len(states):
+            return
+        states[beam_index] = False
+        label = channel_label(beam_index)
+        if beam_index < len(getattr(self, "software_interlock_buttons", [])):
+            _safe_widget_config(
+                self.software_interlock_buttons[beam_index],
+                state="normal",
+                bg="#888888",
+                text=f"Beam {label} Disabled",
+            )
+        self._update_beam_output_button_states(armed=True)
+        self._log_info(f"Beam {label} software interlock disabled after output confirmed OFF")
+
 
     def create_com_port_frame(self, parent_frame):
         """

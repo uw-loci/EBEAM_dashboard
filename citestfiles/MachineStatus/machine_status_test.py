@@ -80,7 +80,7 @@ class FakeBeamPulse:
         self.inputs = {
             "bcon_connected": bcon_connected,
             "any_beam_active": any_beam_active,
-            "channel_enable_status": (
+            "activation_interlock_states": (
                 [True, False, False]
                 if enabled_channels is None
                 else list(enabled_channels)
