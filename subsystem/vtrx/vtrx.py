@@ -53,11 +53,19 @@ class VTRXSubsystem:
         16: "UNSAFE FOR HV WARNING"
     }
 
-    def __init__(self, parent, serial_port='COM7', baud_rate=9600, logger=None):
+    def __init__(
+        self,
+        parent,
+        serial_port='COM7',
+        baud_rate=9600,
+        logger=None,
+        mks_902b_driver=None,
+    ):
         self.parent = parent
         self.serial_port = serial_port
         self.baud_rate = baud_rate
         self.logger = logger
+        self.mks_902b_driver = mks_902b_driver
         self.data_queue = queue.Queue()
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
@@ -80,6 +88,9 @@ class VTRXSubsystem:
         self.last_data_received_time = time.time()
         self.last_successful_read_time = None
         self.last_valid_pressure_value = None
+        self.latest_902b_pressure_mbar = None
+        self.last_valid_902b_timestamp = None
+        self._902b_webmonitor_cleared = True
         self.last_gui_update_time = time.time()
         self.after_id = None
         self._serial_data_failure_count = 0
@@ -215,9 +226,45 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
+            self._process_902b_data()
             self.flush_queued_logs()
+            if self.mks_902b_driver is not None:
+                self.mks_902b_driver.flush_queued_logs()
             self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
+
+    def _process_902b_data(self):
+        """Display and publish the newest queued 902B measurement, if fresh."""
+        latest_measurement = None
+        if self.mks_902b_driver is not None:
+            while True:
+                try:
+                    latest_measurement = self.mks_902b_driver.data_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+        if latest_measurement is not None:
+            timestamp, pressure_mbar = latest_measurement
+            self.last_valid_902b_timestamp = timestamp
+            self.latest_902b_pressure_mbar = pressure_mbar
+            self.label_902b_pressure.config(
+                text=f"{pressure_mbar:.3E} mbar",
+                bg="white",
+                fg="black",
+            )
+            if self.logger is not None:
+                self.logger.update_field("pressure_902b_mbar", pressure_mbar)
+            self._902b_webmonitor_cleared = False
+
+        if (
+            self.last_valid_902b_timestamp is None
+            or time.time() - self.last_valid_902b_timestamp > self.PRESSURE_READING_FRESH_SECONDS
+        ):
+            self.label_902b_pressure.config(text="No data...", bg="white", fg="black")
+            if not self._902b_webmonitor_cleared:
+                if self.logger is not None:
+                    self.logger.clear_value("pressure_902b_mbar")
+                self._902b_webmonitor_cleared = True
 
     def _pressure_reading_is_fresh(self):
         last_successful_read_time = getattr(self, "last_successful_read_time", None)
@@ -540,7 +587,15 @@ class VTRXSubsystem:
         # Pressure label setup
         pressure_frame = tk.Frame(layout_frame)
         pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
-        pressure_frame.grid_columnconfigure(0, weight=1)
+        pressure_frame.grid_columnconfigure(1, weight=1)
+        pressure_frame.grid_columnconfigure(3, weight=1)
+
+        label_972b_title = tk.Label(
+            pressure_frame,
+            text="972B:",
+            font=('Helvetica', 10, 'bold'),
+        )
+        label_972b_title.grid(row=0, column=0, padx=(0, 4))
 
         self.label_pressure = tk.Label(
             pressure_frame,
@@ -552,7 +607,27 @@ class VTRXSubsystem:
             fg='black', 
             padx=3, pady=2
         )
-        self.label_pressure.grid(row=0, column=0, ipady=2)
+        self.label_pressure.grid(row=0, column=1, sticky='ew', ipady=2)
+
+        label_902b_title = tk.Label(
+            pressure_frame,
+            text="902B:",
+            font=('Helvetica', 10, 'bold'),
+        )
+        label_902b_title.grid(row=0, column=2, padx=(12, 4))
+
+        self.label_902b_pressure = tk.Label(
+            pressure_frame,
+            text="No data...",
+            anchor='center',
+            font=('Helvetica', 11, 'bold'),
+            relief='ridge',
+            bg='white',
+            fg='black',
+            padx=3,
+            pady=2,
+        )
+        self.label_902b_pressure.grid(row=0, column=3, sticky='ew', ipady=2)
      
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """

@@ -4,6 +4,7 @@ import subsystem
 import tkinter as tk
 from tkinter import ttk
 from instrumentctl.laser_monitor import LaserMonitorDriver
+from instrumentctl.mks_902b import MKS902BDriver
 from subsystem.main_control import MainControlPanel
 from subsystem.machine_status.machine_status import MachineStatus
 from utils import MessagesFrame, LogLevel
@@ -91,6 +92,7 @@ class EBEAMSystemDashboard:
 
         self.set_com_ports = set(serial.tools.list_ports.comports())
         self.ports_after_id = None
+        self.mks_902b_driver = None
 
         # Load toggle images
         try:
@@ -157,6 +159,14 @@ class EBEAMSystemDashboard:
                 machine_status.cancel_updates()
             except Exception as e:
                 self.logger.error(f"Error cancelling machine status updates: {e}", tag="Dashboard")
+
+        # Stop the Tk consumer before stopping its 902B producer. The worker
+        # remains responsible for closing its own serial connection.
+        vacuum_system = self.subsystems.get('Vacuum System')
+        if vacuum_system is not None and self.mks_902b_driver is not None:
+            vacuum_system.cancel_updates()
+            self.mks_902b_driver.close()
+            self.mks_902b_driver.flush_queued_logs()
 
         self._log_dashboard("Cleaning up com ports...", LogLevel.DEBUG)
         for subsystem_name, subsystem in self.subsystems.items():
@@ -428,13 +438,23 @@ class EBEAMSystemDashboard:
         Initialize all subsystem objects with their respective frames and settings.
         Each subsystem is configured with appropriate COM ports and logging.
         """
+        mks_902b_port = str(self.com_ports.get('902B', '') or '').strip()
+        if self._is_real_com_port(mks_902b_port):
+            self.mks_902b_driver = MKS902BDriver(mks_902b_port, logger=self.logger)
+        else:
+            self._log_dashboard(
+                "902B driver not started; no real COM port configured",
+                LogLevel.INFO,
+            )
+
         self.subsystems = {
             'Vacuum System': self._initialize_subsystem(
                 'Vacuum System',
                 lambda: subsystem.VTRXSubsystem(
                     self.frames['Vacuum System'],
                     serial_port=self.com_ports['VTRXSubsystem'],
-                    logger=self.logger
+                    logger=self.logger,
+                    mks_902b_driver=self.mks_902b_driver,
                 ),
             ),
             'Process Monitor [°C]': self._initialize_subsystem(
@@ -475,6 +495,9 @@ class EBEAMSystemDashboard:
                 ),
             )
         }
+
+        if self.mks_902b_driver is not None:
+            self.mks_902b_driver.start()
 
         if hasattr(self, "main_control"):
             self.main_control.subsystems = self.subsystems

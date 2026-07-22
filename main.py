@@ -10,7 +10,8 @@ from utils import Logger, LogLevel
 
 
 SUBSYSTEMS = [
-    'VTRXSubsystem', 
+    'VTRXSubsystem',
+    '902B',
     'CathodeA PS', 
     'CathodeB PS', 
     'CathodeC PS', 
