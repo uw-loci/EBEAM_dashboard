@@ -460,7 +460,7 @@ class VTRXSubsystem:
             "Pumps Power ON", 
             "Turbo Rotor ON", 
             "Turbo Vent OPEN",
-            "972b Power ON", 
+            "972B Relay 1 ON",
             "Turbo Gate CLOSED",
             "Turbo Gate OPEN", 
             "Argon Gate OPEN", 
@@ -730,4 +730,3 @@ class VTRXSubsystem:
             self.log(f"Closed serial port {self.serial_port}", LogLevel.INFO)
         else:
             self.log(f"{self.serial_port} port already closed", LogLevel.DEBUG)
-          
