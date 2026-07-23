@@ -12,15 +12,15 @@ from utils import LogLevel
 
 
 BAUDRATE = 115200
-SERIAL_READ_TIMEOUT_MS = 10
-SERIAL_WRITE_TIMEOUT_MS = 100
-RESPONSE_TIMEOUT_MS = 100
+SERIAL_READ_TIMEOUT_SECONDS = 0.01
+SERIAL_WRITE_TIMEOUT_SECONDS = 0.1
+RESPONSE_TIMEOUT_SECONDS = 0.1
 POLL_INTERVAL_SECONDS = 0.5
 POLL_RETRY_DELAY_SECONDS = 0.02
 POLL_ATTEMPTS = 3
 COMMUNICATION_LOSS_SECONDS = 5.0
 RECONNECT_INTERVAL_SECONDS = 5.0
-THREAD_JOIN_TIMEOUT_MS = 2000
+THREAD_JOIN_TIMEOUT_SECONDS = 2.0
 DATA_QUEUE_MAXSIZE = 8
 LOG_QUEUE_MAXSIZE = 1000
 FRAME_TERMINATOR = b";FF"
@@ -40,8 +40,6 @@ UNIT_TO_MBAR = {
     "TORR": 1.333223684,
     "PASCAL": 0.01,
 }
-MIN_PRESSURE_MBAR = 0.1 * UNIT_TO_MBAR["TORR"]
-MAX_PRESSURE_MBAR = 1000.0 * UNIT_TO_MBAR["TORR"]
 
 _RESPONSE_RE = re.compile(r"^@(\d{3})(ACK|NAK)(.*);FF$")
 _SCIENTIFIC_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[Ee][+-]?\d+$")
@@ -77,10 +75,6 @@ def convert_pressure_to_mbar(pressure, unit):
     pressure_mbar = pressure * conversion_factor
     if not math.isfinite(pressure_mbar):
         raise MKS902BProtocolError("Pressure is not finite")
-    if not MIN_PRESSURE_MBAR <= pressure_mbar <= MAX_PRESSURE_MBAR:
-        raise MKS902BProtocolError(
-            f"Pressure {pressure_mbar:.6g} mbar is outside the 902B measurement range"
-        )
     return pressure_mbar
 
 
@@ -120,7 +114,7 @@ class MKS902BDriver:
         """Request worker shutdown and wait briefly without touching the serial port."""
         self._stop_event.set()
         if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=THREAD_JOIN_TIMEOUT_MS / 1000.0)
+            self._thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
         if self._thread is not None and self._thread.is_alive():
             self._queue_log("902B worker did not stop before the join timeout", LogLevel.ERROR)
 
@@ -186,8 +180,8 @@ class MKS902BDriver:
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=SERIAL_READ_TIMEOUT_MS / 1000.0,
-                write_timeout=SERIAL_WRITE_TIMEOUT_MS / 1000.0,
+                timeout=SERIAL_READ_TIMEOUT_SECONDS,
+                write_timeout=SERIAL_WRITE_TIMEOUT_SECONDS,
                 xonxoff=False,
                 rtscts=False,
                 dsrdtr=False,
@@ -324,13 +318,11 @@ class MKS902BDriver:
         wire_command = f"{command}\r\n"
         self._queue_log(f"TX {self._safe_log_text(wire_command)}", LogLevel.VERBOSE)
         self._serial.write(wire_command.encode("ascii"))
-        self._serial.flush()
 
-        deadline = time.monotonic() + RESPONSE_TIMEOUT_MS / 1000.0
+        deadline = time.monotonic() + RESPONSE_TIMEOUT_SECONDS
         last_unexpected = None
         while not self._stop_event.is_set():
             frame = self._read_frame(deadline)
-            self._queue_log(f"RX {self._safe_log_text(frame)}", LogLevel.VERBOSE)
             try:
                 address, response_type, payload = parse_response(frame)
             except MKS902BProtocolError as exc:
@@ -364,12 +356,13 @@ class MKS902BDriver:
 
             if time.monotonic() >= deadline:
                 raise MKS902BTimeoutError(
-                    f"Timed out after {RESPONSE_TIMEOUT_MS:g} ms waiting for ;FF"
+                    f"Timed out after {RESPONSE_TIMEOUT_SECONDS:g} seconds waiting for ;FF"
                 )
 
             bytes_waiting = self._serial.in_waiting
             chunk = self._serial.read(max(1, bytes_waiting))
             if chunk:
+                self._queue_log(f"RX {self._safe_log_text(chunk)}", LogLevel.VERBOSE)
                 self._receive_buffer.extend(chunk)
 
         raise MKS902BTimeoutError("Request stopped before a response was received")

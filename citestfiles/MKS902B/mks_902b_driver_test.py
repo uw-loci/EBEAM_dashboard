@@ -28,6 +28,7 @@ class ScriptedSerial:
         self.thread_ids = {threading.get_ident()}
         self.open_thread_id = threading.get_ident()
         self.close_thread_id = None
+        self.flush_calls = 0
 
     @property
     def in_waiting(self):
@@ -52,6 +53,7 @@ class ScriptedSerial:
     def flush(self):
         """Record that flushing occurred on the serial-owner thread."""
         self.thread_ids.add(threading.get_ident())
+        self.flush_calls += 1
 
     def read(self, size):
         """Return the next response chunk."""
@@ -101,6 +103,22 @@ class TestMKS902BProtocol(unittest.TestCase):
         self.assertEqual(driver._extract_frame(), b"@253ACK1.000E0;FF")
         self.assertEqual(driver._extract_frame(), b"@253ACK2.000E0;FF")
 
+    def test_incomplete_response_bytes_are_logged_before_timeout(self):
+        """Log received bytes even when they never form a complete response frame."""
+        driver = driver_module.MKS902BDriver("COM9")
+        driver._serial = ScriptedSerial(responses=[b"@253ACK1.234E0"])
+
+        with (
+            patch.object(driver_module, "RESPONSE_TIMEOUT_SECONDS", 0.01),
+            self.assertRaises(driver_module.MKS902BTimeoutError),
+        ):
+            driver._request("@253PR4?;FF", expected_address=253)
+
+        self.assertIn(
+            ("RX b'@253ACK1.234E0'", LogLevel.VERBOSE),
+            list(driver._log_queue.queue),
+        )
+
     def test_initialization_discovers_address_and_queries_read_only_metadata(self):
         """Use broadcast only for discovery and never send a setting command."""
         driver = driver_module.MKS902BDriver("COM9")
@@ -121,6 +139,7 @@ class TestMKS902BProtocol(unittest.TestCase):
             driver._serial.writes,
             ["@254MD?;FF", "@247BR?;FF", "@247U?;FF"],
         )
+        self.assertEqual(driver._serial.flush_calls, 0)
         self.assertTrue(all("!" not in command for command in driver._serial.writes))
         queued_logs = list(driver._log_queue.queue)
         self.assertIn(
@@ -224,7 +243,7 @@ class TestMKS902BWorker(unittest.TestCase):
         with (
             patch.object(driver_module.serial, "Serial", side_effect=serial_factory),
             patch.object(driver_module, "POLL_INTERVAL_SECONDS", 0.01),
-            patch.object(driver_module, "THREAD_JOIN_TIMEOUT_MS", 1000),
+            patch.object(driver_module, "THREAD_JOIN_TIMEOUT_SECONDS", 1.0),
         ):
             driver.start()
             driver.data_queue.get(timeout=1.0)
