@@ -24,6 +24,7 @@ class ScriptedSerial:
         self.max_chunk = max_chunk
         self.is_open = True
         self.writes = []
+        self.raw_writes = []
         self.pending = bytearray()
         self.thread_ids = {threading.get_ident()}
         self.open_thread_id = threading.get_ident()
@@ -39,6 +40,7 @@ class ScriptedSerial:
     def write(self, data):
         """Record a command and queue its scripted response."""
         self.thread_ids.add(threading.get_ident())
+        self.raw_writes.append(data)
         command = data.decode("ascii").strip()
         self.writes.append(command)
         if self.response_factory is not None:
@@ -158,6 +160,10 @@ class TestMKS902BProtocol(unittest.TestCase):
         self.assertEqual(
             driver._serial.writes,
             ["@254MD?;FF", "@247BR?;FF", "@247U?;FF"],
+        )
+        self.assertEqual(
+            driver._serial.raw_writes,
+            [b"@254MD?;FF", b"@247BR?;FF", b"@247U?;FF"],
         )
         self.assertEqual(driver._serial.flush_calls, 0)
         self.assertTrue(all("!" not in command for command in driver._serial.writes))

@@ -308,7 +308,7 @@ class MKS902BDriver:
         if self._serial is None or not self._serial.is_open:
             raise MKS902BProtocolError("Serial port is not open")
 
-        wire_command = f"{command}\r\n"
+        wire_command = command
         self._queue_log(f"TX {self._safe_log_text(wire_command)}", LogLevel.VERBOSE)
         self._serial.write(wire_command.encode("ascii"))
 
