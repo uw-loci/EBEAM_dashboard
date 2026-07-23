@@ -32,6 +32,7 @@ class VTRXSubsystem:
     SERIAL_DATA_MAX_ATTEMPTS = 3
     PRESSURE_READING_FRESH_SECONDS = 3.0
     PRESSURE_902B_READING_FRESH_SECONDS = 6.0
+    PRESSURE_902B_MIN_VALID_972B_MBAR = 1.0
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -92,6 +93,7 @@ class VTRXSubsystem:
         self.latest_902b_pressure_mbar = None
         self.last_valid_902b_timestamp = None
         self._902b_webmonitor_cleared = True
+        self._902b_widget_suppressed = False
         self.last_gui_update_time = time.time()
         self.after_id = None
         self._serial_data_failure_count = 0
@@ -235,7 +237,7 @@ class VTRXSubsystem:
             self.after_id = self.parent.after(500, self.process_queue)
 
     def _process_902b_data(self):
-        """Display and publish the newest queued 902B measurement, if fresh."""
+        """Retain the newest queued 902B measurement and publish it when valid."""
         latest_measurement = None
         if self.mks_902b_driver is not None:
             while True:
@@ -248,25 +250,88 @@ class VTRXSubsystem:
             timestamp, pressure_mbar = latest_measurement
             self.last_valid_902b_timestamp = timestamp
             self.latest_902b_pressure_mbar = pressure_mbar
-            self.label_902b_pressure.config(
-                text=f"{pressure_mbar:.3E} mbar",
-                bg="white",
-                fg="black",
-            )
+
+        suppress_902b = self._should_suppress_902b_publication()
+        self._set_902b_widget_suppressed(suppress_902b)
+
+        if not self._902b_reading_is_fresh():
+            self._set_902b_pressure_display(None)
+            self._clear_902b_publication()
+            return
+
+        self._set_902b_pressure_display(self.latest_902b_pressure_mbar)
+        if suppress_902b:
+            self._clear_902b_publication()
+            return
+
+        if latest_measurement is not None or self._902b_webmonitor_cleared:
             if self.logger is not None:
-                self.logger.update_field("pressure_902b_mbar", pressure_mbar)
+                self.logger.update_field(
+                    "pressure_902b_mbar",
+                    self.latest_902b_pressure_mbar,
+                )
             self._902b_webmonitor_cleared = False
 
-        if (
-            self.last_valid_902b_timestamp is None
-            or time.time() - self.last_valid_902b_timestamp
-            > self.PRESSURE_902B_READING_FRESH_SECONDS
-        ):
-            self.label_902b_pressure.config(text="No data...", bg="white", fg="black")
-            if not self._902b_webmonitor_cleared:
-                if self.logger is not None:
-                    self.logger.clear_value("pressure_902b_mbar")
-                self._902b_webmonitor_cleared = True
+    def _902b_reading_is_fresh(self):
+        return (
+            self.last_valid_902b_timestamp is not None
+            and time.time() - self.last_valid_902b_timestamp
+            <= self.PRESSURE_902B_READING_FRESH_SECONDS
+        )
+
+    def _should_suppress_902b_publication(self):
+        pressure_972b = getattr(self, "last_valid_pressure_value", None)
+        return (
+            not getattr(self, "error_state", False)
+            and self._pressure_reading_is_fresh()
+            and pressure_972b is not None
+            and pressure_972b < self.PRESSURE_902B_MIN_VALID_972B_MBAR
+        )
+
+    def _clear_902b_publication(self):
+        if self._902b_webmonitor_cleared:
+            return
+        if self.logger is not None:
+            self.logger.clear_value("pressure_902b_mbar")
+        self._902b_webmonitor_cleared = True
+
+    def _set_902b_pressure_display(self, pressure_mbar):
+        label = getattr(self, "label_902b_pressure", None)
+        if label is None:
+            return
+        label.config(
+            text="No data..." if pressure_mbar is None else f"{pressure_mbar:.3E} mbar",
+            bg="white",
+            fg="black",
+        )
+
+    def _set_902b_widget_suppressed(self, suppressed):
+        if suppressed == self._902b_widget_suppressed:
+            return
+        self._902b_widget_suppressed = suppressed
+
+        pressure_frame = getattr(self, "pressure_frame", None)
+        if pressure_frame is None:
+            return
+
+        if suppressed:
+            self.label_902b_title.grid_remove()
+            self.label_902b_pressure.grid_remove()
+            pressure_frame.grid_columnconfigure(0, weight=1)
+            pressure_frame.grid_columnconfigure(1, weight=0)
+            pressure_frame.grid_columnconfigure(2, weight=0)
+            pressure_frame.grid_columnconfigure(3, weight=1)
+            self.label_972b_title.grid_configure(column=1)
+            self.label_pressure.grid_configure(column=2, sticky='')
+        else:
+            pressure_frame.grid_columnconfigure(0, weight=0)
+            pressure_frame.grid_columnconfigure(1, weight=1)
+            pressure_frame.grid_columnconfigure(2, weight=0)
+            pressure_frame.grid_columnconfigure(3, weight=1)
+            self.label_972b_title.grid_configure(column=0)
+            self.label_pressure.grid_configure(column=1, sticky='ew')
+            self.label_902b_title.grid()
+            self.label_902b_pressure.grid()
 
     def _pressure_reading_is_fresh(self):
         last_successful_read_time = getattr(self, "last_successful_read_time", None)
@@ -430,6 +495,10 @@ class VTRXSubsystem:
                 self.last_no_data_log_time = 0.0
                 self.last_successful_read_time = time.time()
                 self.last_valid_pressure_value = pressure_value
+                suppress_902b = self._should_suppress_902b_publication()
+                self._set_902b_widget_suppressed(suppress_902b)
+                if suppress_902b:
+                    self._clear_902b_publication()
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
@@ -587,20 +656,20 @@ class VTRXSubsystem:
         self.canvas_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=3)
 
         # Pressure label setup
-        pressure_frame = tk.Frame(layout_frame)
-        pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
-        pressure_frame.grid_columnconfigure(1, weight=1)
-        pressure_frame.grid_columnconfigure(3, weight=1)
+        self.pressure_frame = tk.Frame(layout_frame)
+        self.pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
+        self.pressure_frame.grid_columnconfigure(1, weight=1)
+        self.pressure_frame.grid_columnconfigure(3, weight=1)
 
-        label_972b_title = tk.Label(
-            pressure_frame,
+        self.label_972b_title = tk.Label(
+            self.pressure_frame,
             text="972B:",
             font=('Helvetica', 10, 'bold'),
         )
-        label_972b_title.grid(row=0, column=0, padx=(0, 4))
+        self.label_972b_title.grid(row=0, column=0, padx=(0, 4))
 
         self.label_pressure = tk.Label(
-            pressure_frame,
+            self.pressure_frame,
             text="No data...", 
             anchor='center',
             font=('Helvetica', 11, 'bold'), 
@@ -611,15 +680,15 @@ class VTRXSubsystem:
         )
         self.label_pressure.grid(row=0, column=1, sticky='ew', ipady=2)
 
-        label_902b_title = tk.Label(
-            pressure_frame,
+        self.label_902b_title = tk.Label(
+            self.pressure_frame,
             text="902B:",
             font=('Helvetica', 10, 'bold'),
         )
-        label_902b_title.grid(row=0, column=2, padx=(12, 4))
+        self.label_902b_title.grid(row=0, column=2, padx=(12, 4))
 
         self.label_902b_pressure = tk.Label(
-            pressure_frame,
+            self.pressure_frame,
             text="No data...",
             anchor='center',
             font=('Helvetica', 11, 'bold'),

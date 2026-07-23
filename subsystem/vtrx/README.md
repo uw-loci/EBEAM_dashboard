@@ -2,12 +2,13 @@
 
 ## Overview
 
-The VTRX (Vacuum Electronics) subsystem provides real-time monitoring and visualization of vacuum system pressure and component states. It interfaces with a microcontroller in the VTRX system and uses serial communication to track pressure readings, valve states, and system safety conditions.
+The VTRX (Vacuum Electronics) subsystem provides real-time monitoring and visualization of vacuum system pressure and component states. It interfaces with a microcontroller in the VTRX system and uses serial communication to track 972B pressure readings, valve states, and system safety conditions. It also consumes 902B readings from the separate MKS driver for remote logging.
 
 ## Key Components
 ### Hardware Interface
 - Serial COM with VTRX chassis
 - 9600 baud
+- MKS 902B measurements supplied by `MKS902BDriver`
 
 ### Input serial Data Packet
 Parser expects semicolon-separated string containing at least three fields:
@@ -22,10 +23,20 @@ The subsystem maintains a rolling buffer of pressure readings with the following
 - Data points are automatically trimmed beyond this window
 
 ### GUI Elements
-- Real-time pressure plotting with configurable time window
+- Real-time 972B and 902B pressure displays
+- 972B pressure plotting with configurable time window
 - State indicator lights for system switches
 - Error state visualization
 - Plot save functionality with automatic timestamping
+
+### 902B publication
+- Fresh 902B measurements are published to the Web Monitor log and Supabase.
+- A fresh, valid 972B pressure strictly below `1.0 mbar` suppresses 902B publication and clears the published value to `null`.
+- A 972B pressure at or above `1.0 mbar` permits publication.
+- A stale, disconnected, malformed, or otherwise unavailable 972B does not suppress an independently fresh 902B measurement.
+- 902B measurements retain their own six-second freshness limit and are cleared when stale.
+- The local 902B pressure box is hidden only while 902B publication is suppressed by a confirmed low 972B pressure.
+- While the 902B box is hidden, the 972B label and pressure box are centered; the two-sensor layout returns when suppression ends.
 
 Flowchart: 
 ```mermaid
