@@ -315,7 +315,12 @@ class MKS902BDriver:
         deadline = time.monotonic() + RESPONSE_TIMEOUT_SECONDS
         last_unexpected = None
         while not self._stop_event.is_set():
-            frame = self._read_frame(deadline)
+            try:
+                frame = self._read_frame(deadline)
+            except MKS902BTimeoutError as exc:
+                if last_unexpected is not None:
+                    raise MKS902BProtocolError(last_unexpected) from exc
+                raise
             try:
                 address, response_type, payload = parse_response(frame)
             except MKS902BProtocolError as exc:
