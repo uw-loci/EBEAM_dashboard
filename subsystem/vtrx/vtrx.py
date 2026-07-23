@@ -307,8 +307,13 @@ class VTRXSubsystem:
         label = getattr(self, "label_902b_pressure", None)
         if label is None:
             return
+        if pressure_mbar is None:
+            display_text = "No data..."
+        else:
+            mantissa, exponent = f"{pressure_mbar:.3E}".split("E")
+            display_text = f"{mantissa}E{int(exponent):+d} mbar"
         label.config(
-            text="No data..." if pressure_mbar is None else f"{pressure_mbar:.3E} mbar",
+            text=display_text,
             bg="white",
             fg="black",
         )
