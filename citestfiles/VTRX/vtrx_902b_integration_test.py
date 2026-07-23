@@ -62,14 +62,14 @@ class TestVTRX902BConsumer(unittest.TestCase):
         )
         subsystem.logger.clear_value.assert_not_called()
 
-    def test_three_second_stale_limit_clears_display_and_webmonitor_once(self):
+    def test_six_second_stale_limit_clears_display_and_webmonitor_once(self):
         """Show no data and clear publication once when the last sample is stale."""
         subsystem = make_vtrx_consumer()
         subsystem.latest_902b_pressure_mbar = 1.234e-3
         subsystem.last_valid_902b_timestamp = 1000.0
         subsystem._902b_webmonitor_cleared = False
 
-        with patch("subsystem.vtrx.vtrx.time.time", return_value=1003.01):
+        with patch("subsystem.vtrx.vtrx.time.time", return_value=1006.01):
             subsystem._process_902b_data()
             subsystem._process_902b_data()
 
@@ -83,7 +83,7 @@ class TestVTRX902BConsumer(unittest.TestCase):
         subsystem.last_valid_902b_timestamp = 1000.0
         subsystem.label_902b_pressure.config(text="1.234E-03 mbar")
 
-        with patch("subsystem.vtrx.vtrx.time.time", return_value=1002.99):
+        with patch("subsystem.vtrx.vtrx.time.time", return_value=1005.99):
             subsystem._process_902b_data()
 
         self.assertEqual(subsystem.label_902b_pressure.options["text"], "1.234E-03 mbar")

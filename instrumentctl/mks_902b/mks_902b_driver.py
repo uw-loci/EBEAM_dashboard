@@ -14,11 +14,11 @@ from utils import LogLevel
 BAUDRATE = 115200
 SERIAL_READ_TIMEOUT_SECONDS = 0.01
 SERIAL_WRITE_TIMEOUT_SECONDS = 0.1
-RESPONSE_TIMEOUT_SECONDS = 0.1
-POLL_INTERVAL_SECONDS = 0.5
-POLL_RETRY_DELAY_SECONDS = 0.02
+RESPONSE_TIMEOUT_SECONDS = 0.5
+POLL_INTERVAL_SECONDS = 1.0
+POLL_RETRY_DELAY_SECONDS = 0.2
 POLL_ATTEMPTS = 3
-COMMUNICATION_LOSS_SECONDS = 5.0
+COMMUNICATION_LOSS_SECONDS = 10.0
 RECONNECT_INTERVAL_SECONDS = 5.0
 THREAD_JOIN_TIMEOUT_SECONDS = 2.0
 DATA_QUEUE_MAXSIZE = 8
@@ -258,15 +258,10 @@ class MKS902BDriver:
         self._queue_log("902B initialization complete", LogLevel.INFO)
 
     def _poll_until_communication_loss(self):
-        """Poll on a 500 ms start-to-start schedule until five seconds are lost."""
+        """Wait one interval after each poll batch until communication is lost."""
         last_success = time.monotonic()
-        next_poll = last_success
 
         while not self._stop_event.is_set():
-            now = time.monotonic()
-            if now < next_poll and self._stop_event.wait(next_poll - now):
-                return
-
             if self._poll_pressure():
                 last_success = time.monotonic()
             elif time.monotonic() - last_success >= COMMUNICATION_LOSS_SECONDS:
@@ -276,11 +271,8 @@ class MKS902BDriver:
                 )
                 return
 
-            next_poll += POLL_INTERVAL_SECONDS
-            now = time.monotonic()
-            if next_poll <= now:
-                missed_intervals = math.floor((now - next_poll) / POLL_INTERVAL_SECONDS) + 1
-                next_poll += missed_intervals * POLL_INTERVAL_SECONDS
+            if self._stop_event.wait(POLL_INTERVAL_SECONDS):
+                return
 
     def _poll_pressure(self):
         """Try one PR4 polling group and publish a valid converted measurement."""

@@ -31,6 +31,7 @@ class VTRXSubsystem:
     NO_DATA_LOG_INTERVAL_SECONDS = 10
     SERIAL_DATA_MAX_ATTEMPTS = 3
     PRESSURE_READING_FRESH_SECONDS = 3.0
+    PRESSURE_902B_READING_FRESH_SECONDS = 6.0
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -258,7 +259,8 @@ class VTRXSubsystem:
 
         if (
             self.last_valid_902b_timestamp is None
-            or time.time() - self.last_valid_902b_timestamp > self.PRESSURE_READING_FRESH_SECONDS
+            or time.time() - self.last_valid_902b_timestamp
+            > self.PRESSURE_902B_READING_FRESH_SECONDS
         ):
             self.label_902b_pressure.config(text="No data...", bg="white", fg="black")
             if not self._902b_webmonitor_cleared:
