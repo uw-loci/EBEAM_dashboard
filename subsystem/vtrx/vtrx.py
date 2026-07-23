@@ -231,8 +231,7 @@ class VTRXSubsystem:
         finally:
             self._process_902b_data()
             self.flush_queued_logs()
-            if self.mks_902b_driver is not None:
-                self.mks_902b_driver.flush_queued_logs()
+            self._flush_902b_logs()
             self._update_main_control()
             self.after_id = self.parent.after(500, self.process_queue)
 
@@ -287,6 +286,15 @@ class VTRXSubsystem:
             and pressure_972b is not None
             and pressure_972b < self.PRESSURE_902B_MIN_VALID_972B_MBAR
         )
+
+    def _flush_902b_logs(self):
+        """Drain 902B logs while hiding operational severities during suppression."""
+        if self.mks_902b_driver is None:
+            return
+        if self._should_suppress_902b_publication():
+            self.mks_902b_driver.flush_queued_logs(max_level=LogLevel.DEBUG)
+            return
+        self.mks_902b_driver.flush_queued_logs()
 
     def _clear_902b_publication(self):
         if self._902b_webmonitor_cleared:

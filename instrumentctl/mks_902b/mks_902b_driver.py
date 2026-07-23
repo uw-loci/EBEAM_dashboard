@@ -118,15 +118,15 @@ class MKS902BDriver:
         if self._thread is not None and self._thread.is_alive():
             self._queue_log("902B worker did not stop before the join timeout", LogLevel.ERROR)
 
-    def flush_queued_logs(self, max_messages=200):
-        """Forward queued worker logs through the shared logger on the main thread."""
+    def flush_queued_logs(self, max_messages=200, max_level=None):
+        """Drain queued worker logs and forward messages at or below max_level."""
         if self.logger is None or threading.get_ident() != self._main_thread_id:
             return
 
         with self._dropped_log_lock:
             dropped_count = self._dropped_log_count
             self._dropped_log_count = 0
-        if dropped_count:
+        if dropped_count and (max_level is None or LogLevel.WARNING <= max_level):
             self.logger.log(
                 f"Dropped {dropped_count} queued 902B log message(s) because the queue was full",
                 LogLevel.WARNING,
@@ -138,6 +138,8 @@ class MKS902BDriver:
                 message, level = self._log_queue.get_nowait()
             except queue.Empty:
                 break
+            if max_level is not None and level > max_level:
+                continue
             self.logger.log(message, level, tag="902B")
 
     def _worker_loop(self):
