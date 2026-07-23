@@ -322,6 +322,16 @@ class VTRXSubsystem:
         if suppressed == self._902b_widget_suppressed:
             return
         self._902b_widget_suppressed = suppressed
+        if suppressed:
+            self.log(
+                "972B reached a pressure below 1mbar: Disabling 902B display data",
+                LogLevel.INFO,
+            )
+        else:
+            self.log(
+                "972B reached a pressure of/above 1mbar: Enabling 902B display data",
+                LogLevel.INFO,
+            )
 
         pressure_frame = getattr(self, "pressure_frame", None)
         if pressure_frame is None:
