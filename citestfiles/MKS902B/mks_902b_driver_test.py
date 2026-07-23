@@ -29,6 +29,7 @@ class ScriptedSerial:
         self.open_thread_id = threading.get_ident()
         self.close_thread_id = None
         self.flush_calls = 0
+        self.reset_input_buffer_calls = 0
 
     @property
     def in_waiting(self):
@@ -55,6 +56,12 @@ class ScriptedSerial:
         self.thread_ids.add(threading.get_ident())
         self.flush_calls += 1
 
+    def reset_input_buffer(self):
+        """Discard unread response bytes on the serial-owner thread."""
+        self.thread_ids.add(threading.get_ident())
+        self.reset_input_buffer_calls += 1
+        self.pending.clear()
+
     def read(self, size):
         """Return the next response chunk."""
         self.thread_ids.add(threading.get_ident())
@@ -78,9 +85,13 @@ class TestMKS902BProtocol(unittest.TestCase):
     """Validate protocol parsing, initialization, conversion, and retry behavior."""
 
     def test_parse_response_returns_envelope_fields(self):
-        """Parse a documented ACK response."""
+        """Parse ACK responses with a semicolon or documented FF suffix."""
         self.assertEqual(
             driver_module.parse_response("@253ACK1.234E-3;FF"),
+            (253, "ACK", "1.234E-3"),
+        )
+        self.assertEqual(
+            driver_module.parse_response("@253ACK1.234E-3;"),
             (253, "ACK", "1.234E-3"),
         )
 
@@ -94,14 +105,23 @@ class TestMKS902BProtocol(unittest.TestCase):
         self.assertAlmostEqual(driver_module.convert_pressure_to_mbar(100.0, "PASCAL"), 1.0)
 
     def test_framer_preserves_concatenated_frames(self):
-        """Extract split protocol frames without relying on newlines."""
+        """End responses at semicolons while tolerating trailing FF text."""
         driver = driver_module.MKS902BDriver("COM9")
         driver._receive_buffer.extend(
             b"garbage@253ACK1.000E0;FF\r\n@253ACK2.000E0;FF"
         )
 
-        self.assertEqual(driver._extract_frame(), b"@253ACK1.000E0;FF")
-        self.assertEqual(driver._extract_frame(), b"@253ACK2.000E0;FF")
+        self.assertEqual(driver._extract_frame(), b"@253ACK1.000E0;")
+        self.assertEqual(driver._extract_frame(), b"@253ACK2.000E0;")
+
+    def test_framer_starts_at_most_recent_attention_character(self):
+        """Ignore an incomplete old response before the latest response."""
+        driver = driver_module.MKS902BDriver("COM9")
+        driver._receive_buffer.extend(
+            b"@253ACK9.89E+02 FF@253ACK1.234E0;"
+        )
+
+        self.assertEqual(driver._extract_frame(), b"@253ACK1.234E0;")
 
     def test_incomplete_response_bytes_are_logged_before_timeout(self):
         """Log received bytes even when they never form a complete response frame."""
@@ -180,6 +200,32 @@ class TestMKS902BProtocol(unittest.TestCase):
             if level == LogLevel.DEBUG and message.startswith("PR4 attempt")
         ]
         self.assertEqual(len(debug_logs), 2)
+        self.assertEqual(driver._serial.reset_input_buffer_calls, 2)
+
+    def test_failed_poll_bytes_are_discarded_before_retry(self):
+        """Do not append a timed-out partial response to the next attempt."""
+        responses = iter(
+            [
+                b"@253ACK1.000E0",
+                b"@253ACK2.000E0;",
+            ]
+        )
+
+        driver = driver_module.MKS902BDriver("COM9")
+        driver._serial = ScriptedSerial(response_factory=lambda _command: next(responses))
+        driver._address = 253
+        driver._pressure_unit = "MBAR"
+
+        with (
+            patch.object(driver_module, "RESPONSE_TIMEOUT_SECONDS", 0.01),
+            patch.object(driver_module, "POLL_RETRY_DELAY_SECONDS", 0),
+        ):
+            self.assertTrue(driver._poll_pressure())
+
+        self.assertEqual(driver._serial.reset_input_buffer_calls, 1)
+        self.assertEqual(driver._receive_buffer, bytearray())
+        _, pressure_mbar = driver.data_queue.get_nowait()
+        self.assertAlmostEqual(pressure_mbar, 2.0)
 
     def test_failed_poll_group_logs_each_attempt_without_publishing_data(self):
         """Log three request failures and one summary while leaving data empty."""

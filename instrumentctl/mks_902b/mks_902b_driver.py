@@ -23,7 +23,7 @@ RECONNECT_INTERVAL_SECONDS = 5.0
 THREAD_JOIN_TIMEOUT_SECONDS = 2.0
 DATA_QUEUE_MAXSIZE = 8
 LOG_QUEUE_MAXSIZE = 1000
-FRAME_TERMINATOR = b";FF"
+RESPONSE_TERMINATOR = b";"
 SUPPORTED_BAUD_RATES = {4800, 9600, 19200, 38400, 57600, 115200, 230400}
 
 # Discover the model and responding device address using the reply-enabled broadcast address.
@@ -41,7 +41,7 @@ UNIT_TO_MBAR = {
     "PASCAL": 0.01,
 }
 
-_RESPONSE_RE = re.compile(r"^@(\d{3})(ACK|NAK)(.*);FF$")
+_RESPONSE_RE = re.compile(r"^@(\d{3})(ACK|NAK)(.*);(?:FF)?$")
 _SCIENTIFIC_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[Ee][+-]?\d+$")
 
 
@@ -300,6 +300,7 @@ class MKS902BDriver:
                     f"PR4 attempt {attempt}/{POLL_ATTEMPTS} failed: {type(exc).__name__}: {exc}",
                     LogLevel.DEBUG,
                 )
+                self._discard_invalid_response()
                 if attempt < POLL_ATTEMPTS and self._stop_event.wait(POLL_RETRY_DELAY_SECONDS):
                     return False
 
@@ -345,7 +346,7 @@ class MKS902BDriver:
         raise MKS902BTimeoutError("Request stopped before a response was received")
 
     def _read_frame(self, deadline):
-        """Read and return one ASCII frame terminated by the literal ;FF sequence."""
+        """Read and return one ASCII response ending at its semicolon."""
         while not self._stop_event.is_set():
             frame_bytes = self._extract_frame()
             if frame_bytes is not None:
@@ -356,7 +357,7 @@ class MKS902BDriver:
 
             if time.monotonic() >= deadline:
                 raise MKS902BTimeoutError(
-                    f"Timed out after {RESPONSE_TIMEOUT_SECONDS:g} seconds waiting for ;FF"
+                    f"Timed out after {RESPONSE_TIMEOUT_SECONDS:g} seconds waiting for ;"
                 )
 
             bytes_waiting = self._serial.in_waiting
@@ -369,18 +370,25 @@ class MKS902BDriver:
 
     def _extract_frame(self):
         """Remove and return the next complete frame from the receive buffer."""
-        terminator_index = self._receive_buffer.find(FRAME_TERMINATOR)
+        terminator_index = self._receive_buffer.find(RESPONSE_TERMINATOR)
         if terminator_index < 0:
             return None
 
-        frame_end = terminator_index + len(FRAME_TERMINATOR)
+        frame_end = terminator_index + len(RESPONSE_TERMINATOR)
         candidate = bytes(self._receive_buffer[:frame_end])
         del self._receive_buffer[:frame_end]
 
-        frame_start = candidate.find(b"@")
+        frame_start = candidate.rfind(b"@")
         if frame_start < 0:
             return candidate.strip()
         return candidate[frame_start:].strip()
+
+    def _discard_invalid_response(self):
+        """Discard a failed response so its bytes cannot contaminate a retry."""
+        self._receive_buffer.clear()
+        if self._serial is None or not self._serial.is_open:
+            return
+        self._serial.reset_input_buffer()
 
     def _put_latest_data(self, measurement):
         """Publish a measurement without allowing stale data to block the worker."""
