@@ -56,10 +56,10 @@ class Logger:
         self.log_to_file = log_to_file
         self.log_file = None
         self.log_start_time = None
-        self.webMonitor_log_start_time = None
+        self.datalog_start_time = None
         self.log_filepath = None
-        self.webMonitor_log_file = None
-        self.webMonitor_log_filepath = None
+        self.datalog_file = None
+        self.datalog_filepath = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
         self._startup_buffer_overflow_logged = False
         self._log_file_unavailable_reported = False
@@ -94,7 +94,7 @@ class Logger:
             }
         if log_to_file:
             self.setup_log_file()
-            self.setup_wm_logfile()
+            self.setup_datalog_file()
 
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
@@ -194,32 +194,32 @@ class Logger:
         except Exception as e:
             self._log_internal(f"Error creating log file: {str(e)}")
 
-    def setup_wm_logfile(self):
-        """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+    def setup_datalog_file(self):
+        """Set up a new Data Log file for sensor snapshots."""
         try:
-            wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
-            os.makedirs(wm_log_dir, exist_ok=True)
+            datalog_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-Datalogs")
+            os.makedirs(datalog_dir, exist_ok=True)
 
-            # Create the web monitor log file with the same timestamped pattern used by the main log.
-            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-            if self.webMonitor_log_file != None:
-                self.webMonitor_log_file.close()
-            self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
-            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
-            self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}", tag="Utils")
+            # Create the Data Log file with the same timestamped pattern used by the main log.
+            datalog_file_name = f"datalog_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+            if self.datalog_file != None:
+                self.datalog_file.close()
+            self.datalog_filepath = os.path.join(datalog_dir, datalog_file_name)
+            self.datalog_file = open(self.datalog_filepath, 'w')
+            self.datalog_start_time = datetime.datetime.now()
+            self.info(f"Data Log file created at {self.datalog_filepath}", tag="Utils")
         except Exception as e:
-            self._log_internal(f"Error creating web monitor log file: {str(e)}")
+            self._log_internal(f"Error creating Data Log file: {str(e)}")
 
-    def _reopen_wm_logfile_append(self):
-        """Reopen the current web monitor log file without resetting its rotation window."""
+    def _reopen_datalog_append(self):
+        """Reopen the current Data Log file without resetting its rotation window."""
         try:
-            if self.webMonitor_log_filepath is None:
-                self.setup_wm_logfile()
+            if self.datalog_filepath is None:
+                self.setup_datalog_file()
                 return
-            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
+            self.datalog_file = open(self.datalog_filepath, 'a')
         except Exception as e:
-            self._log_internal(f"Error opening web monitor log file: {str(e)}")
+            self._log_internal(f"Error opening Data Log file: {str(e)}")
 
     def log(self, msg, level=LogLevel.INFO, tag=None):
         """Log a message to the text widget and optionally to local file."""
@@ -309,39 +309,39 @@ class Logger:
         self._enqueue_supabase_update(update_dict, now)
 
         if self.log_to_file:
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
-                if self.webMonitor_log_file:
-                    self.webMonitor_log_file.close()
-                self.setup_wm_logfile()
-            elif self.webMonitor_log_file is None:
-                self._reopen_wm_logfile_append()
-            if self.webMonitor_log_file:
+            if self.datalog_start_time is None or (now - self.datalog_start_time).total_seconds() >= 60 * 60:
+                if self.datalog_file:
+                    self.datalog_file.close()
+                self.setup_datalog_file()
+            elif self.datalog_file is None:
+                self._reopen_datalog_append()
+            if self.datalog_file:
                 entry = {
                     "timestamp": timestamp,
                     "status": update_dict
                 }
                 try:
-                    self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-                    self.webMonitor_log_file.flush()
+                    self.datalog_file.write(json.dumps(entry) + "\n")
+                    self.datalog_file.flush()
                 except Exception as e:
                     try:
-                        self.webMonitor_log_file.close()
+                        self.datalog_file.close()
                     except Exception:
                         pass
-                    self.webMonitor_log_file = None
+                    self.datalog_file = None
                     try:
-                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
-                            self.setup_wm_logfile()
+                        if self.datalog_start_time is None or (now - self.datalog_start_time).total_seconds() >= 60 * 60:
+                            self.setup_datalog_file()
                         else:
-                            self._reopen_wm_logfile_append()
-                        if self.webMonitor_log_file:
-                            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-                            self.webMonitor_log_file.flush()
-                            self.warning(f"Web Monitor log write failed once and succeeded after retry: {e}", tag="Utils")
+                            self._reopen_datalog_append()
+                        if self.datalog_file:
+                            self.datalog_file.write(json.dumps(entry) + "\n")
+                            self.datalog_file.flush()
+                            self.warning(f"Data Log write failed once and succeeded after retry: {e}", tag="Utils")
                         else:
-                            self._log_internal(f"Error writing web monitor updates: {e}")
+                            self._log_internal(f"Error writing Data Log updates: {e}")
                     except Exception as retry_error:
-                        self._log_internal(f"Error writing web monitor updates: {retry_error}")
+                        self._log_internal(f"Error writing Data Log updates: {retry_error}")
 
     def _enqueue_supabase_update(self, update_dict, now):
         if self._closed or not self.supabase_client or not self.log_to_file:
@@ -476,12 +476,12 @@ class Logger:
                 self.log_file = None
             except Exception as e:
                 self._log_internal(f"Error closing log file {str(e)}")
-        if self.webMonitor_log_file:
+        if self.datalog_file:
             try:
-                self.webMonitor_log_file.close()
-                self.webMonitor_log_file = None
+                self.datalog_file.close()
+                self.datalog_file = None
             except Exception as e:
-                self._log_internal(f"Error closing web monitor log file: {str(e)}")
+                self._log_internal(f"Error closing Data Log file: {str(e)}")
 
 import tkinter as tk
 import sys
@@ -564,12 +564,12 @@ class MessagesFrame:
                 except Exception as e:
                     self.logger.error(f"Error closing log file: {e}", tag="Utils")
                 self.logger.log_file = None
-            if self.logger.webMonitor_log_file:
+            if self.logger.datalog_file:
                 try:
-                    self.logger.webMonitor_log_file.close()
+                    self.logger.datalog_file.close()
                 except Exception as e:
-                    self.logger.error(f"Error closing web monitor log file: {e}", tag="Utils")
-                self.logger.webMonitor_log_file = None
+                    self.logger.error(f"Error closing Data Log file: {e}", tag="Utils")
+                self.logger.datalog_file = None
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
@@ -579,8 +579,8 @@ class MessagesFrame:
             
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
-            if not self.logger.webMonitor_log_file:
-                self.logger.setup_wm_logfile()
+            if not self.logger.datalog_file:
+                self.logger.setup_datalog_file()
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
                 self.logging_indicator_circle, 

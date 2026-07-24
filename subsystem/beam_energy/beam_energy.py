@@ -1140,7 +1140,7 @@ class BeamEnergySubsystem:
         return True
 
     def _build_disconnected_beam_energy_payload(self):
-        """Build a Web Monitor payload that explicitly clears every Beam Energy supply."""
+        """Build a Data Log payload that explicitly clears every Beam Energy supply."""
         supplies = {
             supply_key: {
                 "connected": False,
@@ -1193,7 +1193,7 @@ class BeamEnergySubsystem:
         return set_voltage, actual_voltage, actual_current
 
     def _build_supplies_payload(self, knob_box, data_snapshot):
-        """Build a structured payload of 4 power supply statuses for the Web Monitor."""
+        """Build a structured payload of four power supply statuses for the Data Log."""
         supplies = {}
 
         for supply_key, unit_id in self.supply_payload_map:
@@ -1320,7 +1320,7 @@ class BeamEnergySubsystem:
 
             self.update_supply_interlock_statuses(data_snapshot, knob_box)
             
-            # Build a web monitor log payload
+            # Build a Data Log payload.
             if self.logger and hasattr(self.logger, "update_field"):
 
                 # Build keyed per-supply payload entries.
@@ -1338,7 +1338,7 @@ class BeamEnergySubsystem:
                     for key in self.beam_energy_flag_keys
                 }
 
-                # Update the Web Monitor log with the latest data and flags.
+                # Update the Data Log with the latest data and flags.
                 self.logger.update_field("beam_energy", {**supply_payload, "flags": flags})
 
 
