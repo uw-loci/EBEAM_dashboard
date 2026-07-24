@@ -1,4 +1,5 @@
 """Tests for Supabase integration: SupabaseClient and Logger Supabase features."""
+import copy
 import datetime
 import io
 import json
@@ -430,7 +431,168 @@ class TestDatalogFormat(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 5: Data Log rotation
+# Class 5: Data Log write coalescing and preservation
+# ---------------------------------------------------------------------------
+
+class TestDatalogWriteControl(unittest.TestCase):
+    """Tests for local Data Log throttling, preflushes, and heartbeat writes."""
+
+    def setUp(self):
+        self.sb_patcher = patch("utils._create_supabase_client")
+        mock_sb_class = self.sb_patcher.start()
+        mock_sb_class.return_value = MagicMock()
+
+        self.logger = Logger(text_widget=None, log_to_file=False)
+        self.logger.supabase_client = None
+        self.buf = io.StringIO()
+        self.logger.datalog_file = self.buf
+        self.logger.datalog_start_time = datetime.datetime.now()
+        self.logger.log_to_file = True
+
+    def tearDown(self):
+        try:
+            self.logger.close()
+        finally:
+            self.sb_patcher.stop()
+
+    def _entries(self):
+        self.buf.seek(0)
+        return [
+            json.loads(line)
+            for line in self.buf.read().splitlines()
+            if line.strip()
+        ]
+
+    def test_first_changed_field_writes_immediately(self):
+        self.logger.update_field("pressure", 1.0)
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["status"]["pressure"], 1.0)
+        self.assertEqual(self.logger._last_written_datalog_snapshot["pressure"], 1.0)
+        self.assertIsNotNone(self.logger._last_datalog_write_completed_monotonic)
+
+    def test_unchanged_field_skips_only_local_file_logic(self):
+        self.logger.update_field("pressure", 1.0)
+        entries_before = self._entries()
+
+        with patch.object(self.logger, "_enqueue_supabase_update") as enqueue:
+            self.logger.update_field("pressure", 1.0)
+
+        self.assertEqual(self._entries(), entries_before)
+        enqueue.assert_called_once()
+        self.assertEqual(self.logger.dict_logger["pressure"], 1.0)
+
+    def test_different_fields_coalesce_until_100ms_has_elapsed(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("vacuumBits", 3)
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=10.11):
+            self.logger.update_field("temperatures", [20.0, 21.0])
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[-1]["status"]["vacuumBits"], 3)
+        self.assertEqual(entries[-1]["status"]["temperatures"], [20.0, 21.0])
+
+    def test_pending_same_field_is_flushed_before_overwrite_without_throttle(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("pressure", 2.0)
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=10.06):
+            self.logger.update_field("pressure", 3.0)
+
+        entries = self._entries()
+        self.assertEqual([entry["status"]["pressure"] for entry in entries], [1.0, 2.0])
+        self.assertEqual(self.logger.dict_logger["pressure"], 3.0)
+        self.assertEqual(self.logger._last_written_datalog_snapshot["pressure"], 2.0)
+        self.assertEqual(self.logger._last_datalog_write_completed_monotonic, 10.06)
+
+    def test_nested_cathode_fields_are_compared_at_the_exact_subfield_path(self):
+        self.assertTrue(self.logger.check_datalog_heartbeat())
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.01):
+            self.logger.update_cathode_field("A", "heater_current", 1.0)
+        with patch("utils.time.monotonic", return_value=10.02):
+            self.logger.update_cathode_field("A", "heater_voltage", 2.0)
+
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=10.03):
+            self.logger.update_cathode_field("A", "heater_current", 3.0)
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 2)
+        flushed_cathode = entries[-1]["status"]["cathode"]["A"]
+        self.assertEqual(flushed_cathode["heater_current"], 1.0)
+        self.assertEqual(flushed_cathode["heater_voltage"], 2.0)
+        self.assertEqual(
+            self.logger.dict_logger["cathode"]["A"]["heater_current"],
+            3.0,
+        )
+
+    def test_heartbeat_writes_unchanged_snapshot_after_one_second_idle(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.999):
+            self.assertFalse(self.logger.check_datalog_heartbeat())
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=11.0):
+            self.assertTrue(self.logger.check_datalog_heartbeat())
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["status"], entries[1]["status"])
+
+    def test_failed_preflush_applies_live_update_and_skips_postupdate_retry(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("pressure", 2.0)
+
+        snapshot_before = copy.deepcopy(self.logger._last_written_datalog_snapshot)
+        completed_before = self.logger._last_datalog_write_completed_monotonic
+        with patch.object(
+            self.logger,
+            "_write_datalog_snapshot",
+            return_value=False,
+        ) as write_snapshot:
+            self.logger.update_field("pressure", 3.0)
+
+        write_snapshot.assert_called_once()
+        self.assertEqual(self.logger.dict_logger["pressure"], 3.0)
+        self.assertEqual(self.logger._last_written_datalog_snapshot, snapshot_before)
+        self.assertEqual(
+            self.logger._last_datalog_write_completed_monotonic,
+            completed_before,
+        )
+
+    def test_preflush_does_not_create_an_extra_supabase_update(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("pressure", 2.0)
+
+        with patch.object(self.logger, "_enqueue_supabase_update") as enqueue, \
+             patch("utils.time.monotonic", return_value=10.06):
+            self.logger.update_field("pressure", 3.0)
+
+        enqueue.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Class 6: Data Log rotation
 # ---------------------------------------------------------------------------
 
 class TestDatalogRotation(unittest.TestCase):
@@ -474,6 +636,26 @@ class TestDatalogRotation(unittest.TestCase):
     def test_setup_datalog_file_uses_timestamped_filename(self):
         filename = os.path.basename(self.logger.datalog_filepath)
         self.assertRegex(filename, r"^datalog_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$")
+
+    def test_reenable_creates_new_file_with_immediate_full_baseline(self):
+        first_path = self.logger.datalog_filepath
+        self.logger.dict_logger["pressure"] = 4.2
+        self.logger.datalog_file.close()
+        self.logger.datalog_file = None
+
+        self.logger.setup_datalog_file(write_baseline=True)
+
+        second_path = self.logger.datalog_filepath
+        self.assertNotEqual(second_path, first_path)
+        lines = self._read_datalog_lines(second_path)
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual(entry["status"]["pressure"], 4.2)
+        self.assertEqual(set(entry["status"].keys()), EXPECTED_DICT_LOGGER_KEYS)
+        self.assertEqual(
+            self.logger._last_written_datalog_snapshot,
+            self.logger.dict_logger,
+        )
 
     def test_datalog_rotates_after_one_hour_into_new_file(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
@@ -544,7 +726,7 @@ class TestDatalogRotation(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 6: dict_logger field management
+# Class 7: dict_logger field management
 # ---------------------------------------------------------------------------
 
 class TestDictLoggerFieldManagement(unittest.TestCase):
