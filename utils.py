@@ -44,6 +44,10 @@ class LogLevel(enum.IntEnum):
 
 class Logger:
     STARTUP_BUFFER_MAX = 500
+    DATALOG_WRITE_MIN_INTERVAL_SECONDS = 0.1
+    DATALOG_HEARTBEAT_INTERVAL_SECONDS = 1.0
+    DATALOG_HEARTBEAT_CHECK_INTERVAL_MS = 1000
+    DATALOG_ROTATION_INTERVAL_SECONDS = 60 * 60
     SUPABASE_WRITE_MIN_INTERVAL_SECONDS = 3
     SUPABASE_WRITE_MAX_ATTEMPTS = 2
     SUPABASE_WRITE_RETRY_DELAY_SECONDS = 0.25
@@ -56,10 +60,12 @@ class Logger:
         self.log_to_file = log_to_file
         self.log_file = None
         self.log_start_time = None
-        self.webMonitor_log_start_time = None
+        self.datalog_start_time = None
         self.log_filepath = None
-        self.webMonitor_log_file = None
-        self.webMonitor_log_filepath = None
+        self.datalog_file = None
+        self.datalog_filepath = None
+        self._last_written_datalog_snapshot = None
+        self._last_datalog_write_completed_monotonic = None
         self._pending_widget_messages = deque(maxlen=self.STARTUP_BUFFER_MAX)
         self._startup_buffer_overflow_logged = False
         self._log_file_unavailable_reported = False
@@ -94,7 +100,7 @@ class Logger:
             }
         if log_to_file:
             self.setup_log_file()
-            self.setup_wm_logfile()
+            self.setup_datalog_file()
 
     def _get_dashboard_base_path(self):
         return os.path.abspath(os.path.join(os.path.expanduser("~"), "EBEAM_dashboard"))
@@ -194,32 +200,44 @@ class Logger:
         except Exception as e:
             self._log_internal(f"Error creating log file: {str(e)}")
 
-    def setup_wm_logfile(self):
-        """Setup a new web monitor log file in the 'EBEAM_dashboard/EBEAM-Dashboard-Logs/' directory."""
+    def setup_datalog_file(self, write_baseline=False):
+        """Set up a new Data Log file for sensor snapshots."""
         try:
-            wm_log_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-WMLogs")
-            os.makedirs(wm_log_dir, exist_ok=True)
+            datalog_dir = os.path.join(self._get_dashboard_base_path(), "EBEAM-Dashboard-Datalogs")
+            os.makedirs(datalog_dir, exist_ok=True)
 
-            # Create the web monitor log file with the same timestamped pattern used by the main log.
-            webMonitor_log_file_name = f"webMonitor_log_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-            if self.webMonitor_log_file != None:
-                self.webMonitor_log_file.close()
-            self.webMonitor_log_filepath = os.path.join(wm_log_dir, webMonitor_log_file_name)
-            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'w')
-            self.webMonitor_log_start_time = datetime.datetime.now()
-            self.info(f"WebMonitor log file created at {self.webMonitor_log_filepath}", tag="Utils")
+            # Create the Data Log file with the same timestamped pattern used by the main log.
+            datalog_name_base = f"datalog_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            datalog_file_name = f"{datalog_name_base}.txt"
+            datalog_filepath = os.path.join(datalog_dir, datalog_file_name)
+            suffix = 1
+            while os.path.exists(datalog_filepath):
+                datalog_file_name = f"{datalog_name_base}_{suffix}.txt"
+                datalog_filepath = os.path.join(datalog_dir, datalog_file_name)
+                suffix += 1
+            if self.datalog_file != None:
+                self.datalog_file.close()
+                self.datalog_file = None
+            self.datalog_filepath = datalog_filepath
+            self.datalog_file = open(self.datalog_filepath, 'w')
+            self.datalog_start_time = datetime.datetime.now()
+            self._last_written_datalog_snapshot = None
+            self._last_datalog_write_completed_monotonic = None
+            self.info(f"Data Log file created at {self.datalog_filepath}", tag="Utils")
+            if write_baseline:
+                self._write_datalog_snapshot(self.dict_logger, allow_rotation=False)
         except Exception as e:
-            self._log_internal(f"Error creating web monitor log file: {str(e)}")
+            self._log_internal(f"Error creating Data Log file: {str(e)}")
 
-    def _reopen_wm_logfile_append(self):
-        """Reopen the current web monitor log file without resetting its rotation window."""
+    def _reopen_datalog_append(self):
+        """Reopen the current Data Log file without resetting its rotation window."""
         try:
-            if self.webMonitor_log_filepath is None:
-                self.setup_wm_logfile()
+            if self.datalog_filepath is None:
+                self.setup_datalog_file()
                 return
-            self.webMonitor_log_file = open(self.webMonitor_log_filepath, 'a')
+            self.datalog_file = open(self.datalog_filepath, 'a')
         except Exception as e:
-            self._log_internal(f"Error opening web monitor log file: {str(e)}")
+            self._log_internal(f"Error opening Data Log file: {str(e)}")
 
     def log(self, msg, level=LogLevel.INFO, tag=None):
         """Log a message to the text widget and optionally to local file."""
@@ -265,12 +283,21 @@ class Logger:
             self.error(message, tag="Utils")
             raise KeyError(message)
         if field in self.dict_logger:
+            value_changed = not self._datalog_values_equal(self.dict_logger[field], value)
+            preflush_failed = False
+            if value_changed:
+                preflush_failed = not self._flush_pending_datalog_path((field,))
             self.dict_logger[field] = value
-            self.log_dict_update(self.dict_logger)
+            self.log_dict_update(
+                self.dict_logger,
+                write_datalog=value_changed,
+                datalog_write_blocked=preflush_failed,
+            )
         else:
             message = f"'{field}' is not a valid key in status dict."
             self.error(message, tag="Utils")
             raise KeyError(message)
+
     def update_cathode_field(self, cathode_label, subfield, value):
         cathode = self.dict_logger["cathode"]
         if not isinstance(cathode, dict):
@@ -285,63 +312,187 @@ class Logger:
             message = f"'{subfield}' is not a valid cathode subfield. Expected one of {list(cathode[cathode_label].keys())}."
             self.error(message, tag="Utils")
             raise KeyError(message)
+        value_changed = not self._datalog_values_equal(cathode[cathode_label][subfield], value)
+        preflush_failed = False
+        if value_changed:
+            preflush_failed = not self._flush_pending_datalog_path(("cathode", cathode_label, subfield))
         cathode[cathode_label][subfield] = value
-        self.log_dict_update(self.dict_logger)
+        self.log_dict_update(
+            self.dict_logger,
+            write_datalog=value_changed,
+            datalog_write_blocked=preflush_failed,
+        )
+
     def clear_value(self, field):
         if field == "cathode":
             message = "'cathode' cannot be cleared with clear_value; use update_cathode_field to reset individual subfields."
             self.error(message, tag="Utils")
             raise KeyError(message)
         if field in self.dict_logger:
+            value_changed = not self._datalog_values_equal(self.dict_logger[field], None)
+            preflush_failed = False
+            if value_changed:
+                preflush_failed = not self._flush_pending_datalog_path((field,))
             self.dict_logger[field] = None
-            self.log_dict_update(self.dict_logger)
+            self.log_dict_update(
+                self.dict_logger,
+                write_datalog=value_changed,
+                datalog_write_blocked=preflush_failed,
+            )
         else:
             message = f"'{field}' is not a valid key in status dict."
             self.error(message, tag="Utils")
             raise KeyError(message)
-    def log_dict_update(self, update_dict):
+
+    @staticmethod
+    def _datalog_values_equal(left, right):
+        """Compare Data Log values using their exact Python equality semantics."""
+        try:
+            return bool(left == right)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _datalog_value_at_path(status, path, missing):
+        value = status
+        try:
+            for key in path:
+                value = value[key]
+            return value
+        except (KeyError, TypeError):
+            return missing
+
+    def _flush_pending_datalog_path(self, path):
+        """Flush a pending value at one exact field path before it is overwritten."""
+        if self._closed or not self.log_to_file:
+            return True
+        if self._last_written_datalog_snapshot is None:
+            return True
+
+        missing = object()
+        current_value = self._datalog_value_at_path(self.dict_logger, path, missing)
+        written_value = self._datalog_value_at_path(
+            self._last_written_datalog_snapshot,
+            path,
+            missing,
+        )
+        if current_value is not missing and written_value is not missing:
+            if self._datalog_values_equal(current_value, written_value):
+                return True
+
+        # This pre-update flush intentionally bypasses the 100 ms throttle.
+        return self._write_datalog_snapshot(self.dict_logger)
+
+    def _datalog_write_interval_elapsed(self):
+        if self._last_datalog_write_completed_monotonic is None:
+            return True
+        return (
+            time.monotonic() - self._last_datalog_write_completed_monotonic
+            >= self.DATALOG_WRITE_MIN_INTERVAL_SECONDS
+        )
+
+    def _datalog_rotation_due(self, now):
+        return (
+            self.datalog_start_time is None
+            or (now - self.datalog_start_time).total_seconds()
+            >= self.DATALOG_ROTATION_INTERVAL_SECONDS
+        )
+
+    @staticmethod
+    def _datalog_entry(snapshot):
+        return {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "status": snapshot,
+        }
+
+    def _write_datalog_snapshot(self, status, allow_rotation=True):
+        """Write one full local snapshot and update state only after a successful flush."""
+        if self._closed or not self.log_to_file:
+            return False
+
+        try:
+            snapshot = copy.deepcopy(status)
+        except Exception as e:
+            self._log_internal(f"Error copying Data Log update: {str(e)}")
+            return False
+
+        now = datetime.datetime.now()
+        if allow_rotation and self._datalog_rotation_due(now):
+            self.setup_datalog_file()
+        elif self.datalog_file is None:
+            self._reopen_datalog_append()
+
+        if self.datalog_file is None:
+            self._log_internal("Data Log file is not open; snapshot could not be written.")
+            return False
+
+        first_error = None
+        for attempt in range(2):
+            try:
+                entry = self._datalog_entry(snapshot)
+                self.datalog_file.write(json.dumps(entry) + "\n")
+                self.datalog_file.flush()
+                self._last_written_datalog_snapshot = snapshot
+                self._last_datalog_write_completed_monotonic = time.monotonic()
+                if first_error is not None:
+                    self.warning(
+                        f"Data Log write failed once and succeeded after retry: {first_error}",
+                        tag="Utils",
+                    )
+                return True
+            except Exception as e:
+                if attempt == 0:
+                    first_error = e
+                    try:
+                        self.datalog_file.close()
+                    except Exception:
+                        pass
+                    self.datalog_file = None
+                    retry_now = datetime.datetime.now()
+                    if allow_rotation and self._datalog_rotation_due(retry_now):
+                        self.setup_datalog_file()
+                    else:
+                        self._reopen_datalog_append()
+                    if self.datalog_file is not None:
+                        continue
+                self._log_internal(f"Error writing Data Log updates: {str(e)}")
+                return False
+        return False
+
+    def check_datalog_heartbeat(self):
+        """Write a full snapshot when the fixed heartbeat finds a one-second idle period."""
+        if self._closed or not self.log_to_file:
+            return False
+        if self._last_datalog_write_completed_monotonic is None:
+            return self._write_datalog_snapshot(self.dict_logger)
+        if (
+            time.monotonic() - self._last_datalog_write_completed_monotonic
+            >= self.DATALOG_HEARTBEAT_INTERVAL_SECONDS
+        ):
+            return self._write_datalog_snapshot(self.dict_logger)
+        return False
+
+    def log_dict_update(self, update_dict, *, write_datalog=True, datalog_write_blocked=False):
         if self._closed:
             return
         now = datetime.datetime.now()
-        # Timestamp includes microseconds for sub-second logging rates by cbmark logger
-        timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         self._enqueue_supabase_update(update_dict, now)
 
-        if self.log_to_file:
-            if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
-                if self.webMonitor_log_file:
-                    self.webMonitor_log_file.close()
-                self.setup_wm_logfile()
-            elif self.webMonitor_log_file is None:
-                self._reopen_wm_logfile_append()
-            if self.webMonitor_log_file:
-                entry = {
-                    "timestamp": timestamp,
-                    "status": update_dict
-                }
-                try:
-                    self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-                    self.webMonitor_log_file.flush()
-                except Exception as e:
-                    try:
-                        self.webMonitor_log_file.close()
-                    except Exception:
-                        pass
-                    self.webMonitor_log_file = None
-                    try:
-                        if self.webMonitor_log_start_time is None or (now - self.webMonitor_log_start_time).total_seconds() >= 60 * 60:
-                            self.setup_wm_logfile()
-                        else:
-                            self._reopen_wm_logfile_append()
-                        if self.webMonitor_log_file:
-                            self.webMonitor_log_file.write(json.dumps(entry) + "\n")
-                            self.webMonitor_log_file.flush()
-                            self.warning(f"Web Monitor log write failed once and succeeded after retry: {e}", tag="Utils")
-                        else:
-                            self._log_internal(f"Error writing web monitor updates: {e}")
-                    except Exception as retry_error:
-                        self._log_internal(f"Error writing web monitor updates: {retry_error}")
+        if (
+            self.log_to_file
+            and write_datalog
+            and not datalog_write_blocked
+            and self._datalog_write_interval_elapsed()
+        ):
+            if (
+                self._last_written_datalog_snapshot is None
+                or not self._datalog_values_equal(
+                    update_dict,
+                    self._last_written_datalog_snapshot,
+                )
+            ):
+                self._write_datalog_snapshot(update_dict)
 
     def _enqueue_supabase_update(self, update_dict, now):
         if self._closed or not self.supabase_client or not self.log_to_file:
@@ -476,12 +627,12 @@ class Logger:
                 self.log_file = None
             except Exception as e:
                 self._log_internal(f"Error closing log file {str(e)}")
-        if self.webMonitor_log_file:
+        if self.datalog_file:
             try:
-                self.webMonitor_log_file.close()
-                self.webMonitor_log_file = None
+                self.datalog_file.close()
+                self.datalog_file = None
             except Exception as e:
-                self._log_internal(f"Error closing web monitor log file: {str(e)}")
+                self._log_internal(f"Error closing Data Log file: {str(e)}")
 
 import tkinter as tk
 import sys
@@ -540,6 +691,8 @@ class MessagesFrame:
 
         self.file_logging_enabled = self.logger.log_to_file
         self.logger.debug("Messages pane attached to logger", tag="Utils")
+        self._datalog_heartbeat_after_id = None
+        self._schedule_datalog_heartbeat()
 
         # Redirect stdout to the text widget
         sys.stdout = TextRedirector(self.text_widget, "stdout")
@@ -564,12 +717,12 @@ class MessagesFrame:
                 except Exception as e:
                     self.logger.error(f"Error closing log file: {e}", tag="Utils")
                 self.logger.log_file = None
-            if self.logger.webMonitor_log_file:
+            if self.logger.datalog_file:
                 try:
-                    self.logger.webMonitor_log_file.close()
+                    self.logger.datalog_file.close()
                 except Exception as e:
-                    self.logger.error(f"Error closing web monitor log file: {e}", tag="Utils")
-                self.logger.webMonitor_log_file = None
+                    self.logger.error(f"Error closing Data Log file: {e}", tag="Utils")
+                self.logger.datalog_file = None
             self.toggle_file_logging_button.config(text="Record Log: OFF")
             self.logging_indicator_canvas.itemconfig(self.logging_indicator_circle, fill="gray")
         else:
@@ -579,14 +732,34 @@ class MessagesFrame:
             
             if not self.logger.log_file:  # if no file is open, set up a new one
                 self.logger.setup_log_file()
-            if not self.logger.webMonitor_log_file:
-                self.logger.setup_wm_logfile()
+            if not self.logger.datalog_file:
+                self.logger.setup_datalog_file(write_baseline=True)
             self.toggle_file_logging_button.config(text="Record Log: ON")
             self.logging_indicator_canvas.itemconfig(
                 self.logging_indicator_circle, 
                 fill="#00FF24"
             )
             self.logger.info("Log recording has been turned ON.", tag="Utils")
+
+    def _schedule_datalog_heartbeat(self):
+        if self.logger._closed:
+            return
+        try:
+            self._datalog_heartbeat_after_id = self.frame.after(
+                self.logger.DATALOG_HEARTBEAT_CHECK_INTERVAL_MS,
+                self._run_datalog_heartbeat,
+            )
+        except tk.TclError:
+            self._datalog_heartbeat_after_id = None
+
+    def _run_datalog_heartbeat(self):
+        self._datalog_heartbeat_after_id = None
+        try:
+            self.logger.check_datalog_heartbeat()
+        except Exception as e:
+            self.logger._log_internal(f"Unexpected Data Log heartbeat error: {str(e)}")
+        finally:
+            self._schedule_datalog_heartbeat()
 
     def set_log_level(self, level):
         self.logger.set_log_level(level)

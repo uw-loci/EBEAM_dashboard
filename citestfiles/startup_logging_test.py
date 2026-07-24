@@ -55,7 +55,7 @@ class TestStartupLogger(unittest.TestCase):
             contents = file.read()
 
         self.assertIn("INFO (Utils) > Log file created at", contents)
-        self.assertIn("INFO (Utils) > WebMonitor log file created at", contents)
+        self.assertIn("INFO (Utils) > Data Log file created at", contents)
         self.assertIn("INFO (Main) > Process launch", contents)
 
     def test_logger_formats_tag_for_widget_and_file_output(self):

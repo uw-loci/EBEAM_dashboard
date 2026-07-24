@@ -1,4 +1,5 @@
 """Tests for Supabase integration: SupabaseClient and Logger Supabase features."""
+import copy
 import datetime
 import io
 import json
@@ -227,9 +228,11 @@ class TestSupabaseRateLimiting(unittest.TestCase):
         self.mock_sb_class.return_value = self.mock_sb_instance
 
         self.logger = Logger(text_widget=None, log_to_file=True)
-        # Inject a mock webMonitor_log_file so the file-write branch doesn't crash
-        self.logger.webMonitor_log_file = MagicMock()
-        self.logger.webMonitor_log_start_time = datetime.datetime.now()
+        if self.logger.datalog_file:
+            self.logger.datalog_file.close()
+        # Inject a mock datalog_file so the file-write branch doesn't crash
+        self.logger.datalog_file = MagicMock()
+        self.logger.datalog_start_time = datetime.datetime.now()
 
     def tearDown(self):
         try:
@@ -369,11 +372,11 @@ class TestSupabaseRateLimiting(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 4: WebMonitor log format
+# Class 4: Data Log format
 # ---------------------------------------------------------------------------
 
-class TestWebMonitorLogFormat(unittest.TestCase):
-    """Tests for the JSON structure written to webMonitor_log_file."""
+class TestDatalogFormat(unittest.TestCase):
+    """Tests for the JSON structure written to datalog_file."""
 
     def setUp(self):
         self.sb_patcher = patch("utils._create_supabase_client")
@@ -383,8 +386,8 @@ class TestWebMonitorLogFormat(unittest.TestCase):
         self.logger = Logger(text_widget=None, log_to_file=False)
         # Inject StringIO so log_dict_update writes to it
         self.buf = io.StringIO()
-        self.logger.webMonitor_log_file = self.buf
-        self.logger.webMonitor_log_start_time = datetime.datetime.now()
+        self.logger.datalog_file = self.buf
+        self.logger.datalog_start_time = datetime.datetime.now()
         self.logger.log_to_file = True
 
     def tearDown(self):
@@ -398,26 +401,26 @@ class TestWebMonitorLogFormat(unittest.TestCase):
         line = self.buf.readline().strip()
         return json.loads(line)
 
-    def test_webmonitor_log_entry_is_valid_json(self):
+    def test_datalog_entry_is_valid_json(self):
         self.logger.log_dict_update({"pressure": 1.2e-5})
         self.buf.seek(0)
         line = self.buf.readline().strip()
         # Should not raise
         json.loads(line)
 
-    def test_webmonitor_log_entry_has_timestamp_and_status_keys(self):
+    def test_datalog_entry_has_timestamp_and_status_keys(self):
         self.logger.log_dict_update({"pressure": 1.0})
         entry = self._get_entry()
         self.assertIn("timestamp", entry)
         self.assertIn("status", entry)
 
-    def test_webmonitor_log_timestamp_format(self):
+    def test_datalog_timestamp_format(self):
         self.logger.log_dict_update({"pressure": 1.0})
         entry = self._get_entry()
         # Should not raise if format matches
         datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
 
-    def test_webmonitor_log_status_contains_dict_logger_snapshot(self):
+    def test_datalog_status_contains_dict_logger_snapshot(self):
         self.logger.dict_logger["pressure"] = 9.9e-6
         self.logger.log_dict_update(self.logger.dict_logger)
         entry = self._get_entry()
@@ -428,25 +431,186 @@ class TestWebMonitorLogFormat(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 5: WebMonitor rotation
+# Class 5: Data Log write coalescing and preservation
 # ---------------------------------------------------------------------------
 
-class TestWebMonitorRotation(unittest.TestCase):
-    """Tests for 1-hour web monitor rollover with timestamped filenames."""
+class TestDatalogWriteControl(unittest.TestCase):
+    """Tests for local Data Log throttling, preflushes, and heartbeat writes."""
 
     def setUp(self):
         self.sb_patcher = patch("utils._create_supabase_client")
         mock_sb_class = self.sb_patcher.start()
         mock_sb_class.return_value = MagicMock()
 
-        self.test_root = os.path.join(TEST_TMP_ROOT, f"wm_rotation_{uuid.uuid4().hex}")
+        self.logger = Logger(text_widget=None, log_to_file=False)
+        self.logger.supabase_client = None
+        self.buf = io.StringIO()
+        self.logger.datalog_file = self.buf
+        self.logger.datalog_start_time = datetime.datetime.now()
+        self.logger.log_to_file = True
+
+    def tearDown(self):
+        try:
+            self.logger.close()
+        finally:
+            self.sb_patcher.stop()
+
+    def _entries(self):
+        self.buf.seek(0)
+        return [
+            json.loads(line)
+            for line in self.buf.read().splitlines()
+            if line.strip()
+        ]
+
+    def test_first_changed_field_writes_immediately(self):
+        self.logger.update_field("pressure", 1.0)
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["status"]["pressure"], 1.0)
+        self.assertEqual(self.logger._last_written_datalog_snapshot["pressure"], 1.0)
+        self.assertIsNotNone(self.logger._last_datalog_write_completed_monotonic)
+
+    def test_unchanged_field_skips_only_local_file_logic(self):
+        self.logger.update_field("pressure", 1.0)
+        entries_before = self._entries()
+
+        with patch.object(self.logger, "_enqueue_supabase_update") as enqueue:
+            self.logger.update_field("pressure", 1.0)
+
+        self.assertEqual(self._entries(), entries_before)
+        enqueue.assert_called_once()
+        self.assertEqual(self.logger.dict_logger["pressure"], 1.0)
+
+    def test_different_fields_coalesce_until_100ms_has_elapsed(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("vacuumBits", 3)
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=10.11):
+            self.logger.update_field("temperatures", [20.0, 21.0])
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[-1]["status"]["vacuumBits"], 3)
+        self.assertEqual(entries[-1]["status"]["temperatures"], [20.0, 21.0])
+
+    def test_pending_same_field_is_flushed_before_overwrite_without_throttle(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("pressure", 2.0)
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=10.06):
+            self.logger.update_field("pressure", 3.0)
+
+        entries = self._entries()
+        self.assertEqual([entry["status"]["pressure"] for entry in entries], [1.0, 2.0])
+        self.assertEqual(self.logger.dict_logger["pressure"], 3.0)
+        self.assertEqual(self.logger._last_written_datalog_snapshot["pressure"], 2.0)
+        self.assertEqual(self.logger._last_datalog_write_completed_monotonic, 10.06)
+
+    def test_nested_cathode_fields_are_compared_at_the_exact_subfield_path(self):
+        self.assertTrue(self.logger.check_datalog_heartbeat())
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.01):
+            self.logger.update_cathode_field("A", "heater_current", 1.0)
+        with patch("utils.time.monotonic", return_value=10.02):
+            self.logger.update_cathode_field("A", "heater_voltage", 2.0)
+
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=10.03):
+            self.logger.update_cathode_field("A", "heater_current", 3.0)
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 2)
+        flushed_cathode = entries[-1]["status"]["cathode"]["A"]
+        self.assertEqual(flushed_cathode["heater_current"], 1.0)
+        self.assertEqual(flushed_cathode["heater_voltage"], 2.0)
+        self.assertEqual(
+            self.logger.dict_logger["cathode"]["A"]["heater_current"],
+            3.0,
+        )
+
+    def test_heartbeat_writes_unchanged_snapshot_after_one_second_idle(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+
+        with patch("utils.time.monotonic", return_value=10.999):
+            self.assertFalse(self.logger.check_datalog_heartbeat())
+        self.assertEqual(len(self._entries()), 1)
+
+        with patch("utils.time.monotonic", return_value=11.0):
+            self.assertTrue(self.logger.check_datalog_heartbeat())
+
+        entries = self._entries()
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["status"], entries[1]["status"])
+
+    def test_failed_preflush_applies_live_update_and_skips_postupdate_retry(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("pressure", 2.0)
+
+        snapshot_before = copy.deepcopy(self.logger._last_written_datalog_snapshot)
+        completed_before = self.logger._last_datalog_write_completed_monotonic
+        with patch.object(
+            self.logger,
+            "_write_datalog_snapshot",
+            return_value=False,
+        ) as write_snapshot:
+            self.logger.update_field("pressure", 3.0)
+
+        write_snapshot.assert_called_once()
+        self.assertEqual(self.logger.dict_logger["pressure"], 3.0)
+        self.assertEqual(self.logger._last_written_datalog_snapshot, snapshot_before)
+        self.assertEqual(
+            self.logger._last_datalog_write_completed_monotonic,
+            completed_before,
+        )
+
+    def test_preflush_does_not_create_an_extra_supabase_update(self):
+        self.logger.update_field("pressure", 1.0)
+        self.logger._last_datalog_write_completed_monotonic = 10.0
+        with patch("utils.time.monotonic", return_value=10.05):
+            self.logger.update_field("pressure", 2.0)
+
+        with patch.object(self.logger, "_enqueue_supabase_update") as enqueue, \
+             patch("utils.time.monotonic", return_value=10.06):
+            self.logger.update_field("pressure", 3.0)
+
+        enqueue.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Class 6: Data Log rotation
+# ---------------------------------------------------------------------------
+
+class TestDatalogRotation(unittest.TestCase):
+    """Tests for one-hour Data Log rollover with timestamped filenames."""
+
+    def setUp(self):
+        self.sb_patcher = patch("utils._create_supabase_client")
+        mock_sb_class = self.sb_patcher.start()
+        mock_sb_class.return_value = MagicMock()
+
+        self.test_root = os.path.join(TEST_TMP_ROOT, f"datalog_rotation_{uuid.uuid4().hex}")
         os.makedirs(self.test_root, exist_ok=True)
         self.base_path_patcher = patch.object(Logger, "_get_dashboard_base_path", return_value=self.test_root)
         self.base_path_patcher.start()
 
         self.logger = Logger(text_widget=None, log_to_file=False)
         self.logger.supabase_client = None
-        self.logger.setup_wm_logfile()
+        self.logger.setup_datalog_file()
         self.logger.log_to_file = True
 
     def tearDown(self):
@@ -457,66 +621,86 @@ class TestWebMonitorRotation(unittest.TestCase):
             self.sb_patcher.stop()
             shutil.rmtree(self.test_root, ignore_errors=True)
 
-    def _read_wm_lines(self, filepath=None):
-        target = filepath or self.logger.webMonitor_log_filepath
+    def _read_datalog_lines(self, filepath=None):
+        target = filepath or self.logger.datalog_filepath
         with open(target, "r", encoding="utf-8") as fh:
             return [line.rstrip("\n") for line in fh]
 
-    def _list_wm_files(self):
-        wm_dir = os.path.dirname(self.logger.webMonitor_log_filepath)
+    def _list_datalog_files(self):
+        datalog_dir = os.path.dirname(self.logger.datalog_filepath)
         return sorted(
-            entry for entry in os.listdir(wm_dir)
-            if entry.startswith("webMonitor_log_") and entry.endswith(".txt")
+            entry for entry in os.listdir(datalog_dir)
+            if entry.startswith("datalog_") and entry.endswith(".txt")
         )
 
-    def test_setup_wm_logfile_uses_timestamped_filename(self):
-        filename = os.path.basename(self.logger.webMonitor_log_filepath)
-        self.assertRegex(filename, r"^webMonitor_log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$")
+    def test_setup_datalog_file_uses_timestamped_filename(self):
+        filename = os.path.basename(self.logger.datalog_filepath)
+        self.assertRegex(filename, r"^datalog_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$")
 
-    def test_webmonitor_log_rotates_after_one_hour_into_new_file(self):
+    def test_reenable_creates_new_file_with_immediate_full_baseline(self):
+        first_path = self.logger.datalog_filepath
+        self.logger.dict_logger["pressure"] = 4.2
+        self.logger.datalog_file.close()
+        self.logger.datalog_file = None
+
+        self.logger.setup_datalog_file(write_baseline=True)
+
+        second_path = self.logger.datalog_filepath
+        self.assertNotEqual(second_path, first_path)
+        lines = self._read_datalog_lines(second_path)
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual(entry["status"]["pressure"], 4.2)
+        self.assertEqual(set(entry["status"].keys()), EXPECTED_DICT_LOGGER_KEYS)
+        self.assertEqual(
+            self.logger._last_written_datalog_snapshot,
+            self.logger.dict_logger,
+        )
+
+    def test_datalog_rotates_after_one_hour_into_new_file(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
-        first_path = self.logger.webMonitor_log_filepath
-        self.logger.webMonitor_log_file.write(seed_entry + "\n")
-        self.logger.webMonitor_log_file.flush()
-        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(hours=1, seconds=1)
+        first_path = self.logger.datalog_filepath
+        self.logger.datalog_file.write(seed_entry + "\n")
+        self.logger.datalog_file.flush()
+        self.logger.datalog_start_time = datetime.datetime.now() - datetime.timedelta(hours=1, seconds=1)
         time.sleep(1.1)
 
         self.logger.log_dict_update({"pressure": 1.0})
 
-        second_path = self.logger.webMonitor_log_filepath
+        second_path = self.logger.datalog_filepath
         self.assertNotEqual(second_path, first_path)
-        self.assertEqual(len(self._list_wm_files()), 2)
-        self.assertEqual(self._read_wm_lines(first_path), [seed_entry])
-        lines = self._read_wm_lines(second_path)
+        self.assertEqual(len(self._list_datalog_files()), 2)
+        self.assertEqual(self._read_datalog_lines(first_path), [seed_entry])
+        lines = self._read_datalog_lines(second_path)
         self.assertEqual(len(lines), 1)
         entry = json.loads(lines[0])
         self.assertEqual(entry["status"]["pressure"], 1.0)
         datetime.datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
 
-    def test_webmonitor_log_does_not_rotate_before_one_hour(self):
+    def test_datalog_does_not_rotate_before_one_hour(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
-        self.logger.webMonitor_log_file.write(seed_entry + "\n")
-        self.logger.webMonitor_log_file.flush()
+        self.logger.datalog_file.write(seed_entry + "\n")
+        self.logger.datalog_file.flush()
         original_start_time = datetime.datetime.now() - datetime.timedelta(minutes=59, seconds=59)
-        self.logger.webMonitor_log_start_time = original_start_time
-        original_path = self.logger.webMonitor_log_filepath
+        self.logger.datalog_start_time = original_start_time
+        original_path = self.logger.datalog_filepath
 
         self.logger.log_dict_update({"pressure": 2.0})
 
-        self.assertEqual(self.logger.webMonitor_log_filepath, original_path)
-        lines = self._read_wm_lines()
+        self.assertEqual(self.logger.datalog_filepath, original_path)
+        lines = self._read_datalog_lines()
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0], seed_entry)
-        self.assertEqual(self.logger.webMonitor_log_start_time, original_start_time)
+        self.assertEqual(self.logger.datalog_start_time, original_start_time)
         entry = json.loads(lines[1])
         self.assertEqual(entry["status"]["pressure"], 2.0)
 
-    def test_webmonitor_retry_reopens_in_append_mode_within_window(self):
+    def test_datalog_retry_reopens_in_append_mode_within_window(self):
         seed_entry = json.dumps({"timestamp": "seed", "status": {"pressure": 0}})
-        self.logger.webMonitor_log_file.write(seed_entry + "\n")
-        self.logger.webMonitor_log_file.flush()
-        self.logger.webMonitor_log_start_time = datetime.datetime.now() - datetime.timedelta(minutes=30)
-        original_path = self.logger.webMonitor_log_filepath
+        self.logger.datalog_file.write(seed_entry + "\n")
+        self.logger.datalog_file.flush()
+        self.logger.datalog_start_time = datetime.datetime.now() - datetime.timedelta(minutes=30)
+        original_path = self.logger.datalog_filepath
 
         class FailingWriter:
             def write(self, _message):
@@ -528,12 +712,13 @@ class TestWebMonitorRotation(unittest.TestCase):
             def close(self):
                 pass
 
-        self.logger.webMonitor_log_file = FailingWriter()
+        self.logger.datalog_file.close()
+        self.logger.datalog_file = FailingWriter()
 
         self.logger.log_dict_update({"pressure": 3.0})
 
-        self.assertEqual(self.logger.webMonitor_log_filepath, original_path)
-        lines = self._read_wm_lines()
+        self.assertEqual(self.logger.datalog_filepath, original_path)
+        lines = self._read_datalog_lines()
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0], seed_entry)
         entry = json.loads(lines[1])
@@ -541,7 +726,7 @@ class TestWebMonitorRotation(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 6: dict_logger field management
+# Class 7: dict_logger field management
 # ---------------------------------------------------------------------------
 
 class TestDictLoggerFieldManagement(unittest.TestCase):
