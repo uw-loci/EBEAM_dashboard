@@ -329,7 +329,7 @@ class VTRXSubsystem:
             )
         else:
             self.log(
-                "972B reached a pressure of/above 1mbar: Enabling 902B display data",
+                "972B reached a pressure of 1mbar: Enabling 902B display data",
                 LogLevel.INFO,
             )
 
