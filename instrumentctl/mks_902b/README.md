@@ -1,7 +1,7 @@
 # MKS 902B driver
 
 `MKS902BDriver` owns a 900USB virtual COM port on one worker thread. It
-discovers the 902B with `MD?`, reads `BR?` and `U?`, and polls `PR4?` every
+discovers the 902B with `MD?`, reads `BR?` and `U?`, and polls `PR1?` every
 500 ms. Valid readings are converted to mbar and published as
 `(timestamp, pressure_mbar)` tuples through `data_queue`.
 

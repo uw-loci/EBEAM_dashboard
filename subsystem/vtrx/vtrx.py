@@ -310,8 +310,8 @@ class VTRXSubsystem:
         if pressure_mbar is None:
             display_text = "No data..."
         else:
-            mantissa, exponent = f"{pressure_mbar:.3E}".split("E")
-            display_text = f"{mantissa}E{int(exponent):+d} mbar"
+            mantissa, exponent = f"{pressure_mbar:.2E}".split("E")
+            display_text = f"{mantissa}e{int(exponent):+d} mbar"
         label.config(
             text=display_text,
             bg="white",

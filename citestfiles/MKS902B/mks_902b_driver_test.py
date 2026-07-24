@@ -128,16 +128,16 @@ class TestMKS902BProtocol(unittest.TestCase):
     def test_incomplete_response_bytes_are_logged_before_timeout(self):
         """Log received bytes even when they never form a complete response frame."""
         driver = driver_module.MKS902BDriver("COM9")
-        driver._serial = ScriptedSerial(responses=[b"@253ACK1.234E0"])
+        driver._serial = ScriptedSerial(responses=[b"@253ACK1.234"])
 
         with (
             patch.object(driver_module, "RESPONSE_TIMEOUT_SECONDS", 0.01),
             self.assertRaises(driver_module.MKS902BTimeoutError),
         ):
-            driver._request("@253PR4?;FF", expected_address=253)
+            driver._request("@253PR1?;FF", expected_address=253)
 
         self.assertIn(
-            ("RX b'@253ACK1.234E0'", LogLevel.VERBOSE),
+            ("RX b'@253ACK1.234'", LogLevel.VERBOSE),
             list(driver._log_queue.queue),
         )
 
@@ -177,7 +177,7 @@ class TestMKS902BProtocol(unittest.TestCase):
         )
 
     def test_poll_retries_three_total_attempts_and_publishes_only_success(self):
-        """Retry twice after failures and publish the third valid PR4 reply."""
+        """Retry twice after failures and publish the third valid PR1 reply."""
         response_count = 0
 
         def respond(_command):
@@ -186,7 +186,7 @@ class TestMKS902BProtocol(unittest.TestCase):
             response_count += 1
             if response_count < 3:
                 return "@253NAK160;FF"
-            return "@253ACK1.234E0;FF"
+            return "@253ACK1.234;FF"
 
         driver = driver_module.MKS902BDriver("COM9")
         driver._serial = ScriptedSerial(response_factory=respond)
@@ -203,7 +203,7 @@ class TestMKS902BProtocol(unittest.TestCase):
         debug_logs = [
             message
             for message, level in list(driver._log_queue.queue)
-            if level == LogLevel.DEBUG and message.startswith("PR4 attempt")
+            if level == LogLevel.DEBUG and message.startswith("PR1 attempt")
         ]
         self.assertEqual(len(debug_logs), 2)
         self.assertEqual(driver._serial.reset_input_buffer_calls, 2)
@@ -212,8 +212,8 @@ class TestMKS902BProtocol(unittest.TestCase):
         """Do not append a timed-out partial response to the next attempt."""
         responses = iter(
             [
-                b"@253ACK1.000E0",
-                b"@253ACK2.000E0;",
+                b"@253ACK1.000",
+                b"@253ACK2.000;",
             ]
         )
 
@@ -245,7 +245,7 @@ class TestMKS902BProtocol(unittest.TestCase):
 
         self.assertTrue(driver.data_queue.empty())
         queued_logs = list(driver._log_queue.queue)
-        debug_logs = [level for message, level in queued_logs if message.startswith("PR4 attempt")]
+        debug_logs = [level for message, level in queued_logs if message.startswith("PR1 attempt")]
         error_logs = [
             message
             for message, level in queued_logs
@@ -280,7 +280,7 @@ class TestMKS902BWorker(unittest.TestCase):
                 "@254MD?;FF": "@253ACK902B;FF",
                 "@253BR?;FF": "@253ACK9600;FF",
                 "@253U?;FF": "@253ACKMBAR;FF",
-                "@253PR4?;FF": "@253ACK1.234E0;FF",
+                "@253PR1?;FF": "@253ACK1.234;FF",
             }
             return responses[command]
 

@@ -32,8 +32,8 @@ COMMAND_MODEL_QUERY = "@254MD?;FF"
 COMMAND_BAUD_QUERY = "@{address:03d}BR?;FF"
 # Read the pressure unit currently configured on the transducer.
 COMMAND_UNIT_QUERY = "@{address:03d}U?;FF"
-# Read absolute Piezo pressure in scientific notation.
-COMMAND_PRESSURE_QUERY = "@{address:03d}PR4?;FF"
+# Read the absolute Piezo pressure as a decimal value.
+COMMAND_PRESSURE_QUERY = "@{address:03d}PR1?;FF"
 
 UNIT_TO_MBAR = {
     "MBAR": 1.0,
@@ -42,7 +42,7 @@ UNIT_TO_MBAR = {
 }
 
 _RESPONSE_RE = re.compile(r"^@(\d{3})(ACK|NAK)(.*);(?:FF)?$")
-_SCIENTIFIC_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)[Ee][+-]?\d+$")
+_DECIMAL_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
 
 
 class MKS902BError(Exception):
@@ -277,21 +277,21 @@ class MKS902BDriver:
                 return
 
     def _poll_pressure(self):
-        """Try one PR4 polling group and publish a valid converted measurement."""
+        """Try one PR1 polling group and publish a valid converted measurement."""
         command = COMMAND_PRESSURE_QUERY.format(address=self._address)
         for attempt in range(1, POLL_ATTEMPTS + 1):
             try:
                 _, payload = self._request(command, expected_address=self._address)
-                if _SCIENTIFIC_RE.fullmatch(payload) is None:
+                if _DECIMAL_RE.fullmatch(payload) is None:
                     raise MKS902BProtocolError(
-                        f"PR4 did not return scientific notation: {payload!r}"
+                        f"PR1 did not return a decimal number: {payload!r}"
                     )
                 pressure_mbar = convert_pressure_to_mbar(float(payload), self._pressure_unit)
                 self._put_latest_data((time.time(), pressure_mbar))
                 return True
             except (MKS902BError, OSError, serial.SerialException) as exc:
                 self._queue_log(
-                    f"PR4 attempt {attempt}/{POLL_ATTEMPTS} failed: {type(exc).__name__}: {exc}",
+                    f"PR1 attempt {attempt}/{POLL_ATTEMPTS} failed: {type(exc).__name__}: {exc}",
                     LogLevel.DEBUG,
                 )
                 self._discard_invalid_response()
@@ -300,7 +300,7 @@ class MKS902BDriver:
 
         if not self._stop_event.is_set():
             self._queue_log(
-                f"PR4 pressure request failed after {POLL_ATTEMPTS} attempts",
+                f"PR1 pressure request failed after {POLL_ATTEMPTS} attempts",
                 LogLevel.ERROR,
             )
         return False
