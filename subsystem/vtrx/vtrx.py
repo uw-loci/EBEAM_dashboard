@@ -340,6 +340,7 @@ class VTRXSubsystem:
         if suppressed:
             self.label_902b_title.grid_remove()
             self.label_902b_pressure.grid_remove()
+            self.label_972b_title.config(text="972B Pressure:")
             pressure_frame.grid_columnconfigure(0, weight=1)
             pressure_frame.grid_columnconfigure(1, weight=0)
             pressure_frame.grid_columnconfigure(2, weight=0)
@@ -351,6 +352,7 @@ class VTRXSubsystem:
             pressure_frame.grid_columnconfigure(1, weight=1)
             pressure_frame.grid_columnconfigure(2, weight=0)
             pressure_frame.grid_columnconfigure(3, weight=1)
+            self.label_972b_title.config(text="972B:")
             self.label_972b_title.grid_configure(column=0)
             self.label_pressure.grid_configure(column=1, sticky='ew')
             self.label_902b_title.grid()
