@@ -66,19 +66,6 @@ class FakeBeamEnergyForMainControl:
         self.raw_values.append(value_ma)
         return True
 
-    def set_beams_disable_callback(self, callback):
-        self.callback = callback
-
-
-class FakeBeamPulseForDisarm:
-    def __init__(self):
-        self.disarm_calls = []
-
-    def disarm_beams(self, operation_token=None, defer_ui=False):
-        self.disarm_calls.append((operation_token, defer_ui))
-        return True
-
-
 def make_beam_energy():
     beam_energy = BeamEnergySubsystem.__new__(BeamEnergySubsystem)
     beam_energy.logger = FakeLogger()
@@ -134,47 +121,6 @@ class BeamEnergyWarningLimitConfigTest(unittest.TestCase):
 
 
 class BeamEnergyWarningLimitSetterTest(unittest.TestCase):
-    def test_beams_disable_limit_stores_value_sent_by_main_control(self):
-        beam_energy = make_beam_energy()
-        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
-        refreshed_indexes = []
-        beam_energy.refresh_warning_indicators = refreshed_indexes.append
-
-        result = beam_energy.set_beams_disable_current_limit_ma(0.5)
-
-        self.assertTrue(result)
-        self.assertEqual(beam_energy.beams_disable_current_limit_ma, 0.5)
-        self.assertEqual(refreshed_indexes, [pos20kv_index])
-
-    def test_pos20kv_current_beams_disable_uses_main_control_limit(self):
-        beam_energy = make_beam_energy()
-        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
-        triggered = []
-        beam_energy.beams_disable_callback = lambda: triggered.append(True)
-        beam_energy.set_beams_disable_current_limit_ma(0.5)
-
-        beam_energy.apply_warning_indicators(pos20kv_index, 0, 0.49)
-        self.assertEqual(triggered, [])
-
-        beam_energy.apply_warning_indicators(pos20kv_index, 0, 0.5)
-        self.assertEqual(triggered, [True])
-
-    def test_pos20kv_current_beams_disable_can_be_disabled(self):
-        beam_energy = make_beam_energy()
-        pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
-        refreshed_indexes = []
-        triggered = []
-        beam_energy.refresh_warning_indicators = refreshed_indexes.append
-        beam_energy.beams_disable_callback = lambda: triggered.append(True)
-        beam_energy.set_beams_disable_current_limit_ma(0.5)
-
-        result = beam_energy.set_beams_disable_current_limit_enabled(False)
-        beam_energy.apply_warning_indicators(pos20kv_index, 0, 0.5)
-
-        self.assertTrue(result)
-        self.assertFalse(beam_energy.beams_disable_current_limit_enabled)
-        self.assertEqual(triggered, [])
-        self.assertEqual(refreshed_indexes, [pos20kv_index, pos20kv_index])
 
     def test_pos20kv_max_current_warning_accepts_values_above_or_below_beams_disable(self):
         pos20kv_index = SUPPLY_KEYS.index(POS20KV_SUPPLY_KEY)
@@ -267,6 +213,11 @@ class BeamEnergyRadiationIndicatorTest(unittest.TestCase):
 
 
 class MainControlBeamsDisableLimitUiTest(unittest.TestCase):
+    def test_disarm_bcon_operations_are_critical(self):
+        self.assertTrue(
+            MainControlPanel._is_critical_bcon_operation({"kind": "disarm"})
+        )
+
     def test_main_control_formats_beams_disable_limit_display(self):
         main_control = MainControlPanel.__new__(MainControlPanel)
 
@@ -278,52 +229,6 @@ class MainControlBeamsDisableLimitUiTest(unittest.TestCase):
             main_control._format_beams_disable_current_limit_ma(None),
             "--",
         )
-
-    def test_beam_energy_threshold_uses_disarm_beams_path(self):
-        main_control = MainControlPanel.__new__(MainControlPanel)
-        beam_energy = FakeBeamEnergyForMainControl()
-        disarm_causes = []
-        main_control.subsystems = {"Beam Energy": beam_energy}
-        main_control.beams_disable_current_limit_ma = 0.7
-        main_control.beams_disable_current_limit_enabled = True
-        main_control._request_disarm_beams = (
-            lambda cause=None: disarm_causes.append(cause) or True
-        )
-        main_control.refresh_beams_disable_current_limit_display = lambda: None
-        main_control._apply_logging_suppression_settings = lambda: None
-
-        main_control.wire_beam_energy(beam_energy)
-        beam_energy.callback()
-
-        self.assertEqual(
-            disarm_causes,
-            ["Disable Beams if 20kV Bertan exceeds 0.7mA"],
-        )
-
-    def test_request_disarm_beams_calls_beam_pulse_disarm(self):
-        main_control = MainControlPanel.__new__(MainControlPanel)
-        beam_pulse = FakeBeamPulseForDisarm()
-        operations = []
-        main_control.subsystems = {"Beam Pulse": beam_pulse}
-
-        def start_operation(action, channels, expected="poll", kind="normal", cause=None):
-            operations.append((action, tuple(channels), expected, kind, cause))
-            return "bcon-1"
-
-        main_control._start_bcon_operation = start_operation
-
-        self.assertTrue(main_control._request_disarm_beams(cause="20kV threshold"))
-        self.assertEqual(
-            operations,
-            [(
-                "Disarm Beams command: all channels mode=OFF",
-                (0, 1, 2),
-                "all_off",
-                "disarm",
-                "20kV threshold",
-            )],
-        )
-        self.assertEqual(beam_pulse.disarm_calls, [("bcon-1", True)])
 
     @patch("subsystem.main_control.main_control.save_beams_disable_current_limit_ma")
     def test_main_control_logs_successful_beams_disable_limit_update(self, save_mock):

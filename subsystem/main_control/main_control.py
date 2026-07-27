@@ -821,7 +821,7 @@ class MainControlPanel:
 
     @staticmethod
     def _is_critical_bcon_operation(op):
-        return op["kind"] in ("disable_all", "estop")
+        return op["kind"] in ("disable_all", "disarm", "estop")
 
     def _start_bcon_operation(self, action, channels, expected="poll", kind="normal",
                               cause=None):
@@ -898,7 +898,7 @@ class MainControlPanel:
     def _invalidate_pending_user_bcon_operation(self, reason):
         """Invalidate an operator action before an automatic safety ALL_OFF."""
         op = getattr(self, "_pending_bcon_operation", None)
-        if not op or self._is_critical_bcon_operation(op) or op["kind"] == "disarm":
+        if not op or self._is_critical_bcon_operation(op):
             return
         self._finish_bcon_operation(op["token"])
         message = f"BCON operation invalidated by {reason}: {self._bcon_operation_details(op)}"

@@ -206,9 +206,9 @@ Dashboard callbacks.
   channel state. Late events from an older token are ignored.
 - A normal-action timeout releases the pending-operation slot, logs the token,
   action, channels, elapsed time, and unknown firmware outcome, and leaves
-  hardware presentation to later polls. Disable-all and E-stop failures/timeouts
-  are logged as CRITICAL, except firmware rejection due to `UNSAFE_INTERLOCK`,
-  which is logged as ERROR.
+  hardware presentation to later polls. Disable-all, disarm, and E-stop
+  failures/timeouts are logged as CRITICAL, except firmware rejection due to
+  `UNSAFE_INTERLOCK`, which is logged as ERROR.
 - An E-STOP confirmation timeout leaves the Beam Pulse arming state unchanged
   and BCON output state unknown. It is logged as CRITICAL, but Main Control
   keeps BCON controls available for an operator recovery attempt.

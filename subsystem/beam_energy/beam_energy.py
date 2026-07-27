@@ -679,7 +679,7 @@ class BeamEnergySubsystem:
             and current_value is not None
             and beams_disable_limit_ma is not None
             and bool(getattr(self, "beams_disable_current_limit_enabled", True))
-            and current_value >= beams_disable_limit_ma
+            and current_value > beams_disable_limit_ma
         )
 
         if voltage_warning:
