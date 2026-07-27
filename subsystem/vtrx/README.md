@@ -24,7 +24,8 @@ The subsystem maintains a rolling buffer of pressure readings with the following
 
 ### GUI Elements
 - Real-time 972B and 902B pressure displays
-- 972B pressure plotting with configurable time window
+- 972B and 902B pressure plotting with a shared configurable time window
+- Combined visible-data pressure bounds and a permanent sensor legend
 - State indicator lights for system switches
 - Error state visualization
 - Plot save functionality with automatic timestamping
@@ -37,6 +38,13 @@ The subsystem maintains a rolling buffer of pressure readings with the following
 - 902B measurements retain their own six-second freshness limit and are cleared when stale.
 - The local 902B pressure box is hidden only while 902B publication is suppressed by a confirmed low 972B pressure.
 - While the 902B box is hidden, the 972B label and pressure box are centered; the two-sensor layout returns when suppression ends.
+
+### 902B graphing
+- Every unsuppressed 902B queue item is plotted at the acquisition timestamp carried by that item.
+- The latest item in each queue batch supplies the current 902B pressure display.
+- Suppressed queue items are not added to graph history; points accepted before suppression remain until they leave the selected time window.
+- The first accepted point after suppression begins a new indigo line segment so the suppressed interval remains visible as a gap.
+- The Y-axis bounds include all positive 972B and 902B values visible in the selected time window.
 
 Flowchart: 
 ```mermaid

@@ -5,6 +5,8 @@ import queue
 import sys
 import threading
 import unittest
+import datetime
+import math
 from unittest.mock import MagicMock, patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -25,6 +27,17 @@ def make_vtrx_consumer():
     subsystem.last_valid_902b_timestamp = None
     subsystem._902b_webmonitor_cleared = True
     subsystem._902b_widget_suppressed = False
+    subsystem.MAX_HISTORY_SECONDS = 7 * 24 * 60 * 60
+    subsystem.display_window = 300
+    subsystem.full_history_x = []
+    subsystem.full_history_y = []
+    subsystem.x_data = []
+    subsystem.y_data = []
+    subsystem.full_history_902b_x = []
+    subsystem.full_history_902b_y = []
+    subsystem.x_data_902b = []
+    subsystem.y_data_902b = []
+    subsystem._902b_plot_gap_pending = False
     subsystem.stop_event = threading.Event()
     subsystem._background_log_queue = queue.SimpleQueue()
     subsystem._main_thread_id = threading.get_ident()
@@ -46,6 +59,17 @@ class TestVTRX902BConsumer(unittest.TestCase):
 
         self.assertEqual(subsystem.latest_902b_pressure_mbar, 1.234e-3)
         self.assertEqual(subsystem.last_valid_902b_timestamp, 1000.0)
+        self.assertEqual(
+            subsystem.full_history_902b_x,
+            [
+                datetime.datetime.fromtimestamp(999.0),
+                datetime.datetime.fromtimestamp(1000.0),
+            ],
+        )
+        self.assertEqual(
+            subsystem.full_history_902b_y,
+            [2.0e-3, 1.234e-3],
+        )
         subsystem.logger.update_field.assert_called_once_with(
             "pressure_902b_mbar",
             1.234e-3,
@@ -91,6 +115,9 @@ class TestVTRX902BConsumer(unittest.TestCase):
         subsystem.last_valid_pressure_value = 0.999
         subsystem.last_successful_read_time = 1000.0
         subsystem._902b_webmonitor_cleared = False
+        original_timestamp = datetime.datetime.fromtimestamp(999.0)
+        subsystem.full_history_902b_x = [original_timestamp]
+        subsystem.full_history_902b_y = [5.0e-3]
         subsystem.mks_902b_driver.data_queue.put((1000.0, 4.5e-3))
 
         with patch("subsystem.vtrx.vtrx.time.time", return_value=1000.5):
@@ -99,6 +126,9 @@ class TestVTRX902BConsumer(unittest.TestCase):
 
         self.assertEqual(subsystem.latest_902b_pressure_mbar, 4.5e-3)
         self.assertTrue(subsystem._902b_widget_suppressed)
+        self.assertEqual(subsystem.full_history_902b_x, [original_timestamp])
+        self.assertEqual(subsystem.full_history_902b_y, [5.0e-3])
+        self.assertTrue(subsystem._902b_plot_gap_pending)
         subsystem.logger.update_field.assert_not_called()
         subsystem.logger.clear_value.assert_called_once_with("pressure_902b_mbar")
 
