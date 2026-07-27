@@ -597,6 +597,7 @@ class MachineStatus:
             return
 
         display_states = calculate_display_states(status_conditions)
+        states_changed = self._previous_display_states != display_states
         self._display_states = display_states
         self._draw_status_bar()
 
@@ -606,6 +607,13 @@ class MachineStatus:
         ):
             status_text = STATE_LOG_TEXT.get(current, current)
             self._log(f"{name} Status Indicator set to: {status_text}", level)
+
+        if (
+            states_changed
+            and self.logger
+            and hasattr(self.logger, "update_field")
+        ):
+            self.logger.update_field("machine_status", dict(display_states))
 
         self._previous_display_states = display_states
 
