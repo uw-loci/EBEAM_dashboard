@@ -32,6 +32,7 @@ EXPECTED_DICT_LOGGER_KEYS = {
     "vacuumBits",
     "cathode",
     "beam_energy",
+    "machine_status",
 }
 
 
