@@ -79,6 +79,7 @@ class Logger:
             print(f"Warning: Supabase client failed to initialize: {e}")
         self.dict_logger = {
             "pressure": None,
+            "pressure_902b_mbar": None,
             "safetyOutputDataFlags": None,
             "safetyInputDataFlags": None,
             "safetyOutputStatusFlags": None,

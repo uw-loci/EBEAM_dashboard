@@ -22,6 +22,7 @@ os.makedirs(TEST_TMP_ROOT, exist_ok=True)
 
 EXPECTED_DICT_LOGGER_KEYS = {
     "pressure",
+    "pressure_902b_mbar",
     "safetyOutputDataFlags",
     "safetyInputDataFlags",
     "safetyOutputStatusFlags",
