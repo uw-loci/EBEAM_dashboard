@@ -51,11 +51,12 @@ Main Control is a two-tab subpanel.
 - Launch Log Post-processor button.
 - UI log-level and file log-level dropdowns.
 - Disable CCS Output on BCON Disconnect toggle.
+- Disable CCS Output if pressure exceeds 10^-5 mbar for the configured grace
+  period control.
 - Disable Beams if pressure exceeds 10^-5 mbar toggle.
-- Disable CCS Output after the configured grace period above 10^-5 mbar
-  control.
-- Total Max Emission Current control.
-- 20kV Bertan Current Limit for E-Stop Trigger control.
+- Disable Beams if 20kV Bertan exceeds the configured current limit control.
+- Do not activate Beams if Predicted Emission Current exceeds the configured
+  limit control.
 - F1 keyboard shortcut hint.
 
 ## Code Structure
@@ -69,7 +70,7 @@ Main Control is a two-tab subpanel.
   Pulse output/action status updates, gives Beam Pulse the emission-limit, VTRX
   pressure, and dashboard-software-interlock providers, and wires BCON
   disconnect notifications into Cathode Heating.
-- `wire_beam_energy()` registers the Beam Energy +20 kV current E-stop callback.
+- `wire_beam_energy()` registers the Beam Energy +20 kV current beam-disable callback.
 - `wire_vtrx()` registers the VTRX pressure callback used by the high-pressure
   beam-disable guard.
 - `create_com_port_frame()`, `apply_com_port_changes()`, and related helpers
@@ -78,9 +79,9 @@ Main Control is a two-tab subpanel.
   limit through `usr/main_control_config.py`.
 - `set_vtrx_ccs_disable_grace_period()` validates and persists the VTRX
   high-pressure CCS shutdown grace period through `usr/main_control_config.py`.
-- `set_beams_estop_current_limit()` validates the operator-entered +20 kV
-  E-stop current limit, persists it through `usr/main_control_config.py`, and
-  applies the runtime value to Beam Energy.
+- `set_beams_disable_current_limit()` validates the operator-entered +20 kV
+  automatic beam-disable current limit, persists it through
+  `usr/main_control_config.py`, and applies the runtime value to Beam Energy.
 - `toggle_disable_ccs_output_on_bcon_disconnect()` updates the runtime
   BCON/CCS guard setting and propagates it to Cathode Heating.
 
@@ -149,11 +150,13 @@ Main Control uses Cathode Heating in several ways:
 ### Beam Energy
 
 Beam Energy owns Knob Box monitoring and warning thresholds. Main Control owns
-the 20kV Bertan Current Limit for E-Stop Trigger setting: it validates and
+the 20kV Bertan automatic beam-disarm current-limit setting: it validates and
 persists the entry, sends the numeric value to Beam Energy, and registers a
-callback with Beam Energy through `set_beams_estop_callback()`. Beam Energy uses
+callback with Beam Energy through `set_beams_disable_callback()`. Beam Energy uses
 the Main Control-provided value during each Knob Box poll; when +20 kV current
-reaches that value, it calls Main Control's `E-STOP: BEAMS & CCS` path.
+reaches that value, it calls Main Control's tokenized beam-disarm path. This
+stops active sequences, sends BCON all-off, and clears the armed state after the
+post-command poll confirms all channels OFF.
 
 ### VTRX
 

@@ -9,13 +9,13 @@ from tkinter import messagebox, ttk
 import serial.tools.list_ports
 
 from usr.main_control_config import (
-    BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA,
-    BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA,
+    BEAMS_DISABLE_CURRENT_LIMIT_MAX_MA,
+    BEAMS_DISABLE_CURRENT_LIMIT_MIN_MA,
     DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
-    load_beams_estop_current_limit_ma,
+    load_beams_disable_current_limit_ma,
     load_total_max_emission_current,
     load_vtrx_ccs_disable_grace_period_s,
-    save_beams_estop_current_limit_ma,
+    save_beams_disable_current_limit_ma,
     save_total_max_emission_current,
     save_vtrx_ccs_disable_grace_period_s,
 )
@@ -103,20 +103,20 @@ class MainControlPanel:
         self._value_setting_controls = {}
         self.vtrx_ccs_pressure_shutdown_enabled = True
         self.total_max_emission_current_limit_enabled = True
-        self.beams_estop_current_limit_enabled = True
+        self.beams_disable_current_limit_enabled = True
 
         self.total_max_emission_current_ma = load_total_max_emission_current(logger=self.logger)
         self.total_max_emission_current_entry_var = tk.StringVar(value="")
         self.total_max_emission_current_value_var = tk.StringVar(
             value=f"{self.total_max_emission_current_ma:g}"
         )
-        self.beams_estop_current_limit_ma = load_beams_estop_current_limit_ma(logger=self.logger)
-        self.beams_estop_current_entry_var = tk.StringVar(value="")
-        self.beams_estop_current_value_var = tk.StringVar(
-            value=f"{self.beams_estop_current_limit_ma:g}"
+        self.beams_disable_current_limit_ma = load_beams_disable_current_limit_ma(logger=self.logger)
+        self.beams_disable_current_entry_var = tk.StringVar(value="")
+        self.beams_disable_current_value_var = tk.StringVar(
+            value=f"{self.beams_disable_current_limit_ma:g}"
         )
         self.total_max_emission_current_title_var = tk.StringVar(value="")
-        self.beams_estop_current_limit_title_var = tk.StringVar(value="")
+        self.beams_disable_current_limit_title_var = tk.StringVar(value="")
         self.vtrx_ccs_disable_grace_period_entry_var = tk.StringVar(value="")
         self.vtrx_ccs_disable_grace_period_title_var = tk.StringVar(value="")
         self.vtrx_ccs_disable_grace_period_value_var = tk.StringVar(
@@ -156,15 +156,15 @@ class MainControlPanel:
             self.update_com_ports_callback(new_com_ports)
 
     def wire_beam_energy(self, beam_energy):
-        """Register the Beam Energy +20kV current E-stop callback."""
-        if beam_energy is not None and hasattr(beam_energy, "set_beams_estop_callback"):
-            beam_energy.set_beams_estop_callback(
-                lambda: self.handle_beams_off(
-                    "20kV E-Stop Current Limit exceeded: All Beams Disabled"
+        """Register the Beam Energy +20kV current beam-disable callback."""
+        if beam_energy is not None and hasattr(beam_energy, "set_beams_disable_callback"):
+            beam_energy.set_beams_disable_callback(
+                lambda: self._request_disarm_beams(
+                    cause=self._beams_disable_title()
                 )
             )
-        self._apply_beams_estop_current_limit_to_beam_energy(beam_energy)
-        self.refresh_beams_estop_current_limit_display()
+        self._apply_beams_disable_current_limit_to_beam_energy(beam_energy)
+        self.refresh_beams_disable_current_limit_display()
         self._apply_logging_suppression_settings()
 
     def wire_vtrx(self, vtrx):
@@ -475,14 +475,14 @@ class MainControlPanel:
         )
         self._create_value_setting_controls(
             beam_cathode_frame,
-            title_var=self.beams_estop_current_limit_title_var,
+            title_var=self.beams_disable_current_limit_title_var,
             label_text="Max 20kV I:",
-            entry_var=self.beams_estop_current_entry_var,
+            entry_var=self.beams_disable_current_entry_var,
             unit_text="mA",
-            command=self.set_beams_estop_current_limit,
-            value_var=self.beams_estop_current_value_var,
-            enable_setting_attr="beams_estop_current_limit_enabled",
-            enable_command=lambda: self._toggle_value_setting_enabled("beams_estop_current_limit_enabled"),
+            command=self.set_beams_disable_current_limit,
+            value_var=self.beams_disable_current_value_var,
+            enable_setting_attr="beams_disable_current_limit_enabled",
+            enable_command=lambda: self._toggle_value_setting_enabled("beams_disable_current_limit_enabled"),
         )
         self._create_value_setting_controls(
             beam_cathode_frame,
@@ -725,13 +725,8 @@ class MainControlPanel:
         outcome_key = str(outcome).strip().lower()
         message_text = str(message or "")
         is_failure = outcome_key in ("failure", "error")
-        is_20kv_estop = (
-            outcome_key == "estop"
-            and "20kv" in message_text.lower()
-            and "current limit" in message_text.lower()
-        )
         prefix = "FAILURE: " if is_failure else ""
-        color = BEAM_ACTION_FAILURE_COLOR if is_20kv_estop else BEAM_ACTION_NEUTRAL_COLOR
+        color = BEAM_ACTION_NEUTRAL_COLOR
 
         self._beam_action_status_prefix_text = prefix
         self._beam_action_status_text = message_text
@@ -1205,7 +1200,7 @@ class MainControlPanel:
 
         return duration_s
 
-    def _format_beams_estop_current_limit_ma(self, value):
+    def _format_beams_disable_current_limit_ma(self, value):
         try:
             limit_ma = float(value)
         except (TypeError, ValueError):
@@ -1216,28 +1211,28 @@ class MainControlPanel:
 
         return f"{limit_ma:g}"
 
-    def _apply_beams_estop_current_limit_to_beam_energy(self, beam_energy=None):
+    def _apply_beams_disable_current_limit_to_beam_energy(self, beam_energy=None):
         if beam_energy is None:
             beam_energy = getattr(self, "subsystems", {}).get("Beam Energy")
-        setter = getattr(beam_energy, "set_beams_estop_current_limit_ma", None)
+        setter = getattr(beam_energy, "set_beams_disable_current_limit_ma", None)
         if not callable(setter):
             return False
 
         try:
-            setter(self.beams_estop_current_limit_ma)
+            setter(self.beams_disable_current_limit_ma)
         except Exception as e:
-            self._log_warning(
-                f"20kV Bertan Current Limit for E-Stop Trigger: Beam Energy update failed ({e})."
+            self._log_critical(
+                f"20kV Bertan Current Limit for Automatic Beam Disarm: Beam Energy update failed ({e})."
             )
             return False
 
-        enabled_setter = getattr(beam_energy, "set_beams_estop_current_limit_enabled", None)
+        enabled_setter = getattr(beam_energy, "set_beams_disable_current_limit_enabled", None)
         if callable(enabled_setter):
             try:
-                enabled_setter(bool(getattr(self, "beams_estop_current_limit_enabled", True)))
+                enabled_setter(bool(getattr(self, "beams_disable_current_limit_enabled", True)))
             except Exception as e:
-                self._log_warning(
-                    f"20kV Bertan Current Limit for E-Stop Trigger: Beam Energy enable update failed ({e})."
+                self._log_critical(
+                    f"20kV Bertan Current Limit for Automatic Beam Disarm: Beam Energy enable update failed ({e})."
                 )
         return True
 
@@ -1250,11 +1245,11 @@ class MainControlPanel:
         grace_period_s = self._coerce_vtrx_ccs_disable_grace_period_s(
             getattr(self, "vtrx_ccs_disable_grace_period_s", None)
         )
-        total_emission_ma = self._format_beams_estop_current_limit_ma(
+        total_emission_ma = self._format_beams_disable_current_limit_ma(
             getattr(self, "total_max_emission_current_ma", None)
         )
-        beams_estop_ma = self._format_beams_estop_current_limit_ma(
-            getattr(self, "beams_estop_current_limit_ma", None)
+        beams_disable_ma = self._format_beams_disable_current_limit_ma(
+            getattr(self, "beams_disable_current_limit_ma", None)
         )
 
         _set_var("vtrx_ccs_disable_grace_period_title_var", self._vtrx_ccs_shutdown_title())
@@ -1267,13 +1262,13 @@ class MainControlPanel:
             "total_max_emission_current_value_var",
             total_emission_ma,
         )
-        _set_var("beams_estop_current_limit_title_var", self._beams_estop_title())
+        _set_var("beams_disable_current_limit_title_var", self._beams_disable_title())
         _set_var(
-            "beams_estop_current_value_var",
-            beams_estop_ma,
+            "beams_disable_current_value_var",
+            beams_disable_ma,
         )
 
-    def refresh_beams_estop_current_limit_display(self):
+    def refresh_beams_disable_current_limit_display(self):
         self.refresh_value_setting_displays()
 
     def _vtrx_ccs_shutdown_title(self):
@@ -1286,24 +1281,24 @@ class MainControlPanel:
         )
 
     def _emission_activation_title(self):
-        limit_ma = self._format_beams_estop_current_limit_ma(
+        limit_ma = self._format_beams_disable_current_limit_ma(
             getattr(self, "total_max_emission_current_ma", None)
         )
         return f"Do not activate Beams if Predicted Emission Current exceeds {limit_ma}mA"
 
-    def _beams_estop_title(self):
-        limit_ma = self._format_beams_estop_current_limit_ma(
-            getattr(self, "beams_estop_current_limit_ma", None)
+    def _beams_disable_title(self):
+        limit_ma = self._format_beams_disable_current_limit_ma(
+            getattr(self, "beams_disable_current_limit_ma", None)
         )
-        return f"Trigger E-Stop if 20kV Bertan exceeds {limit_ma}mA"
+        return f"Disable Beams if 20kV Bertan exceeds {limit_ma}mA"
 
     def _value_setting_title(self, setting_attr):
         if setting_attr == "vtrx_ccs_pressure_shutdown_enabled":
             return self._vtrx_ccs_shutdown_title()
         if setting_attr == "total_max_emission_current_limit_enabled":
             return self._emission_activation_title()
-        if setting_attr == "beams_estop_current_limit_enabled":
-            return self._beams_estop_title()
+        if setting_attr == "beams_disable_current_limit_enabled":
+            return self._beams_disable_title()
         return str(setting_attr)
 
     def _create_setting_checkbutton(self, parent_frame, label, setting_attr, command):
@@ -1373,8 +1368,8 @@ class MainControlPanel:
         if setting_attr == "vtrx_ccs_pressure_shutdown_enabled" and not enabled:
             self._clear_vtrx_ccs_disable_timer()
         self._refresh_value_setting_control_state(setting_attr)
-        if setting_attr == "beams_estop_current_limit_enabled":
-            self._apply_beams_estop_current_limit_to_beam_energy()
+        if setting_attr == "beams_disable_current_limit_enabled":
+            self._apply_beams_disable_current_limit_to_beam_energy()
         state = "enabled" if enabled else "disabled"
         self._log_info(f"{self._value_setting_title(setting_attr)} {state}")
 
@@ -1529,11 +1524,11 @@ class MainControlPanel:
                 f"{self._vtrx_ccs_shutdown_title()}: setting successfully changed."
             )
 
-    def set_beams_estop_current_limit(self):
-        """UI callback for committing the Beam Energy +20kV Beams E-STOP current limit."""
-        context = "Trigger E-Stop if 20kV Bertan exceeds"
+    def set_beams_disable_current_limit(self):
+        """UI callback for committing the Beam Energy +20kV beam-disable current limit."""
+        context = "Disable Beams if 20kV Bertan exceeds"
         new_value = self._read_non_negative_setting_value(
-            self.beams_estop_current_entry_var,
+            self.beams_disable_current_entry_var,
             context,
             "limit",
             "mA",
@@ -1541,21 +1536,21 @@ class MainControlPanel:
         if new_value is None:
             return
 
-        if not BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA <= new_value <= BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA:
+        if not BEAMS_DISABLE_CURRENT_LIMIT_MIN_MA <= new_value <= BEAMS_DISABLE_CURRENT_LIMIT_MAX_MA:
             message = (
-                f"{context}: value must be between {BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA:g}mA "
-                f"and {BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA:g}mA."
+                f"{context}: value must be between {BEAMS_DISABLE_CURRENT_LIMIT_MIN_MA:g}mA "
+                f"and {BEAMS_DISABLE_CURRENT_LIMIT_MAX_MA:g}mA."
             )
             self._log_warning(message)
             messagebox.showerror("Invalid Input", message)
             return
 
-        self.beams_estop_current_limit_ma = new_value
-        self.beams_estop_current_entry_var.set("")
+        self.beams_disable_current_limit_ma = new_value
+        self.beams_disable_current_entry_var.set("")
         self.refresh_value_setting_displays()
-        beam_energy_updated = self._apply_beams_estop_current_limit_to_beam_energy()
+        beam_energy_updated = self._apply_beams_disable_current_limit_to_beam_energy()
 
-        if not save_beams_estop_current_limit_ma(new_value, logger=self.logger):
+        if not save_beams_disable_current_limit_ma(new_value, logger=self.logger):
             message = f"{context}: value was updated for this session but could not be saved."
             self._log_warning(message)
             messagebox.showwarning("Save Failed", message)
@@ -1566,7 +1561,7 @@ class MainControlPanel:
             return
 
         self._log_info(
-            f"{self._beams_estop_title()}: setting successfully changed."
+            f"{self._beams_disable_title()}: setting successfully changed."
         )
 
     def create_post_processor_button(self, parent_frame):
@@ -1941,6 +1936,29 @@ class MainControlPanel:
         if not token:
             return False
         return bool(disable_all_beams(operation_token=token, defer_ui=True))
+
+    def _request_disarm_beams(self, cause=None):
+        """Request tokenized beam disarm without depending on the ARM button toggle."""
+        beam_pulse = self._get_beam_pulse_or_fail("disarm beams")
+        if beam_pulse is None:
+            return False
+        disarm_beams = getattr(beam_pulse, "disarm_beams", None)
+        if not callable(disarm_beams):
+            self._set_beam_action_status(
+                "Failed to disarm beams, Beam Pulse API not available",
+                "failure",
+            )
+            return False
+        token = self._start_bcon_operation(
+            "Disarm Beams command: all channels mode=OFF",
+            range(3),
+            expected="all_off",
+            kind="disarm",
+            cause=cause,
+        )
+        if not token:
+            return False
+        return bool(disarm_beams(operation_token=token, defer_ui=True))
 
     def handle_disable_all_beams(self):
         self._request_disable_all_beams()

@@ -6,22 +6,22 @@ import os
 CONFIG_FILE = "usr/usr_data/main_control_config.json"
 DEFAULT_TOTAL_MAX_EMISSION_CURRENT_MA = 6.0
 DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S = 30.0
-DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA = 0.7
-BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA = 0.0
-BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA = 1.0
+DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA = 0.7
+BEAMS_DISABLE_CURRENT_LIMIT_MIN_MA = 0.0
+BEAMS_DISABLE_CURRENT_LIMIT_MAX_MA = 1.0
 TOTAL_MAX_EMISSION_CURRENT_FIELD = "total_max_emission_current_ma"
 VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD = "vtrx_ccs_disable_grace_period_s"
-BEAMS_ESTOP_CURRENT_LIMIT_FIELD = "beams_estop_current_limit_ma"
+BEAMS_DISABLE_CURRENT_LIMIT_FIELD = "beams_disable_current_limit_ma"
 
 _DEFAULTS = {
     TOTAL_MAX_EMISSION_CURRENT_FIELD: DEFAULT_TOTAL_MAX_EMISSION_CURRENT_MA,
     VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD: DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
-    BEAMS_ESTOP_CURRENT_LIMIT_FIELD: DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+    BEAMS_DISABLE_CURRENT_LIMIT_FIELD: DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA,
 }
 _FIELD_RANGES = {
-    BEAMS_ESTOP_CURRENT_LIMIT_FIELD: (
-        BEAMS_ESTOP_CURRENT_LIMIT_MIN_MA,
-        BEAMS_ESTOP_CURRENT_LIMIT_MAX_MA,
+    BEAMS_DISABLE_CURRENT_LIMIT_FIELD: (
+        BEAMS_DISABLE_CURRENT_LIMIT_MIN_MA,
+        BEAMS_DISABLE_CURRENT_LIMIT_MAX_MA,
     ),
 }
 
@@ -81,8 +81,12 @@ def _read_config(filepath, logger=None):
 
 
 def _normalize_config(config, logger=None):
-    normalized = dict(config)
-    changed = False
+    normalized = {
+        field: config[field]
+        for field in _DEFAULTS
+        if field in config
+    }
+    changed = len(normalized) != len(config)
     for field, default_value in _DEFAULTS.items():
         value = _as_field_value(field, normalized.get(field))
         if value is None:
@@ -161,15 +165,15 @@ def save_vtrx_ccs_disable_grace_period_s(value, filepath=CONFIG_FILE, logger=Non
     )
 
 
-def load_beams_estop_current_limit_ma(filepath=CONFIG_FILE, logger=None):
-    """Load the persisted +20kV Beams E-STOP current limit."""
-    return _load_field(BEAMS_ESTOP_CURRENT_LIMIT_FIELD, filepath=filepath, logger=logger)
+def load_beams_disable_current_limit_ma(filepath=CONFIG_FILE, logger=None):
+    """Load the persisted +20kV automatic beam-disable current limit."""
+    return _load_field(BEAMS_DISABLE_CURRENT_LIMIT_FIELD, filepath=filepath, logger=logger)
 
 
-def save_beams_estop_current_limit_ma(value, filepath=CONFIG_FILE, logger=None):
-    """Persist the +20kV Beams E-STOP current limit."""
+def save_beams_disable_current_limit_ma(value, filepath=CONFIG_FILE, logger=None):
+    """Persist the +20kV automatic beam-disable current limit."""
     return _save_field(
-        BEAMS_ESTOP_CURRENT_LIMIT_FIELD,
+        BEAMS_DISABLE_CURRENT_LIMIT_FIELD,
         value,
         filepath=filepath,
         logger=logger,
