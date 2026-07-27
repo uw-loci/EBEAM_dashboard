@@ -34,6 +34,11 @@ VTRX_CCS_DISABLE_PRESSURE_LIMIT_MBAR = 1e-5
 VTRX_CCS_DISABLE_WARNING_INTERVAL_S = 10.0
 BCON_SEND_TIMEOUT_MS = 1500
 BCON_ACK_POLL_TIMEOUT_MS = 1000
+BCON_OPERATION_PRIORITY = {
+    "disable_all": 1,
+    "disarm": 2,
+    "estop": 3,
+}
 
 
 def channel_label(index: int) -> str:
@@ -820,33 +825,40 @@ class MainControlPanel:
         return f"token={op['token']}, action={op['action']}, channels={channels}"
 
     @staticmethod
+    def _bcon_operation_priority(kind):
+        return BCON_OPERATION_PRIORITY.get(kind, 0)
+
+    @staticmethod
     def _is_critical_bcon_operation(op):
-        return op["kind"] in ("disable_all", "disarm", "estop")
+        return MainControlPanel._bcon_operation_priority(op["kind"]) > 0
 
     def _start_bcon_operation(self, action, channels, expected="poll", kind="normal",
                               cause=None):
         """Create the one dashboard operation allowed to await a BCON result."""
         self._initialize_main_control_beam_status_state()
         pending = self._pending_bcon_operation
-        if pending and pending["kind"] == "estop":
-            if kind == "estop":
-                return pending["token"]
-            if not pending.get("safety_failed"):
-                self._log_warning(
-                    f"Failed to send {action}, Dashboard is waiting for E-STOP confirmation.")
-                return None
-            self._finish_bcon_operation(pending["token"])
-            self._log_warning(
-                f"{action} is proceeding after failed E-STOP confirmation "
-                f"({self._bcon_operation_details(pending)}).")
-            pending = None
-        if pending and kind == "normal":
-            self._log_warning(
-                f"Failed to send {action}, Dashboard waiting for firmware response from the previous command.")
-            return None
         if pending:
-            self._finish_bcon_operation(pending["token"])
-            self._log_warning(f"{action} interrupted pending BCON operation {pending['token']}")
+            pending_kind = pending["kind"]
+            if pending_kind == "estop" and kind == "estop":
+                return pending["token"]
+            if pending_kind == "estop" and pending.get("safety_failed"):
+                self._finish_bcon_operation(pending["token"])
+                self._log_warning(
+                    f"{action} is proceeding after failed E-STOP confirmation "
+                    f"({self._bcon_operation_details(pending)}).")
+            elif (
+                self._bcon_operation_priority(pending_kind)
+                >= self._bcon_operation_priority(kind)
+            ):
+                self._log_warning(
+                    f"Failed to send {action}, Dashboard is waiting for "
+                    f"{pending['action']} confirmation.")
+                return None
+            else:
+                self._finish_bcon_operation(pending["token"])
+                self._log_warning(
+                    f"{action} preempted lower-priority BCON operation "
+                    f"{pending['token']}.")
         self._bcon_operation_counter += 1
         token = f"bcon-{self._bcon_operation_counter}"
         op = {
@@ -1939,6 +1951,9 @@ class MainControlPanel:
 
     def _request_disarm_beams(self, cause=None):
         """Request tokenized beam disarm without depending on the ARM button toggle."""
+        pending = getattr(self, "_pending_bcon_operation", None)
+        if pending and pending["kind"] == "disarm":
+            return True
         beam_pulse = self._get_beam_pulse_or_fail("disarm beams")
         if beam_pulse is None:
             return False
@@ -1974,21 +1989,7 @@ class MainControlPanel:
             is_armed = bool(get_armed()) if callable(get_armed) else False
 
             if is_armed:
-                disarm_beams = getattr(beam_pulse, "disarm_beams", None)
-                if not callable(disarm_beams):
-                    self._log_error("Failed to disarm beams: Beam Pulse disarm API is unavailable")
-                    self._set_beam_action_status(
-                        "Failed to disarm beams: Beam Pulse disarm API is unavailable",
-                        "failure",
-                    )
-                    return
-                token = self._start_bcon_operation(
-                    "Disarm Beams command: all channels mode=OFF", range(3),
-                    expected="all_off", kind="disarm")
-                if not token:
-                    return
-                if not disarm_beams(operation_token=token, defer_ui=True):
-                    return
+                self._request_disarm_beams()
             else:
                 arm_beams = getattr(beam_pulse, "arm_beams", None)
                 if callable(arm_beams) and arm_beams():

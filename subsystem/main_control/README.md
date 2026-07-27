@@ -194,11 +194,13 @@ Dashboard callbacks.
   poll state (`poll`, `off`, or `all_off`), operation kind, lifecycle state,
   timestamps, optional safety cause, and timeout handles. The token is only a
   correlation ID; it is not sent to BCON firmware.
-- A normal action is rejected while another operation is pending. Disarm and
-  safety actions can invalidate/preempt an earlier operator action; a repeated
-  E-stop reuses the pending E-stop token. Sending has a 1.5 s deadline. Once
-  the terminal command is sent, firmware acknowledgement and an eligible full
-  BCON poll share a 1 s deadline.
+- Pending operations follow this priority: E-stop > Disarm > Disable All >
+  normal/interlock actions. Only a higher-priority request can preempt a healthy
+  pending operation; a failed E-stop confirmation remains replaceable for
+  recovery. Repeated disarm requests are coalesced, and a repeated E-stop reuses
+  the pending E-stop token. Sending has a 1.5 s deadline. Once the terminal
+  command is sent, firmware acknowledgement and an eligible full BCON poll
+  share a 1 s deadline.
 - Driver `command_sent`, result, failure, and cancellation events are accepted
   only when their token matches the pending operation. A full poll is
   intentionally un-tokenized: it is eligible only when it completed after the
