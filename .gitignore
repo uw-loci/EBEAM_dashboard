@@ -5,6 +5,6 @@ venv/
 build/
 dist/
 EBEAM-Dashboard-Logs/
-EBEAM-Dashboard-WMLogs/
+EBEAM-Dashboard-Datalogs/
 citestfiles/_tmp/
 .env
