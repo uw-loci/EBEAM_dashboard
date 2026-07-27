@@ -456,12 +456,6 @@ class MainControlPanel:
             "disable_ccs_output_on_bcon_disconnect",
             self.toggle_disable_ccs_output_on_bcon_disconnect,
         )
-        self._create_setting_checkbutton(
-            beam_cathode_frame,
-            f"Disable Beams if pressure exceeds {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar",
-            "disable_beams_on_vtrx_pressure_exceeded",
-            self.toggle_disable_beams_on_vtrx_pressure_exceeded,
-        )
         self._create_value_setting_controls(
             beam_cathode_frame,
             title_var=self.vtrx_ccs_disable_grace_period_title_var,
@@ -473,16 +467,11 @@ class MainControlPanel:
             enable_setting_attr="vtrx_ccs_pressure_shutdown_enabled",
             enable_command=lambda: self._toggle_value_setting_enabled("vtrx_ccs_pressure_shutdown_enabled"),
         )
-        self._create_value_setting_controls(
+        self._create_setting_checkbutton(
             beam_cathode_frame,
-            title_var=self.total_max_emission_current_title_var,
-            label_text="Max Emission I:",
-            entry_var=self.total_max_emission_current_entry_var,
-            unit_text="mA",
-            command=self.set_total_max_emission_current_limit,
-            value_var=self.total_max_emission_current_value_var,
-            enable_setting_attr="total_max_emission_current_limit_enabled",
-            enable_command=lambda: self._toggle_value_setting_enabled("total_max_emission_current_limit_enabled"),
+            f"Disable Beams if pressure exceeds {VTRX_BEAM_DISABLE_PRESSURE_LIMIT_MBAR} mbar",
+            "disable_beams_on_vtrx_pressure_exceeded",
+            self.toggle_disable_beams_on_vtrx_pressure_exceeded,
         )
         self._create_value_setting_controls(
             beam_cathode_frame,
@@ -494,6 +483,17 @@ class MainControlPanel:
             value_var=self.beams_estop_current_value_var,
             enable_setting_attr="beams_estop_current_limit_enabled",
             enable_command=lambda: self._toggle_value_setting_enabled("beams_estop_current_limit_enabled"),
+        )
+        self._create_value_setting_controls(
+            beam_cathode_frame,
+            title_var=self.total_max_emission_current_title_var,
+            label_text="Max Emission I:",
+            entry_var=self.total_max_emission_current_entry_var,
+            unit_text="mA",
+            command=self.set_total_max_emission_current_limit,
+            value_var=self.total_max_emission_current_value_var,
+            enable_setting_attr="total_max_emission_current_limit_enabled",
+            enable_command=lambda: self._toggle_value_setting_enabled("total_max_emission_current_limit_enabled"),
         )
 
         # Add F1 help hint
