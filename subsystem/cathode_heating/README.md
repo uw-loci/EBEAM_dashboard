@@ -301,7 +301,7 @@ Important nuances:
 When the measured temperature is above the configured limit:
 
 - The measured clamp-temperature box turns orange.
-- A critical log entry is emitted: `Cathode X OVERTEMP!`.
+- A critical log entry is emitted immediately and then at most once every 10 seconds per cathode while the condition persists: `Cathode X OVERTEMP!`.
 
 When temperature returns below the limit, the measured temperature box returns to the normal measured-output background and status returns to `Normal`. If temperature is unavailable, status becomes `N/A` and the box is also returned to normal.
 
