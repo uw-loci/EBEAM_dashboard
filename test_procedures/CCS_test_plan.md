@@ -233,7 +233,7 @@ hardware state.
 | 2. Open every `Output Mode` selector without changing its value. | Exactly `Immediate Set`, `Ramp Current`, and `Ramp Voltage` are available; `Immediate Set` is selected initially. | |
 | 3. Open every `Lookup Table Dataset` selector. | Available CSV filenames appear once per channel; the active valid dataset is selected; opening the list sends no hardware command. | |
 | 4. Inspect each `Config` tab. | `Log Power Settings`, OVP, OCP, current slew, voltage slew, voltage-difference threshold, current-difference threshold, overtemperature limit, and overtemperature status are present and associated with the correct cathode. | |
-| 5. Check the initial local values after a fresh process launch. | Mode is Immediate; OVP is 1.10 V; OCP is 7.00 A; current slew is 0.01 A/s; voltage slew is 0.02 V/s; both difference thresholds are 10%; overtemperature limit is 150 C; Goals, Sent, and predictions are unset until entered. | |
+| 5. Check the initial local values after a fresh process launch. | Mode is Immediate; current slew is 0.01 A/s; voltage slew is 0.02 V/s; both difference thresholds are 10%; overtemperature limit is 150 C; Goals, Sent, and predictions are unset until entered. | |
 | 6. Inspect the temperature area for an enabled plot. | No temperature plot is presented because plots are disabled in the current build; the numeric temperature remains available. | |
 | 7. Scroll, switch every Main/Config tab, resize, maximize/restore, and return to the initial view. | Controls stay aligned with the correct cathode; no duplicate widget, clipped safety state, Tk exception, or hardware command occurs. | |
 
