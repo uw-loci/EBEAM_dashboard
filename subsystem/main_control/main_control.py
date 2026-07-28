@@ -1302,7 +1302,7 @@ class MainControlPanel:
         limit_ma = self._format_beams_disable_current_limit_ma(
             getattr(self, "beams_disable_current_limit_ma", None)
         )
-        return f"Disable Beams if 20kV Bertan exceeds {limit_ma}mA"
+        return f"Disable Beams if 20kV Bertan reaches or exceeds {limit_ma}mA"
 
     def _value_setting_title(self, setting_attr):
         if setting_attr == "vtrx_ccs_pressure_shutdown_enabled":
