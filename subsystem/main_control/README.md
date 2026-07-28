@@ -53,7 +53,7 @@ Main Control is a two-tab subpanel.
 - Disable CCS Output on BCON Disconnect toggle.
 - Disable CCS Output if pressure exceeds 10^-5 mbar for the configured grace
   period control.
-- Disable Beams if pressure exceeds 10^-5 mbar toggle.
+- Disable Beams if pressure reaches or exceeds 10^-5 mbar toggle.
 - Disable Beams if 20kV Bertan exceeds the configured current limit control.
 - Do not activate Beams if Predicted Emission Current exceeds the configured
   limit control.
@@ -162,10 +162,12 @@ post-command poll confirms all channels OFF.
 
 VTRX reports pressure updates to Main Control. When the high-pressure
 beam-disable guard is enabled, Main Control uses the tokenized Disable All Beams
-flow on the first high, stale, unavailable, or firmware-error reading. It
-clears dashboard software interlocks only after the post-command BCON poll
-confirms every channel OFF, then waits for pressure to recover to 1e-5 mbar or
-below before it can trigger again.
+flow on the first high, stale, unavailable, or firmware-error reading. A pending
+Disable All, Disarm, or E-stop operation with an all-off expectation covers the
+same requirement without a redundant command. A confirming all-off poll
+satisfies the VTRX shutdown; an unsuccessful terminal outcome releases the
+latch so another unsafe reading retries. Main Control then waits for pressure
+to recover to 1e-5 mbar or below before a new shutdown episode can trigger.
 
 Main Control also uses VTRX pressure to protect CCS output. Stale pressure or
 pressure above 1e-5 mbar starts the configured CCS grace-period timer only when
@@ -254,9 +256,10 @@ Dashboard callbacks.
   block cathode output enable requests.
 - Disable Beams if pressure exceeds 10^-5 mbar is a runtime Main Control
   setting. When enabled, an unsafe or stale VTRX reading invalidates any pending
-  operator action, logs a critical message, requests tokenized BCON all-off, and
-  clears dashboard interlocks only after a post-command poll confirms all
-  channels OFF. It triggers once until pressure recovers to 1e-5 mbar or below.
+  operator action and requests tokenized BCON all-off. An already-pending
+  all-off Disable All, Disarm, or E-stop covers that request; confirmation keeps
+  the VTRX episode latched, while failure releases it for retry. Dashboard
+  interlocks clear only after a post-command poll confirms all channels OFF.
 - Disable CCS Output after the configured grace period above 10^-5 mbar applies
   when CCS output is active. The grace-period duration is persisted in Main
   Control config, defaults to 30 seconds, blocks new CCS output enables while

@@ -837,6 +837,9 @@ class MainControlPanel:
         """Create the one dashboard operation allowed to await a BCON result."""
         self._initialize_main_control_beam_status_state()
         pending = self._pending_bcon_operation
+        covers_vtrx_beam_disable = bool(
+            pending and pending.get("covers_vtrx_beam_disable")
+        )
         if pending:
             pending_kind = pending["kind"]
             if pending_kind == "estop" and kind == "estop":
@@ -859,6 +862,13 @@ class MainControlPanel:
                 self._log_warning(
                     f"{action} preempted lower-priority BCON operation "
                     f"{pending['token']}.")
+        replacement_covers_vtrx = (
+            covers_vtrx_beam_disable
+            and kind in BCON_OPERATION_PRIORITY
+            and expected == "all_off"
+        )
+        if covers_vtrx_beam_disable and not replacement_covers_vtrx:
+            self._release_vtrx_beam_disable_coverage(pending)
         self._bcon_operation_counter += 1
         token = f"bcon-{self._bcon_operation_counter}"
         op = {
@@ -866,6 +876,7 @@ class MainControlPanel:
             "expected": expected, "kind": kind, "state": "awaiting_send",
             "created_at": time.monotonic(), "sent_at": None,
             "cause": str(cause or ""),
+            "covers_vtrx_beam_disable": replacement_covers_vtrx,
             "safety_failed": False, "safety_failure_logged": False,
             "send_after": None, "ack_after": None,
         }
@@ -907,6 +918,10 @@ class MainControlPanel:
         self._pending_bcon_operation = None
         return op
 
+    def _release_vtrx_beam_disable_coverage(self, op):
+        if op.get("covers_vtrx_beam_disable"):
+            self._vtrx_pressure_beam_disable_latched = False
+
     def _invalidate_pending_user_bcon_operation(self, reason):
         """Invalidate an operator action before an automatic safety ALL_OFF."""
         op = getattr(self, "_pending_bcon_operation", None)
@@ -923,6 +938,7 @@ class MainControlPanel:
         if not op:
             return
         self._finish_bcon_operation(op["token"])
+        self._release_vtrx_beam_disable_coverage(op)
         message = (
             f"BCON operation terminated by {reason} ({self._bcon_operation_details(op)}); "
             "firmware outcome is unknown"
@@ -962,6 +978,7 @@ class MainControlPanel:
                 "firmware outcome is unknown or unconfirmed"
             )
         self._finish_bcon_operation(token)
+        self._release_vtrx_beam_disable_coverage(op)
         log = self._log_critical if self._is_critical_bcon_operation(op) else self._log_error
         log(message)
         self._set_beam_action_status(message, "failure")
@@ -1062,6 +1079,7 @@ class MainControlPanel:
                     self._set_beam_action_status(message, "failure")
                     return
                 self._finish_bcon_operation(token)
+                self._release_vtrx_beam_disable_coverage(op)
                 log = (
                     self._log_critical
                     if self._is_critical_bcon_operation(op) and not hardware_interlock_rejection
@@ -1095,6 +1113,7 @@ class MainControlPanel:
             self._set_beam_action_status(message, "failure")
             return
         self._finish_bcon_operation(token)
+        self._release_vtrx_beam_disable_coverage(op)
         if cancelled:
             log = self._log_warning
         else:
@@ -1858,11 +1877,26 @@ class MainControlPanel:
             cause = "VTRX pressure reading stale safety shutdown"
             self._log_critical("VTRX pressure reading is stale; disabling all beams.")
 
+        pending = getattr(self, "_pending_bcon_operation", None)
+        if (
+            pending
+            and pending["kind"] in ("disable_all", "disarm", "estop")
+            and pending["expected"] == "all_off"
+        ):
+            pending["covers_vtrx_beam_disable"] = True
+            return
+
         try:
             self._invalidate_pending_user_bcon_operation("VTRX pressure safety shutdown")
             if not self._request_disable_all_beams(cause=cause):
+                self._vtrx_pressure_beam_disable_latched = False
                 self._log_critical("VTRX pressure beam disable failed: BCON all-off was not confirmed")
+            else:
+                pending = getattr(self, "_pending_bcon_operation", None)
+                if pending and pending["kind"] == "disable_all":
+                    pending["covers_vtrx_beam_disable"] = True
         except Exception as e:
+            self._vtrx_pressure_beam_disable_latched = False
             self._log_critical(f"VTRX pressure beam disable failed: {e}")
 
     def _handle_vtrx_pressure_update(self, pressure_mbar, pressure_reading_is_fresh=False, firmware_error=False):

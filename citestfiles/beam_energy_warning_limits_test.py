@@ -254,7 +254,7 @@ class MainControlBeamsDisableLimitUiTest(unittest.TestCase):
             logger.info_entries,
             [
                 (
-                    "Disable Beams if 20kV Bertan exceeds 0.5mA: "
+                    "Disable Beams if 20kV Bertan reaches or exceeds 0.5mA: "
                     "setting successfully changed.",
                     "Main Control",
                 )
