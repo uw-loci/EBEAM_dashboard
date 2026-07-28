@@ -51,6 +51,7 @@ class CathodeHeatingSubsystem:
     TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
     OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
+    OVERTEMP_LOG_INTERVAL_SECONDS = 10.0
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
     WORKER_LOG_QUEUE_MAXSIZE = 1000
     DEFAULT_VOLTAGE_DIFF_WARNING_PERCENT = 10.0
@@ -207,6 +208,7 @@ class CathodeHeatingSubsystem:
         self.toggle_states = [False for _ in range(3)]
         self._latest_clamp_temperatures = [None for _ in range(3)]
         self._overtemp_limit_values = [self.OVERTEMP_THRESHOLD for _ in range(3)]
+        self._overtemp_last_log_times = [None for _ in range(3)]
         self.power_supply_poll_interval = 0.5
         self.power_supply_poll_thread = None
         self.power_supply_poll_stop_event = threading.Event()
@@ -2666,18 +2668,32 @@ class CathodeHeatingSubsystem:
             if temperature is not None:
                 if temperature > self.overtemp_limit_vars[i].get():
                     self.overtemp_status_vars[i].set("OVERTEMP!")
-                    self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
+                    self._log_overtemp_rate_limited(i)
                     self._set_measured_temperature_warning_box(i, True)
                 else:
+                    self._overtemp_last_log_times[i] = None
                     self.overtemp_status_vars[i].set('Normal')
                     self._set_measured_temperature_warning_box(i, False)
             else:
+                self._overtemp_last_log_times[i] = None
                 self.overtemp_status_vars[i].set('N/A')
                 self._set_measured_temperature_warning_box(i, False)
 
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
+
+    def _log_overtemp_rate_limited(self, index):
+        now = time.monotonic()
+        last_logged = self._overtemp_last_log_times[index]
+        if (
+            last_logged is not None
+            and now - last_logged < self.OVERTEMP_LOG_INTERVAL_SECONDS
+        ):
+            return
+
+        self._overtemp_last_log_times[index] = now
+        self.log(f"Cathode {['A', 'B', 'C'][index]} OVERTEMP!", LogLevel.CRITICAL)
 
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''
