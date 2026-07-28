@@ -233,7 +233,7 @@ hardware state.
 | 2. Open every `Output Mode` selector without changing its value. | Exactly `Immediate Set`, `Ramp Current`, and `Ramp Voltage` are available; `Immediate Set` is selected initially. | |
 | 3. Open every `Lookup Table Dataset` selector. | Available CSV filenames appear once per channel; the active valid dataset is selected; opening the list sends no hardware command. | |
 | 4. Inspect each `Config` tab. | `Log Power Settings`, OVP, OCP, current slew, voltage slew, voltage-difference threshold, current-difference threshold, overtemperature limit, and overtemperature status are present and associated with the correct cathode. | |
-| 5. Check the initial local values after a fresh process launch. | Mode is Immediate; current slew is 0.01 A/s; voltage slew is 0.02 V/s; both difference thresholds are 10%; overtemperature limit is 200 C; Goals, Sent, and predictions are unset until entered. | |
+| 5. Check the initial local values after a fresh process launch. | Mode is Immediate; OVP is 1.10 V; OCP is 7.00 A; current slew is 0.01 A/s; voltage slew is 0.02 V/s; both difference thresholds are 10%; overtemperature limit is 150 C; Goals, Sent, and predictions are unset until entered. | |
 | 6. Inspect the temperature area for an enabled plot. | No temperature plot is presented because plots are disabled in the current build; the numeric temperature remains available. | |
 | 7. Scroll, switch every Main/Config tab, resize, maximize/restore, and return to the initial view. | Controls stay aligned with the correct cathode; no duplicate widget, clipped safety state, Tk exception, or hardware command occurs. | |
 
@@ -968,18 +968,18 @@ their live timing behavior.
 status update.
 
 **Initial conditions:** Selected E5CN reading valid near room temperature;
-output OFF; overtemperature limit 200 C.
+output OFF; overtemperature limit 150 C.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Submit an empty overtemperature Entry. | Invalid input is visible to the operator and logged; 200 C remains active. | |
+| 1. Submit an empty overtemperature Entry. | Invalid input is visible to the operator and logged; 150 C remains active. | |
 | 2. Submit alphabetic text. | Input is rejected without altering the limit or status. | |
 | 3. Submit a negative value. | Nonsensical negative limit is rejected and cannot force a permanent warning. | |
 | 4. Submit `nan`. | NaN is rejected; overtemperature warning cannot be silently disabled. | |
 | 5. Submit `inf`. | Positive infinity is rejected and the prior finite limit remains. | |
 | 6. Submit `-inf`. | Negative infinity is rejected and the prior finite limit remains. | |
 | 7. Set a finite value several degrees above the current temperature. | Live limit updates, Entry reflects the committed value, and status remains Normal. | |
-| 8. Restore 200 C. | Normal baseline is restored without a hardware command. | |
+| 8. Restore 150 C. | Normal baseline is restored without a hardware command. | |
 
 ### CCS-6.8 - Log Power Settings success, mismatch, and read failure
 
@@ -1013,7 +1013,7 @@ and other supplies stay ready.
 | 3. Change a local difference threshold and slew value. | Local settings may update explicitly without implying delivery to the unavailable 9104. | |
 | 4. Change the finite overtemperature limit. | E5CN-based status follows the local limit because its sensor remains connected; no 9104 connection is implied. | |
 | 5. Restore the 9104 and wait for readiness. | Hardware commands remain blocked until configured; local values remain associated only with the intended channel. | |
-| 6. Restore all common Config baselines. | OVP 0.50 V, OCP 1.99 A, thresholds 10%, overtemperature 200 C, and planned slew values are established. | |
+| 6. Restore all common Config baselines. | OVP 0.50 V, OCP 1.99 A, thresholds 10%, overtemperature 150 C, and planned slew values are established. | |
 
 ### CCS-6.10 - Config and LUT actions during an active ramp
 
@@ -1187,7 +1187,7 @@ safe pair only for the explicit independence step.
 | 3. Hold temperature above the limit for several refresh cycles. | Warning remains active without an unbounded duplicate CRITICAL flood; the event remains one continuous breach. | |
 | 4. If output was safely enabled for this step, observe it during the breach. | CCS output is not automatically disabled by the solo overtemperature warning; toggle and physical output stay mutually consistent. | |
 | 5. Release the thermocouple and wait below the limit. | Status returns `Normal`, orange clears, and recovery is evident in the log without changing output state. | |
-| 6. Issue confirmed OFF if used and restore overtemperature limit to 200 C. | Safe common baseline is restored. | |
+| 6. Issue confirmed OFF if used and restore overtemperature limit to 150 C. | Safe common baseline is restored. | |
 
 ### CCS-8.3 - Single dummy-thermocouple removal and restoration
 
@@ -1790,7 +1790,7 @@ limit configured; outputs OFF.
 | 2. Continue holding for another 10 s. | No additional CRITICAL transition is emitted for the same continuous breach; UI remains OVERTEMP/orange. | |
 | 3. Allow temperature below the limit. | One recovery transition is recorded and highlight clears. | |
 | 4. Raise it above again after full recovery. | A new breach produces one new CRITICAL transition. | |
-| 5. Restore 200 C. | Baseline returns Normal. | |
+| 5. Restore 150 C. | Baseline returns Normal. | |
 
 ### CCS-11.8 - Invalid-data telemetry hygiene
 
