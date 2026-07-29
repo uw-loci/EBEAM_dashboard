@@ -245,6 +245,9 @@ Machine Status logs color transitions under the "Machine Status" tag:
 - Red transitions are logged as warnings.
 - Evaluation failures are logged as errors and recovery is logged when normal
   evaluation resumes.
+- The complete displayed state is published to the logger's `machine_status`
+  dictionary field whenever any segment changes. The existing logger pipeline
+  includes that snapshot in `short_term_logs.data`.
 
 During dashboard shutdown, Dashboard cancels Machine Status first because the
 Machine Status worker reads subsystem state. Pending Tk callbacks are cancelled,

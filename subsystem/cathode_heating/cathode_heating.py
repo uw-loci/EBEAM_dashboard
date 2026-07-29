@@ -50,7 +50,10 @@ class CathodeHeatingSubsystem:
 
     TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
-    OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
+    OVERTEMP_THRESHOLD = 150.0 # Default overtemperature threshold in C
+    DEFAULT_OVERVOLTAGE_LIMIT_VOLTS = 1.1
+    DEFAULT_OVERCURRENT_LIMIT_AMPS = 7.0
+    OVERTEMP_LOG_INTERVAL_SECONDS = 10.0
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
     WORKER_LOG_QUEUE_MAXSIZE = 1000
     DEFAULT_VOLTAGE_DIFF_WARNING_PERCENT = 10.0
@@ -207,6 +210,7 @@ class CathodeHeatingSubsystem:
         self.toggle_states = [False for _ in range(3)]
         self._latest_clamp_temperatures = [None for _ in range(3)]
         self._overtemp_limit_values = [self.OVERTEMP_THRESHOLD for _ in range(3)]
+        self._overtemp_last_log_times = [None for _ in range(3)]
         self.power_supply_poll_interval = 0.5
         self.power_supply_poll_thread = None
         self.power_supply_poll_stop_event = threading.Event()
@@ -445,8 +449,12 @@ class CathodeHeatingSubsystem:
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
         ## Power supply protection
-        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
-        self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
+        self.overvoltage_limit_vars = [
+            tk.DoubleVar(value=self.DEFAULT_OVERVOLTAGE_LIMIT_VOLTS) for _ in range(3)
+        ]
+        self.overcurrent_limit_vars = [
+            tk.DoubleVar(value=self.DEFAULT_OVERCURRENT_LIMIT_AMPS) for _ in range(3)
+        ]
         self.ovl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
         self.ocl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
         self.voltage_diff_warning_entry_vars = [tk.StringVar(value='') for _ in range(3)]
@@ -2666,18 +2674,32 @@ class CathodeHeatingSubsystem:
             if temperature is not None:
                 if temperature > self.overtemp_limit_vars[i].get():
                     self.overtemp_status_vars[i].set("OVERTEMP!")
-                    self.log(f"Cathode {['A', 'B', 'C'][i]} OVERTEMP!", LogLevel.CRITICAL)
+                    self._log_overtemp_rate_limited(i)
                     self._set_measured_temperature_warning_box(i, True)
                 else:
+                    self._overtemp_last_log_times[i] = None
                     self.overtemp_status_vars[i].set('Normal')
                     self._set_measured_temperature_warning_box(i, False)
             else:
+                self._overtemp_last_log_times[i] = None
                 self.overtemp_status_vars[i].set('N/A')
                 self._set_measured_temperature_warning_box(i, False)
 
             # Update the plot for current cathode
             if plot_this_cycle:  # Ensure plots are updated only when new data is plotted
                 self.update_plot(i)
+
+    def _log_overtemp_rate_limited(self, index):
+        now = time.monotonic()
+        last_logged = self._overtemp_last_log_times[index]
+        if (
+            last_logged is not None
+            and now - last_logged < self.OVERTEMP_LOG_INTERVAL_SECONDS
+        ):
+            return
+
+        self._overtemp_last_log_times[index] = now
+        self.log(f"Cathode {['A', 'B', 'C'][index]} OVERTEMP!", LogLevel.CRITICAL)
 
     def cancel_updates(self):
         '''Cancel after() scheduled updates, to be called by dashboard when app is quit.'''

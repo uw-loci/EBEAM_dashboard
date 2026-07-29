@@ -607,6 +607,12 @@ class MachineStatus:
             status_text = STATE_LOG_TEXT.get(current, current)
             self._log(f"{name} Status Indicator set to: {status_text}", level)
 
+        if (
+            self.logger
+            and hasattr(self.logger, "update_field")
+        ):
+            self.logger.update_field("machine_status", dict(display_states))
+
         self._previous_display_states = display_states
 
     def cancel_updates(self):

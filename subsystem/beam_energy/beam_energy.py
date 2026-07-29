@@ -26,7 +26,7 @@ class BeamEnergySubsystem:
     """
 
     displayFont = "Arial"
-    ESTOP_TEXT_COLOR = "red"
+    BEAMS_DISABLE_TEXT_COLOR = "red"
     WARNING_TEXT_COLOR = "#FF8000"
     NORMAL_TEXT_COLOR = "black"
 
@@ -103,7 +103,7 @@ class BeamEnergySubsystem:
         ]
         self.supply_keys = [supply_key for supply_key, _ in self.supply_payload_map]
         self.warning_limits = load_beam_energy_warning_limits(logger=self.logger)
-        self.beams_estop_current_limit_ma = None
+        self.beams_disable_current_limit_ma = None
         # Last numeric readings let limit edits immediately refresh colors/trips without waiting for a new poll.
         self.latest_actual_voltage_values = [None for _ in self.power_supplies]
         self.latest_actual_current_values = [None for _ in self.power_supplies]
@@ -135,9 +135,9 @@ class BeamEnergySubsystem:
         self.ccs_power_on = False
         self.disable_logging_when_hvolt_off = False
         self.hvolt_on_provider = None
-        # Main Control pushes the +20kV current threshold; Dashboard provides the stop handler.
-        self.beams_estop_callback = None
-        self.beams_estop_current_limit_enabled = True
+        # Main Control pushes the +20kV current threshold; Dashboard provides the beam-disable handler.
+        self.beams_disable_callback = None
+        self.beams_disable_current_limit_enabled = True
         # Dashboard wires this to LaserMonitorDriver.set_radiation_indicator().
         # The last-sent value prevents repeated sends during unchanged 500 ms polls.
         self.radiation_indicator_callback = None
@@ -343,7 +343,7 @@ class BeamEnergySubsystem:
                 ttk.Label(
                     frame,
                     text=(
-                        "20kV Bertan Current Limit for Beams E-Stop trigger can "
+                        "20kV Bertan Current Limit for Automatic Beam Disarm can "
                         "be found in the Main Control Config menu"
                     ),
                     font=("Segoe UI", 8, "italic"),
@@ -375,15 +375,15 @@ class BeamEnergySubsystem:
         sign = "-" if supply_key == "neg1kv" and field != "max_current_ma" else ""
         return f"Limit set to: {sign}{value:g}{self._warning_limit_unit(field)}"
 
-    def set_beams_estop_current_limit_ma(self, value_ma):
-        """Receive the +20kV Beams E-STOP current limit from Main Control."""
-        self.beams_estop_current_limit_ma = value_ma
+    def set_beams_disable_current_limit_ma(self, value_ma):
+        """Receive the +20kV automatic beam-disable current limit from Main Control."""
+        self.beams_disable_current_limit_ma = value_ma
         self.refresh_warning_indicators(self._get_pos20kv_index())
         return True
 
-    def set_beams_estop_current_limit_enabled(self, enabled):
-        """Receive whether Main Control's +20kV Beams E-STOP guard is active."""
-        self.beams_estop_current_limit_enabled = bool(enabled)
+    def set_beams_disable_current_limit_enabled(self, enabled):
+        """Receive whether Main Control's +20kV automatic beam-disable guard is active."""
+        self.beams_disable_current_limit_enabled = bool(enabled)
         self.refresh_warning_indicators(self._get_pos20kv_index())
         return True
 
@@ -528,26 +528,26 @@ class BeamEnergySubsystem:
             return None
         return abs(value) if supply_key == "neg1kv" else value
 
-    def _trigger_beams_estop_current(self, current_ma, limit_ma):
+    def _trigger_beams_disable_current(self, current_ma, limit_ma):
         self.log(
-            "+20kV Bertan automatic Beams E-STOP: actual current "
-            f"{current_ma:.3f}mA exceeded E-STOP limit {limit_ma:g}mA.",
+            "+20kV Bertan automatic beam disable: actual current "
+            f"{current_ma:.3f}mA reached beam-disable limit {limit_ma:g}mA.",
             LogLevel.CRITICAL,
         )
 
-        callback = getattr(self, "beams_estop_callback", None)
+        callback = getattr(self, "beams_disable_callback", None)
         if not callable(callback):
-            self.log("Automatic Beams E-STOP callback is not configured.", LogLevel.CRITICAL)
+            self.log("Automatic beam-disable callback is not configured.", LogLevel.CRITICAL)
             return
 
         try:
             callback()
         except Exception as e:
-            self.log(f"Automatic Beams E-STOP callback failed: {e}", LogLevel.CRITICAL)
+            self.log(f"Automatic beam-disable callback failed: {e}", LogLevel.CRITICAL)
 
-    def set_beams_estop_callback(self, callback):
-        """Register the dashboard's Beams E-STOP handler."""
-        self.beams_estop_callback = callback
+    def set_beams_disable_callback(self, callback):
+        """Register the dashboard's automatic beam-disarm handler."""
+        self.beams_disable_callback = callback
         pos20kv_index = self._get_pos20kv_index()
 
         def _recheck():
@@ -673,24 +673,24 @@ class BeamEnergySubsystem:
             current_value is not None
             and current_value >= limits["max_current_ma"]
         )
-        beams_estop_limit_ma = self.beams_estop_current_limit_ma
-        current_estop = (
+        beams_disable_limit_ma = self.beams_disable_current_limit_ma
+        current_beams_disable = (
             supply_key == POS20KV_SUPPLY_KEY
             and current_value is not None
-            and beams_estop_limit_ma is not None
-            and bool(getattr(self, "beams_estop_current_limit_enabled", True))
-            and current_value >= beams_estop_limit_ma
+            and beams_disable_limit_ma is not None
+            and bool(getattr(self, "beams_disable_current_limit_enabled", True))
+            and current_value >= beams_disable_limit_ma
         )
 
         if voltage_warning:
             self._log_warning_breach(index, "voltage", voltage_value)
-        # For 20kV: the E-STOP threshold takes priority over the Max I warning.
-        if current_estop:
-            self._trigger_beams_estop_current(
+        # For 20kV: the automatic beam-disable threshold takes priority over the Max I warning.
+        if current_beams_disable:
+            self._trigger_beams_disable_current(
                 current_value,
-                beams_estop_limit_ma,
+                beams_disable_limit_ma,
             )
-        if current_warning and not current_estop:
+        if current_warning and not current_beams_disable:
             self._log_warning_breach(index, "current", current_value)
 
         voltage_color = (
@@ -698,8 +698,8 @@ class BeamEnergySubsystem:
             if voltage_warning
             else self.NORMAL_TEXT_COLOR
         )
-        if current_estop:
-            current_color = self.ESTOP_TEXT_COLOR
+        if current_beams_disable:
+            current_color = self.BEAMS_DISABLE_TEXT_COLOR
         elif current_warning:
             current_color = self.WARNING_TEXT_COLOR
         else:
@@ -1140,7 +1140,7 @@ class BeamEnergySubsystem:
         return True
 
     def _build_disconnected_beam_energy_payload(self):
-        """Build a Web Monitor payload that explicitly clears every Beam Energy supply."""
+        """Build a Data Log payload that explicitly clears every Beam Energy supply."""
         supplies = {
             supply_key: {
                 "connected": False,
@@ -1193,7 +1193,7 @@ class BeamEnergySubsystem:
         return set_voltage, actual_voltage, actual_current
 
     def _build_supplies_payload(self, knob_box, data_snapshot):
-        """Build a structured payload of 4 power supply statuses for the Web Monitor."""
+        """Build a structured payload of four power supply statuses for the Data Log."""
         supplies = {}
 
         for supply_key, unit_id in self.supply_payload_map:
@@ -1320,7 +1320,7 @@ class BeamEnergySubsystem:
 
             self.update_supply_interlock_statuses(data_snapshot, knob_box)
             
-            # Build a web monitor log payload
+            # Build a Data Log payload.
             if self.logger and hasattr(self.logger, "update_field"):
 
                 # Build keyed per-supply payload entries.
@@ -1338,7 +1338,7 @@ class BeamEnergySubsystem:
                     for key in self.beam_energy_flag_keys
                 }
 
-                # Update the Web Monitor log with the latest data and flags.
+                # Update the Data Log with the latest data and flags.
                 self.logger.update_field("beam_energy", {**supply_payload, "flags": flags})
 
 

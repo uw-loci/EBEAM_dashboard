@@ -9,10 +9,12 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import ttk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.lines import Line2D
 import time
 import os
 import sys
 import queue
+import math
 
 def resource_path(relative_path):
     """ Get the absolute path to a resource, works for development and when running as bundled executable"""
@@ -31,6 +33,9 @@ class VTRXSubsystem:
     NO_DATA_LOG_INTERVAL_SECONDS = 10
     SERIAL_DATA_MAX_ATTEMPTS = 3
     PRESSURE_READING_FRESH_SECONDS = 3.0
+    PRESSURE_902B_READING_FRESH_SECONDS = 6.0
+    PRESSURE_902B_MIN_VALID_972B_MBAR = 1.0
+    PRESSURE_902B_PLOT_COLOR = "#4B0082"
     WARNING_ERROR_CODES = {13, 14, 15, 16}
 
     ERROR_CODES = {
@@ -53,11 +58,19 @@ class VTRXSubsystem:
         16: "UNSAFE FOR HV WARNING"
     }
 
-    def __init__(self, parent, serial_port='COM7', baud_rate=9600, logger=None):
+    def __init__(
+        self,
+        parent,
+        serial_port='COM7',
+        baud_rate=9600,
+        logger=None,
+        mks_902b_driver=None,
+    ):
         self.parent = parent
         self.serial_port = serial_port
         self.baud_rate = baud_rate
         self.logger = logger
+        self.mks_902b_driver = mks_902b_driver
         self.data_queue = queue.Queue()
         self._main_thread_id = threading.get_ident()
         self._background_log_queue = queue.SimpleQueue()
@@ -68,6 +81,11 @@ class VTRXSubsystem:
         self.full_history_y = []    # Complete pressure history
         self.x_data = []            # Display window data
         self.y_data = []            # Display window data
+        self.full_history_902b_x = []
+        self.full_history_902b_y = []
+        self.x_data_902b = []
+        self.y_data_902b = []
+        self._902b_plot_gap_pending = False
         self.display_window = 300   # Default 5 minutes
 
         self.circle_indicators = []
@@ -80,8 +98,13 @@ class VTRXSubsystem:
         self.last_data_received_time = time.time()
         self.last_successful_read_time = None
         self.last_valid_pressure_value = None
+        self.latest_902b_pressure_mbar = None
+        self.last_valid_902b_timestamp = None
+        self._902b_webmonitor_cleared = True
+        self._902b_widget_suppressed = False
         self.last_gui_update_time = time.time()
         self.after_id = None
+        self._closing = False
         self._serial_data_failure_count = 0
 
         self.setup_serial()
@@ -204,6 +227,10 @@ class VTRXSubsystem:
 
         After processing all items, reschedules itself to run again after 500 ms.
         """
+        self.after_id = None
+        if self._closing:
+            return
+
         try:
             self.flush_queued_logs()
             while True:
@@ -215,9 +242,225 @@ class VTRXSubsystem:
         except queue.Empty:
             pass
         finally:
+            if self._closing:
+                return
+            self._process_902b_data()
             self.flush_queued_logs()
+            self._flush_902b_logs()
             self._update_main_control()
-            self.after_id = self.parent.after(500, self.process_queue)
+            if not self._closing:
+                self.after_id = self.parent.after(500, self.process_queue)
+
+    def _process_902b_data(self):
+        """Consume queued 902B measurements, retaining their acquisition times."""
+        measurements = []
+        if self.mks_902b_driver is not None:
+            while True:
+                try:
+                    measurements.append(
+                        self.mks_902b_driver.data_queue.get_nowait()
+                    )
+                except queue.Empty:
+                    break
+
+        latest_measurement = measurements[-1] if measurements else None
+        if latest_measurement is not None:
+            timestamp, pressure_mbar = latest_measurement
+            self.last_valid_902b_timestamp = timestamp
+            self.latest_902b_pressure_mbar = pressure_mbar
+
+        suppress_902b = self._should_suppress_902b_publication()
+        self._set_902b_widget_suppressed(suppress_902b)
+
+        if measurements and not suppress_902b:
+            self._append_902b_graph_measurements(measurements)
+            self._refresh_display_data(
+                datetime.datetime.fromtimestamp(time.time())
+            )
+            if hasattr(self, "line_902b") and hasattr(self, "canvas"):
+                self.update_plot()
+
+        if not self._902b_reading_is_fresh():
+            self._set_902b_pressure_display(None)
+            self._clear_902b_publication()
+            return
+
+        self._set_902b_pressure_display(self.latest_902b_pressure_mbar)
+        if suppress_902b:
+            self._clear_902b_publication()
+            return
+
+        if latest_measurement is not None or self._902b_webmonitor_cleared:
+            if self.logger is not None:
+                self.logger.update_field(
+                    "pressure_902b_mbar",
+                    self.latest_902b_pressure_mbar,
+                )
+            self._902b_webmonitor_cleared = False
+
+    def _append_902b_graph_measurements(self, measurements):
+        """Append valid, unsuppressed samples using their queued timestamps."""
+        if not measurements:
+            return
+
+        if self._902b_plot_gap_pending:
+            gap_time = datetime.datetime.fromtimestamp(measurements[0][0])
+            self.full_history_902b_x.append(gap_time)
+            self.full_history_902b_y.append(math.nan)
+            self._902b_plot_gap_pending = False
+
+        for timestamp, pressure_mbar in measurements:
+            self.full_history_902b_x.append(
+                datetime.datetime.fromtimestamp(timestamp)
+            )
+            self.full_history_902b_y.append(pressure_mbar)
+
+    @staticmethod
+    def _trim_history_before(history_x, history_y, cutoff_time):
+        """Remove timestamp/value pairs older than the history cutoff."""
+        first_retained = 0
+        while (
+            first_retained < len(history_x)
+            and history_x[first_retained] < cutoff_time
+        ):
+            first_retained += 1
+        if first_retained:
+            del history_x[:first_retained]
+            del history_y[:first_retained]
+
+    @staticmethod
+    def _history_since(history_x, history_y, cutoff_time):
+        """Return aligned timestamp/value pairs at or after a cutoff."""
+        selected = [
+            (timestamp, value)
+            for timestamp, value in zip(history_x, history_y)
+            if timestamp >= cutoff_time
+        ]
+        if not selected:
+            return [], []
+        timestamps, values = zip(*selected)
+        return list(timestamps), list(values)
+
+    def _refresh_display_data(self, current_time):
+        """Apply the selected time window to both pressure histories."""
+        history_cutoff = current_time - datetime.timedelta(
+            seconds=self.MAX_HISTORY_SECONDS
+        )
+        self._trim_history_before(
+            self.full_history_x,
+            self.full_history_y,
+            history_cutoff,
+        )
+        self._trim_history_before(
+            self.full_history_902b_x,
+            self.full_history_902b_y,
+            history_cutoff,
+        )
+        display_cutoff = current_time - datetime.timedelta(
+            seconds=self.display_window
+        )
+        self.x_data, self.y_data = self._history_since(
+            self.full_history_x,
+            self.full_history_y,
+            display_cutoff,
+        )
+        self.x_data_902b, self.y_data_902b = self._history_since(
+            self.full_history_902b_x,
+            self.full_history_902b_y,
+            display_cutoff,
+        )
+
+    def _902b_reading_is_fresh(self):
+        return (
+            self.last_valid_902b_timestamp is not None
+            and time.time() - self.last_valid_902b_timestamp
+            <= self.PRESSURE_902B_READING_FRESH_SECONDS
+        )
+
+    def _should_suppress_902b_publication(self):
+        pressure_972b = getattr(self, "last_valid_pressure_value", None)
+        return (
+            not getattr(self, "error_state", False)
+            and self._pressure_reading_is_fresh()
+            and pressure_972b is not None
+            and pressure_972b < self.PRESSURE_902B_MIN_VALID_972B_MBAR
+        )
+
+    def _flush_902b_logs(self):
+        """Drain 902B logs while hiding operational severities during suppression."""
+        if self.mks_902b_driver is None:
+            return
+        if self._should_suppress_902b_publication():
+            self.mks_902b_driver.flush_queued_logs(max_level=LogLevel.DEBUG)
+            return
+        self.mks_902b_driver.flush_queued_logs()
+
+    def _clear_902b_publication(self):
+        if self._902b_webmonitor_cleared:
+            return
+        if self.logger is not None:
+            self.logger.clear_value("pressure_902b_mbar")
+        self._902b_webmonitor_cleared = True
+
+    def _set_902b_pressure_display(self, pressure_mbar):
+        label = getattr(self, "label_902b_pressure", None)
+        if label is None:
+            return
+        if pressure_mbar is None:
+            display_text = "No data..."
+        else:
+            mantissa, exponent = f"{pressure_mbar:.2E}".split("E")
+            display_text = f"{mantissa}e{int(exponent):+d} mbar"
+        label.config(
+            text=display_text,
+            bg="white",
+            fg="black",
+        )
+
+    def _set_902b_widget_suppressed(self, suppressed):
+        if suppressed == self._902b_widget_suppressed:
+            return
+        self._902b_widget_suppressed = suppressed
+        if suppressed:
+            if any(
+                math.isfinite(value)
+                for value in getattr(self, "full_history_902b_y", [])
+            ):
+                self._902b_plot_gap_pending = True
+            self.log(
+                "972B reached a pressure below 1mbar: Disabling 902B display data",
+                LogLevel.INFO,
+            )
+        else:
+            self.log(
+                "972B reached a pressure of 1mbar: Enabling 902B display data",
+                LogLevel.INFO,
+            )
+
+        pressure_frame = getattr(self, "pressure_frame", None)
+        if pressure_frame is None:
+            return
+
+        if suppressed:
+            self.label_902b_title.grid_remove()
+            self.label_902b_pressure.grid_remove()
+            self.label_972b_title.config(text="972B Pressure:")
+            pressure_frame.grid_columnconfigure(0, weight=1)
+            pressure_frame.grid_columnconfigure(1, weight=0)
+            pressure_frame.grid_columnconfigure(2, weight=0)
+            pressure_frame.grid_columnconfigure(3, weight=1)
+            self.label_972b_title.grid_configure(column=1)
+            self.label_pressure.grid_configure(column=2, sticky='')
+        else:
+            pressure_frame.grid_columnconfigure(0, weight=0)
+            pressure_frame.grid_columnconfigure(1, weight=1)
+            pressure_frame.grid_columnconfigure(2, weight=0)
+            pressure_frame.grid_columnconfigure(3, weight=1)
+            self.label_972b_title.config(text="972B:")
+            self.label_972b_title.grid_configure(column=0)
+            self.label_pressure.grid_configure(column=1, sticky='ew')
+            self.label_902b_title.grid()
+            self.label_902b_pressure.grid()
 
     def _pressure_reading_is_fresh(self):
         last_successful_read_time = getattr(self, "last_successful_read_time", None)
@@ -244,10 +487,12 @@ class VTRXSubsystem:
         """
         Cancel scheduled GUI updates, to be called by dashboard when app is quit.
         """
-        if hasattr(self, 'after_id') and self.after_id:
+        self._closing = True
+        after_id = getattr(self, 'after_id', None)
+        self.after_id = None
+        if after_id:
             try:
-                self.parent.after_cancel(self.after_id)
-                self.after_id = None
+                self.parent.after_cancel(after_id)
                 if self.logger:
                     self.log('Canceled scheduled VTRX display update.', LogLevel.DEBUG)
             except Exception as e:
@@ -277,16 +522,16 @@ class VTRXSubsystem:
         to indicate error condition.
         """
         self.label_pressure.config(text="No data...", fg="red")
-        self.line.set_color('red')
+        self._set_972b_plot_color('red')
         self.ax.set_title('(Error)', fontsize=10, color='red', pad=self.PLOT_TITLE_PAD)
         for canvas, oval_id in self.circle_indicators:
             canvas.itemconfig(oval_id, fill='red')
         self.canvas.draw_idle()
 
-        #Clear the webmonitor fields if error state
+        # Clear the Data Log fields while in an error state.
         if self.logger and hasattr(self.logger, "clear_value"):
             if not self.vacuum_fields_cleared:
-                self.log("Clearing VTRX web monitor vacuum fields.", LogLevel.DEBUG)
+                self.log("Clearing VTRX Data Log vacuum fields.", LogLevel.DEBUG)
                 self.vacuum_fields_cleared = True
             self.logger.clear_value("vacuumBits")
             self.logger.clear_value("pressure")
@@ -381,6 +626,10 @@ class VTRXSubsystem:
                 self.last_no_data_log_time = 0.0
                 self.last_successful_read_time = time.time()
                 self.last_valid_pressure_value = pressure_value
+                suppress_902b = self._should_suppress_902b_publication()
+                self._set_902b_widget_suppressed(suppress_902b)
+                if suppress_902b:
+                    self._clear_902b_publication()
                 self.update_gui(pressure_value, pressure_raw, switch_states)
             else:
                 self.update_gui_with_error_state()
@@ -521,16 +770,53 @@ class VTRXSubsystem:
         plot_frame = tk.Frame(layout_frame)
         plot_frame.grid(row=0, column=1, sticky='nsew', padx=(4, 6), pady=(3, 1)) 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.92, bottom=0.18)
+        self.fig.subplots_adjust(left=0.17, right=0.96, top=0.92, bottom=0.28)
         self.line, = self.ax.plot(self.x_data, self.y_data, 'g-')
+        self.line_902b, = self.ax.plot(
+            self.x_data_902b,
+            self.y_data_902b,
+            color=self.PRESSURE_902B_PLOT_COLOR,
+        )
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        self.fig.autofmt_xdate()  
+        self.fig.autofmt_xdate(bottom=0.28)
         self.ax.set_title('', pad=self.PLOT_TITLE_PAD)
         self.ax.set_ylabel('Pressure [mbar]', fontsize=8)
         self.ax.set_yscale('log')
         self.ax.set_ylim(1e-7, 1e3)  
         self._apply_plot_label_sizes()
         self.ax.grid(True)
+        legend_handles = [
+            Line2D(
+                [],
+                [],
+                color="green",
+                marker="o",
+                linestyle="None",
+                markersize=5,
+                label="972B",
+            ),
+            Line2D(
+                [],
+                [],
+                color=self.PRESSURE_902B_PLOT_COLOR,
+                marker="o",
+                linestyle="None",
+                markersize=5,
+                label="902B",
+            ),
+        ]
+        self.plot_legend = self.ax.legend(
+            handles=legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.30),
+            ncol=2,
+            frameon=False,
+            fontsize=7,
+            handlelength=1,
+            handletextpad=0.3,
+            borderaxespad=0,
+        )
+        self.legend_972b_marker = self.plot_legend.get_lines()[0]
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.draw()
@@ -538,12 +824,20 @@ class VTRXSubsystem:
         self.canvas_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=3)
 
         # Pressure label setup
-        pressure_frame = tk.Frame(layout_frame)
-        pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
-        pressure_frame.grid_columnconfigure(0, weight=1)
+        self.pressure_frame = tk.Frame(layout_frame)
+        self.pressure_frame.grid(row=1, column=1, sticky='ew', padx=(4, 6), pady=(2, 1))
+        self.pressure_frame.grid_columnconfigure(1, weight=1)
+        self.pressure_frame.grid_columnconfigure(3, weight=1)
+
+        self.label_972b_title = tk.Label(
+            self.pressure_frame,
+            text="972B:",
+            font=('Helvetica', 10, 'bold'),
+        )
+        self.label_972b_title.grid(row=0, column=0, padx=(0, 4))
 
         self.label_pressure = tk.Label(
-            pressure_frame,
+            self.pressure_frame,
             text="No data...", 
             anchor='center',
             font=('Helvetica', 11, 'bold'), 
@@ -552,7 +846,27 @@ class VTRXSubsystem:
             fg='black', 
             padx=3, pady=2
         )
-        self.label_pressure.grid(row=0, column=0, ipady=2)
+        self.label_pressure.grid(row=0, column=1, sticky='ew', ipady=2)
+
+        self.label_902b_title = tk.Label(
+            self.pressure_frame,
+            text="902B:",
+            font=('Helvetica', 10, 'bold'),
+        )
+        self.label_902b_title.grid(row=0, column=2, padx=(12, 4))
+
+        self.label_902b_pressure = tk.Label(
+            self.pressure_frame,
+            text="No data...",
+            anchor='center',
+            font=('Helvetica', 11, 'bold'),
+            relief='ridge',
+            bg='white',
+            fg='black',
+            padx=3,
+            pady=2,
+        )
+        self.label_902b_pressure.grid(row=0, column=3, sticky='ew', ipady=2)
      
     def update_gui(self, pressure_value, pressure_raw, switch_states):
         """
@@ -572,16 +886,7 @@ class VTRXSubsystem:
         self.full_history_x.append(current_time)
         self.full_history_y.append(pressure_value)
         
-        # Trim history older than MAX_HISTORY_SECONDS
-        cutoff_time = current_time - datetime.timedelta(seconds=self.MAX_HISTORY_SECONDS)
-        while self.full_history_x and self.full_history_x[0] < cutoff_time:
-            self.full_history_x.pop(0)
-            self.full_history_y.pop(0)
-        
-        # Update display window data
-        display_cutoff = current_time - datetime.timedelta(seconds=self.display_window)
-        self.x_data = [x for x in self.full_history_x if x >= display_cutoff]
-        self.y_data = self.full_history_y[-len(self.x_data):]
+        self._refresh_display_data(current_time)
         
         if time.time() - self.last_gui_update_time > 0.5:
             self.last_gui_update_time = time.time()
@@ -599,7 +904,9 @@ class VTRXSubsystem:
                     bg="#FF0000",
                     fg="#FFB6B6"
                 )
-            self.line.set_color('green' if not self.error_state else 'red')
+            self._set_972b_plot_color(
+                'green' if not self.error_state else 'red'
+            )
             self.ax.set_title(
                 'VTRX Pressure Readout',
                 fontsize=8,
@@ -624,25 +931,39 @@ class VTRXSubsystem:
 
     def update_plot(self):
         """Update plot with current display window data."""
-        # Update the data for the line
+        # Update both sensor lines.
         self.line.set_data(self.x_data, self.y_data)
+        self.line_902b.set_data(self.x_data_902b, self.y_data_902b)
         self.ax.relim()
         self.ax.autoscale_view(True, True, False)
 
-        if self.y_data:
-            y_min = min(self.y_data)
-            y_max = max(self.y_data)
-            if y_min > 0 and y_max > 0:
-                self.ax.set_ylim(y_min * 0.5, y_max * 2)
+        visible_pressures = [
+            value
+            for value in self.y_data + self.y_data_902b
+            if math.isfinite(value) and value > 0
+        ]
+        if visible_pressures:
+            self.ax.set_ylim(
+                min(visible_pressures) * 0.5,
+                max(visible_pressures) * 2,
+            )
 
-        if self.x_data:
-            current_time = self.x_data[-1]
+        visible_timestamps = self.x_data + self.x_data_902b
+        if visible_timestamps:
+            current_time = max(visible_timestamps)
             start_time = current_time - datetime.timedelta(seconds=self.display_window)
             self.ax.set_xlim(start_time, current_time)
 
         self._apply_plot_label_sizes()
         self.canvas.draw_idle()
         self.canvas.flush_events()
+
+    def _set_972b_plot_color(self, color):
+        """Keep the 972B line and its legend marker in the same state color."""
+        self.line.set_color(color)
+        legend_marker = getattr(self, "legend_972b_marker", None)
+        if legend_marker is not None:
+            legend_marker.set_color(color)
 
     def _apply_plot_label_sizes(self):
         """Keep static and dynamically generated graph labels the same size."""
@@ -670,12 +991,8 @@ class VTRXSubsystem:
         current_time = datetime.datetime.now()
         self.display_window = seconds
         self.log(f"VTRX display window set to {seconds} seconds.", LogLevel.INFO)
-        
-        # Update display data from full history
-        display_cutoff = current_time - datetime.timedelta(seconds=seconds)
-        self.x_data = [x for x in self.full_history_x if x >= display_cutoff]
-        self.y_data = self.full_history_y[-len(self.x_data):]
-        
+
+        self._refresh_display_data(current_time)
         self.update_plot()
 
     def save_plot(self):

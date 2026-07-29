@@ -564,7 +564,7 @@ class G9Driver:
         if queue_field_updates:
             self._queue_status_field_updates(binary_data)
 
-        # Store data flags to be logged in interlock.py for web monitor
+        # Store data flags to be logged in interlock.py for the Data Log.
         debug_data = {
             'sotdf': binary_data['sotdf'],
             'sitdf': binary_data['sitdf'],
