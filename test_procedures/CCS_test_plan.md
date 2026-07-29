@@ -1786,10 +1786,10 @@ limit configured; outputs OFF.
 
 | Test steps | Expected results | Notes |
 |---|---|---|
-| 1. Raise temperature above the limit and hold for 5 s. | One breach transition is logged at CRITICAL and UI remains orange/OVERTEMP; duplicate CRITICAL records do not appear every refresh. | |
-| 2. Continue holding for another 10 s. | No additional CRITICAL transition is emitted for the same continuous breach; UI remains OVERTEMP/orange. | |
+| 1. Raise temperature above the limit and hold for 5 s. | One breach transition is logged at CRITICAL and UI remains orange/OVERTEMP. | |
+| 2. Continue holding for another 5 s. | No additional CRITICAL transition is emitted for the same continuous breach; UI remains OVERTEMP/orange. | |
 | 3. Allow temperature below the limit. | One recovery transition is recorded and highlight clears. | |
-| 4. Raise it above again after full recovery. | A new breach produces one new CRITICAL transition. | |
+| 4. Raise it above again after full recovery. | A new breach produces one new CRITICAL transition every 10s. | |
 | 5. Restore 150 C. | Baseline returns Normal. | |
 
 ### CCS-11.8 - Invalid-data telemetry hygiene
