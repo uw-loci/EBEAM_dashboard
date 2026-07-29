@@ -29,7 +29,7 @@ flowchart TD
     BeamPulse -->|"manual disconnect check,<br/>disconnect notification"| MainControl
     MainControl -->|"BCON-connected provider,<br/>guard setting, turn_off_all_beams()"| Cathode
 
-    BeamEnergy -->|"+20kV current E-stop callback"| MainControl
+    BeamEnergy -->|"+20kV current Disarm callback"| MainControl
     MainControl -->|"turn_off_all_beams()"| Cathode
 
     BeamPulse -->|"high-level channel activation/stop calls"| Driver["BCONDriver<br/>instrumentctl/BCON"]
