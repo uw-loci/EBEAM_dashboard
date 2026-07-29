@@ -7,18 +7,18 @@ from unittest.mock import patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from subsystem.main_control.main_control import BEAM_ACTION_FAILURE_COLOR, MainControlPanel
+from subsystem.main_control.main_control import BEAM_ACTION_NEUTRAL_COLOR, MainControlPanel
 from usr.main_control_config import (
-    BEAMS_ESTOP_CURRENT_LIMIT_FIELD,
-    DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+    BEAMS_DISABLE_CURRENT_LIMIT_FIELD,
+    DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA,
     DEFAULT_TOTAL_MAX_EMISSION_CURRENT_MA,
     DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
     TOTAL_MAX_EMISSION_CURRENT_FIELD,
     VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD,
-    load_beams_estop_current_limit_ma,
+    load_beams_disable_current_limit_ma,
     load_total_max_emission_current,
     load_vtrx_ccs_disable_grace_period_s,
-    save_beams_estop_current_limit_ma,
+    save_beams_disable_current_limit_ma,
     save_total_max_emission_current,
     save_vtrx_ccs_disable_grace_period_s,
 )
@@ -66,16 +66,17 @@ class FakeCathode:
 
 
 class FakeBeamPulse:
-    def __init__(self, connected=True):
+    def __init__(self, connected=True, disable_all_result=True):
         self.disable_all_calls = 0
         self.connected = connected
+        self.disable_all_result = disable_all_result
         self.operation_tokens = []
 
     def disable_all_beams(self, defer_ui=False, operation_token=None):
         self.disable_all_calls += 1
         self.defer_ui_values = getattr(self, "defer_ui_values", []) + [defer_ui]
         self.operation_tokens.append(operation_token)
-        return True
+        return self.disable_all_result
 
     def is_connected(self):
         return self.connected
@@ -131,7 +132,7 @@ def make_main_control(now=100.0, cathode=None, beam_pulse=None):
     main_control.disable_beams_on_vtrx_pressure_exceeded = False
     main_control.vtrx_ccs_pressure_shutdown_enabled = True
     main_control.total_max_emission_current_limit_enabled = True
-    main_control.beams_estop_current_limit_enabled = True
+    main_control.beams_disable_current_limit_enabled = True
     main_control._last_vtrx_pressure_mbar = None
     main_control.pressure_reading_is_fresh = False
     main_control.vtrx_firmware_error = False
@@ -194,8 +195,8 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                 DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
             )
             self.assertEqual(
-                load_beams_estop_current_limit_ma(config_path),
-                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+                load_beams_disable_current_limit_ma(config_path),
+                DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA,
             )
 
             self.assertTrue(save_vtrx_ccs_disable_grace_period_s(12.0, config_path))
@@ -205,8 +206,8 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
             self.assertEqual(saved[TOTAL_MAX_EMISSION_CURRENT_FIELD], 7.5)
             self.assertEqual(saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD], 12.0)
             self.assertEqual(
-                saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD],
-                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+                saved[BEAMS_DISABLE_CURRENT_LIMIT_FIELD],
+                DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA,
             )
 
     def test_object_config_preserves_other_setting_on_save(self):
@@ -217,7 +218,7 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                     {
                         TOTAL_MAX_EMISSION_CURRENT_FIELD: 4.0,
                         VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD: 9.0,
-                        BEAMS_ESTOP_CURRENT_LIMIT_FIELD: 0.7,
+                        BEAMS_DISABLE_CURRENT_LIMIT_FIELD: 0.7,
                     },
                     file,
                 )
@@ -228,15 +229,15 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
 
             self.assertEqual(saved[TOTAL_MAX_EMISSION_CURRENT_FIELD], 5.0)
             self.assertEqual(saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD], 9.0)
-            self.assertEqual(saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD], 0.7)
+            self.assertEqual(saved[BEAMS_DISABLE_CURRENT_LIMIT_FIELD], 0.7)
 
-            self.assertTrue(save_beams_estop_current_limit_ma(0.5, config_path))
+            self.assertTrue(save_beams_disable_current_limit_ma(0.5, config_path))
             with open(config_path, "r") as file:
                 saved = json.load(file)
 
             self.assertEqual(saved[TOTAL_MAX_EMISSION_CURRENT_FIELD], 5.0)
             self.assertEqual(saved[VTRX_CCS_DISABLE_GRACE_PERIOD_FIELD], 9.0)
-            self.assertEqual(saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD], 0.5)
+            self.assertEqual(saved[BEAMS_DISABLE_CURRENT_LIMIT_FIELD], 0.5)
 
     def test_missing_config_uses_defaults(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -251,8 +252,8 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                 DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
             )
             self.assertEqual(
-                load_beams_estop_current_limit_ma(config_path),
-                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+                load_beams_disable_current_limit_ma(config_path),
+                DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA,
             )
             with open(config_path, "r") as file:
                 saved = json.load(file)
@@ -266,8 +267,8 @@ class MainControlConfigPersistenceTest(unittest.TestCase):
                 DEFAULT_VTRX_CCS_DISABLE_GRACE_PERIOD_S,
             )
             self.assertEqual(
-                saved[BEAMS_ESTOP_CURRENT_LIMIT_FIELD],
-                DEFAULT_BEAMS_ESTOP_CURRENT_LIMIT_MA,
+                saved[BEAMS_DISABLE_CURRENT_LIMIT_FIELD],
+                DEFAULT_BEAMS_DISABLE_CURRENT_LIMIT_MA,
             )
 
 
@@ -312,10 +313,10 @@ class MainControlBeamsOffTest(unittest.TestCase):
         self.assertEqual(beam_pulse.stop_all_calls, 1)
         self.assertEqual(beam_pulse.disarm_calls, 1)
 
-    def test_automatic_20kv_estop_retains_cause_after_bcon_confirmation(self):
+    def test_estop_retains_supplied_cause_after_bcon_confirmation(self):
         beam_pulse = FakeBeamPulseEstop()
         main_control = make_main_control_for_beams_off(beam_pulse=beam_pulse)
-        cause = "20kV E-Stop Current Limit exceeded: All Beams Disabled"
+        cause = "Operator-requested E-Stop: All Beams Disabled"
 
         main_control.handle_beams_off(cause)
         token = main_control._pending_bcon_operation["token"]
@@ -340,7 +341,7 @@ class MainControlBeamsOffTest(unittest.TestCase):
             ),
         )
         self.assertEqual(main_control._beam_action_status_outcome, "estop")
-        self.assertEqual(main_control._beam_action_status_color, BEAM_ACTION_FAILURE_COLOR)
+        self.assertEqual(main_control._beam_action_status_color, BEAM_ACTION_NEUTRAL_COLOR)
         self.assertEqual(beam_pulse.complete_disarm_calls, 1)
 
     def test_estop_timeout_preserves_arming_state_and_allows_recovery_action(self):
@@ -442,6 +443,34 @@ class MainControlVtrxCcsGracePeriodUiTest(unittest.TestCase):
 
 
 class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
+    @staticmethod
+    def _start_sent_all_off(main_control, kind):
+        token = main_control._start_bcon_operation(
+            f"{kind} all-off",
+            range(3),
+            expected="all_off",
+            kind=kind,
+        )
+        main_control._handle_bcon_operation_event(
+            "operation_sent",
+            {"token": token, "sent_at": 100.0},
+        )
+        return token
+
+    @staticmethod
+    def _fail_operation(main_control, token, event_type):
+        info = {"operation_token": token}
+        if event_type == "operation_result":
+            info.update(rejected=True, last_reject_reason="TEST_REJECTION")
+        else:
+            info["reason"] = "test failure"
+        main_control._handle_bcon_operation_event(event_type, info)
+
+    @staticmethod
+    def _enable_beam_pressure_guard(main_control):
+        main_control.disable_beams_on_vtrx_pressure_exceeded = True
+        main_control._vtrx_pressure_beam_disable_latched = False
+
     def test_wire_vtrx_gives_cathode_pressure_guard_without_beam_pulse(self):
         cathode = FakeCathode(active=False)
         vtrx = FakeVtrx()
@@ -666,8 +695,7 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
     def test_stale_pressure_turns_off_bcon_channels_and_latches_until_fresh_safe(self):
         beam_pulse = FakeBeamPulse()
         main_control = make_main_control(beam_pulse=beam_pulse)
-        main_control.disable_beams_on_vtrx_pressure_exceeded = True
-        main_control._vtrx_pressure_beam_disable_latched = False
+        self._enable_beam_pressure_guard(main_control)
         main_control._beam_software_interlock_states = [True, True, True]
 
         main_control._handle_vtrx_pressure_update(5e-6, pressure_reading_is_fresh=False)
@@ -704,11 +732,339 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
 
         self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
 
+    def test_failed_estop_retries_pressure_shutdown_in_either_event_order(self):
+        for event_type in (
+            "operation_result",
+            "operation_failed",
+            "operation_cancelled",
+        ):
+            for failure_before_pressure in (True, False):
+                with self.subTest(
+                    event_type=event_type,
+                    failure_before_pressure=failure_before_pressure,
+                ):
+                    beam_pulse = FakeBeamPulse()
+                    main_control = make_main_control(beam_pulse=beam_pulse)
+                    self._enable_beam_pressure_guard(main_control)
+                    token = self._start_sent_all_off(main_control, "estop")
+
+                    if failure_before_pressure:
+                        self._fail_operation(main_control, token, event_type)
+                    else:
+                        main_control._handle_vtrx_pressure_update(
+                            2e-5,
+                            pressure_reading_is_fresh=True,
+                        )
+                        self.assertEqual(beam_pulse.disable_all_calls, 0)
+                        self.assertTrue(
+                            main_control._vtrx_pressure_beam_disable_latched
+                        )
+                        self._fail_operation(main_control, token, event_type)
+                        self.assertFalse(
+                            main_control._vtrx_pressure_beam_disable_latched
+                        )
+
+                    failed_estop = main_control._pending_bcon_operation
+                    self.assertEqual(failed_estop["token"], token)
+                    self.assertTrue(failed_estop["safety_failed"])
+
+                    main_control._handle_vtrx_pressure_update(
+                        2e-5,
+                        pressure_reading_is_fresh=True,
+                    )
+
+                    self.assertEqual(beam_pulse.disable_all_calls, 1)
+                    self.assertEqual(
+                        main_control._pending_bcon_operation["kind"],
+                        "disable_all",
+                    )
+                    self.assertNotEqual(
+                        main_control._pending_bcon_operation["token"],
+                        token,
+                    )
+                    self.assertTrue(
+                        main_control._vtrx_pressure_beam_disable_latched
+                    )
+
+    def test_healthy_pending_all_off_covers_pressure_until_safe(self):
+        for kind in ("disable_all", "disarm", "estop"):
+            with self.subTest(kind=kind):
+                beam_pulse = FakeBeamPulse()
+                main_control = make_main_control(beam_pulse=beam_pulse)
+                self._enable_beam_pressure_guard(main_control)
+                token = self._start_sent_all_off(main_control, kind)
+
+                main_control._handle_vtrx_pressure_update(
+                    2e-5,
+                    pressure_reading_is_fresh=True,
+                )
+                main_control._handle_vtrx_pressure_update(
+                    2e-5,
+                    pressure_reading_is_fresh=True,
+                )
+
+                self.assertEqual(beam_pulse.disable_all_calls, 0)
+                self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+                main_control._handle_bcon_operation_event(
+                    "operation_result",
+                    {
+                        "operation_token": token,
+                        "accepted": True,
+                        "last_command_result": "EXECUTED",
+                    },
+                )
+                main_control._handle_bcon_operation_event(
+                    "operation_poll",
+                    {"completed_at": 100.1},
+                )
+                main_control._handle_vtrx_pressure_update(
+                    2e-5,
+                    pressure_reading_is_fresh=True,
+                )
+
+                self.assertIsNone(main_control._pending_bcon_operation)
+                self.assertEqual(beam_pulse.disable_all_calls, 0)
+                self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+                main_control._handle_vtrx_pressure_update(
+                    5e-6,
+                    pressure_reading_is_fresh=True,
+                )
+                self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_unsuccessful_all_off_outcomes_release_pressure_latch(self):
+        event_types = (
+            "operation_result",
+            "operation_failed",
+            "operation_cancelled",
+        )
+        for event_type in event_types:
+            with self.subTest(outcome=event_type):
+                main_control = make_main_control()
+                token = self._start_sent_all_off(main_control, "disarm")
+                main_control._vtrx_pressure_beam_disable_latched = True
+
+                self._fail_operation(main_control, token, event_type)
+
+                self.assertIsNone(main_control._pending_bcon_operation)
+                self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+        for state, phase in (
+            ("awaiting_send", "send"),
+            ("awaiting_ack", "ack"),
+            ("awaiting_poll", "ack"),
+        ):
+            with self.subTest(outcome="timeout", state=state):
+                main_control = make_main_control()
+                token = main_control._start_bcon_operation(
+                    "disarm all-off",
+                    range(3),
+                    expected="all_off",
+                    kind="disarm",
+                )
+                main_control._pending_bcon_operation["state"] = state
+                if state != "awaiting_send":
+                    main_control._pending_bcon_operation["sent_at"] = 100.0
+                main_control._vtrx_pressure_beam_disable_latched = True
+
+                main_control._expire_bcon_operation(token, phase)
+
+                self.assertIsNone(main_control._pending_bcon_operation)
+                self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+        main_control = make_main_control()
+        self._start_sent_all_off(main_control, "disarm")
+        main_control._vtrx_pressure_beam_disable_latched = True
+
+        main_control._terminate_pending_bcon_operation("test disconnect")
+
+        self.assertIsNone(main_control._pending_bcon_operation)
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_non_all_off_failures_do_not_release_pressure_latch(self):
+        for outcome in ("rejected", "failed", "cancelled", "timeout", "terminated"):
+            with self.subTest(outcome=outcome):
+                main_control = make_main_control()
+                token = main_control._start_bcon_operation(
+                    "normal operation",
+                    (0,),
+                    expected="poll",
+                    kind="normal",
+                )
+                main_control._vtrx_pressure_beam_disable_latched = True
+
+                if outcome == "rejected":
+                    self._fail_operation(
+                        main_control,
+                        token,
+                        "operation_result",
+                    )
+                elif outcome == "failed":
+                    self._fail_operation(
+                        main_control,
+                        token,
+                        "operation_failed",
+                    )
+                elif outcome == "cancelled":
+                    self._fail_operation(
+                        main_control,
+                        token,
+                        "operation_cancelled",
+                    )
+                elif outcome == "timeout":
+                    main_control._expire_bcon_operation(token, "send")
+                else:
+                    main_control._terminate_pending_bcon_operation(
+                        "test disconnect"
+                    )
+
+                self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_all_off_preemption_keeps_latch_until_final_operation_fails(self):
+        beam_pulse = FakeBeamPulse()
+        main_control = make_main_control(beam_pulse=beam_pulse)
+        self._enable_beam_pressure_guard(main_control)
+        disable_token = self._start_sent_all_off(main_control, "disable_all")
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+        disarm_token = self._start_sent_all_off(main_control, "disarm")
+
+        self.assertNotEqual(disarm_token, disable_token)
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+        self._fail_operation(main_control, disable_token, "operation_failed")
+
+        self.assertEqual(
+            main_control._pending_bcon_operation["token"],
+            disarm_token,
+        )
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+        estop_token = self._start_sent_all_off(main_control, "estop")
+
+        self.assertNotEqual(estop_token, disarm_token)
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+        self._fail_operation(main_control, estop_token, "operation_failed")
+
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+
+        self.assertEqual(beam_pulse.disable_all_calls, 1)
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_failed_estop_poll_still_allows_conservative_pressure_retry(self):
+        beam_pulse = FakeBeamPulse()
+        main_control = make_main_control(beam_pulse=beam_pulse)
+        self._enable_beam_pressure_guard(main_control)
+        token = self._start_sent_all_off(main_control, "estop")
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+        self._fail_operation(main_control, token, "operation_failed")
+        main_control._handle_bcon_operation_event(
+            "operation_poll",
+            {"completed_at": 100.1},
+        )
+
+        self.assertIsNone(main_control._pending_bcon_operation)
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+
+        self.assertEqual(beam_pulse.disable_all_calls, 1)
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_synchronous_all_off_failure_waits_for_timeout_before_retry(self):
+        beam_pulse = FakeBeamPulse(disable_all_result=False)
+        main_control = make_main_control(beam_pulse=beam_pulse)
+        self._enable_beam_pressure_guard(main_control)
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+
+        failed_token = main_control._pending_bcon_operation["token"]
+        self.assertEqual(beam_pulse.disable_all_calls, 1)
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+
+        self.assertEqual(beam_pulse.disable_all_calls, 1)
+        self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
+        main_control._expire_bcon_operation(failed_token, "send")
+
+        self.assertIsNone(main_control._pending_bcon_operation)
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+        main_control._handle_vtrx_pressure_update(
+            2e-5,
+            pressure_reading_is_fresh=True,
+        )
+
+        self.assertEqual(beam_pulse.disable_all_calls, 2)
+        self.assertFalse(main_control._vtrx_pressure_beam_disable_latched)
+
+    def test_all_unsafe_pressure_sources_share_all_off_retry_behavior(self):
+        unsafe_updates = (
+            (2e-5, True, False),
+            (5e-6, False, False),
+            (5e-6, True, True),
+        )
+        for pressure, fresh, firmware_error in unsafe_updates:
+            with self.subTest(
+                pressure=pressure,
+                fresh=fresh,
+                firmware_error=firmware_error,
+            ):
+                beam_pulse = FakeBeamPulse()
+                main_control = make_main_control(beam_pulse=beam_pulse)
+                self._enable_beam_pressure_guard(main_control)
+                token = self._start_sent_all_off(main_control, "estop")
+
+                main_control._handle_vtrx_pressure_update(
+                    pressure,
+                    pressure_reading_is_fresh=fresh,
+                    firmware_error=firmware_error,
+                )
+                self.assertEqual(beam_pulse.disable_all_calls, 0)
+
+                self._fail_operation(
+                    main_control,
+                    token,
+                    "operation_cancelled",
+                )
+                main_control._handle_vtrx_pressure_update(
+                    pressure,
+                    pressure_reading_is_fresh=fresh,
+                    firmware_error=firmware_error,
+                )
+
+                self.assertEqual(beam_pulse.disable_all_calls, 1)
+                self.assertTrue(main_control._vtrx_pressure_beam_disable_latched)
+
     def test_high_pressure_resets_interlocks_only_after_confirmed_all_off_poll(self):
         beam_pulse = FakeBeamPulse()
         main_control = make_main_control(beam_pulse=beam_pulse)
-        main_control.disable_beams_on_vtrx_pressure_exceeded = True
-        main_control._vtrx_pressure_beam_disable_latched = False
+        self._enable_beam_pressure_guard(main_control)
         main_control._beam_software_interlock_states = [True, True, True]
 
         main_control._handle_vtrx_pressure_update(2e-5, pressure_reading_is_fresh=True)
@@ -735,8 +1091,7 @@ class MainControlVtrxCcsPressureTimerTest(unittest.TestCase):
     def test_vtrx_firmware_error_turns_off_bcon_channels_and_latches_until_clear(self):
         beam_pulse = FakeBeamPulse()
         main_control = make_main_control(beam_pulse=beam_pulse)
-        main_control.disable_beams_on_vtrx_pressure_exceeded = True
-        main_control._vtrx_pressure_beam_disable_latched = False
+        self._enable_beam_pressure_guard(main_control)
 
         main_control._handle_vtrx_pressure_update(
             5e-6,
