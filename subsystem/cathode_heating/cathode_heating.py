@@ -50,7 +50,9 @@ class CathodeHeatingSubsystem:
 
     TEMPERATURE_GRAPHS_ENABLED = False  # Flip to True to restore the CCS temperature graphs.
     MAX_POINTS = 60  # Maximum number of points to display on the plot
-    OVERTEMP_THRESHOLD = 200.0 # Overtemperature threshold in C
+    OVERTEMP_THRESHOLD = 150.0 # Default overtemperature threshold in C
+    DEFAULT_OVERVOLTAGE_LIMIT_VOLTS = 1.1
+    DEFAULT_OVERCURRENT_LIMIT_AMPS = 7.0
     POLL_ERROR_LOG_INTERVAL_SECONDS = 10.0
     WORKER_LOG_QUEUE_MAXSIZE = 1000
     DEFAULT_VOLTAGE_DIFF_WARNING_PERCENT = 10.0
@@ -445,8 +447,12 @@ class CathodeHeatingSubsystem:
         self.overtemp_status_vars = [tk.StringVar(value='Normal') for _ in range(3)]
         
         ## Power supply protection
-        self.overvoltage_limit_vars = [tk.DoubleVar(value=1.0) for _ in range(3)]  # Default 1.0V limit (volts)
-        self.overcurrent_limit_vars = [tk.DoubleVar(value=9.0) for _ in range(3)]  # Default 9.0A limit (1.0V -> 9.0A per ES440 cathode, not 8.5A)
+        self.overvoltage_limit_vars = [
+            tk.DoubleVar(value=self.DEFAULT_OVERVOLTAGE_LIMIT_VOLTS) for _ in range(3)
+        ]
+        self.overcurrent_limit_vars = [
+            tk.DoubleVar(value=self.DEFAULT_OVERCURRENT_LIMIT_AMPS) for _ in range(3)
+        ]
         self.ovl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
         self.ocl_readback_vars = [tk.StringVar(value='N/A') for _ in range(3)]
         self.voltage_diff_warning_entry_vars = [tk.StringVar(value='') for _ in range(3)]
