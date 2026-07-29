@@ -48,17 +48,17 @@ The in-dashboard **Configure COM Ports** command is not fully functioning; see [
 
 The visible dashboard contains:
 
-- Interlocks
-- Vacuum System
-- Process Monitor
-- Messages
-- Beam Energy
-- Cathode Heating
-- Beam Pulse
-- Main Control
-- Machine Status
+- [Interlocks](#3-interlocks)
+- [Vacuum System](#4-vacuum-system--vtrx-and-902b)
+- [Process Monitor](#5-process-monitor)
+- [Messages](#12-messages-and-logging)
+- [Beam Energy](#6-beam-energy)
+- [Cathode Heating](#7-cathode-heating--ccs)
+- [Beam Pulse](#8-beam-pulse--bcon)
+- [Main Control](#9-main-control)
+- [Machine Status](#10-machine-status)
 
-Drag the panel dividers to resize these areas. **General → Save Layout** stores divider positions in **usr/usr_data/pane_state.json**.
+Drag the panel dividers to resize these areas. [**General → Save Layout**](#111-general-menu) stores divider positions in **usr/usr_data/pane_state.json**.
 
 ### 2.3 Keyboard shortcuts
 
@@ -73,7 +73,7 @@ Drag the panel dividers to resize these areas. **General → Save Layout** store
 
 The Keyboard Shortcuts window’s **Close** button, or Escape while that window has focus, closes only that window and is **Software only**.
 
-After confirmation, normal shutdown stops background workers and closes available serial connections. During cleanup, the dashboard attempts BCON ALL_OFF and attempts to disable available cathode-heater outputs before closing their ports. These are best-effort cleanup commands, not status-confirmed safety workflows. Use the applicable OFF, **Disable All Beams**, disarm, or **E-STOP: BEAMS & CCS** action and verify the result before closing when outputs may be active.
+After confirmation, normal shutdown stops background workers and closes available serial connections. During cleanup, the dashboard attempts BCON ALL_OFF and attempts to disable available cathode-heater outputs before closing their ports. These are best-effort cleanup commands, not status-confirmed safety workflows. Use the applicable [CCS OFF](#73-output-mode-and-output-toggle), [beam OFF, **Disable All Beams**, disarm, or **E-STOP: BEAMS & CCS**](#92-software-interlocks-beam-state-and-button-behavior) action and verify the result before closing when outputs may be active.
 
 ## 3. Interlocks
 
@@ -121,18 +121,18 @@ The two pressure values are displayed in mbar, and the logarithmic plot uses a g
 
 ### 4.2 Pressure display, suppression, and guards
 
-- The Main Control beam and CCS pressure guards consider 972B/VTRX pressure above 1e-5 mbar unsafe.
+- The [Main Control beam and CCS pressure guards](#113-beamcathode-settings) consider 972B/VTRX pressure above 1e-5 mbar unsafe.
 - Pressure at exactly 1e-5 mbar is safe for those guards.
-- Machine Status separately requires fresh 972B pressure strictly below 1e-4 and 1e-6 mbar for its two vacuum milestones.
+- [Machine Status](#10-machine-status) separately requires fresh 972B pressure strictly below 1e-4 and 1e-6 mbar for its two vacuum milestones.
 - The 902B reading never substitutes for a missing or faulty 972B reading in a guard or Machine Status calculation.
 
-When a fresh, valid 972B reading is strictly below 1.0 mbar, the secondary 902B display is intentionally suppressed: its value box is hidden, new 902B plot samples are discarded, its Data Log/Supabase field is cleared, and routine 902B operational log messages are suppressed. Existing 902B plot history remains until it ages out of the selected time window. When 902B display resumes, a gap separates the new line from the older samples. A 972B value exactly equal to 1.0 mbar does not suppress 902B. A stale, disconnected, or erroneous 972B also does not hide an independently fresh 902B reading.
+When a fresh, valid 972B reading is strictly below 1.0 mbar, the secondary 902B display is intentionally suppressed: its value box is hidden, new 902B plot samples are discarded, its [Data Log/Supabase](#12-messages-and-logging) field is cleared, and routine 902B operational log messages are suppressed. Existing 902B plot history remains until it ages out of the selected time window. When 902B display resumes, a gap separates the new line from the older samples. A 972B value exactly equal to 1.0 mbar does not suppress 902B. A stale, disconnected, or erroneous 972B also does not hide an independently fresh 902B reading.
 
 ### 4.3 Plot controls
 
 The plot keeps a rolling history of up to seven days. The time-window selector provides 5, 15, or 30 minutes; 1, 5, or 10 hours; 1 through 6 days; and Max. Changing the window is **Software only** and is not persisted during dashboard restart.
 
-**Save Plot** is **File only**. It writes a timestamped PNG under **EBEAM-Dashboard-Logs** relative to the dashboard’s current working directory. This may be a different directory from the user-profile log location used by the Messages logger if the repo is not located in the user's root directory.
+**Save Plot** is **File only**. It writes a timestamped PNG under **EBEAM-Dashboard-Logs** relative to the dashboard’s current working directory. This may be a different directory from the user-profile log location used by the [Messages logger](#12-messages-and-logging) if the repo is not located in the user's root directory.
 
 ## 5. Process Monitor
 
@@ -159,7 +159,7 @@ The driver reads channels sequentially in the background and the GUI refreshes a
 
 The colored bar is clipped to its configured display range, while the text shows the numeric reading, or **OFF** state.
 
-The hidden **Environment Pass** result is true only when every enabled sensor has a numeric value within its warning range, including equality. Disabled sensors are ignored for this aggregate. Machine Status reports this result as the **PMON Temperatures OK** status milestone.
+The hidden **Environment Pass** result is true only when every enabled sensor has a numeric value within its warning range, including equality. Disabled sensors are ignored for this aggregate. [Machine Status](#10-machine-status) reports this result as the **PMON Temperatures OK** status milestone.
 
 Disabling a channel suppresses its normal display, Environment Pass participation, and per-channel error/range log messages, but the underlying driver still polls the device. Its latest reading may therefore still appear in the aggregate Data Log temperature payload.
 
@@ -175,7 +175,7 @@ All four limits must be finite and Display Min must be less than Display Max; Wa
 
 An out-of-range value logs on entry into the condition and then no more than about once per 60 seconds while it persists.
 
-There is no supported live PMON COM-port reassignment/recovery path. If the monitor was not created at startup, assigning a value in the in-dashboard COM dialog does not create its polling schedule; restart the dashboard, and computer workstation if necessary, with the correct startup assignment.
+There is no supported live PMON COM-port reassignment/recovery path. If the monitor was not created at startup, assigning a value in the [in-dashboard COM dialog](#111-general-menu) does not create its polling schedule; restart the dashboard, and computer workstation if necessary, with the correct [startup assignment](#21-com-port-startup-dialog).
 
 ## 6. Beam Energy
 
@@ -208,7 +208,7 @@ Knob Box data is polled about every 200 ms; the visible panel normally refreshes
 
 Each supply has **Max Voltage**, **Min Voltage**, and **Max Current** warning limits with a **Set** action.
 
-These are **Software/file only**. They recolor dashboard values, affect Machine Status, and are saved to **usr/usr_data/beam_energy_warning_limits.json**. They do not program or limit the high-voltage supplies in any way.
+These are **Software/file only**. They recolor dashboard values, affect [Machine Status](#10-machine-status), and are saved to **usr/usr_data/beam_energy_warning_limits.json**. They do not program or limit the high-voltage supplies in any way.
 
 | Supply | Allowed abs maximum for Max Voltage warning | Allowed maximum for Max Current warning | Default Min Voltage warning |
 |---|---:|---:|---:|
@@ -246,7 +246,7 @@ The three displayed value types are different:
 |---|---|
 | **Sent** | Last current or voltage setpoint whose serial command returned OK. During a ramp, this changes after each acknowledged step. It is a command record, not measured output. |
 | **Goal** | Final target stored in dashboard software and used for prediction, later output activation, and ramp completion. |
-| **Measured Output** | Independent live voltage/current readback from the 9104; see Section 7.5. |
+| **Measured Output** | Independent live voltage/current readback from the 9104; see [Section 7.5](#75-measured-values-and-warnings). |
 
 The following behavior applies when a nonblank value is entered and its **Set** button is pressed:
 
@@ -258,7 +258,7 @@ The following behavior applies when a nonblank value is entered and its **Set** 
 | **ON — Ramp Voltage** | Immediately sends the new fixed current, then starts a voltage ramp from the live voltage readback toward the already-stored voltage Goal. | Stores the new voltage Goal and starts a voltage ramp from the live voltage readback toward it. It does not reset voltage to zero. |
 | **An active ramp worker is running** | The Set controls are disabled; a handler invocation is rejected. | The Set controls are disabled; a handler invocation is rejected. |
 
-In the two cross-mode cases—Voltage **Set** during Ramp Current or Current **Set** during Ramp Voltage—the fixed value is sent immediately and the selected ramp variable is then driven toward its existing Goal. The zero-start sequence described in Section 7.3 is not repeated while output is already ON.
+In the two cross-mode cases—Voltage **Set** during Ramp Current or Current **Set** during Ramp Voltage—the fixed value is sent immediately and the selected ramp variable is then driven toward its existing Goal. The zero-start sequence described in [Section 7.3](#73-output-mode-and-output-toggle) is not repeated while output is already ON.
 
 If the immediate fixed-value command in a cross-mode Set or nudge fails, the dashboard attempts `SOUT0`; the output is shown OFF only if that shutdown is acknowledged. If the fixed write succeeds but the new ramp cannot be started, the output can remain ON at the newly sent fixed value and the prior ramp-variable setpoint.
 
@@ -276,7 +276,7 @@ The nudge buttons use the same goal-setting path as the text **Set** buttons:
 
 All nudge buttons are disabled while a ramp worker is active. If the value used by a nudge is unavailable or **--**, its calculation starts from zero. A nudge still undergoes the normal OCP/OVP and voltage-step validation.
 
-Current must be nonnegative and no greater than the confirmed OCP. Voltage must be nonnegative, no greater than the confirmed OVP, and a multiple of 0.02 V. Zero is a valid numeric Goal and is not the same as a blank Goal.
+Current must be nonnegative and no greater than the [confirmed OCP](#76-cathode-config-tab). Voltage must be nonnegative, no greater than the [confirmed OVP](#76-cathode-config-tab), and a multiple of 0.02 V. Zero is a valid numeric Goal and is not the same as a blank Goal.
 
 ### 7.3 Output mode and output toggle
 
@@ -299,8 +299,8 @@ Enable is allowed only when:
 - The supply is command-ready.
 - Both current and voltage goals exist.
 - Goals are within confirmed OCP/OVP.
-- BCON is connected when **Disable CCS Output on BCON Disconnect** is enabled.
-- VTRX state permits enable when the **VTRX CCS pressure guard** is enabled.
+- BCON is connected when [**Disable CCS Output on BCON Disconnect**](#113-beamcathode-settings) is enabled.
+- VTRX state permits enable when the [**VTRX CCS pressure guard**](#113-beamcathode-settings) is enabled.
 
 If a required fixed setpoint or explicit zero command fails, enable is cancelled and the dashboard attempts output OFF. If `SOUT1` is not acknowledged, the ramp does not start and the UI remains OFF, but the physical output state must be treated as uncertain.
 
@@ -330,7 +330,7 @@ The selected LUT/model recalculates:
 
 Within the LUT data range, predictions use linear interpolation and duplicate input points are collapsed to their median. The binding heater-current or heater-voltage goal determines the operating point. Inputs below the LUT range or otherwise without a solution show **--** rather than being extrapolated.
 
-Above the LUT range, the dashboard can provide a Richardson-Dushman model estimate rather than a measured or interpolated LUT value; the Messages log identifies this as model-derived. The dashboard calculates emission current as beam current divided by 0.72 and grid current as 28% of emission. Main Control’s emission guard uses these predictions when enabled.
+Above the LUT range, the dashboard can provide a Richardson-Dushman model estimate rather than a measured or interpolated LUT value; the [Messages log](#12-messages-and-logging) identifies this as model-derived. The dashboard calculates emission current as beam current divided by 0.72 and grid current as 28% of emission. Main Control’s [emission guard](#113-beamcathode-settings) uses these predictions when enabled.
 
 ### 7.5 Measured values and warnings
 
@@ -347,7 +347,7 @@ Measured voltage, current, temperature, and CV/CC mode come from polling.
 - Voltage-difference warning is evaluated only while output is ON and the supply reports CV Mode.
 - Current-difference warning is evaluated only while output is ON and the supply reports CC Mode.
 - A difference must be strictly greater than the configured percentage of the sent value for more than about 1.5 seconds to warn. Equality does not warn. A sent value of zero disables that comparison.
-- Measured temperature strictly above the Overtemp Limit warns. This is display/logging only and does not automatically turn CCS off. A critical message is logged immediately, then no more than about once every 10 seconds while the overtemperature persists; the interval resets after a normal or unavailable reading.
+- Measured temperature strictly above the [Overtemp Limit](#76-cathode-config-tab) warns. This is display/logging only and does not automatically turn CCS off. A critical message is logged immediately, then no more than about once every 10 seconds while the overtemperature persists; the interval resets after a normal or unavailable reading.
 - Missing readback shows unavailable/error status rather than a safe value.
 
 ### 7.6 Cathode Config tab
@@ -386,7 +386,7 @@ The connection dot is green while the BCON serial link is active and red while d
 | Control/indicator | Behavior | Interaction |
 |---|---|---|
 | **Connect/Reconnect** | Opens or reopens the configured BCON serial port | Serial |
-| **Disconnect** | Requests ALL_OFF before closing the port. Main Control may block the disconnect when CCS shutdown is required but cannot be confirmed. | Serial |
+| **Disconnect** | Requests ALL_OFF before closing the port. [Main Control](#9-main-control) may block the disconnect when [CCS shutdown](#73-output-mode-and-output-toggle) is required but cannot be confirmed. | Serial |
 | **Interlock OK/LOCKED** | BCON firmware interlock state from register polling | Read-only |
 | **Watchdog OK/EXPIRED** | BCON watchdog state from register polling | Read-only |
 | **Watchdog entry + Set** | Applies the watchdog timeout; the value is reapplied on connection | Serial |
@@ -404,7 +404,7 @@ Each channel has:
 - **O:** live polled output state, 0 or 1.
 - **Remaining:** live remaining pulse count when firmware provides it.
 
-Changing Mode, Duration, or Count is **Software only** until a Main Control activation or CSV step applies it. These fields describe the next intended manual configuration, not necessarily the live firmware state. Controls are locked while the channel is reported active; DC is treated as running.
+Changing Mode, Duration, or Count is **Software only** until a [Main Control activation](#92-software-interlocks-beam-state-and-button-behavior) or [CSV step](#84-experimental-csv-sequence) applies it. These fields describe the next intended manual configuration, not necessarily the live firmware state. Controls are locked while the channel is reported active; DC is treated as running.
 
 Each channel starts in OFF with a 100 ms duration and count 1. OFF and DC disable the Duration and Count entries. PULSE forces Count to 1. After selecting PULSE_TRAIN, enter a count of at least 2 before activation.
 
@@ -413,11 +413,11 @@ Each channel starts in OFF with a 100 ms duration and count 1. OFF and DC disabl
 **Toggle PVX A/B/C Enable** sends an immediate single-register serial toggle to the respective physical PVX enable latch. Each channel has an approximately 150 ms cooldown.
 
 - It does not require dashboard beam arming.
-- It does not check the Main Control Enabled/Disabled software interlock.
+- It does not check the [Main Control Enabled/Disabled software interlock](#92-software-interlocks-beam-state-and-button-behavior).
 - It does not check VTRX pressure or predicted emission.
 - A transport success does not prove the physical latch changed.
 - The dashboard does not display the latched PVX enable state.
-- BCON ALL_OFF, dashboard disarm, watchdog expiration, and the dashboard E-stop do not change this latch.
+- [BCON ALL_OFF, dashboard disarm, and the dashboard E-stop](#92-software-interlocks-beam-state-and-button-behavior), as well as watchdog expiration, do not change this latch.
 
 Use the physical PVX LED as the authoritative enable indication.
 
@@ -440,19 +440,19 @@ Supported row form:
 
 Blank lines, comments, and a header are accepted. Channel can be 1, 2, 3, or ALL. Rows with the same step number are applied together. Where permitted by parsing, duration defaults to 100 ms and count defaults to 1; the final dwell value for the step controls its fixed wait.
 
-The sequence requires a loaded file, an idle sequence worker, dashboard beam arm, BCON connection, and passing configured pressure/emission guards.
+The sequence requires a loaded file, an idle sequence worker, [dashboard beam arm](#92-software-interlocks-beam-state-and-button-behavior), BCON connection, and passing configured [pressure/emission guards](#113-beamcathode-settings).
 
 The file label shows the loaded filename and parsed step count. The progress line reports states such as Ready, the current step, stopped, complete, or an error. **Loaded Steps** is a read-only preview of the parsed operations; it is not an editor.
 
 Critical limitations:
 
-- CSV channels bypass the Main Control per-beam Enabled/Disabled software interlocks.
+- CSV channels bypass the [Main Control per-beam Enabled/Disabled software interlocks](#92-software-interlocks-beam-state-and-button-behavior).
 - The worker submits a synchronized start, waits the configured fixed dwell, and moves on. It does not wait for firmware acknowledgement, a confirming status poll, or pulse completion.
 - **Stop Sequence does not send OFF and does not stop a DC, Pulse, or Pulse Train already started.**
 - Normal sequence completion also does not send ALL_OFF.
-- Command feedback is not coordinated through the same transaction/token handling used by Main Control.
+- Command feedback is not coordinated through the same [transaction/token handling used by Main Control](#92-software-interlocks-beam-state-and-button-behavior).
 
-To shut down active outputs, use the individual Main Control OFF controls, **Disable All Beams**, disarm, or **E-STOP: BEAMS & CCS** as appropriate. Do not treat **Stop Sequence** as an output-off control.
+To shut down active outputs, use the [individual Main Control OFF controls, **Disable All Beams**, disarm, or **E-STOP: BEAMS & CCS**](#92-software-interlocks-beam-state-and-button-behavior) as appropriate. Do not treat **Stop Sequence** as an output-off control.
 
 ## 9. Main Control
 
@@ -462,10 +462,10 @@ Main Control coordinates BCON beam actions, dashboard-only per-beam interlocks, 
 
 | Control | What it does | Restrictions and confirmation | Interaction |
 |---|---|---|---|
-| **Beam A/B/C OFF/ON** | Each Beam A, B, or C button is a state-dependent toggle. When its cached polled state is ON, it queues single-channel OFF. When its cached polled state is OFF, it queues that channel's Beam Pulse Manual mode, duration, and count. | The button is normally available only while armed and that channel is Enabled. Starting output requires valid settings, BCON connection, and enabled pressure/emission guards. The OFF path does not re-run activation guards and requires a confirming mode-OFF/output-low poll. | Serial |
+| **Beam A/B/C OFF/ON** | Each Beam A, B, or C button is a state-dependent toggle. When its cached polled state is ON, it queues single-channel OFF. When its cached polled state is OFF, it queues that channel's [Beam Pulse Manual](#82-manual-channel-settings) mode, duration, and count. | The button is normally available only while armed and that channel is Enabled. Starting output requires valid settings, [BCON connection](#81-connection-and-controller-status), and enabled [pressure/emission guards](#113-beamcathode-settings). The OFF path does not re-run activation guards and requires a confirming mode-OFF/output-low poll. | Serial |
 | **Beam A/B/C Disabled/Enabled** | Toggles a dashboard software interlock used by Main Control activation | Only operable while armed. It does not read or write a BCON interlock register. Disabling a live beam first sends OFF and waits for confirmation. | Software only when inactive; mixed when disabling an active beam |
 | **Activate Enabled Beams** | Applies the selected settings to all channels whose Main Control interlock is Enabled and starts them together | Requires arm, connection, valid settings, and all enabled guards. | Serial |
-| **Disable All Beams** | Sends BCON ALL_OFF and, after a confirming poll, clears all three dashboard software interlocks | No arm requirement. Does not disarm or toggle PVX enable. | Mixed |
+| **Disable All Beams** | Sends BCON ALL_OFF and, after a confirming poll, clears all three dashboard software interlocks | No arm requirement. Does not disarm or [toggle PVX enable](#83-toggle-pvx-enable). | Mixed |
 | **ARM BEAMS / BEAMS ARMED** | Arms or disarms the dashboard’s Main Control workflow | Arming requires BCON connection but sends no firmware arm command. Disarming requests serial output shutdown; it remains armed if shutdown is not confirmed. | Software only to arm; mixed to disarm |
 | **E-STOP: BEAMS & CCS** | Requests BCON ALL_OFF and turns off active or uncertain cathode outputs | Available regardless of normal start guards. Any individual failed attempt is logged as critical even if another attempt succeeds. Unconfirmed cathode state remains shown as ON/uncertain. | Serial |
 
@@ -504,12 +504,12 @@ Safety-operation priority is **E-stop > Disarm > Disable All > normal**. A highe
 
 The text and color are driven by cached BCON polling. Pressing the button does not immediately change its displayed live state.
 
-- **When the cached beam state is OFF:** Main Control reads that channel's Mode, Duration, and Count from Beam Pulse Manual Control. With an ON-producing mode, it rechecks arm, connection, settings, pressure, and predicted-emission guards, then queues the staged channel configuration and APPLY command. If Manual Mode is OFF, it queues an OFF configuration instead of starting output.
+- **When the cached beam state is OFF:** Main Control reads that channel's Mode, Duration, and Count from [Beam Pulse Manual Control](#82-manual-channel-settings). With an ON-producing mode, it rechecks arm, connection, settings, [pressure, and predicted-emission guards](#113-beamcathode-settings), then queues the staged channel configuration and APPLY command. If Manual Mode is OFF, it queues an OFF configuration instead of starting output.
 - **When the cached beam state is ON:** Main Control queues OFF for that channel only. Pressure and emission activation guards are not applied to this shutdown path. The operation completes only after firmware acceptance and a later poll reports both mode OFF and output level 0 for that channel.
 - A normal press never intentionally sends global ALL_OFF. However, an uncertain or partially failed tokenized staged-write batch invokes the driver's fail-closed ALL_OFF recovery.
 - The UI output button is available only while the dashboard is armed and that channel's software interlock is Enabled. If those permissions are unavailable, use an applicable global shutdown control rather than relying on the disabled per-channel button.
 
-For an ON/configure operation, firmware EXECUTED followed by a later full poll completes the transaction status; the operation tracker does not require that poll to match the requested ON mode. Treat the first three live beam-status lines and physical equipment as the authoritative evidence that output actually started.
+For an ON/configure operation, firmware EXECUTED followed by a later full poll completes the transaction status; the operation tracker does not require that poll to match the requested ON mode. Treat the [first three live beam-status lines](#status-lines-and-confirmation) and physical equipment as the authoritative evidence that output actually started.
 
 #### Beam A/B/C Disabled/Enabled software-interlock button
 
@@ -525,10 +525,10 @@ This button is operable only while the dashboard is armed.
 - The button is available only while armed.
 - It gathers the Manual Control configuration for every software-Enabled channel; Disabled channels are skipped and are not sent OFF.
 - If no channel is Enabled, it reports that nothing was eligible and queues no serial command.
-- Every included configuration and the enabled pressure/emission guards must pass before the synchronized staged batch is queued. One invalid included channel rejects the whole activation request.
+- Every included configuration and the enabled [pressure/emission guards](#113-beamcathode-settings) must pass before the synchronized staged batch is queued. One invalid included channel rejects the whole activation request.
 - The BCON driver queues the included settings and modes, then one APPLY command so the selected channels start together.
 - This is a normal queued operation, not global ALL_OFF. The driver's fail-closed ALL_OFF recovery still applies if the staged batch becomes partial or uncertain.
-- As with an individual ON operation, completion means firmware EXECUTED plus a later full poll; inspect the live beam lines to verify which outputs actually became active.
+- As with an [individual ON operation](#beam-abc-output-button), completion means firmware EXECUTED plus a later full poll; inspect the live beam lines to verify which outputs actually became active.
 
 #### Disable All Beams
 
@@ -536,13 +536,13 @@ This button is operable only while the dashboard is armed.
 - Preempts a pending normal operation, invalidates and clears queued BCON writes, and attempts one immediate, firmware-confirmed ALL_OFF.
 - Main Control waits for a later full poll showing all three channels mode OFF and output level 0.
 - Only after that poll does it reset all three software interlocks to Disabled.
-- It leaves the dashboard armed and does not change PVX enable latches, CCS output, or Beam Energy high-voltage supplies.
+- It leaves the dashboard armed and does not change [PVX enable latches](#83-toggle-pvx-enable), [CCS output](#73-output-mode-and-output-toggle), or [Beam Energy high-voltage supplies](#6-beam-energy).
 - If Disarm, E-stop, or another Disable All of equal/higher priority is already pending, the new Disable All request is normally rejected rather than queued. A failed E-stop confirmation may be released so that an operator recovery request can proceed.
 
 #### ARM BEAMS / BEAMS ARMED
 
 - **When disarmed:** Pressing **ARM BEAMS** requires a connected BCON but changes dashboard software state only. It sends no firmware arm command, does not enable any per-beam software interlock, and does not start output.
-- **When armed:** Pressing **BEAMS ARMED** requests disarm. It stops CSV sequence steps, preempts lower-priority work, clears the BCON write queue, and attempts immediate ALL_OFF even when cached beam states are already OFF.
+- **When armed:** Pressing **BEAMS ARMED** requests disarm. It stops [CSV sequence](#84-experimental-csv-sequence) steps, preempts lower-priority work, clears the BCON write queue, and attempts immediate ALL_OFF even when cached beam states are already OFF.
 - The dashboard remains armed and the software interlocks retain their current state until a later full poll confirms all three channels OFF/output-low. Only then does disarm complete and reset the interlocks. A failed or unconfirmed ALL_OFF leaves the dashboard armed.
 
 #### E-STOP: BEAMS & CCS
@@ -551,7 +551,7 @@ This button is operable only while the dashboard is armed.
 - Preempts every lower-priority BCON operation and makes two redundant immediate ALL_OFF attempts. Each attempt clears queued BCON writes rather than joining the normal queue.
 - Independently requests OFF for all available cathode-heater supplies.
 - A later all-channels-OFF/output-low poll completes the BCON disarm state. Individual failures remain critical even if another redundant attempt succeeds.
-- It does not turn off Beam Energy high-voltage supplies or change PVX enable latches.
+- It does not turn off [Beam Energy high-voltage supplies](#6-beam-energy) or change [PVX enable latches](#83-toggle-pvx-enable).
 
 #### Status lines and confirmation
 
@@ -577,7 +577,7 @@ Consequences:
 - A script defines its own device access and safety behavior.
 - The control is **File/process**, but the launched script may communicate with hardware according to that script’s code.
 
-Do not assume Main Control arming, pressure, emission, or software-interlock rules apply to a launched script.
+Do not assume [Main Control arming and software-interlock rules](#92-software-interlocks-beam-state-and-button-behavior) or its [pressure/emission guards](#113-beamcathode-settings) apply to a launched script.
 
 ## 10. Machine Status
 
@@ -585,16 +585,16 @@ Machine Status is a read-only advisory chain refreshed by a worker approximately
 
 | Segment | Green condition | Forced red or notable caveat |
 |---|---|---|
-| **PMON Temperatures OK** | Process Monitor Environment Pass | Missing data remains unmet |
-| **Pressure Below 1e-4 mbar** | Fresh valid pressure strictly below 1e-4 mbar | Equality is not green |
-| **All Safety Interlocks Pass** | G9 aggregate interlock pass | Missing/fault is unmet |
-| **High Voltage Subpanel On** | HVolt ON | G9 output on while HVolt is not on forces warning |
-| **Pressure Below 1e-6 mbar** | Fresh valid pressure strictly below 1e-6 mbar | Equality is not green |
-| **HV Power Supplies Nominal** | Supply communications, logic, values, and flags nominal | Any Beam Energy configured warning forces red |
-| **Beam Controller Nominal** | BCON connected, ±1 kV criteria satisfied, flags clear, controller communication valid | This status is not the same as software arming |
-| **Cathode Heating** | At least one cathode output is believed ON | Any overtemperature or an individual prediction at/above the total configured emission maximum forces red |
-| **Beams Ready** | All preceding readiness conditions, dashboard software arm, and reported hardware arm are present | Enabled-channel predicted sum at/above emission maximum forces red even if the activation guard checkbox is disabled |
-| **Beams On** | Any live BCON output is active | Uses BCON live state, not merely a button request |
+| **PMON Temperatures OK** | Process Monitor [Environment Pass](#51-indicator-meaning) | Missing data remains unmet |
+| **Pressure Below 1e-4 mbar** | [Fresh valid pressure](#42-pressure-display-suppression-and-guards) strictly below 1e-4 mbar | Equality is not green |
+| **All Safety Interlocks Pass** | [G9 aggregate interlock pass](#3-interlocks) | Missing/fault is unmet |
+| **High Voltage Subpanel On** | [HVolt ON](#3-interlocks) | G9 output on while HVolt is not on forces warning |
+| **Pressure Below 1e-6 mbar** | [Fresh valid pressure](#42-pressure-display-suppression-and-guards) strictly below 1e-6 mbar | Equality is not green |
+| **HV Power Supplies Nominal** | [Supply communications, logic, values, and flags](#61-per-supply-indicators) nominal | Any [Beam Energy configured warning](#63-beam-energy-config) forces red |
+| **Beam Controller Nominal** | [BCON](#81-connection-and-controller-status) connected, ±1 kV criteria satisfied, flags clear, controller communication valid | This status is not the same as [software arming](#92-software-interlocks-beam-state-and-button-behavior) |
+| **Cathode Heating** | At least one [cathode output](#73-output-mode-and-output-toggle) is believed ON | Any [overtemperature](#75-measured-values-and-warnings) or an individual prediction at/above the [total configured emission maximum](#113-beamcathode-settings) forces red |
+| **Beams Ready** | All preceding readiness conditions, [dashboard software arm](#92-software-interlocks-beam-state-and-button-behavior), and reported hardware arm are present | Enabled-channel predicted sum at/above the [emission maximum](#113-beamcathode-settings) forces red even if the activation guard checkbox is disabled |
+| **Beams On** | Any [live BCON output](#status-lines-and-confirmation) is active | Uses BCON live state, not merely a button request |
 
 Color priority is: forced warning red, ready green, an earlier unmet prerequisite red when a later stage is already green, otherwise gray.
 
@@ -610,7 +610,7 @@ The complete displayed Machine Status state is included in the Data Log and Supa
 |---|---|---|
 | **Configure COM Ports / Hide COM Port Configuration** | Shows or hides the assignment rows. Opening the rows scans currently enumerated real ports. | Software only |
 | **Apply** under COM assignments | Builds a new in-memory port map, forwards it to the dashboard’s partial live-update path, then hides the rows | Mixed: can disconnect/reconnect supported serial subsystems; not persistent |
-| **Save Layout** | Persists current resizable-pane positions to **usr/usr_data/pane_state.json** | File only |
+| **Save Layout** | Persists the [current resizable-pane positions](#22-dashboard-layout) to **usr/usr_data/pane_state.json** | File only |
 | **Launch Log Post-processor** | Starts **scripts/post-process/post_process_gui.py** in a separate process | File/process |
 
 #### Configure COM Ports limitation
@@ -623,17 +623,17 @@ This control is **not fully supported** as an operating port-reassignment tool:
 - The rows do not include the 902B. Applying the displayed rows replaces the in-memory port map without a 902B entry but does not reconstruct or intentionally reconnect the already-running 902B driver.
 - Interlocks has a separate update method, but this Apply path does not invoke it. Process Monitor, Beam Pulse/BCON, and Laser Monitor are also not reconstructed or reconnected by this path.
 
-Use the startup port dialog and restart the dashboard for reliable reassignment.
+Use the [startup port dialog](#21-com-port-startup-dialog) and restart the dashboard for reliable reassignment.
 
 ### 11.2 Log Settings
 
 | Setting | Options/default | Exact effect | Persistence |
 |---|---|---|---|
-| **Log Level** | VERBOSE, DEBUG, INFO, WARNING, ERROR, CRITICAL; normally INFO at startup | Sets the minimum severity shown in Messages; the selected level and more severe messages are displayed | Runtime only |
+| **Log Level** | VERBOSE, DEBUG, INFO, WARNING, ERROR, CRITICAL; normally INFO at startup | Sets the minimum severity shown in [Messages](#12-messages-and-logging); the selected level and more severe messages are displayed | Runtime only |
 | **File Log Level** | DEBUG or VERBOSE; VERBOSE at startup | DEBUG omits VERBOSE messages; VERBOSE records all dashboard levels | Runtime only |
-| **Disable Knob Box logging when HV subpanel is off** | Checked by default | Suppresses Knob Box log records while the subpanel is off; does not stop polling, display, or serial traffic | Runtime only |
-| **Disable BCON logging when HV subpanel is off** | Checked by default | Suppresses BCON log records while the subpanel is off; does not disconnect or stop BCON | Runtime only |
-| **Disable CCS logging when CCS power is off** | Checked by default | Suppresses CCS log records while CCS power is off; does not turn outputs off or stop polling | Runtime only |
+| **Disable Knob Box logging when HV subpanel is off** | Checked by default | Suppresses [Knob Box/Beam Energy](#6-beam-energy) log records while the subpanel is off; does not stop polling, display, or serial traffic | Runtime only |
+| **Disable BCON logging when HV subpanel is off** | Checked by default | Suppresses [BCON](#8-beam-pulse--bcon) log records while the subpanel is off; does not disconnect or stop BCON | Runtime only |
+| **Disable CCS logging when CCS power is off** | Checked by default | Suppresses [CCS](#7-cathode-heating--ccs) log records while CCS power is off; does not turn outputs off or stop polling | Runtime only |
 
 ### 11.3 Beam/Cathode Settings
 
@@ -641,20 +641,20 @@ The checkbox guards default enabled at each launch. The numeric settings describ
 
 | Setting | Default value | Exact effect | Interaction |
 |---|---|---|---|
-| **Disable CCS Output on BCON Disconnect** | Checked | An unexpected BCON disconnect requests all cathode outputs OFF and blocks new CCS enables. A manual disconnect with active CCS first requires a shutdown attempt and is blocked when OFF cannot be confirmed. Enabling this setting while already disconnected immediately invokes CCS shutdown. | Mixed: software guard; can immediately attempt serial CCS OFF |
-| **Disable CCS Output if pressure exceeds 1e-5 mbar for N s** | Checked; grace default 30 s | Unsafe/stale/error 972B pressure starts a grace timer while CCS is active and blocks new CCS enables. Active cathodes are shut down after the grace expires. Valid pressure at or below 1e-5, or no active CCS, clears the timer. Warnings are emitted about every 10 seconds during the condition. | Mixed: software guard/timer; expiry causes serial CCS OFF |
+| **Disable CCS Output on BCON Disconnect** | Checked | An unexpected [BCON disconnect](#81-connection-and-controller-status) requests all [cathode outputs](#73-output-mode-and-output-toggle) OFF and blocks new CCS enables. A manual disconnect with active CCS first requires a shutdown attempt and is blocked when OFF cannot be confirmed. Enabling this setting while already disconnected immediately invokes CCS shutdown. | Mixed: software guard; can immediately attempt serial CCS OFF |
+| **Disable CCS Output if pressure exceeds 1e-5 mbar for N s** | Checked; grace default 30 s | [Unsafe/stale/error 972B pressure](#42-pressure-display-suppression-and-guards) starts a grace timer while CCS is active and blocks new CCS enables. Active cathodes are shut down after the grace expires. Valid pressure at or below 1e-5, or no active CCS, clears the timer. Warnings are emitted about every 10 seconds during the condition. | Mixed: software guard/timer; expiry causes serial CCS OFF |
 | **Grace Period** | Default 30 s; finite, nonnegative | Sets the CCS pressure-shutdown delay in seconds | Software/file only |
-| **Disable Beams if pressure exceeds 1e-5 mbar** | Checked | 972B pressure above 1e-5, stale/unavailable pressure, or firmware error invalidates a pending operation and requests BCON ALL_OFF. The software interlocks clear only after confirmed all-off; the dashboard remains armed. The one-shot condition resets after valid pressure at or below 1e-5. | Mixed: software guard; later unsafe updates cause serial ALL_OFF |
-| **Disable Beams if 20kV Bertan reaches or exceeds N mA** | Checked; default 0.7 mA; accepted 0 through 1 mA inclusive | Each Beam Energy update requests beam disarm when measured +20 kV current is **greater than or equal to** the threshold. BCON ALL_OFF is requested; after confirmed all-off, dashboard arm and all three software interlocks clear. CCS is not turned off. A persistent high reading can request disarm again after the previous operation ends. | Mixed: software guard; qualifying readback causes serial beam disarm |
+| **Disable Beams if pressure exceeds 1e-5 mbar** | Checked | [972B pressure](#42-pressure-display-suppression-and-guards) above 1e-5, stale/unavailable pressure, or firmware error invalidates a pending operation and requests BCON ALL_OFF. The [software interlocks](#92-software-interlocks-beam-state-and-button-behavior) clear only after confirmed all-off; the dashboard remains armed. The one-shot condition resets after valid pressure at or below 1e-5. | Mixed: software guard; later unsafe updates cause serial ALL_OFF |
+| **Disable Beams if 20kV Bertan reaches or exceeds N mA** | Checked; default 0.7 mA; accepted 0 through 1 mA inclusive | Each [Beam Energy](#6-beam-energy) update requests [beam disarm](#92-software-interlocks-beam-state-and-button-behavior) when measured +20 kV current is **greater than or equal to** the threshold. BCON ALL_OFF is requested; after confirmed all-off, dashboard arm and all three software interlocks clear. [CCS](#7-cathode-heating--ccs) is not turned off. A persistent high reading can request disarm again after the previous operation ends. | Mixed: software guard; qualifying readback causes serial beam disarm |
 | **Max 20kV I** | Default 0.7 mA; 0–1 mA inclusive | Threshold used by the automatic beam-disarm guard | Software/file only |
-| **Do not activate Beams if Predicted Emission Current exceeds N mA** | Checked; maximum default 6 mA; finite, nonnegative | Requires predictions for all projected active/new channels and blocks at **greater than or equal to** the maximum. Applies to Main Control ON, Activate Enabled Beams, and experimental CSV starts. When unchecked, this activation check is skipped, but Machine Status still warns. | Software guard |
+| **Do not activate Beams if Predicted Emission Current exceeds N mA** | Checked; maximum default 6 mA; finite, nonnegative | Requires [predictions](#74-lut-and-predicted-values) for all projected active/new channels and blocks at **greater than or equal to** the maximum. Applies to [Main Control ON and Activate Enabled Beams](#92-software-interlocks-beam-state-and-button-behavior), and [experimental CSV starts](#84-experimental-csv-sequence). When unchecked, this activation check is skipped, but [Machine Status](#10-machine-status) still warns. | Software guard |
 | **Max Emission I** | Default 6 mA; finite, nonnegative | Threshold used by emission checks; activation requires predicted total strictly below it | Software/file only |
 
 These are dashboard software protections layered on top of hardware protections. Disabling a checkbox does not alter any hardware interlock or equipment limit.
 
 ## 12. Messages and logging
 
-The Messages pane shows the newest approximately 100 visible lines at or above the configured display level.
+The Messages pane shows the newest approximately 100 visible lines at or above the [configured display level](#112-log-settings).
 
 | Control | Effect | Interaction |
 |---|---|---|
@@ -667,38 +667,38 @@ Recording starts enabled during normal startup. It produces two types of local f
 - Event logs under **%USERPROFILE%/EBEAM_dashboard/EBEAM-Dashboard-Logs** contain timestamped dashboard messages and rotate approximately every 8 hours.
 - Data Logs under **%USERPROFILE%/EBEAM_dashboard/EBEAM-Dashboard-Datalogs** contain one timestamped JSON status snapshot per line and rotate approximately every hour.
 
-The Data Log snapshot includes 972B and unsuppressed 902B pressure, G9 safety fields, Process Monitor temperatures, VTRX switch bits, cathode heater current/voltage/clamp temperature, Beam Energy state, and the complete displayed Machine Status state. It is change-driven with a minimum interval of about 100 ms between ordinary snapshots; after about one second without a write, a heartbeat records the current full state. Turning recording back on creates new files and writes a Data Log baseline.
+The Data Log snapshot includes [972B and unsuppressed 902B pressure](#4-vacuum-system--vtrx-and-902b), [G9 safety fields](#3-interlocks), [Process Monitor temperatures](#5-process-monitor), VTRX switch bits, [cathode heater current/voltage/clamp temperature](#7-cathode-heating--ccs), [Beam Energy state](#6-beam-energy), and the complete displayed [Machine Status state](#10-machine-status). It is change-driven with a minimum interval of about 100 ms between ordinary snapshots; after about one second without a write, a heartbeat records the current full state. Turning recording back on creates new files and writes a Data Log baseline.
 
 If Supabase logging is configured, the same recording state gates those submissions. Supabase updates are limited to no more than approximately one every 3 seconds. The secondary 902B value is deliberately cleared from both destinations while the low-972B suppression described in [Section 4.2](#42-pressure-display-suppression-and-guards) is active.
 
-Clearing or filtering the visible pane does not erase records already written to disk. **Ctrl+S** performs the same visible-text export workflow.
+Clearing or filtering the visible pane does not erase records already written to disk. [**Ctrl+S**](#23-keyboard-shortcuts) performs the same visible-text export workflow.
 
 ## 13. Laser Monitor
 
-The Laser Monitor has no visible dashboard panel in this release. With a real startup COM port, a background worker sends state about every 500 ms:
+The Laser Monitor has no visible dashboard panel in this release. With a real [startup COM port](#21-com-port-startup-dialog), a background worker sends state about every 500 ms:
 
-- **beams** is based on live BCON beam activity, not dashboard arm or PVX enable.
-- **radiation** is based on valid +20 kV actual voltage at or above 10 kV.
+- **beams** is based on [live BCON beam activity](#status-lines-and-confirmation), not [dashboard arm](#92-software-interlocks-beam-state-and-button-behavior) or [PVX enable](#83-toggle-pvx-enable).
+- **radiation** is based on valid [Beam Energy +20 kV actual voltage](#61-per-supply-indicators) at or above 10 kV.
 
 If +20 kV readback becomes unavailable, the dashboard retains the last valid radiation state rather than assuming radiation off. The driver expects an OK response, waits for the controller’s initial boot interval, and retries a lost link with increasing delays. The firmware watchdog forces the beams indication low after approximately 4 seconds without updates; it does not similarly clear the last radiation state. On normal dashboard shutdown, the worker sends beams off while preserving the current radiation state if possible.
 
-There is no dashboard connection indicator or live COM reassignment for this feature; use logs and the external indicator hardware for status.
+There is no dashboard connection indicator or [live COM reassignment](#111-general-menu) for this feature; use [logs](#12-messages-and-logging) and the external indicator hardware for status.
 
 ## 14. Features not fully supported in this release
 
 | Feature | Current status and operator guidance |
 |---|---|
-| BCON CSV sequence | **Experimental—usable with documented limitations.** It bypasses Main Control software interlocks, advances without command/status or pulse-completion confirmation, and Stop Sequence does not turn active outputs off. |
-| Main Control Script bar | **Experimental—usable with documented limitations.** It runs a selected top-level Python script on the GUI thread without Main Control safety coordination. The selector can be empty when the running executable does not have the launch-path directory the implementation checks. |
-| Main Control **Configure COM Ports** | Not a reliable live-reassignment or persistent configuration tool. Use the startup dialog and restart. |
-| Cathode temperature graphs | Disabled in this release; numeric temperature and warning status remain available. |
+| [BCON CSV sequence](#84-experimental-csv-sequence) | **Experimental—usable with documented limitations.** It bypasses Main Control software interlocks, advances without command/status or pulse-completion confirmation, and Stop Sequence does not turn active outputs off. |
+| [Main Control Script bar](#93-experimental-main-control-script-bar) | **Experimental—usable with documented limitations.** It runs a selected top-level Python script on the GUI thread without Main Control safety coordination. The selector can be empty when the running executable does not have the launch-path directory the implementation checks. |
+| [Main Control **Configure COM Ports**](#111-general-menu) | Not a reliable live-reassignment or persistent configuration tool. Use the [startup dialog](#21-com-port-startup-dialog) and restart. |
+| [Cathode temperature graphs](#71-connection-and-update-indicators) | Disabled in this release; numeric temperature and warning status remain available. |
 | Oil System panel | Present in the source tree but not instantiated in the active dashboard layout. |
 | Visualization Gas Control | Scaffold only and not instantiated in the active dashboard. |
 | Beam Extraction | Placeholder/TODO subsystem and not instantiated. |
 | Deflection Monitor | Placeholder/TODO subsystem and not instantiated. |
-| PVX latch/readback display | The dashboard can send a PVX enable toggle but does not show the resulting latched enable state; use the physical indicator. |
-| Laser Monitor UI | Background integration only; no visible connection/status panel or in-app reassignment. |
-| Process Monitor live port recovery | No supported creation/reassignment path after startup; restart with the correct port. |
+| [PVX latch/readback display](#83-toggle-pvx-enable) | The dashboard can send a PVX enable toggle but does not show the resulting latched enable state; use the physical indicator. |
+| [Laser Monitor UI](#13-laser-monitor) | Background integration only; no visible connection/status panel or in-app reassignment. |
+| [Process Monitor live port recovery](#52-process-monitor-config) | No supported creation/reassignment path after startup; restart with the correct port. |
 
 ## 15. Recommended output-off and recovery choices
 
@@ -706,14 +706,14 @@ Use the control whose scope matches the condition:
 
 | Need | Use | Notes |
 |---|---|---|
-| Stop future CSV rows | **Stop Sequence** Button in CSV tab of Beam Pulse | **Stop Sequence** will not stop an already active output |
-| Turn one beam channel off | That channel’s **OFF** button in Main Control | Solely changing its next Mode to OFF in Beam Pulse does not send an OFF command |
-| Turn all BCON outputs off and clear Main software enables | **Disable All Beams** | |
-| Turn all beams off and leave the dashboard disarmed | Click **BEAMS ARMED** to disarm and wait for confirmed shutdown | |
-| Respond to automatic +20 kV current beam disarm | Verify BCON outputs are off and the dashboard is disarmed; investigate the +20 kV condition under the approved procedure | |
-| Stop an active cathode ramp but retain output | **STOP RAMP** | This is not an output-off action |
-| Turn one cathode output off | Its **Output ON/OFF** toggle and verify success | |
-| Emergency dashboard request for all beams and CCS off | **E-STOP: BEAMS & CCS** and verify equipment state | It does not turn off HVolt supplies or PVX channel enable latches |
-| Recover a port assignment | Restart experiment computer and dashboard, then use the startup COM dialog | The Main Control Configure COM Ports button is not fully supported |
+| Stop future CSV rows | [**Stop Sequence** button in the Beam Pulse CSV tab](#84-experimental-csv-sequence) | **Stop Sequence** will not stop an already active output |
+| Turn one beam channel off | That channel’s [**OFF** button in Main Control](#92-software-interlocks-beam-state-and-button-behavior) | Solely changing its next Mode to OFF in [Beam Pulse](#82-manual-channel-settings) does not send an OFF command |
+| Turn all BCON outputs off and clear Main software enables | [**Disable All Beams**](#92-software-interlocks-beam-state-and-button-behavior) | |
+| Turn all beams off and leave the dashboard disarmed | Click [**BEAMS ARMED**](#92-software-interlocks-beam-state-and-button-behavior) to disarm and wait for confirmed shutdown | |
+| Respond to automatic +20 kV current beam disarm | Verify BCON outputs are off and the [dashboard is disarmed](#92-software-interlocks-beam-state-and-button-behavior); investigate the +20 kV condition under the approved procedure | |
+| Stop an active cathode ramp but retain output | [**STOP RAMP**](#active-ramp-controls-and-completion) | This is not an output-off action |
+| Turn one cathode output off | Its [**Output ON/OFF** toggle](#73-output-mode-and-output-toggle) and verify success | |
+| Emergency dashboard request for all beams and CCS off | [**E-STOP: BEAMS & CCS**](#92-software-interlocks-beam-state-and-button-behavior) and verify equipment state | It does not turn off HVolt supplies or [PVX channel enable latches](#83-toggle-pvx-enable) |
+| Recover a port assignment | Restart experiment computer and dashboard, then use the [startup COM dialog](#21-com-port-startup-dialog) | The [Main Control Configure COM Ports](#111-general-menu) button is not fully supported |
 
 When a safety-critical OFF remains unconfirmed, treat the output as potentially active. Check the physical equipment, local indicators, hardware interlocks, and approved shutdown procedure.
