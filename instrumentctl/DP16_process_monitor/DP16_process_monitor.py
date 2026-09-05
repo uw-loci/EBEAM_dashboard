@@ -23,6 +23,8 @@ class DP16ProcessMonitor:
     STATUS_REG = 0x240          # Page 9: CNPt Series Programming User's Guide Modbus Interface
 
     STATUS_RUNNING = 0x0006
+    SPARE_UNIT_EXPECTED_STATUSES = {6: 0x0001}
+    SPARE_ZERO_READING_UNITS = {6}
 
     # PT100 RTD temperature range
     MIN_TEMP = -90      # [C]
@@ -35,19 +37,24 @@ class DP16ProcessMonitor:
     ERROR_LOG_INTERVAL = 10  # [seconds]
 
     # Raw Modbus/serial timing.
-    SERIAL_READ_TIMEOUT = 0.02
-    SERIAL_INTER_BYTE_TIMEOUT = 0.02
+    SERIAL_READ_TIMEOUT = 0.05
+    SERIAL_INTER_BYTE_TIMEOUT = 0.05
     WRITE_TIMEOUT = 1.0
     TRANSACTION_TIMEOUT = 0.75
     INTERFRAME_DELAY = 0.005
     RECONNECT_DELAY = 1.0
-    BETWEEN_UNIT_DELAY = 0.1
+    BETWEEN_UNIT_DELAY = 0.2
     THREAD_JOIN_TIMEOUT = 2.0
     SERIAL_CLOSE_LOCK_TIMEOUT = 0.5
 
     # Error states
     DISCONNECTED = -1
     SENSOR_ERROR = -2
+
+    UNIT_UNKNOWN = "unknown"
+    UNIT_HEALTHY = "healthy"
+    UNIT_DEGRADED = "degraded"
+    UNIT_DISCONNECTED = "disconnected"
 
     def __init__(self, port, unit_numbers=(1, 2, 3, 4, 5), baudrate=9600, logger=None):
         """Initialize serial settings and start the background polling thread."""
@@ -69,7 +76,15 @@ class DP16ProcessMonitor:
         self.consecutive_connection_errors = 0
 
         self.response_lock = threading.Lock()
-        self.last_critical_error_time = 0
+        self._last_rate_limited_log_times = {}
+        self._unit_states = {unit: self.UNIT_UNKNOWN for unit in self.unit_numbers}
+        self._last_error_type_by_unit = {unit: None for unit in self.unit_numbers}
+        self._last_status_by_unit = {unit: None for unit in self.unit_numbers}
+        self._first_valid_reading_logged = set()
+        self._local_echo_logged = False
+        self._pmon_unavailable_since = None
+        self._all_units_disconnected_logged = False
+        self._has_connected_once = False
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self.poll_all_units,
@@ -153,6 +168,23 @@ class DP16ProcessMonitor:
         with self.modbus_lock:
             return self._serial_is_open_unlocked()
 
+    def _mark_pmon_unavailable(self, current_time=None):
+        """Track the start of a PMON outage for later reconnect logging."""
+        if self._pmon_unavailable_since is None:
+            self._pmon_unavailable_since = time.time() if current_time is None else current_time
+            self._first_valid_reading_logged.clear()
+
+    def _mark_pmon_available(self, current_time=None):
+        """Clear PMON outage state and log reconnect duration when applicable."""
+        if self._pmon_unavailable_since is not None and self._has_connected_once:
+            if current_time is None:
+                current_time = time.time()
+            outage_seconds = max(0.0, current_time - self._pmon_unavailable_since)
+            self.log(f"PMON reconnected after {outage_seconds:.1f}s", LogLevel.INFO)
+        self._pmon_unavailable_since = None
+        self._all_units_disconnected_logged = False
+        self._has_connected_once = True
+
     def connect(self):
         """
         Establish a connection to the DP16 units.
@@ -172,6 +204,7 @@ class DP16ProcessMonitor:
                     self.log("Reusing existing PMON Modbus connection", LogLevel.DEBUG)
                 else:
                     self.log(f"Attempting to connect PMON on port {self.port}", LogLevel.DEBUG)
+                    self._local_echo_logged = False
                     self._serial = serial.Serial(
                         port=self.port,
                         baudrate=self.baudrate,
@@ -192,6 +225,7 @@ class DP16ProcessMonitor:
 
                 # Check if any unit responds.
                 working_unit_count = 0
+                missing_units = []
                 for unit in sorted(self.unit_numbers):
                     if self._stop_requested():
                         return False
@@ -202,7 +236,12 @@ class DP16ProcessMonitor:
                             count=1,
                         )
                     except Exception as exc:
-                        self.log(f"DP16 Unit {unit} not responding: {exc}", LogLevel.WARNING)
+                        missing_units.append(unit)
+                        self._log_rate_limited(
+                            ("connect_probe", unit),
+                            f"DP16 Unit {unit} did not respond during connect probe: {exc}",
+                            LogLevel.DEBUG,
+                        )
                         continue
 
                     working_unit_count += 1
@@ -211,19 +250,37 @@ class DP16ProcessMonitor:
                         LogLevel.VERBOSE,
                     )
 
+                total_units = len(self.unit_numbers)
                 if working_unit_count:
-                    self.log(
-                        f"Connected to {working_unit_count}/{len(self.unit_numbers)} DP16 units",
-                        LogLevel.INFO,
-                    )
+                    if missing_units:
+                        self.log(
+                            f"Connected to {working_unit_count}/{total_units} DP16 units; "
+                            f"missing units: {', '.join(str(unit) for unit in sorted(missing_units))}",
+                            LogLevel.WARNING,
+                        )
+                    else:
+                        self.log(
+                            f"Connected to {working_unit_count}/{total_units} DP16 units",
+                            LogLevel.INFO,
+                        )
+                    self._mark_pmon_available()
                     return True
+                self._mark_pmon_unavailable()
+                self._log_pmon_disconnected("serial port is open, but no configured DP16 units responded")
                 return False
 
             except serial.SerialException as exc:
-                self.log(f"Serial error during DP16 connection: {exc}", LogLevel.ERROR)
+                self._mark_pmon_unavailable()
+                self._log_rate_limited(
+                    ("connect", "serial_error", self.port),
+                    f"Serial error during DP16 connection: {exc}",
+                    LogLevel.ERROR,
+                    interval=5,
+                )
                 self._close_serial_unlocked()
                 return False
             except Exception as exc:
+                self._mark_pmon_unavailable()
                 self.log(f"DP16 Error connecting: {exc}", LogLevel.ERROR)
                 self._close_serial_unlocked()
                 return False
@@ -355,7 +412,9 @@ class DP16ProcessMonitor:
             raise DP16ModbusError(f"Serial transaction failed: {exc}") from exc
 
         if raw_response.startswith(request) and len(raw_response) > len(request):
-            self.log("PMON local echo detected and stripped before parsing", LogLevel.DEBUG)
+            if not self._local_echo_logged:
+                self.log("PMON local echo detected and stripped before parsing", LogLevel.DEBUG)
+                self._local_echo_logged = True
             return raw_response[len(request):]
 
         if expected_function != 0x06 and raw_response == request:
@@ -493,20 +552,44 @@ class DP16ProcessMonitor:
                 return True
 
         except Exception as exc:
-            self.log(f"Error writing RDGCNF_REG config for unit {unit}: {exc}", LogLevel.ERROR)
+            self.log(f"Error writing DP16 config for unit {unit}: {exc}", LogLevel.ERROR)
             return False
 
-    def _mark_all_disconnected(self):
+    def _mark_all_disconnected(self, reason=None, level=LogLevel.WARNING, log=False):
+        """Set every configured unit to DISCONNECTED and optionally log why."""
         with self.response_lock:
             for unit in self.unit_numbers:
                 self.temperature_readings[unit] = self.DISCONNECTED
+                self._unit_states[unit] = self.UNIT_DISCONNECTED
 
-    def _log_rate_limited(self, message, level=LogLevel.ERROR, current_time=None):
+        if log and not self._all_units_disconnected_logged:
+            message = "All DP16 units marked disconnected"
+            if reason:
+                message = f"{message}: {reason}"
+            self.log(message, level)
+            self._all_units_disconnected_logged = True
+
+    def _log_rate_limited(self, key, message, level=LogLevel.ERROR, interval=None, current_time=None):
+        """Emit a log only when the keyed rate-limit interval has elapsed."""
         if current_time is None:
             current_time = time.time()
-        if current_time - self.last_critical_error_time >= self.ERROR_LOG_INTERVAL:
+        if interval is None:
+            interval = self.ERROR_LOG_INTERVAL
+        if not isinstance(key, tuple):
+            key = (key,)
+        last_log_time = self._last_rate_limited_log_times.get(key)
+        if last_log_time is None or current_time - last_log_time >= interval:
             self.log(message, level)
-            self.last_critical_error_time = current_time
+            self._last_rate_limited_log_times[key] = current_time
+
+    def _log_pmon_disconnected(self, reason, current_time=None):
+        """Log the ongoing PMON disconnected state at the standard error interval."""
+        self._log_rate_limited(
+            ("pmon_disconnected", self.port),
+            f"PMON device disconnected on {self.port}: {reason}",
+            LogLevel.ERROR,
+            current_time=current_time,
+        )
 
     def _error_display_value_unlocked(self, unit):
         if self.consecutive_error_counts[unit] >= self.ERROR_THRESHOLD:
@@ -524,10 +607,18 @@ class DP16ProcessMonitor:
             try:
                 # Check if client is still connected.
                 if not self._serial_is_open():
+                    self._mark_pmon_unavailable(current_time)
                     self.consecutive_connection_errors += 1
                     # Mark all disconnected if we exceed error threshold.
                     if self.consecutive_connection_errors >= self.ERROR_THRESHOLD:
-                        self._mark_all_disconnected()
+                        self._mark_all_disconnected(
+                            reason=(
+                                f"{self.consecutive_connection_errors} consecutive PMON "
+                                f"connection failures on {self.port}"
+                            ),
+                            level=LogLevel.ERROR,
+                            log=True,
+                        )
 
                     if self._stop_requested():
                         break
@@ -536,7 +627,6 @@ class DP16ProcessMonitor:
                     if not self.connect():
                         if self._stop_requested():
                             break
-                        self._log_rate_limited("Failed to reconnect to PMON", current_time=current_time)
                         if self._sleep_or_stop(self.RECONNECT_DELAY):
                             break
                         continue
@@ -553,10 +643,34 @@ class DP16ProcessMonitor:
                     except Exception as exc:
                         if self._stop_requested():
                             break
-                        self._handle_poll_error(unit, exc)
+                        self.log(
+                            f"DP16 Unit {unit} poll failed; trying again after "
+                            f"{self.BETWEEN_UNIT_DELAY:.1f}s: {type(exc).__name__}: {exc}",
+                            LogLevel.DEBUG,
+                        )
+                        if self._sleep_or_stop(self.BETWEEN_UNIT_DELAY):
+                            break
+                        try:
+                            self._poll_single_unit(unit)
+                            self.consecutive_connection_errors = 0
+                            if self._sleep_or_stop(self.BETWEEN_UNIT_DELAY):
+                                break
+                        except Exception as retry_exc:
+                            if self._stop_requested():
+                                break
+                            self._handle_poll_error(unit, retry_exc)
 
-                        # Rate limited error logging.
-                        self._log_rate_limited(f"Error polling unit {unit}: {exc}", current_time=current_time)
+                if (
+                    self.unit_numbers
+                    and all(
+                        self._unit_states.get(unit) == self.UNIT_DISCONNECTED
+                        for unit in self.unit_numbers
+                    )
+                ):
+                    self._log_pmon_disconnected(
+                        "all configured units are disconnected after poll failures",
+                        current_time=time.time(),
+                    )
 
                 if self._stop_requested():
                     break
@@ -570,7 +684,67 @@ class DP16ProcessMonitor:
                     break
                 self.consecutive_connection_errors += 1
                 current_time = time.time()
-                self._log_rate_limited(f"Polling error: {exc}", current_time=current_time)
+                self._mark_pmon_unavailable(current_time)
+                self._log_rate_limited(
+                    ("poll_loop", type(exc).__name__),
+                    f"Polling error: {exc}",
+                    current_time=current_time,
+                )
+
+    def _record_status(self, unit, status):
+        """Track status-register transitions and log only meaningful changes."""
+        previous_status = self._last_status_by_unit.get(unit)
+        self._last_status_by_unit[unit] = status
+        expected_status = self.SPARE_UNIT_EXPECTED_STATUSES.get(unit, self.STATUS_RUNNING)
+        expected_label = "RUNNING" if expected_status == self.STATUS_RUNNING else f"expected {expected_status}"
+
+        if previous_status == status:
+            return
+
+        if status != expected_status:
+            if previous_status is None:
+                self.log(
+                    f"DP16 Unit {unit} status {status} differs from expected {expected_status}",
+                    LogLevel.WARNING,
+                )
+            else:
+                self.log(
+                    f"DP16 Unit {unit} status changed: {previous_status} -> {status} "
+                    f"(expected {expected_status})",
+                    LogLevel.WARNING,
+                )
+        elif previous_status is not None and previous_status != expected_status:
+            self.log(f"DP16 Unit {unit} status returned to {expected_label}", LogLevel.INFO)
+
+    def _record_successful_reading(self, unit, value):
+        """Record a valid unit reading and log first-read or recovery events."""
+        previous_error_count = self.consecutive_error_counts.get(unit, 0)
+        previous_state = self._unit_states.get(unit, self.UNIT_UNKNOWN)
+
+        self.consecutive_error_counts[unit] = 0
+        self._unit_states[unit] = self.UNIT_HEALTHY
+        self._last_error_type_by_unit[unit] = None
+        self._all_units_disconnected_logged = False
+        self._mark_pmon_available()
+        is_expected_spare_zero = unit in self.SPARE_ZERO_READING_UNITS and abs(value) < 0.001
+        reading_text = "spare channel zero reading" if is_expected_spare_zero else f"temperature={value:.1f} C"
+
+        if previous_error_count > 0:
+            poll_word = "poll" if previous_error_count == 1 else "polls"
+            self.log(
+                f"DP16 Unit {unit} recovered after {previous_error_count} failed {poll_word}; {reading_text}",
+                LogLevel.INFO,
+            )
+            self._first_valid_reading_logged.add(unit)
+        elif previous_state == self.UNIT_DISCONNECTED:
+            self.log(f"DP16 Unit {unit} recovered; {reading_text}", LogLevel.INFO)
+            self._first_valid_reading_logged.add(unit)
+        elif unit not in self._first_valid_reading_logged:
+            if is_expected_spare_zero:
+                self.log(f"DP16 Unit {unit} spare channel responding with zero reading", LogLevel.INFO)
+            else:
+                self.log(f"DP16 Unit {unit} first valid reading: {value:.1f} C", LogLevel.INFO)
+            self._first_valid_reading_logged.add(unit)
 
     def _poll_single_unit(self, unit):
         """Poll a single unit atomically."""
@@ -588,13 +762,7 @@ class DP16ProcessMonitor:
                 count=1,
             )
             status = status_registers[0]
-
-            # Warn if not in expected running state.
-            if status != self.STATUS_RUNNING:
-                self.log(
-                    f"DP16 Unit {unit} status {status} differs from expected {self.STATUS_RUNNING}",
-                    LogLevel.WARNING,
-                )
+            self._record_status(unit, status)
 
             # Read temperature.
             registers = self._read_holding_registers_unlocked(
@@ -608,31 +776,22 @@ class DP16ProcessMonitor:
             value = struct.unpack(">f", raw_float)[0]
 
             # In-line validation.
-            if abs(value) < 0.001:
+            if abs(value) < 0.001 and unit not in self.SPARE_ZERO_READING_UNITS:
                 raise ValueError("Zero reading indicates communication error")
             if not (self.MIN_TEMP <= value <= self.MAX_TEMP):
                 raise ValueError(f"Temperature out of range: {value}")
-
-            # All good, reset the consecutive error count.
-            self.consecutive_error_counts[unit] = 0
 
             # Update reading for GUI availability.
             with self.response_lock:
                 self.temperature_readings[unit] = value
                 self.last_good_readings[unit] = value
+            self._record_successful_reading(unit, value)
 
-    def _handle_poll_error(self, unit: int, exception: Exception):
-        """
-        Increment consecutive error counts, log the error, and update
-        self.temperature_readings based on the single ERROR_THRESHOLD logic.
-        """
-        self.log(f"Poll error on unit {unit}: {exception}", LogLevel.VERBOSE)
-        self.consecutive_error_counts[unit] += 1
-
+    def _classify_poll_error(self, unit: int, exception: Exception):
+        """Map a poll exception to a stable error type, message, level, and actions."""
         err_str = str(exception).lower()
         is_modbus_error = isinstance(exception, DP16ModbusError)
 
-        # Classify the error for logging or bus-level increments.
         if is_modbus_error:
             hard_port_error = any(
                 text in err_str
@@ -641,19 +800,99 @@ class DP16ProcessMonitor:
             connection_error = "failed to connect" in err_str or "connection" in err_str
 
             if hard_port_error:
-                self.log(f"Hard port failure on unit {unit}: {exception}", LogLevel.ERROR)
-                with self.modbus_lock:
-                    self._close_serial_unlocked()
-                self.consecutive_connection_errors += 1
-            elif connection_error:
-                self.log(f"Connection error on unit {unit}: {exception}", LogLevel.WARNING)
-                self.consecutive_connection_errors += 1
-            elif "timeout" in err_str or "no bytes received" in err_str:
-                self.log(f"No PMON response from unit {unit}", LogLevel.DEBUG)
+                return "hard_port", f"Hard port failure on unit {unit}: {exception}", LogLevel.ERROR, True, True
+            if connection_error:
+                return "connection", f"Connection error on unit {unit}: {exception}", LogLevel.ERROR, True, False
+            if "only local echo was received" in err_str:
+                return (
+                    "local_echo_only",
+                    f"Only local echo from unit {unit}; no slave response followed",
+                    LogLevel.WARNING,
+                    False,
+                    False,
+                )
+            if "timeout" in err_str or "no bytes received" in err_str:
+                return "no_response", f"No PMON response from unit {unit}", LogLevel.DEBUG, False, False
+            return "modbus_io", f"General Modbus IO error on unit {unit}: {exception}", LogLevel.ERROR, False, False
+
+        if "zero reading" in err_str:
+            return "zero_reading", f"Zero PMON reading on unit {unit}: {exception}", LogLevel.ERROR, False, False
+        if "temperature out of range" in err_str:
+            return (
+                "temperature_out_of_range",
+                f"Temperature out of range on unit {unit}: {exception}",
+                LogLevel.WARNING,
+                False,
+                False,
+            )
+        return "invalid_reading", f"Invalid reading on unit {unit}: {exception}", LogLevel.ERROR, False, False
+
+    def _handle_poll_error(self, unit: int, exception: Exception):
+        """
+        Increment consecutive error counts, log the error, and update
+        self.temperature_readings based on the single ERROR_THRESHOLD logic.
+        """
+        self.log(f"Poll error on unit {unit}: {exception}", LogLevel.VERBOSE)
+        previous_error_count = self.consecutive_error_counts[unit]
+        previous_state = self._unit_states.get(unit, self.UNIT_UNKNOWN)
+        previous_error_type = self._last_error_type_by_unit.get(unit)
+
+        self.consecutive_error_counts[unit] += 1
+        current_error_count = self.consecutive_error_counts[unit]
+
+        error_type, message, level, counts_as_connection_error, should_close_serial = self._classify_poll_error(
+            unit,
+            exception,
+        )
+        new_state = (
+            self.UNIT_DISCONNECTED
+            if current_error_count >= self.ERROR_THRESHOLD
+            else self.UNIT_DEGRADED
+        )
+        threshold_crossed = previous_error_count < self.ERROR_THRESHOLD <= current_error_count
+        state_changed = previous_state != new_state
+        error_type_changed = previous_error_type != error_type
+
+        self._unit_states[unit] = new_state
+        self._last_error_type_by_unit[unit] = error_type
+        rate_limit_key = ("poll_error", unit, error_type)
+        current_time = time.time()
+
+        if should_close_serial:
+            with self.modbus_lock:
+                self._close_serial_unlocked()
+        if counts_as_connection_error:
+            self.consecutive_connection_errors += 1
+            self._mark_pmon_unavailable()
+
+        if threshold_crossed:
+            self.log(
+                f"DP16 Unit {unit} marked disconnected after {current_error_count} "
+                f"consecutive errors: {message}",
+                LogLevel.ERROR if level >= LogLevel.ERROR else LogLevel.WARNING,
+            )
+            self._last_rate_limited_log_times[rate_limit_key] = current_time
+        elif state_changed and new_state == self.UNIT_DEGRADED:
+            event_level = level if level >= LogLevel.ERROR else LogLevel.WARNING
+            if self.last_good_readings[unit] is None:
+                fallback_text = "showing SENSOR_ERROR until a valid reading is available"
             else:
-                self.log(f"General Modbus IO error on unit {unit}: {exception}", LogLevel.ERROR)
+                fallback_text = "holding last good reading"
+            self.log(
+                f"DP16 Unit {unit} degraded after poll failure; {fallback_text}: {message}",
+                event_level,
+            )
+            self._last_rate_limited_log_times[rate_limit_key] = current_time
+        elif error_type_changed:
+            self.log(message, level)
+            self._last_rate_limited_log_times[rate_limit_key] = current_time
         else:
-            self.log(f"Invalid reading on unit {unit}: {exception}", LogLevel.WARNING)
+            self._log_rate_limited(
+                rate_limit_key,
+                message,
+                level,
+                current_time=current_time,
+            )
 
         with self.response_lock:
             self.temperature_readings[unit] = self._error_display_value_unlocked(unit)
@@ -711,12 +950,9 @@ class DP16ProcessMonitor:
     def _emit_log(self, message, level=LogLevel.INFO):
         try:
             if self.logger:
-                self.logger.log(message, level)
-            else:
-                print(f"{level.name}: {message}")
+                self.logger.log(message, level, tag="PMON")
         except Exception as exc:
-            print(f"{level.name}: {message}")
-            print(f"PMON logger error: {exc}")
+            pass
 
     def log(self, message, level=LogLevel.INFO):
         """Log a message without letting Tk logging exceptions stop polling."""

@@ -45,6 +45,8 @@ Important values:
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `STATUS_RUNNING` | `0x0006` | Expected running state |
+| `SPARE_UNIT_EXPECTED_STATUSES` | `{6: 0x0001}` | Unit-specific expected status for installed spare channels |
+| `SPARE_ZERO_READING_UNITS` | `{6}` | Units where a zero process value is expected because no sensor input is connected |
 | `DISCONNECTED` | `-1` | Driver-level disconnected state for UI display |
 | `SENSOR_ERROR` | `-2` | Driver-level sensor/error state for UI display |
 
@@ -93,12 +95,42 @@ The loop:
 5. Reads `PROCESS_VALUE_REG` as two holding registers.
 6. Interprets the two registers as a big-endian IEEE-754 float.
 7. Validates that the value is nonzero and within `MIN_TEMP` to `MAX_TEMP`.
+   Unit 6 is the current installed spare channel, so status `0x0001` and a
+   zero process value are treated as expected communication, not a sensor
+   failure.
 8. Updates `temperature_readings` and `last_good_readings`.
 
 On transient per-unit errors, the driver keeps showing the last known good
 reading when one exists. After `ERROR_THRESHOLD` consecutive errors for a unit,
 that unit is marked `DISCONNECTED`. If no good reading has ever been seen, the
 unit is marked `SENSOR_ERROR` until the threshold is reached.
+
+## Logging Behavior
+
+The driver logs PMON events through the shared dashboard logger, tagged as
+`<PMON>`. Background polling-thread messages are queued and flushed from the
+main thread by `get_all_temperatures()` or `disconnect()`.
+
+Logging is centered on state changes instead of every repeated polling symptom:
+
+- Connection probes log one summary per attempt: `INFO` when all configured
+  units respond, `WARNING` when only some units respond, and keyed
+  rate-limited `ERROR` when no configured unit responds after the serial port
+  opens.
+- When a COM port is configured but the PMON device is powered off or no
+  configured units respond, the driver logs a recurring `ERROR` every
+  `ERROR_LOG_INTERVAL` seconds noting that the PMON device is disconnected.
+- Individual connect-probe failures are keyed `DEBUG` details, so one missing
+  unit does not create repeated warning noise during reconnect attempts.
+- Per-unit polling errors move units through `unknown`, `healthy`, `degraded`,
+  and `disconnected` states. The driver logs degradation, threshold-crossing
+  disconnection, and recovery, but suppresses repeated identical symptoms.
+- Rate limiting is keyed by event family, unit, and error type. A timeout on
+  one unit does not suppress a different error from another unit.
+- Abnormal status-register values are logged only when the status changes.
+  Returning to `STATUS_RUNNING` logs an `INFO` recovery event.
+- Local echo stripping is logged once per serial connection, not once per
+  Modbus transaction.
 
 ## Timing
 

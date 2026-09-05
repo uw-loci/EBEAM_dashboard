@@ -47,8 +47,8 @@ def start_main_app(com_ports, logger=None):
     :param com_ports: Dict mapping subsystems to their selected COM ports.
     """
     if logger is None:
-        logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
-    logger.info("Dashboard init start")
+        logger = Logger(text_widget=None, log_level=LogLevel.INFO, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+    logger.info("Dashboard init start", tag="Main")
     root = tk.Tk()
     root.title("EBEAM System Dashboard")
     root.state('zoomed')
@@ -72,7 +72,7 @@ def start_main_app(com_ports, logger=None):
                 app.cleanup()
             except Exception as e:
                 try:
-                    logger.error(f"Error during cleanup: {e}")
+                    logger.error(f"Error during cleanup: {e}", tag="Main")
                 except Exception:
                     pass
             except BaseException:
@@ -345,7 +345,7 @@ def config_com_ports(saved_com_ports, logger=None):
         # save final selections
         save_com_ports(selected_ports, logger=logger)
         if logger is not None:
-            logger.info(f"COM-port selection submitted: {selected_ports}")
+            logger.info(f"COM-port selection submitted: {selected_ports}", tag="Main")
         selected_ports_result = selected_ports
         close_config()
 
@@ -359,13 +359,13 @@ def config_com_ports(saved_com_ports, logger=None):
 
 
 if __name__ == "__main__":
-    bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.DEBUG, file_log_level=LogLevel.VERBOSE, log_to_file=True)
+    bootstrap_logger = Logger(text_widget=None, log_level=LogLevel.INFO, file_log_level=LogLevel.VERBOSE, log_to_file=True)
     try:
-        bootstrap_logger.info("Process launch")
+        bootstrap_logger.info("Process launch", tag="Main")
 
         # Load previously saved COM ports, if any
         saved_com_ports = load_com_ports(logger=bootstrap_logger)
-        bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available")
+        bootstrap_logger.info(f"COM-port config load result: {len(saved_com_ports)} saved selection(s) available", tag="Main")
 
         # Prompt the user to confirm or change COM ports
         selected_com_ports = config_com_ports(saved_com_ports, logger=bootstrap_logger)
