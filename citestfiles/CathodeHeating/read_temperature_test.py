@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import unittest
 from unittest.mock import MagicMock
 
@@ -21,6 +22,9 @@ class TestReadTemperature(unittest.TestCase):
         self.subsys = object.__new__(CathodeHeatingSubsystem)
         self.subsys.temperature_controller = MagicMock()
         self.subsys.temperature_controller.connected = True
+        self.subsys.temperature_valid_connections = [True, True, True]
+        self.subsys.poll_error_last_log_times = {}
+        self.subsys.poll_error_log_lock = threading.Lock()
         self.subsys.clamp_temperature_vars = [FakeStringVar("--") for _ in range(3)]
         self.subsys.set_plot_color = MagicMock()
         self.subsys.log = MagicMock()
@@ -32,6 +36,7 @@ class TestReadTemperature(unittest.TestCase):
 
         self.assertIsNone(temperature)
         self.assertEqual(self.subsys.clamp_temperature_vars[0].value, "ERR")
+        self.assertFalse(self.subsys.temperature_valid_connections[0])
         self.subsys.set_plot_color.assert_called_once_with(0, 'ERROR')
 
     def test_missing_temperature_data_displays_blank_reading(self):
@@ -41,6 +46,7 @@ class TestReadTemperature(unittest.TestCase):
 
         self.assertIsNone(temperature)
         self.assertEqual(self.subsys.clamp_temperature_vars[0].value, "-- C")
+        self.assertFalse(self.subsys.temperature_valid_connections[0])
         self.subsys.set_plot_color.assert_not_called()
 
 
