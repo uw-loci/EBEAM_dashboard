@@ -284,7 +284,7 @@ The warning calculation is:
 abs(measured - sent) > abs(sent) * threshold_percent / 100
 ```
 
-If that condition remains true for more `1.5`s the measured voltage or current box turns orange and a warning is logged once for that continuous breach. 
+If that condition remains true for more `1.5`s the measured voltage or current box turns orange and a warning is logged once for that continuous breach.
 
 Important nuances:
 
