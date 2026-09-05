@@ -97,7 +97,7 @@ class CathodeHeatingSubsystem:
         'DISCONNECTED': '#808080'
     }
     
-    def __init__(self, parent, com_ports, active, logger=None, cathode_datasets=None):
+    def __init__(self, parent, com_ports, logger=None, cathode_datasets=None):
         """
         Initialize the cathode heating subsystem.
         
@@ -121,7 +121,6 @@ class CathodeHeatingSubsystem:
         self._dropped_worker_log_lock = threading.Lock()
         self.disable_logging_when_ccs_power_off = False
         self.ccs_power_on_provider = None
-        self.active = active
         self.cathode_datasets = cathode_datasets or {}
 
         lut_rel = os.path.join('data', 'lut', 'power_supply')
@@ -200,6 +199,8 @@ class CathodeHeatingSubsystem:
         self.current_set = [False, False, False]
         self.power_supplies = []
         self.toggle_states = [False for _ in range(3)]
+        self._latest_clamp_temperatures = [None for _ in range(3)]
+        self._overtemp_limit_values = [self.OVERTEMP_THRESHOLD for _ in range(3)]
         self.power_supply_poll_interval = 0.5
         self.power_supply_poll_thread = None
         self.power_supply_poll_stop_event = threading.Event()
@@ -353,6 +354,15 @@ class CathodeHeatingSubsystem:
                 else None
             )
         return currents
+
+    def get_machine_status_inputs(self):
+        """Return existing Cathode Heating variables needed by MachineStatus."""
+        return {
+            "output_states": list(self.toggle_states[:3]),
+            "clamp_temperatures_c": list(self._latest_clamp_temperatures[:3]),
+            "overtemp_limits_c": list(self._overtemp_limit_values[:3]),
+            "predicted_emission_currents_ma": self.get_predicted_emission_currents_ma(),
+        }
     
     def _init_measurement_variables(self):
         """
@@ -1411,11 +1421,9 @@ class CathodeHeatingSubsystem:
             self.initialize_temperature_controllers()
             if not self.temp_controllers_connected:
                 self.log("Failed to initialize temperature controllers with new port", LogLevel.ERROR)
-                self.active["Cathode Heating"] = False
                 return False
                 
             self.log(f"Successfully updated temperature controllers to port {new_port}", LogLevel.INFO)
-            self.active["Cathode Heating"] = True # Update machine status bar
             return True
             
         except Exception as e:
@@ -2470,6 +2478,7 @@ class CathodeHeatingSubsystem:
                 self._mark_power_supply_unavailable(i)
 
             temperature = self.read_temperature(i)
+            self._latest_clamp_temperatures[i] = temperature
             if self.logger and hasattr(self.logger, "update_cathode_field"):
                 cathode_label = ['A', 'B', 'C'][i]
                 self.logger.update_cathode_field(cathode_label, "clamp_temperature", temperature)
@@ -3939,6 +3948,7 @@ class CathodeHeatingSubsystem:
         try:
             new_limit = float(temp_var.get())
             self.overtemp_limit_vars[index].set(new_limit)
+            self._overtemp_limit_values[index] = new_limit
             self.log(f"Set overtemperature limit for Cathode {['A', 'B', 'C'][index]} to {new_limit:.2f}C", LogLevel.INFO)
         except ValueError:
             self.log("Invalid input for overtemperature limit", LogLevel.ERROR)
