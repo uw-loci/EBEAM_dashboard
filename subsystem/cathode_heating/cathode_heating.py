@@ -64,7 +64,7 @@ class CathodeHeatingSubsystem:
     RICHARDSON_CONSTANT_A_PER_CM2_K2 = 80.0
     RICHARDSON_WORK_FUNCTION_EV = 2.69
     BOLTZMANN_CONSTANT_EV_PER_K = 8.617333262145e-5
-    
+
     # Outside-LUT calibration is dataset-specific. Add future LUT calibrations
     # here rather than changing the ES440 reference data or prediction logic.
     # Unlisted datasets retain the raw ES440/Richardson fallback (zero offsets).
