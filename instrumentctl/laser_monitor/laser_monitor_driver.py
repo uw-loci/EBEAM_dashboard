@@ -66,10 +66,9 @@ class LaserMonitorDriver:
         self._status_lock = threading.Lock()
 
         # Desired output state. These values are updated by public setters and
-        # sent by the worker thread after a successful communication poll.
+        # sent by the worker thread on every communication poll.
         self._beams_on = False
         self._radiation_indicator = False
-        self._last_sent_state = None
 
         # Status state. These values are intentionally separate from desired
         # output state so callers can distinguish "what should be displayed"
@@ -113,7 +112,6 @@ class LaserMonitorDriver:
             try:
                 command = self._build_state_command(*state)
                 self._write_line_expect(command, STATE_OK_RESPONSE)
-                self._last_sent_state = state
             except Exception as exc:
                 self._record_error(exc)
 
@@ -141,8 +139,9 @@ class LaserMonitorDriver:
     def _worker_loop(self) -> None:
         # Main lifecycle loop:
         # 1. Connect/reconnect if needed.
-        # 2. Poll Arduino with PING/PONG every 500 ms.
-        # 3. Send STATE after reconnect or when desired state changes.
+        # 2. Poll Arduino with the complete desired state every 500 ms.
+        # A successful OK response both confirms link health and resynchronizes
+        # outputs if the firmware watchdog changed them during a quiet period.
         reconnect_backoff = RECONNECT_BACKOFF_INITIAL_SECONDS
         next_reconnect_time = 0.0
 
@@ -167,13 +166,9 @@ class LaserMonitorDriver:
 
                     reconnect_backoff = RECONNECT_BACKOFF_INITIAL_SECONDS
                     next_reconnect_time = 0.0
-                    self._last_sent_state = None
 
-                self._send_ping()
+                self._send_state()
                 self._set_connected(True)
-
-                if self._state_needs_send():
-                    self._send_state()
 
                 self._sleep_or_stop(POLL_INTERVAL_SECONDS)
 
@@ -238,7 +233,6 @@ class LaserMonitorDriver:
         state = self._get_state()
         command = self._build_state_command(*state)
         self._write_line_expect(command, STATE_OK_RESPONSE)
-        self._last_sent_state = state
 
     def _write_line_expect(self, command: str, expected_response: str) -> None:
         # Serial transactions are intentionally request/response. A missing or
@@ -259,9 +253,6 @@ class LaserMonitorDriver:
             raise LaserMonitorProtocolError(
                 f"Expected {expected_response!r}, received {response!r}"
             )
-
-    def _state_needs_send(self) -> bool:
-        return self._last_sent_state != self._get_state()
 
     def _get_state(self):
         with self._state_lock:
