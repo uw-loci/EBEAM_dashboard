@@ -218,7 +218,7 @@ class TestLoggerSupabaseInit(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSupabaseRateLimiting(unittest.TestCase):
-    """Tests for the 2-second write throttle in log_dict_update."""
+    """Tests for the 3-second write throttle in log_dict_update."""
 
     def setUp(self):
         self.sb_patcher = patch("utils._create_supabase_client")
@@ -254,23 +254,23 @@ class TestSupabaseRateLimiting(unittest.TestCase):
         self.mock_sb_instance.insert_status_log.assert_called_once()
         self.assertIsNotNone(self.logger.last_supabase_write)
 
-    def test_second_call_within_2s_is_throttled(self):
+    def test_second_call_within_3s_is_throttled(self):
         self.logger.last_supabase_write = datetime.datetime.now()
 
         self.logger.log_dict_update({"pressure": 2.0})
 
         self.mock_sb_instance.insert_status_log.assert_not_called()
 
-    def test_call_after_2s_elapsed_writes_to_supabase(self):
-        self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=3)
+    def test_call_after_3s_elapsed_writes_to_supabase(self):
+        self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=4)
 
         self.logger.log_dict_update({"pressure": 3.0})
         self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 1)
 
         self.mock_sb_instance.insert_status_log.assert_called_once()
 
-    def test_call_exactly_at_2s_boundary_writes_to_supabase(self):
-        self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=2)
+    def test_call_exactly_at_3s_boundary_writes_to_supabase(self):
+        self.logger.last_supabase_write = datetime.datetime.now() - datetime.timedelta(seconds=3)
 
         self.logger.log_dict_update({"pressure": 4.0})
         self._wait_until(lambda: self.mock_sb_instance.insert_status_log.call_count == 1)
