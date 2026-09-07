@@ -7,7 +7,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('scripts', './scripts'),
-        ('media', './media')
+        ('media', './media'),
+        ('data', './data'),
     ],
     hiddenimports=['pyi_splash'],
     hookspath=[],
