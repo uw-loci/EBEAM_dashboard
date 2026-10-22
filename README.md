@@ -187,7 +187,21 @@ The `main` branch contains the latest production code.
 
 ## Development Process 
 
-Clone the repo to your machine. Current libraries require the use of Python version 3.11.
+The dashboard requires **Python 3.11.17 (final)**. The exact version is pinned in
+`.python-version` for environment setup and CI, and enforced by `python_runtime.py`
+before dashboard startup or a PyInstaller build. Update both together when adopting
+a newer Python release; CI checks that they agree.
+
+Install or update [uv](https://docs.astral.sh/uv/getting-started/installation/) to
+**0.13.5 or newer** before creating an environment. On Windows, uv supplies the
+patched Python build because Python.org no longer provides Windows installers for
+Python 3.11 releases after 3.11.9. Avoid `py -3.11 -m venv .venv`: the Windows
+launcher can still select an older Python.org installation.
+
+The [October 21, 2026 security notice](https://www.python.org/downloads/release/python-31317/)
+also requires updated certificate tooling. Use **pip 26.2.2 or newer**;
+`requirements.txt` requires **certifi 2026.10.19 or newer**. The Python version pin
+alone does not update these packages in existing environments.
 
 > Note: Python 3.11 is in the security-fix-only phase and is scheduled to reach End of Life (EOL) on 2027-10-31. The PSF support window for each major release is five years, typically split into bugfix and security phases. See https://devguide.python.org/versions/ and https://endoflife.date/python.
 
@@ -198,18 +212,30 @@ Navigate to your project directory:
 ```
 cd EBEAM_dashboard
 ```
-Create a virtual environment (dashboard currently requires python 3.11 due to dependencies):
+Create a virtual environment using the pinned version (run from the project root):
+```powershell
+uv python install
+uv venv --seed --managed-python .venv
 ```
-py -3.11 -m venv .venv
-```
+
+If `.venv` already exists with an older Python, close the dashboard, open a fresh
+PowerShell session, and move that environment to a backup location before creating
+its replacement. Pulling this repository does not upgrade an existing environment.
+
 Activate the virtual environment (assuming on Windows)*:
 ```
 .\.venv\Scripts\Activate.ps1
 ```
+Verify that the active environment uses Python 3.11.17:
+```powershell
+python --version
+python python_runtime.py
+```
 Install the requirements:
 ```
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade "pip>=26.2.2"
+python -m pip install -r requirements.txt
+python -m pip check
 ```
 Run the main application:
 ```
@@ -257,6 +283,9 @@ Fill in the PR template with a description of your changes, any related issues, 
 Assign reviewers to your PR. Merge.
 
 ## Executable Build Instructions
+
+Activate the Python 3.11.17 environment first. The spec file checks the interpreter
+version before building, and the bundled application retains the same startup check.
 
 ```
 python -m PyInstaller EBEAM_DASHBOARD.spec

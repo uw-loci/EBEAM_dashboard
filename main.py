@@ -1,4 +1,9 @@
 import sys
+
+from python_runtime import require_supported_python
+
+require_supported_python()
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import serial.tools.list_ports
