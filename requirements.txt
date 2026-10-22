@@ -1,6 +1,8 @@
 # Project dependencies for EBeam Dashboard
-# Last updated: 2025-12-10
-# Matplot lib requires the use of Python version 3.11
+# Last updated: 2026-10-22
+# Python is pinned to 3.11.17 in .python-version and enforced by python_runtime.py.
+# Remove the affected emSign CA certificates (October 2026 security update).
+certifi>=2026.10.19
 matplotlib==3.10.8
 numpy==1.26.4
 pytest==9.0.2

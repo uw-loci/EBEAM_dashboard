@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from python_runtime import require_supported_python
+
+require_supported_python()
 
 a = Analysis(
     ['main.py'],
