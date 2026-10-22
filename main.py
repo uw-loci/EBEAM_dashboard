@@ -1,4 +1,9 @@
 import sys
+
+from python_runtime import require_supported_python
+
+require_supported_python()
+
 import importlib
 import tkinter as tk
 from tkinter import ttk, messagebox
